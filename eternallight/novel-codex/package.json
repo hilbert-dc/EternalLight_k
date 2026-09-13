@@ -1,0 +1,37 @@
+{
+  "name": "novel-codex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A Codex-inspired creative workspace for long-form fiction.",
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "dev": "node electron/dev.mjs",
+    "build": "tsc --noEmit && vite build",
+    "stage:release-runtime": "node scripts/stage-release-runtime.mjs",
+    "refresh:model-policy": "node scripts/refresh-model-policy.mjs",
+    "start": "electron electron/main.mjs",
+    "test:runtime": "python3 -m unittest discover -s runtime/tests -t .",
+    "test:ui": "node --test electron/tests/creative-workspace-ui.test.mjs electron/tests/export-dialog.test.mjs electron/tests/local-metrics-ui.test.mjs",
+    "test:agent": "node --test electron/tests/advisory-sessions.test.mjs electron/tests/agent-configuration.test.mjs electron/tests/codex-adapter.test.mjs electron/tests/codex-runtime.test.mjs electron/tests/creative-product-logic.test.mjs electron/tests/creative-task-contract.test.mjs electron/tests/navigation-policy.test.mjs electron/tests/release-runtime.test.mjs electron/tests/task-lifecycle.test.mjs electron/tests/webcontents-safety.test.mjs electron/tests/workflow-handoff.test.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.4.1",
+    "js-tiktoken": "1.0.21",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "concurrently": "^9.1.2",
+    "electron": "^38.8.6",
+    "esbuild": "0.25.12",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "wait-on": "^8.0.3"
+  },
+  "allowScripts": {
+    "electron@38.8.6": true
+  }
+}

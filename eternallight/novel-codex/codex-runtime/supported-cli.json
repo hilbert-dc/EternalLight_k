@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "appServerProtocol": "v2",
+  "mcpProtocol": "2025-06-18",
+  "modelCatalogSha256": "07f25b3a3fb79b27da5b6b00875314e9fc8e6558bbaab69f8cd71f1c610eef52",
+  "codexModelCatalogSha256": "265dac72ad70fb5639bc6f2beadd6d4cdfe6a881dea943fdcebba608b500232e",
+  "sources": {
+    "bundled": {
+      "packaged": true,
+      "versions": [
+        "codex-cli 0.0.0"
+      ],
+      "digests": {}
+    },
+    "project-runtime": {
+      "packaged": false,
+      "versions": [
+        "codex-cli 0.0.0"
+      ],
+      "digests": {}
+    },
+    "workspace-build": {
+      "packaged": false,
+      "developmentOnly": true,
+      "versions": [
+        "codex-cli 0.0.0"
+      ],
+      "digests": {
+        "darwin-arm64": "cb7c90dd7821ddd56e97ee10bf3ca887ece15d6dc585c2f91258d9756414c447"
+      }
+    },
+    "explicit": {
+      "packaged": false,
+      "developmentOnly": true,
+      "versions": [
+        "codex-cli 0.0.0"
+      ],
+      "digests": {}
+    }
+  }
+}
