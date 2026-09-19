@@ -6,10 +6,6 @@ const input = readline.createInterface({ input: process.stdin });
 input.on("line", (line) => {
   const message = JSON.parse(line);
   if (message.method === "initialize") output({ id: message.id, result: { platformFamily: "test" } });
-  if (message.method === "account/login/start") {
-    if (message.params?.type !== "apiKey" || message.params?.apiKey !== "test-openai-key") output({ id: message.id, error: { message: "invalid api key login" } });
-    else output({ id: message.id, result: { type: "apiKey" } });
-  }
   if (message.method === "thread/start") {
     output({ id: message.id, result: { thread: { id: "thr-test" } } });
     output({ method: "thread/started", params: { thread: { id: "thr-test" } } });
@@ -20,17 +16,17 @@ input.on("line", (line) => {
       return;
     }
     const thread = message.params?.archived === true
-      ? { id: "thr-archived", name: "旧稿回收站", preview: "保留旧版灯塔结局", status: { type: "notLoaded" }, createdAt: 1730821111, updatedAt: 1730822111, modelProvider: "openai", section: { id: "01984de2-8f74-7c91-a3b2-5c5e937cf318", name: "Pinned" }, ephemeral: false }
+      ? { id: "thr-archived", name: "旧稿回收站", preview: "保留旧版灯塔结局", status: { type: "notLoaded" }, createdAt: 1730821111, updatedAt: 1730822111, modelProvider: "deepseek", section: { id: "01984de2-8f74-7c91-a3b2-5c5e937cf318", name: "Pinned" }, ephemeral: false }
       : message.params?.cursor
-        ? { id: "thr-history-2", name: "检查第二章", preview: "补齐潮汐档案线索", status: { type: "notLoaded" }, createdAt: 1730821111, updatedAt: 1730822111, modelProvider: "openai", isPinned: false, ephemeral: false }
-        : { id: "thr-history", name: "整理第一章", preview: "继续完善灯塔场景", status: { type: "notLoaded" }, createdAt: 1730831111, updatedAt: 1730832111, modelProvider: "openai", isPinned: false, ephemeral: false };
+        ? { id: "thr-history-2", name: "检查第二章", preview: "补齐潮汐档案线索", status: { type: "notLoaded" }, createdAt: 1730821111, updatedAt: 1730822111, modelProvider: "deepseek", isPinned: false, ephemeral: false }
+        : { id: "thr-history", name: "整理第一章", preview: "继续完善灯塔场景", status: { type: "notLoaded" }, createdAt: 1730831111, updatedAt: 1730832111, modelProvider: "deepseek", isPinned: false, ephemeral: false };
     output({ id: message.id, result: { data: [thread], nextCursor: message.params?.archived === true || message.params?.cursor ? null : "cursor-page-2" } });
   }
   if (message.method === "thread/resume") {
     output({ id: message.id, result: { thread: { id: message.params.threadId, name: "整理第一章", status: { type: "idle" }, ephemeral: false } } });
   }
   if (message.method === "thread/read") {
-    output({ id: message.id, result: { thread: { id: message.params.threadId, name: "整理第一章", preview: "继续完善灯塔场景", status: { type: "notLoaded" }, createdAt: 1730831111, updatedAt: 1730832111, modelProvider: "openai", isPinned: false, ephemeral: false, turns: [{ id: "turn-history", status: "completed", items: [{ id: "item-user", type: "userMessage", text: "整理第一章", status: "completed" }, { id: "item-agent", type: "agentMessage", text: "我会先检查白塔灯光的伏笔。", status: "completed" }, { id: "item-tool", type: "commandExecution", command: "echo test", status: "completed" }] }] } } });
+    output({ id: message.id, result: { thread: { id: message.params.threadId, name: "整理第一章", preview: "继续完善灯塔场景", status: { type: "notLoaded" }, createdAt: 1730831111, updatedAt: 1730832111, modelProvider: "deepseek", isPinned: false, ephemeral: false, turns: [{ id: "turn-history", status: "completed", items: [{ id: "item-user", type: "userMessage", text: "整理第一章", status: "completed" }, { id: "item-agent", type: "agentMessage", text: "我会先检查白塔灯光的伏笔。", status: "completed" }, { id: "item-tool", type: "commandExecution", command: "echo test", status: "completed" }] }] } } });
   }
   if (message.method === "thread/name/set") {
     output({ id: message.id, result: { thread: { id: message.params.threadId, name: message.params.name } } });
@@ -45,7 +41,7 @@ input.on("line", (line) => {
     output({ method: "thread/archived", params: { threadId: message.params.threadId } });
   }
   if (message.method === "thread/unarchive") {
-    output({ id: message.id, result: { thread: { id: message.params.threadId, name: "旧稿回收站", preview: "保留旧版灯塔结局", status: { type: "notLoaded" }, createdAt: 1730821111, updatedAt: 1730822111, modelProvider: "openai", isPinned: true, ephemeral: false } } });
+    output({ id: message.id, result: { thread: { id: message.params.threadId, name: "旧稿回收站", preview: "保留旧版灯塔结局", status: { type: "notLoaded" }, createdAt: 1730821111, updatedAt: 1730822111, modelProvider: "deepseek", isPinned: true, ephemeral: false } } });
     output({ method: "thread/unarchived", params: { threadId: message.params.threadId } });
   }
   if (message.method === "review/start") {

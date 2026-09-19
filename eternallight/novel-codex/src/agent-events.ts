@@ -2,11 +2,11 @@ const MAX_DISPLAY_TEXT = 4096;
 const MAX_DETAIL_TEXT = 2048;
 
 export type AgentRunState = "idle" | "running" | "waiting" | "completed" | "cancelled" | "error";
-export type AgentStepKind = "system" | "assistant" | "tool" | "approval" | "error";
+export type AgentStepKind = "system" | "assistant" | "tool" | "interaction" | "approval" | "error";
 export type AgentStepStatus = "running" | "waiting" | "completed" | "failed";
 export type AgentPhaseId = "context" | "planning" | "tools" | "response";
 export type AgentPhaseStatus = "pending" | "running" | "waiting" | "completed" | "failed" | "skipped";
-export type AgentMode = "codex-app-server";
+export type AgentMode = "novel-agent-engine";
 export type AgentPlanStatus = "pending" | "inProgress" | "completed";
 export type AgentConnectionState = "offline" | "connecting" | "ready" | "reconnecting" | "error";
 export type AgentReviewState = "idle" | "running" | "completed" | "failed";
@@ -242,7 +242,7 @@ function upsertArtifact(run: AgentRun, artifact: AgentArtifact): AgentRun {
 
 function errorMessage(message: JsonRecord, params: JsonRecord | null): string {
   const nestedError = record(params?.error) ?? record(message.error);
-  return bounded(stringValue(nestedError?.message) ?? stringValue(params?.message) ?? stringValue(message.message) ?? "Codex 执行失败", MAX_DETAIL_TEXT);
+  return bounded(stringValue(nestedError?.message) ?? stringValue(params?.message) ?? stringValue(message.message) ?? "创作引擎执行失败", MAX_DETAIL_TEXT);
 }
 
 function numberValue(value: unknown): number | null { return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null; }
@@ -268,7 +268,7 @@ function artifactStatus(item: JsonRecord, isCompleted: boolean): AgentArtifact["
 }
 
 export function createAgentRun(prompt = "", history: AgentRunSummary[] = []): AgentRun {
-  const mode: AgentMode = "codex-app-server";
+  const mode: AgentMode = "novel-agent-engine";
   if (!prompt) return { state: "idle", mode, threadId: null, turnId: null, prompt: "", answer: "", summary: "", error: null, phases: createPhases(), plan: [], steps: [], artifacts: [], diff: "", history, connectionState: "offline", startedAt: null, completedAt: null, tokenUsage: null, contextCompactions: 0, model: null, provider: null, review: "idle", diagnostics: [] };
   return {
     state: "running",
@@ -281,7 +281,7 @@ export function createAgentRun(prompt = "", history: AgentRunSummary[] = []): Ag
     error: null,
     phases: createPhases(),
     plan: [],
-    steps: [{ id: "request", kind: "system", title: "已发送创作指令", detail: "等待 Codex App Server 响应", status: "running" }],
+    steps: [{ id: "request", kind: "system", title: "已发送创作指令", detail: "等待 Novel Agent Engine 响应", status: "running" }],
     artifacts: [],
     diff: "",
     history,
@@ -327,7 +327,7 @@ export function reduceAgentEvent(run: AgentRun, event: unknown): AgentRun {
   }
 
   if (method === "agent/mode") {
-    return { ...run, mode: "codex-app-server" };
+    return { ...run, mode: "novel-agent-engine" };
   }
 
   if (method === "thread/started") {
@@ -455,23 +455,21 @@ export function reduceAgentEvent(run: AgentRun, event: unknown): AgentRun {
     return artifact ? upsertArtifact(withMetadata, artifact) : withMetadata;
   }
 
-  if (method.includes("requestApproval") || isUserInputMethod(method)) {
-    const userInput = isUserInputMethod(method);
-    if (userInput) {
-      return advancePhase(upsertStep({ ...run, state: "waiting", error: null }, { id: `user-input:${String(message.id ?? "active")}`, kind: "approval", title: "等待你的回答", detail: bounded(userInputDetail(params), MAX_DETAIL_TEXT), status: "waiting" }), "tools", "waiting", "等待回答后继续");
-    }
-    const command = stringValue(params?.command);
-    const cwd = stringValue(params?.cwd);
-    const network = record(params?.networkApprovalContext);
-    const networkTarget = network ? [stringValue(network.host), stringValue(network.protocol)].filter(Boolean).join(" / ") : null;
-    const detail = [stringValue(params?.reason) ?? "需要你的确认", networkTarget ? `网络访问：${networkTarget}` : command, cwd ? `工作目录：${cwd}` : null].filter(Boolean).join("\n");
-    return advancePhase(upsertStep({ ...run, state: "waiting", error: null }, { id: `approval:${String(message.id ?? "active")}`, kind: "approval", title: "等待权限确认", detail: bounded(detail, MAX_DETAIL_TEXT), status: "waiting" }), "tools", "waiting", "等待用户确认后继续");
+  if (isUserInputMethod(method)) {
+    return advancePhase(upsertStep({ ...run, state: "waiting", error: null }, { id: `user-input:${String(message.id ?? "active")}`, kind: "interaction", title: "等待你的回答", detail: bounded(userInputDetail(params), MAX_DETAIL_TEXT), status: "waiting" }), "tools", "waiting", "等待回答后继续");
+  }
+
+  if (method === "agent/softwarePermissionDenied") {
+    const requestId = String(params?.requestId ?? "unknown");
+    const requestMethod = stringValue(params?.requestMethod) ?? "未知操作";
+    const reason = stringValue(params?.reason) ?? "产品引擎禁止请求软件权限";
+    return upsertStep(run, { id: `permission-denied:${requestId}`, kind: "system", title: "已阻止软件权限请求", detail: bounded(`${reason}\n请求：${requestMethod}`, MAX_DETAIL_TEXT), status: "completed" });
   }
 
   if (method === "serverRequest/resolved") {
     const requestId = stringValue(params?.requestId) ?? "active";
     const next = run.state === "waiting" ? advancePhase({ ...run, state: "running" }, "tools", "running", "等待请求已处理，继续执行") : run;
-    return upsertStep(next, { id: `approval-resolved:${requestId}`, kind: "system", title: "等待请求已处理", detail: "Codex 已收到你的决定或回答，并继续处理。", status: "completed" });
+    return upsertStep(next, { id: `user-input-resolved:${requestId}`, kind: "system", title: "作者回答已提交", detail: "Novel Agent Engine 已收到你的回答，并继续处理。", status: "completed" });
   }
 
   if (method === "turn/completed") {
@@ -484,7 +482,7 @@ export function reduceAgentEvent(run: AgentRun, event: unknown): AgentRun {
     const finalItem = items.map(record).find((item) => item && stringValue(item.type)?.toLowerCase().includes("agentmessage"));
     const finalText = finalItem ? stringValue(finalItem.text) : null;
     const answer = bounded(finalText ?? run.answer, MAX_DISPLAY_TEXT);
-    let next: AgentRun = { ...completePhases(run), state: "completed", answer, error: null, steps: completedSteps(run), summary: bounded(stringValue(turn?.summary) ?? "Codex 已完成本轮创作。", MAX_DETAIL_TEXT), connectionState: "ready", completedAt: Date.now(), review: run.review === "running" ? "completed" : run.review };
+    let next: AgentRun = { ...completePhases(run), state: "completed", answer, error: null, steps: completedSteps(run), summary: bounded(stringValue(turn?.summary) ?? "创作引擎已完成本轮创作。", MAX_DETAIL_TEXT), connectionState: "ready", completedAt: Date.now(), review: run.review === "running" ? "completed" : run.review };
     if (finalText) next = upsertStep(next, { id: "agent-message", kind: "assistant", title: "Agent 回复", text: answer, status: "completed" });
     return upsertStep(next, { id: "turn:completed", kind: "system", title: "本轮执行完成", detail: next.summary, status: "completed" });
   }
@@ -502,7 +500,7 @@ export function reduceAgentEvent(run: AgentRun, event: unknown): AgentRun {
   if (method === "thread/status/changed") {
     const status = record(params?.status);
     if (stringValue(status?.type) === "notLoaded" && run.threadId) return { ...run, connectionState: "reconnecting" };
-    if (stringValue(status?.type) === "idle" && run.state === "running") return { ...completePhases(run), state: "completed", summary: run.summary || "Codex 已结束当前轮次。", steps: completedSteps(run) };
+    if (stringValue(status?.type) === "idle" && run.state === "running") return { ...completePhases(run), state: "completed", summary: run.summary || "创作引擎已结束当前轮次。", steps: completedSteps(run) };
   }
 
   return run;

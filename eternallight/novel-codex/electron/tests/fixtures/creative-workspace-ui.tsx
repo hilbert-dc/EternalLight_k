@@ -21,27 +21,31 @@ const input = async (label, value) => {
 const chapter = { id: "chapter-1", number: 1, title: "第一章", passages: [] };
 const scenes = [{ id: "a", sceneId: "original-a", body: "原场景 A", locked: false, baseAcceptedRevisionId: "accepted-1", candidateDraftRevisionId: "draft-1" }, { id: "b", sceneId: "original-b", body: "原场景 B", locked: false }];
 const revision = { id: "draft-1", version: 1, body: "原场景 A\n\n---\n\n原场景 B", sceneGroups: scenes };
-let workspace = { project: { id: "ui-test" }, revision: 1, index: { status: "ready" }, artifacts: Object.fromEntries(["brief", "outline", "plan"].map((kind) => [kind, { candidate: null, accepted: null, locked: false, workingSelection: null }])), chapters: [{ ...chapter, candidate: revision, accepted: revision, workingSelection: null }], workingBaselines: [], continuationIntents: [], commits: [], tasks: [], impacts: [], factProposals: [], reviews: [], chapterPlanBindings: [] };
-let releaseSave, saveResult, selectedForAccept;
+let workspace = { project: { id: "ui-test" }, revision: 1, index: { status: "ready" }, artifacts: Object.fromEntries(["brief", "outline", "plan"].map((kind) => [kind, { candidate: null, accepted: null, working: null, locked: false, workingSelection: null }])), chapters: [{ ...chapter, candidate: revision, accepted: revision, working: null, workingSelection: null }], workingBaselines: [], continuationIntents: [], planningReviews: [], commits: [], tasks: [], impacts: [], factProposals: [], reviews: [], chapterPlanBindings: [] };
+let releaseSave, saveResult, selectedForAccept, planningReviewRequest;
 let failSave = false;
 const api = { runtime: {
   getCreativeWorkspace: async () => structuredClone(workspace),
   listPlanningImpacts: async () => ({ data: [], nextCursor: null, counts: { total: 0, open: 0, retained: 0, lockedConflict: 0 } }),
-  getWriterPreview: async () => ({ planningContext: { chapter: { publicTitle: "第一章", writerGuidance: "", publicCommitments: [] }, outlinePath: [], lineageStatus: "current" }, contextBudget: {}, omissions: {} }),
+  getWriterPreview: async () => ({ planningContext: { chapter: { publicTitle: "第一章", writerGuidance: "", publicCommitments: [] }, outlinePath: [], lineageStatus: "current" }, sourceExcerpts: [{ chapterId: "previous", chapterNumber: 0, chapterTitle: "序章", draftRevisionId: "working-source-1", relationship: "referenceDraft", sourceRole: "workingSelected", body: "选定前文", truncated: false }], contextBudget: {}, omissions: {} }),
   saveDraftCheckpoint: async (_, payload) => { saveResult = payload; if (failSave) throw new Error("磁盘写入失败"); await new Promise((resolve) => { releaseSave = resolve; }); workspace = { ...workspace, revision: 2, chapters: [{ ...workspace.chapters[0], candidate: { ...revision, ...payload, id: "draft-2" } }] }; return { revisionId: "draft-2" }; },
   createReview: async () => { workspace.reviews = [{ id: "review-1", artifact_kind: "draft", artifact_revision_id: "draft-2", status: "ready", checks: [], selections: {} }]; },
   acceptReview: async (_, __, ___, selections) => { selectedForAccept = selections; },
 } };
-const props = { api, projectId: "ui-test", view: "chapters", state: { novelEdition: { chapters: [chapter] } }, selectedChapterId: chapter.id, agentAvailable: true, agentRunning: false, refreshToken: 0, onSelectChapter() {}, onGeneratePlanning() {}, async onGenerateChapter() {}, onOpenPlanningTarget() {}, onReturnToFeedback() {}, async onFormalChange() {}, onDirtyChange() {} };
+const props = { api, projectId: "ui-test", view: "chapters", state: { novelEdition: { chapters: [chapter] }, canon: { characters: [] } }, selectedChapterId: chapter.id, agentAvailable: true, agentRunning: false, refreshToken: 0, onSelectChapter() {}, onGeneratePlanning() {}, async onReviewPlanning(request) { planningReviewRequest = request; }, async onCancelPlanningReview() {}, async onGenerateChapter() {}, onOpenPlanningTarget() {}, onReturnToFeedback() {}, async onFormalChange() {}, onDirtyChange() {} };
 let root = createRoot(document.getElementById("root"));
 const render = async (extra = {}) => { root.render(<CreativeWorkspaceView {...props} {...extra} />); await tick(); await tick(); await tick(); };
 async function run() {
   await render();
   window.uiReady = true; await new Promise((resolve) => setTimeout(resolve, 200));
   check(!document.querySelector(".unguided-writer-confirm") && !button("保留并按此意图继续").disabled, "Unguided creation still asks for duplicate confirmation");
+  check(document.body.textContent.includes("作者选定工作稿"), "Writer preview hid the selected working source");
   await input("第 1 章创作意图", "保留我的创作意图");
   root.unmount(); root = createRoot(document.getElementById("root")); await render();
   check(document.querySelector('[aria-label="第 1 章创作意图"]').value === "保留我的创作意图", "Intent lost after unmount");
+  workspace.continuationIntents = [{ targetKind: "draft", targetId: chapter.id, workingRevisionId: "draft-1", authorIntent: "重启后恢复的续创意图", status: "ready", taskId: null, updatedAt: "2026-09-13T08:00:00Z" }];
+  root.unmount(); root = createRoot(document.getElementById("root")); await render();
+  check(document.querySelector('[aria-label="第 1 章创作意图"]').value === "重启后恢复的续创意图", "Persisted continuation intent was overwritten during editor initialization");
   await input("场景 1 正文", "修改后的 A"); await click("＋ 添加场景"); await input("场景 3 正文", "新增 C"); await click("＋ 添加场景"); await waitForFocus("场景 4 正文"); await click("删除场景 4"); await waitForFocus("场景 3 正文"); await click("上移场景 3"); await click("上移场景 2");
   await click("保存候选");
   check([...document.querySelectorAll('[data-scene-id] textarea, [data-scene-id] button')].every((element) => element.matches(":disabled")), "Save did not lock editing");
@@ -62,6 +66,16 @@ async function run() {
   check(document.querySelector('[aria-label="规划生成意图"]').value === "作者自己的要求", "Intent lost on view switch");
   await render({ view: "brief", planningIntentSeed: "新的讨论结果" });
   check(document.querySelector('[aria-label="规划生成意图"]').value === "新的讨论结果", "New seed ignored");
+  const outlineRevision = { id: "outline-review-1", version: 1, source: "author", payload: { nodes: [{ id: "book", kind: "book", position: 0, title: "全书", purpose: "讲述选择", summary: "全书安排", dependencyKeys: [], certainty: "tentative", protection: "free" }, { id: "volume-1", parentId: "book", kind: "volume", position: 0, title: "第一卷", purpose: "建立冲突", summary: "卷安排", dependencyKeys: [], certainty: "tentative", protection: "free" }] } };
+  workspace.artifacts.outline.candidate = outlineRevision;
+  await render({ view: "outline", planningIntentSeed: "", refreshToken: 1 });
+  check(document.body.textContent.includes("规划深审") && document.body.textContent.includes("只生成意见，不修改或采用规划"), "Planning review entry or read-only boundary is missing");
+  const reviewIntent = document.querySelector('.planning-review-intent textarea');
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(reviewIntent, "检查第一卷人物选择是否推动主冲突");
+  reviewIntent.dispatchEvent(new Event("input", { bubbles: true }));
+  document.querySelector('.planning-review-depth input[value="deep"]').click(); await tick();
+  await click("开始规划深审");
+  check(planningReviewRequest.revisionId === "outline-review-1" && planningReviewRequest.targetNodeId === null && planningReviewRequest.roles.join(",") === "structure,character,experience", "Planning review request lost its frozen target, scope, or independent roles");
   await render();
   await input("场景 2 正文", "失败时保留的正文");
   failSave = true; await click("保存候选");

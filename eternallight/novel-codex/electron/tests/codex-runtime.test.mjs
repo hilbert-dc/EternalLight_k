@@ -10,7 +10,7 @@ import { createInterface } from "node:readline";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { assertProviderOperation, buildCodexConfig, composeNovelCodexPrompt, createCodexEnvironment, createRuntimeEnvironment, createTaskCapability, loadNovelCodexSkills, providerConfigurationError, resolveCodexCli, resolveCodexProvider } from "../codex-runtime.mjs";
+import { assertProviderOperation, buildCodexConfig, composeNovelCodexPrompt, createCodexEnvironment, createRuntimeEnvironment, createTaskCapability, loadNovelCodexSkills, prepareIsolatedStorage, providerConfigurationError, resolveCodexCli, resolveCodexProvider } from "../codex-runtime.mjs";
 
 function temporaryDirectory() {
   return mkdtempSync(join(tmpdir(), "novel-codex-runtime-"));
@@ -125,10 +125,10 @@ test("rejects a digest-pinned CLI whose reported version is not supported", () =
   }
 });
 
-test("keeps OpenAI credentials out of the isolated Codex child environment", () => {
+test("keeps inherited provider credentials out of the isolated Codex child environment", () => {
   const env = createCodexEnvironment({ CODEX_HOME: "/desktop", CODEX_API_KEY: "implicit-key", CODEX_ACCESS_TOKEN: "secret", OPENAI_API_KEY: "key", PATH: "/usr/bin" }, {
     codexHome: "/novel/codex-home",
-    provider: "openai",
+    provider: "deepseek",
     sqliteHome: "/novel/codex-home/sqlite",
   });
   assert.equal(env.CODEX_HOME, "/novel/codex-home");
@@ -140,22 +140,20 @@ test("keeps OpenAI credentials out of the isolated Codex child environment", () 
 });
 
 test("allows only catalogued provider/model operations", () => {
-  assert.deepEqual(resolveCodexProvider({ model: "deepseek-flash", provider: "deepseek" }), {
+  const expected = {
     provider: "deepseek",
     model: "deepseek-flash",
     apiKeyEnv: "DEEPSEEK_API_KEY",
-    operations: ["advisory"],
-  });
-  assert.deepEqual(resolveCodexProvider({ model: "gpt-5.6-terra", provider: "openai" }), {
-    provider: "openai",
-    model: "gpt-5.6-terra",
-    apiKeyEnv: "OPENAI_API_KEY",
-    operations: ["advisory", "generateBrief", "generateOutline", "generatePlan", "generateChapter"],
-  });
-  assert.equal(assertProviderOperation({ provider: "deepseek", model: "deepseek-flash" }, "advisory").model, "deepseek-flash");
-  assert.throws(() => assertProviderOperation({ provider: "deepseek", model: "deepseek-flash" }, "generateChapter"), /未获准/);
-  assert.throws(() => resolveCodexProvider({ model: "DeepSeek-V4.1-Flash", provider: "deepseek" }), /未审核/);
+    operations: ["advisory", "generateBrief", "generateOutline", "generatePlan", "generateChapter", "reviewPlanningSeat"],
+  };
+  assert.deepEqual(resolveCodexProvider({}), expected);
+  assert.deepEqual(resolveCodexProvider({ model: "deepseek-flash", provider: "deepseek" }), expected);
+  for (const operation of ["advisory", "generateBrief", "generateOutline", "generatePlan", "generateChapter", "reviewPlanningSeat"]) {
+    assert.equal(assertProviderOperation({ provider: "deepseek", model: "deepseek-flash" }, operation).model, "deepseek-flash");
+  }
+  assert.throws(() => resolveCodexProvider({ model: "gpt-5.6-terra", provider: "openai" }), /未审核/);
   assert.throws(() => resolveCodexProvider({ model: "gpt-arbitrary", provider: "openai" }), /未审核/);
+  assert.throws(() => resolveCodexProvider({ model: "DeepSeek-V4.1-Flash", provider: "deepseek" }), /未审核/);
 });
 
 test("creates a short-lived task capability without exposing its hash as the secret", () => {
@@ -164,6 +162,16 @@ test("creates a short-lived task capability without exposing its hash as the sec
   assert.equal(capability.hash, createHash("sha256").update(capability.secret).digest("hex"));
   assert.equal(capability.expiresAt, 3_600);
   assert.notEqual(capability.secret, capability.hash);
+});
+
+test("starts the current runtime schema in a fresh database", () => {
+  const root = temporaryDirectory();
+  try {
+    const storage = prepareIsolatedStorage(root);
+    assert.equal(storage.runtimeDb, join(root, "creative-runtime", "novel-codex-v2.sqlite3"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("builds a DeepSeek provider without persisting the API key", () => {
@@ -205,9 +213,9 @@ test("builds a cross-platform candidate-only MCP sidecar config", () => {
   const config = buildCodexConfig({
     mcpServerCommand: "C:\\Python313\\python.exe",
     mcpServerPath: "C:\\Novel Codex\\runtime\\mcp_server.py",
-    model: "gpt-5.6-terra",
+    model: "deepseek-flash",
     platform: "win32",
-    provider: "openai",
+    provider: "deepseek",
   });
   assert.match(config, /\[mcp_servers\.novel_workspace\]/);
   assert.match(config, /command = "C:\\\\Python313\\\\python\.exe"/);
@@ -226,12 +234,7 @@ test("passes only the key for the explicitly selected provider", () => {
   assert.equal(openAiEnv.OPENAI_API_KEY, undefined);
 });
 
-test("fresh isolated homes fail closed until the selected provider has an API key", () => {
-  const openAi = resolveCodexProvider({ model: "gpt-5.6-terra", provider: "openai" });
-  assert.equal(providerConfigurationError(openAi, {}), "缺少 OPENAI_API_KEY，openai 请求将无法认证");
-  assert.equal(providerConfigurationError(openAi, { OPENAI_API_KEY: "  " }), "缺少 OPENAI_API_KEY，openai 请求将无法认证");
-  assert.equal(providerConfigurationError(openAi, { OPENAI_API_KEY: "sk-test" }), null);
-
+test("fresh isolated homes fail closed until DeepSeek has an API key", () => {
   const deepSeek = resolveCodexProvider({ model: "deepseek-flash", provider: "deepseek" });
   assert.equal(providerConfigurationError(deepSeek, {}), "缺少 DEEPSEEK_API_KEY，deepseek 请求将无法认证");
   assert.equal(providerConfigurationError(deepSeek, { DEEPSEEK_API_KEY: "deepseek-test" }), null);
@@ -251,7 +254,7 @@ test("isolates Runtime and author credentials from the Codex child", () => {
     codexHome: "/novel/home",
     runtimeUrl: "http://127.0.0.1:43123",
     sqliteHome: "/novel/sqlite",
-    provider: "openai",
+    provider: "deepseek",
   });
   assert.equal(codexEnv.NOVEL_CODEX_RUNTIME_URL, "http://127.0.0.1:43123");
   assert.equal(codexEnv.NOVEL_CODEX_CANDIDATE_TOKEN, "candidate-secret");

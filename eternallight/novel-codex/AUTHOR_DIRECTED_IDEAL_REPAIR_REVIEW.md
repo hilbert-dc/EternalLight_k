@@ -9,7 +9,7 @@
 1. Runtime 继续是小说领域唯一权威；Electron 只负责受信作者入口、任务调度和 app-server 协议转换，React 只负责编辑、比较与作者决定。小说逻辑没有进入 `codex-core`。
 2. 当前版本只接受一套 Outline、Plan、Task、Context 和 MCP 契约。`operation` 唯一派生任务权限；旧字段推断、双读、迁移和降级逻辑不属于实现。
 3. 每个 Agent 任务在启动独立 sidecar 前生成 capability；thread 创建后、首个模型回合前，Runtime 原子创建绑定 capability hash、作品、thread、版本、operation 和 TTL 的 TaskRun。凭证此前在 Runtime 中不可用，也未进入 prompt／Renderer。任务结束或停止时 Electron 立即终止 App Server／MCP 并擦除明文，Runtime 同时撤销 hash；应用启动先回收崩溃遗留的活跃任务。
-4. 模型和 CLI 都由仓库清单约束。`supported-cli.json` 固定协议、真实版本输出以及逐平台／架构 SHA-256；产品操作目录和 Codex 模型元数据分别固定指纹，专用配置用 `model_catalog_json` 装载隔离副本。领域生成只允许审核组合；DeepSeek 保持 advisory-only。
+4. 模型和 CLI 都由仓库清单约束。`supported-cli.json` 固定协议、真实版本输出以及逐平台／架构 SHA-256；产品操作目录和 Codex 模型元数据分别固定指纹，专用配置用 `model_catalog_json` 装载隔离副本。领域生成只允许审核组合；当前唯一审核组合是 DeepSeek `deepseek-flash`，覆盖 advisory、规划、写作和评审。
 5. Context 的 60,000-byte 总预算与 48-KiB 单核心产物契约一致。工具结果不再复制 payload，按 9,000-byte 模型内容项分块；硬约束完整保留，候选事实和原文摘录才可按优先级移除并报告。
 6. Writer 输入机械投影公开字段，并冻结章节、阅读位置、范围、POV、故事时间与精确规划 revision。Plan 保存、绑定回填、Context、checkpoint、Review 和事实位置都在 Runtime 复验；事实场景位置只能等于所属 `SceneChangeGroup` 的一基顺序。
 7. 正文、事实和规划反馈形成同一可撤销链。provisional impact、保护冲突决定、手动补链、误报、知情保留和真实改纲关闭都有持久状态与审计来源。
@@ -50,11 +50,11 @@
 ## 自动化与走查证据
 
 - Runtime：`npm run test:runtime`，75/75。
-- Agent／Electron 契约：`npm run test:agent`，59/59；包含 fresh-home OpenAI ephemeral 登录、provider 凭据隔离、DeepSeek 根层 TOML、配置生命周期和有界 turn 结果。loopback 测试在允许本机监听的环境执行。
+- Agent／Electron 契约：`npm run test:agent` 覆盖 DeepSeek App Server 握手、provider 凭据隔离、根层 TOML、配置生命周期和有界 turn 结果；loopback 测试在允许本机监听的环境执行。
 - 前端：`npm run build`，TypeScript 与 production build 通过。
 - 桌面走查：先前新建空作品、localOnly 第一章、60,000-byte Runtime 预览、无规划确认和三选离开证据仍保留。本轮新增界面修复已通过类型、构建和纯逻辑测试，但尚未在当前 schema 的干净用户目录完成完整点击复验，列入发布证据而不冒充自动覆盖。
 - 零兼容复查：当前 schema、HTTP、IPC、MCP、Renderer、fixture 和测试同步；未保留旧 task 权限字段、旧 Outline/Plan 形状、版本 fallback、迁移或双写。
-- 认证复查：fresh-home OpenAI 在生成前完成 ephemeral API-key 登录；缺 Key 会 fail-closed；`CODEX_API_KEY` 和非选中 provider 凭据不会进入 Runtime 或 App Server 环境。
+- 认证复查：DeepSeek Key 只从主进程环境注入专用 App Server；缺 Key 会 fail-closed；`CODEX_API_KEY`、桌面认证和其他 provider 凭据不会进入 Runtime 或 App Server 环境。
 
 ## 综合决策
 

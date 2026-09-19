@@ -1,12 +1,31 @@
 # Novel Codex 当前架构
 
-版本：0.4 · 2026-09-12
+版本：0.5 · 2026-09-19
 
 ## 产品边界
 
-当前版本只实现小说创作工作区。用户在中央编辑作品产物，在右侧与 Codex 协作；漫画、分镜、图像和视频不在本阶段范围内。
+当前版本只实现小说创作工作区。用户在中央编辑作品产物，在右侧与 Novel Agent Engine 协作；漫画、分镜、图像和视频不在本阶段范围内。
 
 本工程处于测试阶段，直接维护目标架构，不保留旧 Workflow、ChangeSet、浏览器演示数据或伪 Agent 回退路径。
+
+## 仓库与上游边界
+
+Novel Codex 采用“独立产品、Codex Fork 单仓库”结构，而不是抽离成失去上游历史的独立源码仓库：
+
+```text
+OpenAI Codex upstream/main
+             │ direct git merge
+             ▼
+产品 Fork main
+├── codex-rs/                   # 上游 Agent 内核
+└── eternallight/novel-codex/  # 独立 Novel Codex 产品
+```
+
+- `origin` 是可写的产品 Fork；`upstream` 固定为 OpenAI Codex 官方仓库。
+- 所有上游更新先进入 `codex-sync/YYYY-MM-DD` 分支，保留标准 merge 提交与冲突，不执行 reset、自动 stash 或覆盖。
+- 正常产品差异限制在 `eternallight/**` 和产品专用 CI；上游内核修复应形成可独立贡献的 Codex 提交。
+- `repo:check:strict` 是保护分支与发布门禁；完整流程见 [UPSTREAM_SYNC.md](UPSTREAM_SYNC.md)。
+- 源码历史共享不代表运行时共享：Novel Codex 仍使用自己的应用 ID、安装包、数据目录、Provider 凭据和发布流程。
 
 ## 运行分层
 
@@ -16,7 +35,9 @@ Electron + React Renderer
         ▼
 Electron Main / Author Gateway
         ├── author token ───────────────┐
-        └── isolated Codex App Server   │
+        └── Novel Agent Engine          │
+              └── private pinned        │
+                  App Server core       │
                     │ stdio MCP         │
                     ▼                   ▼
               candidate tools ──► Creative Runtime
@@ -27,9 +48,11 @@ Electron Main / Author Gateway
 
 - Renderer 不持有 Runtime token、API Key、Node 能力或任意文件能力。
 - Electron 主进程持有 author token，只为用户明确操作调用采用、撤销和锁定。
-- Codex 子进程运行在独立 `CODEX_HOME` / `CODEX_SQLITE_HOME`，只获得 candidate MCP 能力。
+- Novel Agent Engine 内核运行在独立 `CODEX_HOME` / `CODEX_SQLITE_HOME`，只获得 candidate MCP 能力；这些是私有实现目录，不与 Codex CLI 或桌面应用共享。
 - Runtime 监听随机回环端口；candidate/author token 通过 stdin 交给 Runtime，不进入参数、环境、磁盘或日志。
-- App Server 可在自身进程中读取显式选择的 Provider 密钥和 candidate MCP 环境，但它启动的 shell 使用 `inherit = "core"` 并排除 `NOVEL_CODEX_*`、OpenAI/DeepSeek/Codex 凭据；模型不能通过 shell 回显这些秘密。
+- 私有 App Server 内核可在自身进程中读取显式选择的 Provider 密钥和 candidate MCP 环境，但它启动的 shell 使用 `inherit = "core"` 并排除 `NOVEL_CODEX_*`、OpenAI/DeepSeek/Codex 凭据；模型不能通过 shell 回显这些秘密。
+- 产品 API、IPC 和 UI 只暴露 `Novel Agent Engine`。底层内核不读取 Codex/ChatGPT 登录态，不消费其订阅额度，也不把软件权限请求交给用户批准。
+- 当前 provider 为 DeepSeek；认证、计费和限流由 Novel Codex 自有 Provider 配置承担，模型服务商自身额度仍然有效。
 - 开发窗口只允许精确 Renderer origin，生产窗口只允许唯一打包入口；重定向、外部导航和新窗口均被拦截，所有 IPC 还会二次校验 sender WebContents 与 frame URL。
 - 没有 App Server 或模型时仍可手工编辑候选并运行确定性检查，但不会生成假正文或假成功结果。
 
@@ -96,9 +119,9 @@ Planner 可以读取相关未来承诺和作者秘密；Writer 只读取当前�
 
 Writer 的前文摘录来自已采用 DraftRevision，每段带 chapter、revision、source 与截断标记。candidate 请求的 purpose 必须等于 TaskRun purpose；目标章的 readingChapter 必须一致。预算不足时按低优先级内容降级并返回 omissions，硬约束仍放不下时拒绝请求。
 
-## Codex MCP
+## Novel Agent Engine MCP
 
-隔离 App Server 只注册 `novel_workspace` 本地 stdio MCP：
+Novel Agent Engine 的私有 App Server 内核只注册 `novel_workspace` 本地 stdio MCP：
 
 - `read_context`
 - `save_brief`
@@ -115,7 +138,7 @@ Writer 的前文摘录来自已采用 DraftRevision，每段带 chapter、revisi
 
 ```text
 ┌─────────────┬────────────────────────────────┬──────────────────┐
-│ 作品与导航   │ 中央作品文档                    │ Codex 协作栏       │
+│ 作品与导航   │ 中央作品文档                    │ 创作引擎协作栏     │
 │             │ Brief / Outline / Plan / Draft │ 当前对话与回复     │
 │ 任务历史     │ 候选与正式版本比较              │ 折叠执行过程       │
 │ Canon/IR    │ Review / Accept / Undo / Lock  │ Composer/Inspector│
@@ -123,9 +146,9 @@ Writer 的前文摘录来自已采用 DraftRevision，每段带 chapter、revisi
 ```
 
 - Enter 发送，Shift+Enter 换行，并尊重输入法合成。
-- 当前回复是主体；计划、工具、审批和文件变更作为同一回合的可折叠过程。
+- 当前回复是主体；计划、工具、作者问答和文件变更作为同一回合的可折叠过程。软件权限请求在主进程自动拒绝，不显示审批按钮。
 - Brief、大纲、近章计划和章节草稿均在中央结构化编辑。
-- 空作品可以手工或通过 Codex 建立第一章；保存只创建候选，采用后才成为正式稿。
+- 空作品可以手工或通过创作引擎建立第一章；保存只创建候选，采用后才成为正式稿。
 - 已有章节在正文主列显示“生成当前章”；请求明确展示目标章和作者意图，任务状态区分进行中、部分完成、失败和候选可审阅。
 - 审阅展示阻塞检查、场景选择、事实证据与决定；成功、失败、过期、索引滞后都有文字状态。
 - 中央和右栏独立滚动；macOS 当前窗口已完成三栏视觉走查。
@@ -134,14 +157,14 @@ Writer 的前文摘录来自已采用 DraftRevision，每段带 chapter、revisi
 
 ```text
 Electron userData/
-├── codex-home/                 # Novel Codex 专用配置、线程、日志、认证
+├── codex-home/                 # Novel Agent Engine 私有配置、线程与日志（不含桌面登录态）
 │   └── sqlite/
 └── creative-runtime/
-    └── novel-codex.sqlite3     # 小说领域数据
+    └── novel-codex-v2.sqlite3  # 当前 schema 的小说领域数据
 ```
 
 - 开发环境只解析项目专用 CLI 或当前仓库构建产物，不从 PATH 或 ChatGPT.app 取 CLI。
-- App Server 与 Creative Runtime 都剥离继承的 Codex、OpenAI 和其他 provider 凭据。OpenAI Key 只由主进程通过 v2 `account/login/start` 写入 App Server 的 ephemeral auth；DeepSeek Key 只进入显式选择 DeepSeek 的 App Server 环境。
+- Novel Agent Engine 与 Creative Runtime 都剥离继承的 Codex、OpenAI 和其他 provider 凭据。DeepSeek Key 只进入引擎私有 App Server 进程，并且不会写入配置文件、Runtime 或日志。
 - Creative Runtime、普通 Codex CLI 和 Codex 桌面应用不共用配置、会话、认证或数据库。
 
 ## 当前验证

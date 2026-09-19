@@ -1,0 +1,4 @@
+interface:
+  display_name: "Electron UI"
+  short_description: "Build secure cross-platform Electron UIs"
+  default_prompt: "Use $electron-ui to build or modify a secure cross-platform Electron UI for the Codex client."

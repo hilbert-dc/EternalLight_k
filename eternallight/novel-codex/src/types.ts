@@ -30,7 +30,7 @@ export interface RuntimeState {
   canon: StoryCanon; narrativeIr: NarrativeIr; novelEdition: NovelEdition;
 }
 export interface ProjectSummary { id: string; title: string; logline: string; created_at?: string; updated_at: string; }
-export interface RuntimeStatus { state: "online" | "offline"; mode: "local" | "codex-app-server"; error: string | null; }
+export interface RuntimeStatus { state: "online" | "offline"; mode: "local" | "novel-agent-engine"; error: string | null; }
 export interface StoryTestResult { passed: boolean; projectId: string; checks: { id: string; label: string; passed: boolean; severity: "error" | "warning"; details: string }[]; }
 export interface ChapterDiff { id: number; chapter_id: string; fromText: string; toText: string; summary: string; createdAt: string; addedChars: number; removedChars: number; }
 export type SearchKind = "project" | "character" | "relationship" | "event" | "location" | "worldRule" | "plotThread" | "scene" | "chapter";
@@ -69,17 +69,53 @@ export interface FactProposal { id: string; sceneGroupId: string; sceneId?: stri
 export interface ProvisionalPlanningImpact { id: string; factProposalId: string; predicate: string; evidence: string; targetArtifactKind: "outline" | "plan"; targetRevisionId: string; targetNodeId: string; targetLabel: string; dependencyKey: string; severity: "affected" | "locked-conflict"; matchedBy: "dependency-key" | "author-link"; }
 export interface CreativeReview { id: string; artifact_kind: CreativeArtifactKind | "draft"; artifact_revision_id: string; project_revision: number; status: "ready" | "stale" | "accepted" | "rejected"; checks: { id: string; passed: boolean; blocking: boolean; message: string }[]; selections: Record<string, unknown>; }
 export interface PlanningImpact { id: string; status: "affected" | "locked-conflict"; reason: string; evidence: string; state: "open" | "resolved-kept"; severity: "affected" | "locked-conflict"; targetArtifactKind: "outline" | "plan"; targetRevisionId: string; targetNodeId: string; targetLabel: string; dependencyKey: string; resolutionNote?: string | null; sourceChapterId?: string | null; sourceChapterNumber?: number | null; sourceChapterTitle?: string | null; }
-export interface WriterContextPreview { projectRevision: number; readingChapter: number; sceneOrder: number; storyTime: number | null; povCharacterId: string | null; planningContext: { lineageStatus: "current" | "historical" | "working"; outlineRevisionId: string; planRevisionId: string; chapter: WriterChapterProjection | null; outlinePath: { id: string; kind: string; publicTitle: string; writerGuidance: string }[] } | null; omissions: { factCount: number; message: string }; contextBudget: { usedBytes: number; maxBytes: number; truncated: boolean } }
+export type PlanningReviewRole = "structure" | "character" | "experience";
+export type PlanningReviewArtifactKind = "outline" | "plan";
+export interface PlanningReviewFinding { quote: string; observation: string; impact: string; suggestion: string; }
+export interface PlanningReviewReport {
+  id: string;
+  runId: string;
+  role: PlanningReviewRole;
+  status: "complete" | "partial";
+  report: {
+    summary: string;
+    strengths: { quote: string; reason: string }[];
+    findings: PlanningReviewFinding[];
+    coverage: { checkId: string; status: "checked" | "unknown" | "notChecked"; reason: string }[];
+  };
+}
+export interface PlanningReviewRun {
+  id: string;
+  projectId: string;
+  artifactKind: PlanningReviewArtifactKind;
+  revisionId: string;
+  targetNodeId: string | null;
+  authorIntent: string;
+  inputRevision: number;
+  roles: PlanningReviewRole[];
+  sourcePacketHash: string;
+  status: "running" | "completed" | "partial" | "cancelled";
+  coverageStatus: "pending" | "complete" | "partial";
+  checksByRole: Partial<Record<PlanningReviewRole, string[]>>;
+  seats: { role: PlanningReviewRole; taskId: string | null; status: string }[];
+  reports: PlanningReviewReport[];
+  synthesis: { priorities: { role: PlanningReviewRole; reportId: string; findingIndex: number }[]; disagreements: string[]; incompleteRoles: PlanningReviewRole[] } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface PlanningReviewStartRequest { artifactKind: PlanningReviewArtifactKind; revisionId: string; targetNodeId: string | null; authorIntent: string; roles: PlanningReviewRole[]; }
+export interface WriterContextPreview { projectRevision: number; readingChapter: number; sceneOrder: number; storyTime: number | null; povCharacterId: string | null; sourceFingerprint: string; planningContext: { lineageStatus: "current" | "historical" | "working"; outlineRevisionId: string; planRevisionId: string; chapter: WriterChapterProjection | null; outlinePath: { id: string; kind: string; publicTitle: string; writerGuidance: string }[] } | null; sourceExcerpts: { chapterId: string; chapterNumber: number; chapterTitle: string; draftRevisionId: string; relationship?: "targetDraft" | "referenceDraft"; sourceRole?: "workingSelected" | "accepted"; body: string; truncated: boolean }[]; omissions: { factCount: number; message: string }; contextBudget: { usedBytes: number; maxBytes: number; truncated: boolean } }
 export interface CreativeWorkspace {
   project: { id: string; title: string; logline: string };
   revision: number;
   planWindow: number;
   planLineageStatus?: "missing" | "current" | "stale";
   index: { targetRevision: number; indexedRevision: number; status: "ready" | "stale" };
-  artifacts: Record<CreativeArtifactKind, { candidate: CreativeRevision | null; accepted: CreativeRevision | null; locked: boolean; workingSelection: WorkingBaselineSelection | null }>;
-  chapters: ({ id: string; number: number; title: string; status: string; summary: string; updated_at: string } & { candidate: DraftRevision | null; accepted: DraftRevision | null; workingSelection: WorkingBaselineSelection | null })[];
+  artifacts: Record<CreativeArtifactKind, { candidate: CreativeRevision | null; accepted: CreativeRevision | null; working: CreativeRevision | null; locked: boolean; workingSelection: WorkingBaselineSelection | null }>;
+  chapters: ({ id: string; number: number; title: string; status: string; summary: string; updated_at: string } & { candidate: DraftRevision | null; accepted: DraftRevision | null; working: DraftRevision | null; workingSelection: WorkingBaselineSelection | null })[];
   workingBaselines: WorkingBaselineSelection[];
   continuationIntents: { targetKind: CreativeArtifactKind | "draft"; targetId: string; workingRevisionId: string; authorIntent: string; status: "ready" | "launched" | "failed"; taskId: string | null; updatedAt: string }[];
+  planningReviews: PlanningReviewRun[];
   factProposals: (FactProposal & { draft_revision_id: string })[];
   reviews: CreativeReview[];
   impacts: PlanningImpact[];
@@ -123,6 +159,7 @@ export interface NovelCodexApi {
     recordStageAbandonment: (stage: "brief" | "outline" | "plan" | "draft", idempotencyKey: string) => Promise<LocalMetricsSummary>;
     exportProject: (projectId: string, options: AuthorExportOptions) => Promise<AuthorExportResult>;
     getCreativeWorkspace: (projectId: string) => Promise<CreativeWorkspace>;
+    cancelPlanningReview: (projectId: string, runId: string) => Promise<PlanningReviewRun>;
     setWorkingBaseline: (projectId: string, kind: CreativeArtifactKind | "draft", objectId: string, revisionId: string, expectedSelectionRevision: number) => Promise<WorkingBaselineSelection>;
     clearWorkingBaseline: (projectId: string, kind: CreativeArtifactKind | "draft", objectId: string, expectedSelectionRevision: number) => Promise<{ objectKind: CreativeArtifactKind | "draft"; objectId: string; revisionId: null; selectionRevision: number; cleared: true }>;
     saveContinuationIntent: (projectId: string, kind: CreativeArtifactKind | "draft", targetId: string, workingRevisionId: string, authorIntent: string) => Promise<{ targetKind: CreativeArtifactKind | "draft"; targetId: string; workingRevisionId: string; authorIntent: string; status: "ready"; taskId: null; updatedAt: string }>;
@@ -143,11 +180,12 @@ export interface NovelCodexApi {
     search: (projectId: string, query: string, limit?: number, kind?: SearchKind) => Promise<{ results: SearchResult[] }>;
   };
   agent: {
-    status: () => Promise<{ configured: boolean; state: string; mode: "codex-app-server"; error: string | null; provider?: string; model?: string; commandSource?: string | null; cliPath?: string | null; isolatedHome?: string | null }>;
-    configure: (provider: string, model: string) => Promise<{ configured: boolean; state: string; mode: "codex-app-server"; error: string | null; provider?: string; model?: string; commandSource?: string | null; cliPath?: string | null; isolatedHome?: string | null }>;
+    status: () => Promise<{ configured: boolean; state: string; mode: "novel-agent-engine"; error: string | null; provider?: string; model?: string; commandSource?: string | null; cliPath?: string | null; isolatedHome?: string | null }>;
+    configure: (provider: string, model: string) => Promise<{ configured: boolean; state: string; mode: "novel-agent-engine"; error: string | null; provider?: string; model?: string; commandSource?: string | null; cliPath?: string | null; isolatedHome?: string | null }>;
     sendPrompt: (projectId: string, prompt: string) => Promise<{ mode: string; message: string; projectId: string; workflow?: { task?: unknown; context?: unknown; revision?: number } }>;
     generatePlanning: (projectId: string, operation: "generateBrief" | "generateOutline" | "generatePlan", intent: string) => Promise<{ mode: string; message: string; projectId: string; workflow?: { task?: unknown; context?: unknown; revision?: number } }>;
     generateChapter: (projectId: string, request: { chapterId: string; chapterNumber: number; sceneOrder?: number; povCharacterId?: string | null; storyTime?: number | null; intent: string }) => Promise<{ mode: string; message: string; projectId: string; workflow?: { task?: unknown; target?: unknown; context?: unknown; revision?: number }; completion?: { deliveryStatus: string; outputRefs: { kind: string; revisionId: string; chapterId?: string }[] } | null }>;
+    reviewPlanning: (projectId: string, request: PlanningReviewStartRequest) => Promise<{ projectId: string; run: PlanningReviewRun }>;
     steer: (prompt: string) => Promise<{ steered: boolean }>;
     interrupt: () => Promise<{ interrupted: boolean }>;
     listThreads: (projectId: string, archived?: boolean, cursor?: string | null) => Promise<{ threads: ThreadSummary[]; nextCursor: string | null }>;
@@ -161,8 +199,8 @@ export interface NovelCodexApi {
     setThreadPinned: (projectId: string, threadId: string, isPinned: boolean) => Promise<{ thread: ThreadSummary }>;
     archiveThread: (projectId: string, threadId: string) => Promise<{ archived: boolean }>;
     unarchiveThread: (projectId: string, threadId: string) => Promise<{ thread: ThreadSummary }>;
-    resolveApproval: (requestId: string | number, decision: unknown) => Promise<{ resolved: boolean }>;
+    resolveUserInput: (requestId: string | number, response: { answers: Record<string, string | string[]> }) => Promise<{ resolved: boolean }>;
     onEvent: (listener: (payload: unknown) => void) => () => void;
-    onApprovalRequest: (listener: (payload: { requestId: string | number; method: string; params: Record<string, unknown>; threadId?: string | null; turnId?: string | null; itemId?: string | null }) => void) => () => void;
+    onUserInputRequest: (listener: (payload: { requestId: string | number; method: "item/tool/requestUserInput"; params: Record<string, unknown>; threadId?: string | null; turnId?: string | null; itemId?: string | null }) => void) => () => void;
   };
 }

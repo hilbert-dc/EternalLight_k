@@ -25,6 +25,7 @@ from .planning import (
     normalize_plan,
     validate_outline,
 )
+from .planning_reviews import list_planning_reviews
 from .impacts import (
     advance_planning_impacts,
     assert_open_impact_targets_preserved,
@@ -37,6 +38,7 @@ from .review_decisions import validate_draft_acceptance
 from .working_baselines import (
     list_continuation_intents,
     list_working_baselines,
+    resolve_draft_revision,
     resolve_planning_revision,
 )
 
@@ -546,11 +548,11 @@ def workspace_state(db_path: str | Path, project_id: str) -> dict[str, Any]:
         working_baselines = list_working_baselines(connection, project_id)
         continuation_intents = list_continuation_intents(connection, project_id)
         working_by_object = {
-            (item["objectKind"], item["objectId"]): item
-            for item in working_baselines
+            (item["objectKind"], item["objectId"]): item for item in working_baselines
         }
         artifacts: dict[str, Any] = {}
         for kind in sorted(ARTIFACT_KINDS):
+            working_selection = working_by_object.get((kind, kind))
             pointer = connection.execute(
                 "SELECT * FROM artifact_pointers WHERE project_id = ? AND artifact_kind = ?",
                 (project_id, kind),
@@ -569,11 +571,19 @@ def workspace_state(db_path: str | Path, project_id: str) -> dict[str, Any]:
                 if pointer and pointer["accepted_revision_id"]
                 else None
             )
+            working = (
+                _artifact_row(
+                    connection, project_id, kind, working_selection["revisionId"]
+                )
+                if working_selection and working_selection["revisionId"]
+                else None
+            )
             artifacts[kind] = {
                 "candidate": _revision_payload(candidate),
                 "accepted": _revision_payload(accepted),
+                "working": _revision_payload(working),
                 "locked": bool(pointer["locked"]) if pointer else False,
-                "workingSelection": working_by_object.get((kind, kind)),
+                "workingSelection": working_selection,
             }
         accepted_outline = artifacts["outline"]["accepted"]
         accepted_plan = artifacts["plan"]["accepted"]
@@ -592,6 +602,7 @@ def workspace_state(db_path: str | Path, project_id: str) -> dict[str, Any]:
             "SELECT id, number, title, status, summary, updated_at FROM chapters WHERE project_id = ? ORDER BY number",
             (project_id,),
         ).fetchall():
+            working_selection = working_by_object.get(("draft", chapter["id"]))
             pointer = connection.execute(
                 "SELECT * FROM chapter_workspace WHERE project_id = ? AND chapter_id = ?",
                 (project_id, chapter["id"]),
@@ -606,14 +617,18 @@ def workspace_state(db_path: str | Path, project_id: str) -> dict[str, Any]:
                 if pointer and pointer["accepted_revision_id"]
                 else None
             )
+            working = (
+                _draft_row(connection, project_id, working_selection["revisionId"])
+                if working_selection and working_selection["revisionId"]
+                else None
+            )
             chapters.append(
                 {
                     **dict(chapter),
                     "candidate": _draft_payload(candidate),
                     "accepted": _draft_payload(accepted),
-                    "workingSelection": working_by_object.get(
-                        ("draft", chapter["id"])
-                    ),
+                    "working": _draft_payload(working),
+                    "workingSelection": working_selection,
                 }
             )
         proposals = [
@@ -727,6 +742,7 @@ def workspace_state(db_path: str | Path, project_id: str) -> dict[str, Any]:
             "tasks": tasks,
             "workingBaselines": working_baselines,
             "continuationIntents": continuation_intents,
+            "planningReviews": list_planning_reviews(connection, project_id),
         }
 
 
@@ -1976,9 +1992,7 @@ def accept_review(
                     (project_id,),
                 ).fetchone()
                 accepted_outline_id = (
-                    outline_pointer["accepted_revision_id"]
-                    if outline_pointer
-                    else None
+                    outline_pointer["accepted_revision_id"] if outline_pointer else None
                 )
                 if plan_payload.get("sourceOutlineRevisionId") != accepted_outline_id:
                     raise ConflictError(
@@ -2607,6 +2621,17 @@ def get_context_snapshot(
                     "replayed": True,
                 },
             }
+        manifest = _load(task["input_manifest_json"], {}) if task is not None else {}
+        frozen_draft_sources = {
+            item.get("chapterId"): item.get("revisionId")
+            for item in manifest.get("referenceDrafts", [])
+            if item.get("chapterId") and item.get("revisionId")
+        }
+        target_manifest = manifest.get("target") or {}
+        if target_manifest.get("chapterId") and manifest.get("baseTargetRevisionId"):
+            frozen_draft_sources[target_manifest["chapterId"]] = manifest[
+                "baseTargetRevisionId"
+            ]
         clauses = ["project_id = ?", "project_revision <= ?"]
         parameters: list[Any] = [project_id, revision]
         if reading_chapter is not None:
@@ -2661,20 +2686,24 @@ def get_context_snapshot(
                     "SELECT chapter_id FROM draft_revisions WHERE id = ? AND project_id = ?",
                     (row["source_draft_revision_id"], project_id),
                 ).fetchone()
-                working_revision_id = (
-                    connection.execute(
-                        "SELECT revision_id FROM working_baseline_selections "
-                        "WHERE project_id = ? AND object_kind = 'draft' AND object_id = ?",
-                        (project_id, source_chapter["chapter_id"]),
-                    ).fetchone()
-                    if source_chapter
-                    else None
-                )
+                working_revision_id = None
+                if source_chapter:
+                    if task is not None:
+                        working_revision_id = frozen_draft_sources.get(
+                            source_chapter["chapter_id"]
+                        )
+                    else:
+                        selection = connection.execute(
+                            "SELECT revision_id FROM working_baseline_selections "
+                            "WHERE project_id = ? AND object_kind = 'draft' AND object_id = ?",
+                            (project_id, source_chapter["chapter_id"]),
+                        ).fetchone()
+                        working_revision_id = (
+                            selection["revision_id"] if selection else None
+                        )
                 if (
                     working_revision_id
-                    and working_revision_id["revision_id"]
-                    and working_revision_id["revision_id"]
-                    != row["source_draft_revision_id"]
+                    and working_revision_id != row["source_draft_revision_id"]
                 ):
                     payload["workingApplicability"] = "needsVerification"
                 else:
@@ -2687,7 +2716,6 @@ def get_context_snapshot(
                     forbidden.append({"policy": "不要让当前视角获得尚未公开的信息"})
                 continue
             selected.append(payload)
-        manifest = _load(task["input_manifest_json"], {}) if task is not None else {}
         baseline = manifest.get("planningBaseline") or {}
         if task is not None and purpose == "planner":
             plan_revision_id = baseline.get("planRevisionId")
@@ -2950,16 +2978,28 @@ def get_context_snapshot(
                             "sourceRole", "accepted"
                         )
             else:
-                source_rows = connection.execute(
-                    "SELECT c.id AS chapter_id, c.number, c.title, d.id AS revision_id, d.body, d.source "
-                    "FROM chapters c JOIN chapter_workspace cw ON cw.chapter_id = c.id AND cw.project_id = c.project_id "
-                    "JOIN draft_revisions d ON d.id = cw.accepted_revision_id "
-                    "WHERE c.project_id = ? AND c.number < ? ORDER BY c.number DESC LIMIT 6",
+                source_rows = []
+                source_roles = {}
+                chapter_rows = connection.execute(
+                    "SELECT id, number FROM chapters WHERE project_id = ? AND number < ? "
+                    "ORDER BY number DESC LIMIT 6",
                     (project_id, reading_chapter),
                 ).fetchall()
-                source_roles = {
-                    row["revision_id"]: "accepted" for row in source_rows
-                }
+                for chapter_row in chapter_rows:
+                    revision_id, source_role = resolve_draft_revision(
+                        connection, project_id, chapter_row["id"]
+                    )
+                    if not revision_id:
+                        continue
+                    row = connection.execute(
+                        "SELECT c.id AS chapter_id, c.number, c.title, d.id AS revision_id, d.body, d.source "
+                        "FROM chapters c JOIN draft_revisions d ON d.chapter_id = c.id AND d.project_id = c.project_id "
+                        "WHERE c.project_id = ? AND c.id = ? AND d.id = ?",
+                        (project_id, chapter_row["id"], revision_id),
+                    ).fetchone()
+                    if row:
+                        source_rows.append(row)
+                        source_roles[row["revision_id"]] = source_role
             source_excerpts = [
                 {
                     "chapterId": row["chapter_id"],
@@ -2967,10 +3007,10 @@ def get_context_snapshot(
                     "chapterTitle": row["title"],
                     "draftRevisionId": row["revision_id"],
                     "source": row["source"],
+                    "relationship": "referenceDraft",
+                    "sourceRole": source_roles[row["revision_id"]],
                     **(
                         {
-                            "relationship": "referenceDraft",
-                            "sourceRole": "workingSelected",
                             "evidenceClass": "required",
                         }
                         if source_roles[row["revision_id"]] == "workingSelected"
@@ -2995,18 +3035,15 @@ def get_context_snapshot(
                 ).fetchone()
                 target_chapter_id = target_row["id"] if target_row else None
             if target_chapter_id:
-                frozen_candidate_id = (
-                    manifest.get("baseTargetRevisionId")
-                    if task is not None
-                    else None
-                )
-                target_pointer = connection.execute(
-                    "SELECT candidate_revision_id, accepted_revision_id FROM chapter_workspace WHERE project_id = ? AND chapter_id = ?",
-                    (project_id, target_chapter_id),
-                ).fetchone()
-                target_revision_id = frozen_candidate_id or (
-                    target_pointer["accepted_revision_id"] if target_pointer else None
-                )
+                if task is not None:
+                    target_revision_id = manifest.get("baseTargetRevisionId")
+                    target_source_role = manifest.get(
+                        "baseTargetSourceRole", "accepted"
+                    )
+                else:
+                    target_revision_id, target_source_role = resolve_draft_revision(
+                        connection, project_id, target_chapter_id
+                    )
                 target_draft = (
                     connection.execute(
                         "SELECT id, body, scene_groups_json, source FROM draft_revisions WHERE id = ? AND project_id = ? AND chapter_id = ?",
@@ -3041,11 +3078,7 @@ def get_context_snapshot(
                             "draftRevisionId": target_draft["id"],
                             "source": target_draft["source"],
                             "relationship": "targetDraft",
-                            "sourceRole": manifest.get(
-                                "baseTargetSourceRole", "accepted"
-                            )
-                            if task is not None
-                            else "accepted",
+                            "sourceRole": target_source_role,
                             "evidenceClass": "required",
                             "sceneGroups": [
                                 {
@@ -3098,6 +3131,27 @@ def get_context_snapshot(
             for excerpt in source_excerpts
             if excerpt.get("evidenceClass") == "required"
         )
+        source_fingerprint = hashlib.sha256(
+            _json(
+                {
+                    "purpose": purpose,
+                    "storyTime": story_time,
+                    "readingChapter": reading_chapter,
+                    "sceneOrder": scene_order,
+                    "povCharacterId": pov_character_id,
+                    "planningContext": planning_context,
+                    "sources": [
+                        {
+                            "chapterId": item.get("chapterId"),
+                            "revisionId": item.get("draftRevisionId"),
+                            "relationship": item.get("relationship"),
+                            "sourceRole": item.get("sourceRole", "accepted"),
+                        }
+                        for item in source_excerpts
+                    ],
+                }
+            ).encode("utf-8")
+        ).hexdigest()
         snapshot = {
             "projectId": project_id,
             "projectRevision": revision,
@@ -3115,6 +3169,7 @@ def get_context_snapshot(
             "commitments": commitments[:bounded_budget],
             "planningContext": planning_context,
             "sourceExcerpts": source_excerpts,
+            "sourceFingerprint": source_fingerprint,
             "evidenceCoverage": {
                 "required": required_evidence,
                 "supportingCount": sum(

@@ -219,6 +219,8 @@ Novel Codex 不与 ChatGPT 桌面应用或系统 Codex CLI 共用可执行文件
 
 # DeepSeek provider 试运行评审（第五轮）
 
+当前实现已从“可选 provider 试运行”收敛为 DeepSeek-only：`deepseek-flash` 是唯一默认和白名单模型，覆盖 advisory、brief、outline、plan、chapter 与 planning review；OpenAI provider 已从 Novel Codex 公共模型目录移除。
+
 ## 变更目标
 
 在不复用 ChatGPT 桌面版或普通 Codex CLI 环境的前提下，让 Novel Codex 可以通过环境变量选择 DeepSeek，并支持用户给出的 `DeepSeek-V4.1-Flash` 别名。

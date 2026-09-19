@@ -41,7 +41,7 @@ function deepSeekConfiguration() {
 }
 
 test("reconfigures an idle app-server that was started by listing threads", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   await adapter.listThreads();
   const child = adapter.process;
   let persisted = false;
@@ -58,7 +58,7 @@ test("reconfigures an idle app-server that was started by listing threads", asyn
 });
 
 test("rejects an active-turn reconfiguration before persistence", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   let started;
   const turnStarted = new Promise((resolve) => { started = resolve; });
   adapter.setCallbacks({ onEvent: (event) => { if (event.method === "turn/started") started(); } });
@@ -71,14 +71,14 @@ test("rejects an active-turn reconfiguration before persistence", async () => {
     persist: () => { persisted = true; },
   }), /正在处理上一轮请求/);
   assert.equal(persisted, false);
-  assert.equal(adapter.provider, "openai");
+  assert.equal(adapter.provider, "deepseek");
   await adapter.interruptTurn();
   await turn;
   adapter.close();
 });
 
 test("keeps the running configuration when persistence fails", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   await adapter.listThreads();
   const child = adapter.process;
   assert.throws(() => applyAgentConfiguration({
@@ -86,7 +86,7 @@ test("keeps the running configuration when persistence fails", async () => {
     configuration: deepSeekConfiguration(),
     persist: () => { throw new Error("disk full"); },
   }), /disk full/);
-  assert.equal(adapter.provider, "openai");
+  assert.equal(adapter.provider, "deepseek");
   assert.equal(adapter.process, child);
   assert.equal(child.killed, false);
   adapter.close();
@@ -108,8 +108,8 @@ test("main rejects model changes throughout Runtime preparation", async () => {
     const turn = handlers.get('agent:send-prompt')(rendererEvent(),'project','hello');
     await preparing;
     assert.equal(adapter.turnWaiter,null);
-    assert.throws(()=>handlers.get('agent:configure')({},'deepseek','deepseek-flash'),/已有 Codex 任务正在运行/);
-    assert.equal(adapter.provider,'openai');
+    assert.throws(()=>handlers.get('agent:configure')({},'deepseek','deepseek-flash'),/已有创作引擎任务正在运行/);
+    assert.equal(adapter.provider,'deepseek');
     release();
     await turn;
   } finally { release(); adapter.close(); }

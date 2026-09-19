@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("novelCodex", {
     recordStageAbandonment: invoke("runtime:metrics-abandon"),
     exportProject: invoke("runtime:export-project"),
     getCreativeWorkspace: invoke("runtime:get-creative-workspace"),
+    cancelPlanningReview: invoke("runtime:cancel-planning-review"),
     setWorkingBaseline: invoke("runtime:set-working-baseline"),
     clearWorkingBaseline: invoke("runtime:clear-working-baseline"),
     saveContinuationIntent: invoke("runtime:save-continuation-intent"),
@@ -49,6 +50,7 @@ contextBridge.exposeInMainWorld("novelCodex", {
     sendPrompt: invoke("agent:send-prompt"),
     generatePlanning: invoke("agent:generate-planning"),
     generateChapter: invoke("agent:generate-chapter"),
+    reviewPlanning: invoke("agent:review-planning"),
     steer: invoke("agent:steer"),
     interrupt: invoke("agent:interrupt"),
     listThreads: invoke("agent:list-threads"),
@@ -62,16 +64,16 @@ contextBridge.exposeInMainWorld("novelCodex", {
     setThreadPinned: invoke("agent:set-thread-pinned"),
     archiveThread: invoke("agent:archive-thread"),
     unarchiveThread: invoke("agent:unarchive-thread"),
-    resolveApproval: invoke("agent:resolve-approval"),
+    resolveUserInput: invoke("agent:resolve-user-input"),
     onEvent: (listener) => {
       const handler = (_event, payload) => listener(payload);
       ipcRenderer.on("agent:event", handler);
       return () => ipcRenderer.removeListener("agent:event", handler);
     },
-    onApprovalRequest: (listener) => {
+    onUserInputRequest: (listener) => {
       const handler = (_event, payload) => listener(payload);
-      ipcRenderer.on("agent:approval-request", handler);
-      return () => ipcRenderer.removeListener("agent:approval-request", handler);
+      ipcRenderer.on("agent:user-input-request", handler);
+      return () => ipcRenderer.removeListener("agent:user-input-request", handler);
     },
   },
 });

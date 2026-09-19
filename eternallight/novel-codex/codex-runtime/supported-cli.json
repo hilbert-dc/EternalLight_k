@@ -2,8 +2,8 @@
   "version": 1,
   "appServerProtocol": "v2",
   "mcpProtocol": "2025-06-18",
-  "modelCatalogSha256": "07f25b3a3fb79b27da5b6b00875314e9fc8e6558bbaab69f8cd71f1c610eef52",
-  "codexModelCatalogSha256": "265dac72ad70fb5639bc6f2beadd6d4cdfe6a881dea943fdcebba608b500232e",
+  "modelCatalogSha256": "1d5e99ace543326b60c302bc3f5c181628b59f2d9219a0475564628e75016011",
+  "codexModelCatalogSha256": "90009209521af4dc5fbc82394cbbe34617209235e8822e78c3e9d3ada753928e",
   "sources": {
     "bundled": {
       "packaged": true,

@@ -103,7 +103,7 @@ export function codexExecutableName(platform = process.platform) {
 export function createCodexEnvironment(baseEnvironment, {
   candidateToken,
   codexHome,
-  provider = "openai",
+  provider = "deepseek",
   runtimeUrl,
   sqliteHome,
 }) {
@@ -139,7 +139,7 @@ export function resolveCodexProvider({ model, operation = null, provider }) {
   return {
     provider: resolvedProvider,
     model: resolvedModel,
-    apiKeyEnv: resolvedProvider === "deepseek" ? "DEEPSEEK_API_KEY" : "OPENAI_API_KEY",
+    apiKeyEnv: "DEEPSEEK_API_KEY",
     operations: [...entry.operations],
   };
 }
@@ -262,7 +262,7 @@ export function prepareIsolatedStorage(userDataPath) {
   const codexHome = join(userDataPath, "codex-home");
   const sqliteHome = join(codexHome, "sqlite");
   const runtimeData = join(userDataPath, "creative-runtime");
-  const runtimeDb = join(runtimeData, "novel-codex.sqlite3");
+  const runtimeDb = join(runtimeData, "novel-codex-v2.sqlite3");
   for (const directory of [codexHome, sqliteHome, runtimeData]) mkdirSync(directory, { recursive: true });
   return { codexHome, sqliteHome, runtimeData, runtimeDb };
 }

@@ -1,131 +1,6 @@
 {
   "models": [
     {
-      "slug": "gpt-5.6-terra",
-      "prefer_websockets": true,
-      "support_verbosity": true,
-      "default_verbosity": "low",
-      "apply_patch_tool_type": "freeform",
-      "web_search_tool_type": "text_and_image",
-      "input_modalities": [
-        "text",
-        "image"
-      ],
-      "supports_image_detail_original": true,
-      "truncation_policy": {
-        "mode": "tokens",
-        "limit": 10000
-      },
-      "supports_parallel_tool_calls": true,
-      "tool_mode": "code_mode_only",
-      "multi_agent_version": "v2",
-      "use_responses_lite": true,
-      "include_skills_usage_instructions": false,
-      "include_apps_usage_instructions": true,
-      "include_plugin_usage_instructions": true,
-      "node_repl_auto_review_required": false,
-      "node_repl_disabled": false,
-      "auto_review_model_override": null,
-      "model_specialty": null,
-      "context_window": 272000,
-      "max_context_window": 872000,
-      "auto_compact_token_limit": null,
-      "comp_hash": "3000",
-      "default_reasoning_summary": "none",
-      "display_name": "GPT-5.6-Terra",
-      "description": "Balanced agentic coding model for everyday work.",
-      "default_reasoning_level": "medium",
-      "supported_reasoning_levels": [
-        {
-          "effort": "low",
-          "description": "Fast responses with lighter reasoning"
-        },
-        {
-          "effort": "medium",
-          "description": "Balances speed and reasoning depth for everyday tasks"
-        },
-        {
-          "effort": "high",
-          "description": "Greater reasoning depth for complex problems"
-        },
-        {
-          "effort": "xhigh",
-          "description": "Extra high reasoning depth for complex problems"
-        },
-        {
-          "effort": "max",
-          "description": "Maximum reasoning depth for the hardest problems"
-        },
-        {
-          "effort": "ultra",
-          "description": "Maximum reasoning with automatic task delegation"
-        }
-      ],
-      "shell_type": "unified_exec",
-      "visibility": "list",
-      "minimal_client_version": "0.144.0",
-      "supported_in_api": true,
-      "availability_nux": null,
-      "upgrade": null,
-      "priority": 7,
-      "model_messages": {
-        "instructions_template": "You are Codex inside Novel Codex, a local workspace for long-form fiction. Follow the developer instructions and the author's current request. Use only the tools exposed for this task. For domain generation, read the frozen task context before writing and save only the candidate artifact authorized by the active operation. Treat the Creative Runtime as the authority for project revisions, candidate heads, reviews, facts, and planning impacts. Never claim that content was saved, completed, or adopted unless the tool result confirms it. Keep responses concise, preserve the author's intent, and surface uncertainty or conflicts that require an author decision.",
-        "instructions_variables": null,
-        "approvals": null,
-        "collaboration_modes": null,
-        "auto_review": null,
-        "multi_agent": null,
-        "permissions": null,
-        "token_budget": {
-          "reminder_threshold_tokens": 6144,
-          "reminder_message_template": "<context_window_reminder>\nYour current context window is nearly exhausted; only {n_remaining} tokens remain. Before starting a new context window, save concise progress notes with the `notes` tool with the goal, decisions, progress, learnings, next steps, and the window ID and item ID of every relevant user request still being solved, as well as important actions/tool calls for future reference. Note that every non-assistant item, such as user, developer, tool response, has an item id `[id: ...]` that is immediately after its item content. You should write or append notes in a way to best help you recover in a new context window. It is also a good idea to clean up your old notes if they become obsolete or irrelevant. Future context windows will not automatically include the current conversation. After saving your state, call `functions.new_context` to continue in a fresh context window.\n</context_window_reminder>",
-          "guidance_message": "For tasks that may span context windows, use `notes` to maintain a concise checkpoint of the goal, decisions, progress, learnings and next steps. Include the window ID and item ID for every relevant user request you are currently solving as well as important actions/tool calls. You can use `history` tool to look up details with the references later. Note that every non-assistant item, such as user, developer, tool response, has an item id `[id: ...]` that is immediately after its item content. Relative note paths belong to the current thread; absolute paths may read other threads' notes, but writes are limited to the current thread.\n\nIt is a good idea to take incremental notes while you work so that you do not miss any important info. You can also use `get_context_remaining` tool to find the remaining token budget for better planning. Once the token budget is exhausted, you will lose access to the current window and continue in a fresh context window and you can only recover through `notes` and `history` tools. So be careful not to over-run the context window without any documentation.\n\nIf Previous context window id is present in `<context_window>`, it means a context reset occurred and this is a new window. After a reset, read the checkpoint and use the read-only `history` tool to recover any missing details. When a window ID and item ID are known, prefer `read_item` directly; when they are missing or uncertain, use `list_items`, or `search_contents` to locate the item first.\n\nTreat notes and history as internal bookkeeping. Do not mention them in user-facing messages.\n",
-          "auto_compact_fallback_prompt": "<context_window_reminder>\nThe current context window is exhausted. Do not continue the task or give a final answer in this window. The next window will not automatically include this conversation. Make exactly one write or append call to `notes` now to save a concise checkpoint with the goal, decisions, progress, learnings, next steps, and the window ID and item ID of every relevant user request still being solved, as well as important actions/tool calls for future reference. Note that every non-assistant item, such as user, developer, tool response, has an item id `[id: ...]` that is immediately after its item content. After the notes result returns, call `functions.new_context`; do not use any tools other than `notes` and `functions.new_context`.\n</context_window_reminder>",
-          "auto_compact_fallback_buffer_tokens": 16384
-        },
-        "guardian_v2": null
-      },
-      "experimental_supported_tools": [],
-      "available_in_plans": [
-        "business",
-        "edu",
-        "edu_plus",
-        "edu_pro",
-        "education",
-        "enterprise",
-        "enterprise_cbp_automation",
-        "enterprise_cbp_usage_based",
-        "finserv",
-        "free",
-        "free_workspace",
-        "go",
-        "hc",
-        "k12",
-        "plus",
-        "pro",
-        "prolite",
-        "quorum",
-        "sci",
-        "self_serve_business_prolite",
-        "self_serve_business_usage_based",
-        "team"
-      ],
-      "supports_search_tool": true,
-      "default_service_tier": null,
-      "service_tiers": [
-        {
-          "id": "priority",
-          "name": "Fast",
-          "description": "1.5x speed, increased usage"
-        }
-      ],
-      "additional_speed_tiers": [
-        "fast"
-      ],
-      "supports_reasoning_summary_parameter": true,
-      "supports_reasoning_summaries": true
-    },
-    {
       "slug": "deepseek-flash",
       "prefer_websockets": true,
       "support_verbosity": true,
@@ -158,7 +33,7 @@
       "comp_hash": "3000",
       "default_reasoning_summary": "none",
       "display_name": "DeepSeek Flash",
-      "description": "Pinned advisory model for Novel Codex.",
+      "description": "DeepSeek model for all Novel Codex tasks.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
         {

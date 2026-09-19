@@ -1,16 +1,11 @@
 {
   "version": 1,
-  "default": { "provider": "openai", "model": "gpt-5.6-terra" },
+  "default": { "provider": "deepseek", "model": "deepseek-flash" },
   "models": [
-    {
-      "provider": "openai",
-      "model": "gpt-5.6-terra",
-      "operations": ["advisory", "generateBrief", "generateOutline", "generatePlan", "generateChapter"]
-    },
     {
       "provider": "deepseek",
       "model": "deepseek-flash",
-      "operations": ["advisory"]
+      "operations": ["advisory", "generateBrief", "generateOutline", "generatePlan", "generateChapter", "reviewPlanningSeat"]
     }
   ]
 }

@@ -24,8 +24,8 @@ export async function mainHandlers(runtime, command) {
   return runInNewContext(`${source}\n
     runtimeUrl = 'http://127.0.0.1:8000';
     novelSkillPrompt = loadNovelCodexSkills(fileURLToPath(new URL('../', ${JSON.stringify(mainUrl.href)})));
-    agentProviderConfig = resolveCodexProvider({provider:'openai'});
-    codexAdapter.configure({command:fixtureCommand,apiKey:'test-openai-key'});
+    agentProviderConfig = resolveCodexProvider({provider:'deepseek', model:'deepseek-flash'});
+    codexAdapter.configure({command:fixtureCommand,apiKey:null,provider:'deepseek',model:'deepseek-flash'});
     const handlers = new Map();
     registerIpcHandlers({handle:(name,handler)=>handlers.set(name,handler)});
     ({handlers, adapter:codexAdapter});

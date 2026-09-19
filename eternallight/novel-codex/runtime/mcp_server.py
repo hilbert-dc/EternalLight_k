@@ -28,6 +28,64 @@ COMMON_PROPERTIES: dict[str, dict[str, Any]] = {
 }
 COMMON_REQUIRED = ["taskId", "projectId", "threadId", "expectedRevision"]
 
+PLANNING_REVIEW_REPORT = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string", "maxLength": 2000},
+        "strengths": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "quote": {"type": "string", "minLength": 1, "maxLength": 1200},
+                    "reason": {"type": "string", "minLength": 1, "maxLength": 1600},
+                },
+                "required": ["quote", "reason"],
+                "additionalProperties": False,
+            },
+        },
+        "findings": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "quote": {"type": "string", "minLength": 1, "maxLength": 1200},
+                    "observation": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1600,
+                    },
+                    "impact": {"type": "string", "minLength": 1, "maxLength": 1600},
+                    "suggestion": {"type": "string", "maxLength": 1600},
+                },
+                "required": ["quote", "observation", "impact", "suggestion"],
+                "additionalProperties": False,
+            },
+        },
+        "coverage": {
+            "type": "array",
+            "maxItems": 120,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "checkId": {"type": "string", "minLength": 1, "maxLength": 200},
+                    "status": {
+                        "type": "string",
+                        "enum": ["checked", "unknown", "notChecked"],
+                    },
+                    "reason": {"type": "string", "minLength": 1, "maxLength": 1600},
+                },
+                "required": ["checkId", "status", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["summary", "strengths", "findings", "coverage"],
+    "additionalProperties": False,
+}
+
 TEXT_FIELD = {"type": "string", "maxLength": 12000}
 BRIEF_PAYLOAD = {
     "type": "object",
@@ -366,6 +424,21 @@ TOOLS: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "submit_planning_review_report",
+        "description": (
+            "Save this seat's evidence-based planning review without changing the story. "
+            "Use the frozen runId and coverage IDs from read_context. Runtime verifies "
+            "the seat binding, source quotes, and coverage; findings are advisory."
+        ),
+        "inputSchema": _schema(
+            {
+                "runId": {"type": "string", "minLength": 1, "maxLength": 160},
+                "report": PLANNING_REVIEW_REPORT,
+            },
+            ["runId", "report"],
+        ),
+    },
+    {
         "name": "complete_task",
         "description": "Request task completion. Runtime verifies persisted outputs and ignores claimed references.",
         "inputSchema": _schema(
@@ -380,6 +453,11 @@ TOOLS: list[dict[str, Any]] = [
 TOOL_BY_NAME = {tool["name"]: tool for tool in TOOLS}
 TOOLS_BY_OPERATION = {
     "advisory": {"read_context"},
+    "reviewPlanningSeat": {
+        "read_context",
+        "submit_planning_review_report",
+        "complete_task",
+    },
     "generateBrief": {"read_context", "save_brief", "complete_task"},
     "generateOutline": {"read_context", "save_outline", "complete_task"},
     "generatePlan": {"read_context", "save_chapter_plans", "complete_task"},
@@ -461,6 +539,13 @@ class CandidateRuntimeClient:
                     "idempotencyKey": arguments["idempotencyKey"],
                 },
             )
+        if name == "submit_planning_review_report":
+            run = quote(arguments["runId"], safe="")
+            return self._request(
+                "POST",
+                f"/api/projects/{project}/planning-reviews/{run}/reports",
+                self._body_without(arguments, "projectId", "runId"),
+            )
         if name == "complete_task":
             return self._request(
                 "POST",
@@ -539,6 +624,8 @@ class CandidateRuntimeClient:
             _validate_object_list(
                 arguments["proposals"], "proposals", require_items=True
             )
+        if name == "submit_planning_review_report":
+            _validate_review_value(arguments, schema, "arguments")
         if name == "complete_task":
             if not isinstance(arguments["summary"], str):
                 raise ValueError("summary must be a string")
@@ -646,6 +733,48 @@ def _validate_object_list(value: Any, name: str, require_items: bool = False) ->
         )
 
 
+def _validate_review_value(value: Any, schema: dict[str, Any], path: str) -> None:
+    value_type = schema.get("type")
+    if value_type == "object":
+        if not isinstance(value, dict):
+            raise ValueError(f"{path} must be an object")
+        properties = schema.get("properties", {})
+        if schema.get("additionalProperties") is False and set(value) - set(properties):
+            raise ValueError(f"{path} contains unexpected fields")
+        if set(schema.get("required", [])) - set(value):
+            raise ValueError(f"{path} is missing required fields")
+        for key, item in value.items():
+            if key in properties:
+                _validate_review_value(item, properties[key], f"{path}.{key}")
+    elif value_type == "array":
+        if not isinstance(value, list):
+            raise ValueError(f"{path} must be an array")
+        if not schema.get("minItems", 0) <= len(value) <= schema.get("maxItems", 200):
+            raise ValueError(f"{path} has an invalid item count")
+        for index, item in enumerate(value):
+            _validate_review_value(item, schema.get("items", {}), f"{path}[{index}]")
+    elif value_type == "string":
+        if not isinstance(value, str):
+            raise ValueError(f"{path} must be a string")
+        if "\x00" in value:
+            raise ValueError(f"{path} contains a null byte")
+        if (
+            not schema.get("minLength", 0)
+            <= len(value)
+            <= schema.get("maxLength", 4000)
+        ):
+            raise ValueError(f"{path} has an invalid length")
+        if schema.get("minLength", 0) > 0 and not value.strip():
+            raise ValueError(f"{path} must not be blank")
+    elif value_type == "integer":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{path} must be an integer")
+        if value < schema.get("minimum", 0):
+            raise ValueError(f"{path} is below the minimum")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError(f"{path} has an invalid value")
+
+
 def _jsonrpc_result(request_id: Any, result: Any) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
@@ -679,6 +808,26 @@ def _content_chunks(text: str) -> list[str]:
 def _model_safe_write_result(name: str, payload: Any) -> Any:
     if not isinstance(payload, dict):
         return payload
+    if name == "submit_planning_review_report":
+        if "error" in payload:
+            error = payload["error"]
+            return (
+                {
+                    "error": {
+                        "code": str(error.get("code", "review_report_failed"))[:160],
+                        "message": str(
+                            error.get("message", "Planning review report failed")
+                        )[:500],
+                    }
+                }
+                if isinstance(error, dict)
+                else {"error": "Planning review report failed"}
+            )
+        return {
+            "reportId": payload.get("id"),
+            "role": payload.get("role"),
+            "coverageStatus": payload.get("status"),
+        }
     if name in {
         "save_draft_checkpoint",
         "save_brief",

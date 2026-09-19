@@ -510,6 +510,7 @@ def update_task(
         raise WorkspaceError("invalid_task_status", "任务状态无效")
     initialize(db_path)
     with connect(db_path) as connection:
+        connection.execute("BEGIN IMMEDIATE")
         task = _task_row(connection, project_id, task_id, thread_id)
         if task["status"] not in ACTIVE_STATUSES:
             raise ConflictError(
@@ -559,6 +560,7 @@ def update_task(
 def cancel_task(db_path: str | Path, project_id: str, task_id: str) -> dict[str, Any]:
     initialize(db_path)
     with connect(db_path) as connection:
+        connection.execute("BEGIN IMMEDIATE")
         task = connection.execute(
             "SELECT * FROM task_runs WHERE id = ? AND project_id = ?",
             (task_id, project_id),
@@ -586,6 +588,7 @@ def recover_orphaned_tasks(db_path: str | Path) -> dict[str, Any]:
     initialize(db_path)
     recovered_at = now()
     with connect(db_path) as connection:
+        connection.execute("BEGIN IMMEDIATE")
         rows = connection.execute(
             "SELECT id, output_refs_json FROM task_runs WHERE status IN ('queued','running','waiting')"
         ).fetchall()
@@ -637,6 +640,10 @@ def complete_task(
                 (task_id,),
             ).fetchone()
             valid = output is not None and output["output_kind"] == required
+            if valid and task["operation"] == "reviewPlanningSeat":
+                from .planning_reviews import valid_completed_report
+
+                valid = valid_completed_report(connection, task, output)
             if valid and required == "draft":
                 draft = connection.execute(
                     "SELECT chapter_id, body FROM draft_revisions WHERE id = ?",
@@ -651,7 +658,7 @@ def complete_task(
                         or draft["chapter_id"] == target["chapterId"]
                     )
                 )
-            if valid:
+            if valid and task["operation"] != "reviewPlanningSeat":
                 if required == "draft":
                     current = connection.execute(
                         "SELECT candidate_revision_id FROM chapter_workspace WHERE project_id = ? AND chapter_id = ?",

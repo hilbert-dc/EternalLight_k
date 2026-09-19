@@ -2262,6 +2262,8 @@ class CreativeWorkspaceTests(unittest.TestCase):
                     "chapterTitle": "前章",
                     "draftRevisionId": source["revisionId"],
                     "source": "author",
+                    "relationship": "referenceDraft",
+                    "sourceRole": "accepted",
                     "body": "父亲把沾着盐的钥匙放回抽屉。",
                     "truncated": False,
                 },

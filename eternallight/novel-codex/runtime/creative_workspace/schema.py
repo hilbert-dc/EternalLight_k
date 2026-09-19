@@ -242,6 +242,42 @@ CREATE TABLE IF NOT EXISTS task_checkpoints (
   completeness TEXT NOT NULL DEFAULT 'sceneComplete' CHECK(completeness IN ('partial','sceneComplete','chapterComplete')),
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS planning_review_runs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  artifact_kind TEXT NOT NULL CHECK(artifact_kind IN ('outline','plan')),
+  revision_id TEXT NOT NULL REFERENCES artifact_revisions(id),
+  target_node_id TEXT,
+  author_intent TEXT NOT NULL,
+  input_revision INTEGER NOT NULL,
+  roles_json TEXT NOT NULL,
+  source_packet_json TEXT NOT NULL,
+  source_packet_hash TEXT NOT NULL,
+  checks_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('open','complete','partial','cancelled')),
+  synthesis_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_planning_reviews_project ON planning_review_runs(project_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS planning_review_seats (
+  run_id TEXT NOT NULL REFERENCES planning_review_runs(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK(role IN ('structure','character','experience')),
+  task_id TEXT UNIQUE REFERENCES task_runs(id),
+  PRIMARY KEY(run_id, role)
+);
+CREATE TABLE IF NOT EXISTS planning_review_reports (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES planning_review_runs(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  task_id TEXT NOT NULL UNIQUE REFERENCES task_runs(id),
+  source_packet_hash TEXT NOT NULL,
+  report_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('complete','partial')),
+  created_at TEXT NOT NULL,
+  UNIQUE(run_id, role),
+  FOREIGN KEY(run_id, role) REFERENCES planning_review_seats(run_id, role)
+);
 CREATE TABLE IF NOT EXISTS chapter_plan_bindings (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   plan_revision_id TEXT NOT NULL REFERENCES artifact_revisions(id) ON DELETE RESTRICT,

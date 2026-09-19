@@ -3,7 +3,11 @@ import unittest
 from pathlib import Path
 
 from runtime.creative_workspace.errors import ConflictError, WorkspaceError
-from runtime.creative_workspace.generation import create_task, update_task
+from runtime.creative_workspace.generation import (
+    WHOLE_CHAPTER_SCENE_ORDER,
+    create_task,
+    update_task,
+)
 from runtime.creative_workspace.service import (
     accept_review,
     create_review,
@@ -228,6 +232,75 @@ class WorkingBaselineTests(unittest.TestCase):
         self.assertIn("不可变输入", str(replay["sourceExcerpts"]))
         self.assertNotIn("新的输出检查点", str(replay["sourceExcerpts"]))
 
+    def test_author_preview_uses_the_same_selected_previous_draft(self) -> None:
+        first = self._chapter(1, "作者选定的第一章工作稿")
+        second = self._chapter(2, "第二章待续写")
+        set_working_baseline(
+            self.db_path,
+            self.project_id,
+            "draft",
+            first["chapterId"],
+            first["revisionId"],
+            0,
+        )
+        set_working_baseline(
+            self.db_path,
+            self.project_id,
+            "draft",
+            second["chapterId"],
+            second["revisionId"],
+            0,
+        )
+
+        preview = get_context_snapshot(
+            self.db_path,
+            self.project_id,
+            "writer",
+            0,
+            reading_chapter=2,
+            scene_order=WHOLE_CHAPTER_SCENE_ORDER,
+        )
+
+        source = next(
+            item
+            for item in preview["sourceExcerpts"]
+            if item["chapterId"] == first["chapterId"]
+        )
+        self.assertEqual(source["draftRevisionId"], first["revisionId"])
+        self.assertEqual(source["sourceRole"], "workingSelected")
+        target = next(
+            item
+            for item in preview["sourceExcerpts"]
+            if item["relationship"] == "targetDraft"
+        )
+        self.assertEqual(target["draftRevisionId"], second["revisionId"])
+        self.assertEqual(target["sourceRole"], "workingSelected")
+        task = create_task(
+            self.db_path,
+            self.project_id,
+            "generateChapter",
+            0,
+            "preview-match",
+            target={
+                "type": "chapter",
+                "chapterId": second["chapterId"],
+                "chapterNumber": 2,
+                "scope": {"type": "wholeChapter"},
+            },
+        )
+        actual = get_context_snapshot(
+            self.db_path,
+            self.project_id,
+            "writer",
+            0,
+            reading_chapter=2,
+            scene_order=WHOLE_CHAPTER_SCENE_ORDER,
+            actor="candidate",
+            task_id=task["id"],
+            thread_id="preview-match",
+        )
+        self.assertEqual(preview["sourceFingerprint"], actual["sourceFingerprint"])
+
     def test_plan_candidate_preserves_working_outline_source(self) -> None:
         outline = save_artifact(
             self.db_path,
@@ -257,6 +330,10 @@ class WorkingBaselineTests(unittest.TestCase):
             "outline",
             outline["revisionId"],
             0,
+        )
+        state = workspace_state(self.db_path, self.project_id)
+        self.assertEqual(
+            state["artifacts"]["outline"]["working"]["id"], outline["revisionId"]
         )
         task = create_task(
             self.db_path,
@@ -288,7 +365,9 @@ class WorkingBaselineTests(unittest.TestCase):
             task["id"],
             "working-outline-plan",
         )
-        self.assertEqual(plan["payload"]["sourceOutlineRevisionId"], outline["revisionId"])
+        self.assertEqual(
+            plan["payload"]["sourceOutlineRevisionId"], outline["revisionId"]
+        )
         review = create_review(
             self.db_path, self.project_id, "plan", plan["revisionId"]
         )
@@ -568,9 +647,9 @@ class WorkingBaselineTests(unittest.TestCase):
         accept_review(
             self.db_path,
             self.project_id,
-            create_review(
-                self.db_path, self.project_id, "brief", brief["revisionId"]
-            )["id"],
+            create_review(self.db_path, self.project_id, "brief", brief["revisionId"])[
+                "id"
+            ],
             0,
             "advance-before-failure",
         )

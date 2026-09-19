@@ -1,0 +1,95 @@
+name: novel-codex-ci
+
+on:
+  pull_request:
+    paths:
+      - "eternallight/**"
+      - ".github/workflows/novel-codex-*"
+  push:
+    branches: [main]
+    paths:
+      - "eternallight/**"
+      - ".github/workflows/novel-codex-*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Product boundary and tests
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: eternallight/novel-codex
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: eternallight/novel-codex/package-lock.json
+      - name: Configure read-only Codex upstream
+        working-directory: .
+        run: |
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/openai/codex.git
+          git fetch upstream main
+      - run: npm ci
+      - run: npm run repo:check:strict
+      - run: npm run build
+      - run: npm run test:runtime
+      - run: npm run test:agent
+
+  package:
+    name: Independent package (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: eternallight/novel-codex/package-lock.json
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+      - name: Build pinned Agent Engine from this commit
+        working-directory: codex-rs
+        run: cargo build --release -p codex-cli --bin codex
+      - name: Install Novel Codex dependencies
+        working-directory: eternallight/novel-codex
+        run: npm ci
+      - name: Stage checksummed private engine
+        working-directory: eternallight/novel-codex
+        env:
+          NOVEL_CODEX_RELEASE_CLI: ${{ github.workspace }}/codex-rs/target/release/codex${{ runner.os == 'Windows' && '.exe' || '' }}
+          NOVEL_CODEX_RELEASE_RESOURCES: ${{ github.workspace }}/eternallight/novel-codex/.release/resources
+        run: npm run stage:release-runtime
+      - name: Package Novel Codex
+        working-directory: eternallight/novel-codex
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            npm run package:win
+          else
+            npm run package:mac
+          fi
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: novel-codex-${{ runner.os }}-${{ runner.arch }}
+          path: eternallight/novel-codex/release/*
+          if-no-files-found: error

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Review Gate"
+  short_description: "Review every code change before implementation"
+  default_prompt: "Use $design-review-gate to design and review this code change before implementing it."

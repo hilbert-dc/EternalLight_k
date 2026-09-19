@@ -8,25 +8,19 @@ import { CodexAppServerAdapter } from "../codex-adapter.mjs";
 const fixture = fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url));
 const command = `${process.execPath} ${join("", fixture)}`;
 
-test("logs a fresh OpenAI App Server into ephemeral API-key auth", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command, env: { PATH: process.env.PATH } });
+test("starts a fresh DeepSeek App Server without desktop authentication", async () => {
+  const adapter = new CodexAppServerAdapter({ command, model: "deepseek-flash", provider: "deepseek", env: { PATH: process.env.PATH } });
   await adapter.ensureInitialized();
   assert.equal(adapter.initialized, true);
   adapter.close();
 });
 
-test("fails closed before starting a fresh OpenAI App Server without an API key", async () => {
-  const adapter = new CodexAppServerAdapter({ command });
-  await assert.rejects(adapter.ensureInitialized(), /缺少 API Key/);
-  assert.equal(adapter.process, null);
-});
-
 test("performs app-server handshake and streams a completed turn", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   const events = [];
   adapter.setCallbacks({ onEvent: (event) => events.push(event) });
   const result = await adapter.sendTurn([{ type: "text", text: "hello" }]);
-  assert.equal(result.mode, "codex-app-server");
+  assert.equal(result.mode, "novel-agent-engine");
   assert.equal(result.message, "hello");
   assert.equal(result.turn.id, "turn-test");
   assert.equal(adapter.threadId, "thr-test");
@@ -42,21 +36,21 @@ test("performs app-server handshake and streams a completed turn", async () => {
 });
 
 test("uses the completed agent message as the bounded turn result", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   const result = await adapter.sendTurn([{ type: "text", text: "completed-message" }]);
   assert.equal(result.message, "最终讨论结论");
   adapter.close();
 });
 
 test("caps a streamed agent message before returning it", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   const result = await adapter.sendTurn([{ type: "text", text: "long-message" }]);
   assert.equal(result.message.length, 64 * 1024);
   adapter.close();
 });
 
 test("starts domain generation without an execution environment or approvals", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   adapter.prepareTaskOperation("generateOutline", "task-capability-outline-1234567890");
   const result = await adapter.sendTurn([{ type: "text", text: "isolated" }], { disableEnvironment: true });
   assert.deepEqual(result.turn.receivedParams.environments, []);
@@ -66,7 +60,7 @@ test("starts domain generation without an execution environment or approvals", a
 });
 
 test("terminates the app-server and erases the task capability after each task", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   adapter.prepareTaskOperation("generateOutline", "task-capability-outline-erase-1234567890");
   await adapter.sendTurn([{ type: "text", text: "isolated" }], { disableEnvironment: true });
   const child = adapter.process;
@@ -80,7 +74,7 @@ test("terminates the app-server and erases the task capability after each task",
 });
 
 test("force-terminates an active task and rejects its pending turn", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   adapter.prepareTaskOperation("generateOutline", "task-capability-outline-stop-1234567890");
   let started;
   const startedPromise = new Promise((resolve) => { started = resolve; });
@@ -96,7 +90,7 @@ test("force-terminates an active task and rejects its pending turn", async () =>
 });
 
 test("selects the read-only advisory operation for a free discussion", () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command, env: { ...process.env, NOVEL_CODEX_OPERATION: "generatePlan" } });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command, env: { ...process.env, NOVEL_CODEX_OPERATION: "generatePlan" } });
   adapter.prepareAdvisorySession("task-capability-advisory-123456789");
   assert.equal(adapter.env.NOVEL_CODEX_OPERATION, "advisory");
   assert.equal(adapter.env.NOVEL_CODEX_TASK_CAPABILITY, "task-capability-advisory-123456789");
@@ -104,7 +98,7 @@ test("selects the read-only advisory operation for a free discussion", () => {
 });
 
 test("rotates the capability and process between advisory tasks", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   adapter.prepareAdvisorySession("task-capability-advisory-a-123456789");
   await adapter.resumeThread("thr-history");
   const child = adapter.process;
@@ -115,43 +109,42 @@ test("rotates the capability and process between advisory tasks", async () => {
   adapter.close();
 });
 
-test("pauses for explicit approval and resumes after resolution", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+test("automatically denies software permission requests without exposing an approval", async () => {
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   const events = [];
-  const approval = new Promise((resolve) => adapter.setCallbacks({ onApprovalRequest: resolve, onEvent: (event) => events.push(event) }));
-  const turn = adapter.sendTurn([{ type: "text", text: "approval" }]);
-  const request = await approval;
-  assert.equal(request.method, "item/commandExecution/requestApproval");
-  assert.equal(request.params.command, "echo test");
-  assert.deepEqual(adapter.resolveApproval(request.requestId, { decision: "decline" }), { resolved: true });
-  const result = await turn;
-  assert.equal(result.mode, "codex-app-server");
+  const userInputRequests = [];
+  adapter.setCallbacks({ onUserInputRequest: (request) => userInputRequests.push(request), onEvent: (event) => events.push(event) });
+  const result = await adapter.sendTurn([{ type: "text", text: "approval" }]);
+  assert.equal(result.mode, "novel-agent-engine");
+  assert.deepEqual(userInputRequests, []);
+  assert.ok(events.some((event) => event.method === "agent/softwarePermissionDenied" && event.params.requestMethod === "item/commandExecution/requestApproval"));
+  assert.ok(!events.some((event) => event.method === "item/commandExecution/requestApproval"));
   assert.ok(events.some((event) => event.method === "serverRequest/resolved"));
   adapter.close();
 });
 
 test("collects structured user input and resumes the turn", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   const requests = [];
   let resolveSecondRequest;
   const secondRequest = new Promise((resolve) => { resolveSecondRequest = resolve; });
-  const firstRequest = new Promise((resolve) => adapter.setCallbacks({ onApprovalRequest: (request) => { requests.push(request); if (requests.length === 1) resolve(request); if (requests.length === 2) resolveSecondRequest(request); } }));
+  const firstRequest = new Promise((resolve) => adapter.setCallbacks({ onUserInputRequest: (request) => { requests.push(request); if (requests.length === 1) resolve(request); if (requests.length === 2) resolveSecondRequest(request); } }));
   const turn = adapter.sendTurn([{ type: "text", text: "user-input" }]);
   const request = await firstRequest;
   assert.equal(request.method, "item/tool/requestUserInput");
   assert.equal(request.params.questions[0].id, "direction");
-  assert.deepEqual(adapter.resolveApproval(request.requestId, { answers: { direction: "白塔谜团" } }), { resolved: true });
+  assert.deepEqual(adapter.resolveUserInput(request.requestId, { answers: { direction: "白塔谜团" } }), { resolved: true });
   const nextRequest = await secondRequest;
   assert.equal(nextRequest.method, "item/tool/requestUserInput");
   assert.equal(nextRequest.params.questions[0].id, "tone");
-  assert.deepEqual(adapter.resolveApproval(nextRequest.requestId, { answers: { tone: "克制" } }), { resolved: true });
+  assert.deepEqual(adapter.resolveUserInput(nextRequest.requestId, { answers: { tone: "克制" } }), { resolved: true });
   const result = await turn;
-  assert.equal(result.mode, "codex-app-server");
+  assert.equal(result.mode, "novel-agent-engine");
   adapter.close();
 });
 
 test("steers an active turn without creating a new turn", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   let started;
   const startedPromise = new Promise((resolve) => { started = resolve; });
   adapter.setCallbacks({ onEvent: (event) => { if (event.method === "turn/started") started(); } });
@@ -159,18 +152,18 @@ test("steers an active turn without creating a new turn", async () => {
   await startedPromise;
   assert.deepEqual(await adapter.steerTurn([{ type: "text", text: "focus on the lighthouse" }]), { steered: true });
   const result = await turn;
-  assert.equal(result.mode, "codex-app-server");
+  assert.equal(result.mode, "novel-agent-engine");
   adapter.close();
 });
 
 test("lists, pins, archives, restores and resumes an isolated app-server thread", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   const listed = await adapter.listThreads();
   assert.deepEqual(listed.threads[0], {
     id: "thr-history",
     name: "整理第一章",
     preview: "继续完善灯塔场景",
-    modelProvider: "openai",
+    modelProvider: "deepseek",
     status: "notLoaded",
     createdAt: 1730831111,
     updatedAt: 1730832111,
@@ -209,7 +202,7 @@ test("lists, pins, archives, restores and resumes an isolated app-server thread"
 });
 
 test("interrupts an active turn", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   let started;
   const startedPromise = new Promise((resolve) => { started = resolve; });
   adapter.setCallbacks({ onEvent: (event) => { if (event.method === "turn/started") started(); } });
@@ -217,12 +210,12 @@ test("interrupts an active turn", async () => {
   await startedPromise;
   assert.deepEqual(await adapter.interruptTurn(), { interrupted: true });
   const result = await turn;
-  assert.equal(result.mode, "codex-app-server");
+  assert.equal(result.mode, "novel-agent-engine");
   adapter.close();
 });
 
 test("supports task review, context compaction and background terminal controls", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   const events = [];
   adapter.setCallbacks({ onEvent: (event) => events.push(event) });
   await adapter.resumeThread("thr-test");
@@ -242,7 +235,7 @@ test("supports task review, context compaction and background terminal controls"
 });
 
 test("rejects pending work when app-server exits cleanly", async () => {
-  const adapter = new CodexAppServerAdapter({ apiKey: "test-openai-key", command });
-  await assert.rejects(adapter.sendTurn([{ type: "text", text: "clean-exit" }]), /exited \(0\)/);
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
+  await assert.rejects(adapter.sendTurn([{ type: "text", text: "clean-exit" }]), /已退出 \(0\)/);
   adapter.close();
 });

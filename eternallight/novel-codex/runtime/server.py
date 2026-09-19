@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 try:
+    from .creative_workspace import planning_reviews
     from .creative_workspace.author_export import export_project
     from .creative_workspace.thread_lookup import lookup_thread_tasks
     from .creative_workspace.metrics import local_metrics, record_abandonment
@@ -54,6 +55,7 @@ try:
         search_project,
     )
 except ImportError:
+    from creative_workspace import planning_reviews
     from creative_workspace.author_export import export_project
     from creative_workspace.thread_lookup import lookup_thread_tasks
     from creative_workspace.metrics import local_metrics, record_abandonment
@@ -210,6 +212,41 @@ def response_payload(
     if len(parts) >= 3 and parts[:2] == ["api", "projects"]:
         project_id = parts[2]
         suffix = parts[3:]
+        if suffix == ["planning-reviews"] and method == "POST":
+            _require_author(actor)
+            return 201, planning_reviews.create_planning_review(
+                db_path, project_id, payload
+            )
+        if len(suffix) >= 2 and suffix[0] == "planning-reviews":
+            run_id = suffix[1]
+            if suffix[2:] == ["reports"] and method == "POST":
+                if actor != "candidate":
+                    raise UnauthorizedError("规划报告只能由绑定的顾问任务提交")
+                return 201, planning_reviews.save_planning_report(
+                    db_path, project_id, run_id, payload
+                )
+            _require_author(actor)
+            if len(suffix) == 2 and method == "GET":
+                return 200, planning_reviews.get_planning_review(
+                    db_path, project_id, run_id
+                )
+            if (
+                len(suffix) == 5
+                and suffix[2] == "seats"
+                and suffix[4] == "tasks"
+                and method == "POST"
+            ):
+                return 201, planning_reviews.create_seat_task(
+                    db_path, project_id, run_id, suffix[3], payload
+                )
+            if suffix[2:] in (["finalize"], ["cancel"]) and method == "POST":
+                if payload:
+                    raise WorkspaceError(
+                        "invalid_planning_review", "结束评审不接受额外字段"
+                    )
+                return 200, planning_reviews.finish_planning_review(
+                    db_path, project_id, run_id, cancel=suffix[2] == "cancel"
+                )
         if suffix == ["export"] and method == "POST":
             _require_author(actor)
             return 200, export_project(db_path, project_id, payload)
@@ -282,11 +319,7 @@ def response_payload(
                 _string(payload, "authorIntent", required=True, limit=32_000),
             )
             return 201, task
-        if (
-            len(suffix) == 2
-            and suffix[0] == "working-baselines"
-            and method == "PUT"
-        ):
+        if len(suffix) == 2 and suffix[0] == "working-baselines" and method == "PUT":
             _require_author(actor)
             return 200, set_working_baseline(
                 db_path,
@@ -296,11 +329,7 @@ def response_payload(
                 _string(payload, "revisionId", required=True, limit=160),
                 _integer(payload, "expectedSelectionRevision", required=True),
             )
-        if (
-            len(suffix) == 2
-            and suffix[0] == "continuations"
-            and method == "PUT"
-        ):
+        if len(suffix) == 2 and suffix[0] == "continuations" and method == "PUT":
             _require_author(actor)
             return 200, save_continuation_intent(
                 db_path,
@@ -310,11 +339,7 @@ def response_payload(
                 _string(payload, "workingRevisionId", required=True, limit=160),
                 _string(payload, "authorIntent", required=True, limit=32_000),
             )
-        if (
-            len(suffix) == 2
-            and suffix[0] == "working-baselines"
-            and method == "DELETE"
-        ):
+        if len(suffix) == 2 and suffix[0] == "working-baselines" and method == "DELETE":
             _require_author(actor)
             return 200, clear_working_baseline(
                 db_path,
@@ -647,7 +672,7 @@ def authorize_candidate_capability(
 
 
 class RuntimeHandler(BaseHTTPRequestHandler):
-    db_path = "novel-codex.sqlite3"
+    db_path = "novel-codex-v2.sqlite3"
     candidate_token = ""
     author_token = ""
 
@@ -861,7 +886,7 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
-        "--db", default=str(Path.home() / ".novel-codex" / "novel-codex.sqlite3")
+        "--db", default=str(Path.home() / ".novel-codex" / "novel-codex-v2.sqlite3")
     )
     parser.add_argument("--token-stdin", action="store_true", required=True)
     args = parser.parse_args()

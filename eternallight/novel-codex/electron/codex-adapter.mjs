@@ -27,7 +27,7 @@ function splitCommand(command) {
 
 function safeMessage(message) {
   const encoded = JSON.stringify(message);
-  return encoded.length > MAX_EVENT_BYTES ? { method: "agent/error", params: { message: "Codex event exceeded the display limit" } } : message;
+  return encoded.length > MAX_EVENT_BYTES ? { method: "agent/error", params: { message: "Novel Agent Engine 事件超过显示上限" } } : message;
 }
 
 function bounded(value, limit) {
@@ -46,6 +46,10 @@ function agentMessageText(item) {
 
 function isUserInputMethod(method) {
   return method === "item/tool/requestUserInput";
+}
+
+function validRequestId(value) {
+  return (typeof value === "string" && value.trim()) || (typeof value === "number" && Number.isSafeInteger(value));
 }
 
 function validUserInputId(value) {
@@ -136,7 +140,7 @@ function threadTurnSummary(turn, index) {
 }
 
 export class CodexAppServerAdapter {
-  constructor({ apiKey = null, command = null, commandSource = null, configurationError = null, cwd = process.cwd(), env = process.env, model = "gpt-5.6-terra", provider = "openai" }) {
+  constructor({ apiKey = null, command = null, commandSource = null, configurationError = null, cwd = process.cwd(), env = process.env, model = "deepseek-flash", provider = "deepseek" }) {
     this.apiKey = apiKey;
     this.command = command;
     this.commandSource = commandSource;
@@ -149,7 +153,7 @@ export class CodexAppServerAdapter {
     this.reader = null;
     this.nextId = 1;
     this.pending = new Map();
-    this.approvals = new Map();
+    this.userInputs = new Map();
     this.threadId = null;
     this.turnId = null;
     this.executable = null;
@@ -158,7 +162,7 @@ export class CodexAppServerAdapter {
     this.initialized = false;
     this.activeOperation = this.env.NOVEL_CODEX_OPERATION ?? null;
     this.turnWaiter = null;
-    this.callbacks = { onEvent: () => {}, onApprovalRequest: () => {} };
+    this.callbacks = { onEvent: () => {}, onUserInputRequest: () => {} };
     this.lastError = null;
   }
 
@@ -170,8 +174,8 @@ export class CodexAppServerAdapter {
     return {
       configured: this.enabled,
       state: this.lastError || this.configurationError ? "error" : this.turnWaiter ? "running" : this.process ? "ready" : "idle",
-      mode: this.enabled ? "codex-app-server" : "local",
-      error: this.lastError ?? this.configurationError ?? (this.enabled ? null : "未找到 Novel Codex 专用 Codex CLI"),
+      mode: this.enabled ? "novel-agent-engine" : "local",
+      error: this.lastError ?? this.configurationError ?? (this.enabled ? null : "未找到 Novel Agent Engine 内核"),
       provider: this.provider,
       model: this.model,
       commandSource: this.commandSource,
@@ -197,7 +201,7 @@ export class CodexAppServerAdapter {
     this.process = null;
     this.reader = null;
     this.pending.clear();
-    this.approvals.clear();
+    this.userInputs.clear();
     this.executable = null;
     this.lastError = null;
     this.threadId = null;
@@ -208,8 +212,8 @@ export class CodexAppServerAdapter {
   }
 
   assertConfigurable() {
-    if (this.turnWaiter || this.turnId) throw new Error("Codex 正在处理上一轮请求，不能重新配置");
-    if (this.initializing || this.threadStarting || this.pending.size > 0) throw new Error("Codex App Server 正在处理请求，不能重新配置");
+    if (this.turnWaiter || this.turnId) throw new Error("Novel Agent Engine 正在处理上一轮请求，不能重新配置");
+    if (this.initializing || this.threadStarting || this.pending.size > 0) throw new Error("Novel Agent Engine 正在处理请求，不能重新配置");
   }
 
   setCallbacks(callbacks) {
@@ -217,7 +221,7 @@ export class CodexAppServerAdapter {
   }
 
   async ensureInitialized() {
-    if (!this.enabled) throw new Error("Codex App Server 未配置");
+    if (!this.enabled) throw new Error("Novel Agent Engine 未配置");
     if (this.initialized) return true;
     if (this.initializing) return this.initializing;
     this.initializing = this.initialize().finally(() => { this.initializing = null; });
@@ -225,18 +229,12 @@ export class CodexAppServerAdapter {
   }
 
   async initialize() {
-    if (this.provider === "openai" && (typeof this.apiKey !== "string" || !this.apiKey.trim())) {
-      throw new Error("OpenAI App Server 缺少 API Key");
-    }
     this.startProcess();
     await this.request("initialize", {
       clientInfo: { name: "novel_codex", title: "Novel Codex", version: "0.1.0" },
       capabilities: { experimentalApi: true },
     });
     this.notify("initialized", {});
-    if (this.provider === "openai") {
-      await this.request("account/login/start", { type: "apiKey", apiKey: this.apiKey });
-    }
     this.initialized = true;
     this.lastError = null;
     return true;
@@ -253,20 +251,20 @@ export class CodexAppServerAdapter {
   async startThread() {
     const result = await this.request("thread/start", { model: this.model, cwd: this.cwd, serviceName: "novel_codex" });
     this.threadId = result?.thread?.id;
-    if (!this.threadId) throw new Error("Codex App Server 未返回 thread id");
+    if (!this.threadId) throw new Error("Novel Agent Engine 未返回 thread id");
     this.turnId = null;
     this.emit({ method: "agent/ready", params: { threadId: this.threadId } });
     return this.threadId;
   }
 
   detachThread() {
-    if (this.turnWaiter) throw new Error("Codex 正在处理上一轮请求");
+    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
     this.threadId = null;
     this.turnId = null;
   }
 
   prepareTaskOperation(operation, taskCapability) {
-    if (!new Set(["generateBrief", "generateOutline", "generatePlan", "generateChapter"]).has(operation)) throw new Error("生成任务 operation 无效");
+    if (!new Set(["generateBrief", "generateOutline", "generatePlan", "generateChapter", "reviewPlanningSeat"]).has(operation)) throw new Error("生成任务 operation 无效");
     this.prepareOperationEnvironment(operation, taskCapability);
   }
 
@@ -276,7 +274,7 @@ export class CodexAppServerAdapter {
 
   prepareOperationEnvironment(operation, taskCapability) {
     if (typeof taskCapability !== "string" || taskCapability.length < 24 || /[\r\n]/.test(taskCapability)) throw new Error("任务能力凭证无效");
-    if (this.turnWaiter) throw new Error("Codex 正在处理上一轮请求");
+    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
     if (this.process && operation === this.activeOperation && this.env.NOVEL_CODEX_TASK_CAPABILITY === taskCapability) return;
     if (this.process) {
       this.reader?.close();
@@ -285,7 +283,7 @@ export class CodexAppServerAdapter {
     this.process = null;
     this.reader = null;
     this.pending.clear();
-    this.approvals.clear();
+    this.userInputs.clear();
     this.threadId = null;
     this.turnId = null;
     this.threadStarting = null;
@@ -301,7 +299,7 @@ export class CodexAppServerAdapter {
   }
 
   async finishTaskOperation() {
-    const error = new Error("Codex 任务会话已结束");
+    const error = new Error("创作引擎任务会话已结束");
     if (this.turnWaiter) {
       clearTimeout(this.turnWaiter.timer);
       this.turnWaiter.reject(error);
@@ -316,7 +314,7 @@ export class CodexAppServerAdapter {
       request.reject(error);
     }
     this.pending.clear();
-    this.approvals.clear();
+    this.userInputs.clear();
     this.threadId = null;
     this.turnId = null;
     this.threadStarting = null;
@@ -361,18 +359,18 @@ export class CodexAppServerAdapter {
     await this.ensureInitialized();
     const result = await this.request("thread/read", { threadId, includeTurns: true });
     const thread = result?.thread;
-    if (thread?.id !== threadId) throw new Error("Codex 未返回匹配的线程");
+    if (thread?.id !== threadId) throw new Error("Novel Agent Engine 未返回匹配的线程");
     const turns = Array.isArray(thread.turns) ? thread.turns.slice(0, MAX_THREAD_DETAIL_TURNS).map(threadTurnSummary) : [];
     return { thread: threadSummary(thread), turns };
   }
 
   async resumeThread(threadId) {
     validateThreadId(threadId);
-    if (this.turnWaiter) throw new Error("Codex 正在处理上一轮请求");
+    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
     await this.ensureInitialized();
     const result = await this.request("thread/resume", { threadId });
     const thread = result?.thread;
-    if (thread?.id !== threadId) throw new Error("Codex 未返回匹配的线程");
+    if (thread?.id !== threadId) throw new Error("Novel Agent Engine 未返回匹配的线程");
     this.threadId = thread.id;
     this.turnId = null;
     this.emit({ method: "thread/started", params: { thread } });
@@ -381,7 +379,7 @@ export class CodexAppServerAdapter {
 
   async reconnectThread(threadId) {
     validateThreadId(threadId);
-    if (this.turnWaiter) throw new Error("Codex 正在处理上一轮请求");
+    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
     this.lastError = null;
     const result = await this.resumeThread(threadId);
     this.emit({ method: "agent/connection", params: { state: "ready", threadId } });
@@ -390,7 +388,7 @@ export class CodexAppServerAdapter {
 
   async reviewThread(threadId) {
     validateThreadId(threadId);
-    if (this.turnWaiter) throw new Error("Codex 正在处理上一轮请求");
+    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
     await this.ensureInitialized();
     const result = await this.request("review/start", { threadId, delivery: "inline", target: { type: "uncommittedChanges" } });
     this.emit({ method: "agent/review", params: { threadId, delivery: "inline", target: "uncommittedChanges" } });
@@ -399,7 +397,7 @@ export class CodexAppServerAdapter {
 
   async compactThread(threadId) {
     validateThreadId(threadId);
-    if (this.turnWaiter) throw new Error("Codex 正在处理上一轮请求");
+    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
     await this.ensureInitialized();
     await this.request("thread/compact/start", { threadId });
     return { started: true };
@@ -437,7 +435,7 @@ export class CodexAppServerAdapter {
 
   async archiveThread(threadId) {
     validateThreadId(threadId);
-    if (this.turnWaiter) throw new Error("Codex 正在处理上一轮请求");
+    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
     await this.ensureInitialized();
     await this.request("thread/archive", { threadId });
     if (this.threadId === threadId) {
@@ -451,7 +449,7 @@ export class CodexAppServerAdapter {
     validateThreadId(threadId);
     await this.ensureInitialized();
     const result = await this.request("thread/unarchive", { threadId });
-    if (result?.thread?.id !== threadId) throw new Error("Codex 未返回匹配的线程");
+    if (result?.thread?.id !== threadId) throw new Error("Novel Agent Engine 未返回匹配的线程");
     return { thread: threadSummary(result.thread) };
   }
 
@@ -476,7 +474,7 @@ export class CodexAppServerAdapter {
       delete this.env.NOVEL_CODEX_OPERATION;
       delete this.env.NOVEL_CODEX_TASK_CAPABILITY;
       this.activeOperation = null;
-      this.fail(new Error(`Codex App Server exited (${code ?? signal ?? "unknown"})`));
+      this.fail(new Error(`Novel Agent Engine 内核已退出 (${code ?? signal ?? "unknown"})`));
     });
   }
 
@@ -485,6 +483,22 @@ export class CodexAppServerAdapter {
     let message;
     try { message = JSON.parse(line); } catch { this.emit({ method: "agent/text", params: { text: line.slice(0, MAX_EVENT_BYTES) } }); return; }
     const safe = safeMessage(message);
+    if (message.method?.includes("requestApproval")) {
+      if (!validRequestId(message.id)) {
+        this.emit({ method: "agent/error", params: { message: "软件权限请求缺少有效 ID" } });
+        return;
+      }
+      this.write({ id: message.id, result: { decision: "decline" } });
+      this.emit({
+        method: "agent/softwarePermissionDenied",
+        params: {
+          requestId: message.id,
+          requestMethod: message.method,
+          reason: "Novel Agent Engine 不允许模型请求命令、文件或网络权限",
+        },
+      });
+      return;
+    }
     this.emit(safe);
     if (message.method === "thread/started" && message.params?.thread?.id) this.threadId = message.params.thread.id;
     if (message.method === "thread/closed" && message.params?.threadId === this.threadId) {
@@ -497,13 +511,13 @@ export class CodexAppServerAdapter {
         this.turnWaiter.turnId = message.params.turn.id;
       }
     }
-    if (message.method?.includes("requestApproval") || isUserInputMethod(message.method)) {
-      if (!((typeof message.id === "string" && message.id.trim()) || (typeof message.id === "number" && Number.isSafeInteger(message.id)))) {
-        this.emit({ method: "agent/error", params: { message: "Codex 交互请求缺少有效 ID" } });
+    if (isUserInputMethod(message.method)) {
+      if (!validRequestId(message.id)) {
+        this.emit({ method: "agent/error", params: { message: "作者问题缺少有效 ID" } });
         return;
       }
-      this.approvals.set(message.id, message);
-      this.callbacks.onApprovalRequest({
+      this.userInputs.set(message.id, message);
+      this.callbacks.onUserInputRequest({
         requestId: message.id,
         method: message.method,
         params: message.params ?? {},
@@ -518,7 +532,7 @@ export class CodexAppServerAdapter {
       this.pending.delete(message.id);
       clearTimeout(request.timer);
       if (message.error) {
-        request.reject(new Error(message.error.message ?? "Codex App Server request failed"));
+        request.reject(new Error(message.error.message ?? "Novel Agent Engine 请求失败"));
       } else {
         if (request.method === "turn/start" && this.turnWaiter && message.result?.turn?.id) {
           this.turnWaiter.turnId = message.result.turn.id;
@@ -565,8 +579,8 @@ export class CodexAppServerAdapter {
       if (completedWaiter.turnId === null || message.params?.threadId !== completedWaiter.threadId || message.params?.turn?.id !== completedWaiter.turnId) return;
       this.turnWaiter = null;
       clearTimeout(completedWaiter.timer);
-      if (message.params?.turn?.status === "failed") completedWaiter.reject(new Error(message.params?.turn?.error?.message ?? "Codex turn failed"));
-      else completedWaiter.resolve({ mode: "codex-app-server", message: completedWaiter.agentMessage, turn: message.params?.turn ?? null });
+      if (message.params?.turn?.status === "failed") completedWaiter.reject(new Error(message.params?.turn?.error?.message ?? "Novel Agent Engine 回合失败"));
+      else completedWaiter.resolve({ mode: "novel-agent-engine", message: completedWaiter.agentMessage, turn: message.params?.turn ?? null });
     }
   }
 
@@ -575,7 +589,7 @@ export class CodexAppServerAdapter {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Codex App Server 请求超时：${method}`));
+        reject(new Error(`Novel Agent Engine 请求超时：${method}`));
       }, 30_000);
       this.pending.set(id, { method, resolve, reject, timer });
       try {
@@ -591,16 +605,16 @@ export class CodexAppServerAdapter {
   notify(method, params) { this.write({ method, params }); }
 
   write(message) {
-    if (!this.process?.stdin.writable) throw new Error("Codex App Server stdin 不可写");
+    if (!this.process?.stdin.writable) throw new Error("Novel Agent Engine stdin 不可写");
     this.process.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
   async sendTurn(input, { disableEnvironment = false, threadName = null } = {}) {
-    if (this.turnWaiter) throw new Error("Codex 正在处理上一轮请求");
+    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
     const createdThread = !this.threadId;
     const threadId = await this.ensureSession();
     const result = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.turnWaiter = null; reject(new Error("Codex turn 超时")); }, 10 * 60 * 1000);
+      const timer = setTimeout(() => { this.turnWaiter = null; reject(new Error("Novel Agent Engine 回合超时")); }, 10 * 60 * 1000);
       this.turnWaiter = { resolve, reject, timer, threadId, turnId: null, agentMessageItemId: null, agentMessage: "" };
     });
     void result.catch(() => {});
@@ -642,11 +656,11 @@ export class CodexAppServerAdapter {
     return { steered: true };
   }
 
-  resolveApproval(requestId, response) {
-    const request = this.approvals.get(requestId);
-    if (!request) throw new Error("审批请求已过期");
-    const result = isUserInputMethod(request.method) ? validateUserInputResponse(response, request.params) : response;
-    this.approvals.delete(requestId);
+  resolveUserInput(requestId, response) {
+    const request = this.userInputs.get(requestId);
+    if (!request || !isUserInputMethod(request.method)) throw new Error("作者问题已过期");
+    const result = validateUserInputResponse(response, request.params);
+    this.userInputs.delete(requestId);
     this.write({ id: requestId, result });
     return { resolved: true };
   }
@@ -660,7 +674,7 @@ export class CodexAppServerAdapter {
       request.reject(error);
     }
     this.pending.clear();
-    this.approvals.clear();
+    this.userInputs.clear();
     if (this.turnWaiter) { clearTimeout(this.turnWaiter.timer); this.turnWaiter.reject(error); this.turnWaiter = null; }
     this.turnId = null;
     this.initialized = false;
@@ -676,6 +690,6 @@ export class CodexAppServerAdapter {
     delete this.env.NOVEL_CODEX_OPERATION;
     delete this.env.NOVEL_CODEX_TASK_CAPABILITY;
     this.activeOperation = null;
-    this.fail(new Error("Codex App Server closed"));
+    this.fail(new Error("Novel Agent Engine 已关闭"));
   }
 }

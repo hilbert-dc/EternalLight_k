@@ -202,7 +202,7 @@ function clearAgentCallbacks() {
   removeAgentWebContentsListener?.();
   removeAgentWebContentsListener = null;
   agentWebContents = null;
-  codexAdapter.setCallbacks({ onEvent: () => {}, onApprovalRequest: () => {} });
+  codexAdapter.setCallbacks({ onEvent: () => {}, onUserInputRequest: () => {} });
 }
 
 function attachAgentWebContents(webContents) {
@@ -252,13 +252,13 @@ async function prepareNovelWorkflow(projectId, prompt, task, purpose) {
 }
 
 async function runCreativeAgentTask(event, projectId, prompt, taskType, target = null) {
-  if (!codexAdapter.enabled) throw new Error("Codex App Server 未配置，当前只能手动编辑，不能生成伪造产物");
-  if (activeAgentExecution) throw new Error("已有 Codex 任务正在运行，请先等待或停止当前任务");
+  if (!codexAdapter.enabled) throw new Error("Novel Agent Engine 未配置，当前只能手动编辑，不能生成伪造产物");
+  if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
   assertProviderOperation(agentProviderConfig, taskType.operation);
   attachAgentWebContents(event.sender);
   codexAdapter.setCallbacks({
     onEvent: (message) => sendAgentMessage("agent:event", message),
-    onApprovalRequest: (request) => sendAgentMessage("agent:approval-request", request),
+    onUserInputRequest: (request) => sendAgentMessage("agent:user-input-request", request),
   });
   const execution = createTaskExecution();
   activeAgentExecution = execution;
@@ -319,14 +319,82 @@ async function runCreativeAgentTask(event, projectId, prompt, taskType, target =
   }
 }
 
+async function runPlanningReview(event, projectId, request) {
+  if (!codexAdapter.enabled) throw new Error("Novel Agent Engine 未配置，当前只能手动编辑");
+  if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
+  if (!request || typeof request !== "object" || !["outline", "plan"].includes(request.artifactKind)) throw new Error("规划评审目标无效");
+  if (typeof request.revisionId !== "string" || !request.revisionId.trim()) throw new Error("规划评审缺少明确版本");
+  validateAuthorIntent(request.authorIntent);
+  const roles = request.roles;
+  if (!Array.isArray(roles) || ![2, 3].includes(roles.length) || new Set(roles).size !== roles.length || roles.some((role) => !["structure", "character", "experience"].includes(role))) throw new Error("规划评审角色无效");
+  assertProviderOperation(agentProviderConfig, "reviewPlanningSeat");
+  attachAgentWebContents(event.sender);
+  codexAdapter.setCallbacks({
+    onEvent: (message) => sendAgentMessage("agent:event", message),
+    onUserInputRequest: (request) => sendAgentMessage("agent:user-input-request", request),
+  });
+  const execution = createTaskExecution();
+  execution.projectId = projectId;
+  activeAgentExecution = execution;
+  let run = null;
+  try {
+    run = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/planning-reviews`, {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+    execution.runId = run.id;
+    for (const role of run.roles) {
+      if (execution.cancellationRequested) break;
+      let task = null;
+      try {
+        const capability = createTaskCapability();
+        codexAdapter.prepareTaskOperation("reviewPlanningSeat", capability.secret);
+        const threadId = await codexAdapter.ensureSession();
+        task = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/planning-reviews/${encodeURIComponent(run.id)}/seats/${encodeURIComponent(role)}/tasks`, {
+          method: "POST",
+          body: JSON.stringify({ threadId, model: agentProviderConfig?.model ?? null, capabilityHash: capability.hash, capabilityExpiresAt: capability.expiresAt }),
+        });
+        task = bindExecutionTask(execution, task);
+        activeRuntimeTask = task;
+        if (execution.cancellationRequested) {
+          await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/cancel`, { method: "POST", body: "{}" });
+          break;
+        }
+        const workspace = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/creative-workspace`);
+        const handoff = createTaskBoundHandoff(projectId, workspace, task);
+        codexAdapter.emit({ method: "agent/workflow", params: { workflow: { task, planningReviewId: run.id, role, revision: workspace.revision } } });
+        const prompt = composeNovelCodexPrompt(novelSkillPrompt, request.authorIntent, `你是规划深审中的独立 ${role} 席。先按以下绑定调用 read_context；不得读取其他席报告，不得修改任何规划、正文或正式事实。按冻结的 checks 逐项检查，允许没有问题或无法判断。然后调用 submit_planning_review_report 保存结构化报告，最后调用 complete_task。\n${JSON.stringify(handoff, null, 2)}`);
+        const result = await codexAdapter.sendTurn(prompt, { disableEnvironment: true, threadName: `规划深审 · ${role}` });
+        assertTaskCompletable(execution);
+        await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/complete`, { method: "POST", body: JSON.stringify({ threadId, summary: Array.from(result.message ?? "").slice(0, 4_000).join("") }) });
+      } catch (error) {
+        if (shouldMarkTaskFailed(task)) {
+          try { await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}`, { method: "PATCH", body: JSON.stringify({ threadId: task.threadId, status: "failed", error: error.message }) }); } catch { /* Preserve reports from other seats. */ }
+        }
+      } finally {
+        if (activeRuntimeTask?.id === task?.id) activeRuntimeTask = null;
+        await codexAdapter.finishTaskOperation();
+      }
+    }
+    if (execution.cancellationRequested) {
+      await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/planning-reviews/${encodeURIComponent(run.id)}/cancel`, { method: "POST", body: "{}" });
+      throw Object.assign(new Error("规划深审已停止；已保存报告仍会保留"), { code: "TASK_CANCELLED" });
+    }
+    const finalized = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/planning-reviews/${encodeURIComponent(run.id)}/finalize`, { method: "POST", body: "{}" });
+    return { projectId, run: finalized };
+  } finally {
+    if (activeAgentExecution === execution) activeAgentExecution = null;
+  }
+}
+
 async function runAdvisoryAgentTask(event, projectId, prompt) {
-  if (!codexAdapter.enabled) throw new Error("Codex App Server 未配置，当前只能手动编辑");
-  if (activeAgentExecution) throw new Error("已有 Codex 任务正在运行，请先等待或停止当前任务");
+  if (!codexAdapter.enabled) throw new Error("Novel Agent Engine 未配置，当前只能手动编辑");
+  if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
   assertProviderOperation(agentProviderConfig, "advisory");
   attachAgentWebContents(event.sender);
   codexAdapter.setCallbacks({
     onEvent: (message) => sendAgentMessage("agent:event", message),
-    onApprovalRequest: (request) => sendAgentMessage("agent:approval-request", request),
+    onUserInputRequest: (request) => sendAgentMessage("agent:user-input-request", request),
   });
   const execution = createTaskExecution();
   activeAgentExecution = execution;
@@ -431,6 +499,15 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
   ipcMain.handle("runtime:get-state", (_event, projectId) => runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/state`));
   ipcMain.handle("runtime:export-project", (_event, projectId, options) => runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/export`, { method: "POST", body: JSON.stringify(options) }));
   ipcMain.handle("runtime:get-creative-workspace", (_event, projectId) => runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/creative-workspace`));
+  ipcMain.handle("runtime:cancel-planning-review", async (_event, projectId, runId) => {
+    if (typeof projectId !== "string" || !projectId.trim() || typeof runId !== "string" || !runId.trim()) throw new Error("规划评审标识无效");
+    if (activeAgentExecution?.projectId === projectId && activeAgentExecution?.runId === runId) {
+      requestTaskCancellation(activeAgentExecution);
+      requestTaskCancellation(activeAgentExecution.task ?? activeRuntimeTask);
+      await codexAdapter.interruptTurn().catch(() => undefined);
+    }
+    return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/planning-reviews/${encodeURIComponent(runId)}/cancel`, { method: "POST", body: "{}" });
+  });
   ipcMain.handle("runtime:set-working-baseline", (_event, projectId, kind, objectId, revisionId, expectedSelectionRevision) => {
     if (!["brief", "outline", "plan", "draft"].includes(kind)) throw new Error("工作版本类型无效");
     if (typeof revisionId !== "string" || !revisionId.trim() || !Number.isInteger(expectedSelectionRevision) || expectedSelectionRevision < 0) throw new Error("工作版本选择无效");
@@ -511,7 +588,7 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
   });
   ipcMain.handle("agent:status", () => codexAdapter.status());
   ipcMain.handle("agent:configure", (_event, provider, model) => {
-    if (activeAgentExecution) throw new Error("已有 Codex 任务正在运行，请先等待或停止当前任务");
+    if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
     if (typeof provider !== "string" || provider.length > 40 || /[\r\n]/.test(provider)) throw new Error("Provider 无效");
     if (typeof model !== "string" || model.length > 120 || /[\r\n]/.test(model)) throw new Error("Model 无效");
     if (!agentStorage || !agentCli || !agentProviderConfig) throw new Error("Novel Codex 配置尚未就绪");
@@ -521,7 +598,7 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     const status = applyAgentConfiguration({
       adapter: codexAdapter,
       configuration: {
-        apiKey: next.provider === "openai" ? process.env[next.apiKeyEnv] : null,
+        apiKey: null,
         command: agentCli.path ? [agentCli.path, "app-server"] : null,
         commandSource: agentCli.source,
         configurationError,
@@ -543,6 +620,9 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
       interrupted = await codexAdapter.interruptTurn();
     } finally {
       try {
+        if (execution?.runId && execution?.projectId) {
+          await runtimeRequest(`/api/projects/${encodeURIComponent(execution.projectId)}/planning-reviews/${encodeURIComponent(execution.runId)}/cancel`, { method: "POST", body: "{}" });
+        }
         if (task) {
           await runtimeRequest(`/api/projects/${encodeURIComponent(task.projectId)}/tasks/${encodeURIComponent(task.id)}/cancel`, { method: "POST", body: "{}" });
           if (activeRuntimeTask?.id === task.id) activeRuntimeTask = null;
@@ -574,7 +654,7 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     ["agent:reconnect-thread", (threadId) => codexAdapter.reconnectThread(threadId)],
   ]) {
     ipcMain.handle(channel, async (_event, projectId, threadId) => {
-      if (activeAgentExecution) throw new Error("已有 Codex 任务正在运行，请先等待或停止当前任务");
+      if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
       const execution = createTaskExecution();
       activeAgentExecution = execution;
       try {
@@ -620,7 +700,8 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     const task = chapterGenerationTask(projectId, request);
     return runCreativeAgentTask(event, projectId, task.prompt, task.taskType, task.target);
   });
-  ipcMain.handle("agent:resolve-approval", (_event, requestId, decision) => codexAdapter.resolveApproval(requestId, decision));
+  ipcMain.handle("agent:review-planning", (event, projectId, request) => runPlanningReview(event, projectId, request));
+  ipcMain.handle("agent:resolve-user-input", (_event, requestId, response) => codexAdapter.resolveUserInput(requestId, response));
 }
 
 function stopRuntime() {
@@ -657,7 +738,7 @@ app.whenReady().then(async () => {
   agentProviderConfig = providerConfig;
   const configurationError = providerConfigurationError(providerConfig, process.env);
   codexAdapter.configure({
-    apiKey: providerConfig.provider === "openai" ? process.env[providerConfig.apiKeyEnv] : null,
+    apiKey: null,
     command: codexCli.path ? [codexCli.path, "app-server"] : null,
     commandSource: codexCli.source,
     configurationError,
