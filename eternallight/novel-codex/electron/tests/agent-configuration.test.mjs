@@ -108,7 +108,7 @@ test("main rejects model changes throughout Runtime preparation", async () => {
     const turn = handlers.get('agent:send-prompt')(rendererEvent(),'project','hello');
     await preparing;
     assert.equal(adapter.turnWaiter,null);
-    assert.throws(()=>handlers.get('agent:configure')({},'deepseek','deepseek-flash'),/已有创作引擎任务正在运行/);
+    await assert.rejects(handlers.get('agent:configure')({},'deepseek','deepseek-flash'),/已有创作引擎任务正在运行/);
     assert.equal(adapter.provider,'deepseek');
     release();
     await turn;

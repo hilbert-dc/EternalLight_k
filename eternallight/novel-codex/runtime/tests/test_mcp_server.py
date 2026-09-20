@@ -7,6 +7,66 @@ from runtime.mcp_server import CandidateRuntimeClient, RuntimeResponse, handle_m
 
 
 class CandidateRuntimeClientTests(unittest.TestCase):
+    def test_rejects_model_supplied_thread_identity_without_trusted_match(self) -> None:
+        client = type(
+            "Client",
+            (),
+            {"call_tool": lambda *_args: self.fail("must not call runtime")},
+        )()
+        response = handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {
+                    "name": "read_context",
+                    "_meta": {
+                        "callerThreadId": "trusted-thread",
+                        "rootThreadId": "trusted-thread",
+                        "sessionId": "trusted-thread",
+                    },
+                    "arguments": {"threadId": "forged-thread"},
+                },
+            },
+            client,
+        )
+        self.assertTrue(response["result"]["isError"])
+        self.assertIn(
+            "trusted execution identity", response["result"]["content"][0]["text"]
+        )
+
+    def test_subagent_is_restricted_to_context_reading_by_trusted_metadata(
+        self,
+    ) -> None:
+        client = type(
+            "Client",
+            (),
+            {"call_tool": lambda *_args: self.fail("must not call runtime")},
+        )()
+        response = handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "tools/call",
+                "params": {
+                    "name": "save_outline",
+                    "_meta": {
+                        "callerThreadId": "child-thread",
+                        "rootThreadId": "root-thread",
+                        "sessionId": "root-thread",
+                        "parentThreadId": "parent-thread",
+                        "agentRole": "story_architect",
+                    },
+                    "arguments": {"threadId": "root-thread"},
+                },
+            },
+            client,
+        )
+        self.assertTrue(response["result"]["isError"])
+        self.assertIn(
+            "restricted to read_context", response["result"]["content"][0]["text"]
+        )
+
     def test_tool_result_has_one_copy_and_bounded_model_items(self) -> None:
         payload = {"context": "界" * 3_000}
 
@@ -15,14 +75,22 @@ class CandidateRuntimeClientTests(unittest.TestCase):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
-                "params": {"name": "read_context", "arguments": {}},
+                "params": {
+                    "name": "read_context",
+                    "_meta": {
+                        "callerThreadId": "thread-1",
+                        "rootThreadId": "thread-1",
+                        "sessionId": "thread-1",
+                    },
+                    "arguments": {"threadId": "thread-1"},
+                },
             },
             type(
                 "Client",
                 (),
                 {
-                    "call_tool": lambda _self, _name, _arguments: RuntimeResponse(
-                        200, payload
+                    "call_tool": lambda _self, _name, _arguments, _meta: (
+                        RuntimeResponse(200, payload)
                     )
                 },
             )(),
@@ -56,14 +124,22 @@ class CandidateRuntimeClientTests(unittest.TestCase):
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "tools/call",
-                "params": {"name": "save_draft_checkpoint", "arguments": {}},
+                "params": {
+                    "name": "save_draft_checkpoint",
+                    "_meta": {
+                        "callerThreadId": "thread-1",
+                        "rootThreadId": "thread-1",
+                        "sessionId": "thread-1",
+                    },
+                    "arguments": {"threadId": "thread-1"},
+                },
             },
             type(
                 "Client",
                 (),
                 {
-                    "call_tool": lambda _self, _name, _arguments: RuntimeResponse(
-                        201, payload
+                    "call_tool": lambda _self, _name, _arguments, _meta: (
+                        RuntimeResponse(201, payload)
                     )
                 },
             )(),

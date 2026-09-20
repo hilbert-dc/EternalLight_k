@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 export function bindActiveTask(task) {
   const active = { ...task };
   Object.defineProperty(active, "cancellationRequested", { value: false, writable: true });
@@ -5,7 +7,7 @@ export function bindActiveTask(task) {
 }
 
 export function createTaskExecution() {
-  return { cancellationRequested: false, task: null };
+  return { id: randomUUID(), cancellationRequested: false, task: null };
 }
 
 export function bindExecutionTask(execution, task) {

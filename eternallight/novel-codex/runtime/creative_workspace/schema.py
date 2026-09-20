@@ -306,6 +306,36 @@ CREATE TABLE IF NOT EXISTS candidate_write_requests (
   created_at TEXT NOT NULL,
   PRIMARY KEY(project_id, owner_key, idempotency_key)
 );
+CREATE TABLE IF NOT EXISTS runtime_operations (
+  operation_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES task_runs(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  root_thread_id TEXT NOT NULL,
+  caller_thread_id TEXT NOT NULL,
+  parent_thread_id TEXT,
+  turn_id TEXT,
+  tool_call_id TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  idempotency_key TEXT,
+  state TEXT NOT NULL CHECK(state IN ('accepted','committed','rejected','cancelled-before-execution','outcome-unknown')),
+  receipt_ref TEXT,
+  receipt_json TEXT,
+  error_code TEXT,
+  authority_epoch TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(run_id, tool_call_id)
+);
+CREATE INDEX IF NOT EXISTS idx_runtime_operations_run ON runtime_operations(project_id, run_id, created_at);
+CREATE TABLE IF NOT EXISTS runtime_recovery_snapshots (
+  fence TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  task_ids_hash TEXT NOT NULL,
+  operation_watermark INTEGER NOT NULL,
+  tasks_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS planning_impacts (
   id TEXT PRIMARY KEY,
   impact_chain_id TEXT NOT NULL,
@@ -351,4 +381,11 @@ CREATE TABLE IF NOT EXISTS author_fact_dependency_links (
 
 def create_workspace_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(WORKSPACE_SCHEMA)
+    operation_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(runtime_operations)")
+    }
+    if "receipt_json" not in operation_columns:
+        connection.execute(
+            "ALTER TABLE runtime_operations ADD COLUMN receipt_json TEXT"
+        )
     create_metrics_schema(connection)

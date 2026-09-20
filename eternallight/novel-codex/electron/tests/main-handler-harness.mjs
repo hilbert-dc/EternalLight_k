@@ -8,6 +8,10 @@ export async function mainHandlers(runtime, command) {
   const mainUrl = new URL("../main.mjs", import.meta.url);
   let source = await readFile(mainUrl, "utf8");
   const bindings = { process, console, URL, URLSearchParams, Buffer, setTimeout, clearTimeout };
+  const { CAPABILITIES } = await import("@eternallight/agent-engine");
+  const { verifiedBaselineEvidence } = await import("@eternallight/agent-engine/test-support");
+  bindings.CAPABILITIES = CAPABILITIES;
+  bindings.verifiedBaselineEvidence = verifiedBaselineEvidence;
   for (const match of source.matchAll(/^import \{ (.+) \} from "(.+)";$/gm)) {
     if (match[2] === "electron") continue;
     const namespace = await import(match[2].startsWith(".") ? new URL(match[2], mainUrl) : match[2]);
@@ -24,7 +28,19 @@ export async function mainHandlers(runtime, command) {
   return runInNewContext(`${source}\n
     runtimeUrl = 'http://127.0.0.1:8000';
     novelSkillPrompt = loadNovelCodexSkills(fileURLToPath(new URL('../', ${JSON.stringify(mainUrl.href)})));
-    agentProviderConfig = resolveCodexProvider({provider:'deepseek', model:'deepseek-flash'});
+    engineQualificationContextDigest = 'fixture-qualification-context';
+    const inspectedConnection = inspectCodexConnection({provider:'deepseek', model:'deepseek-flash'});
+    const fixtureEvidence = verifiedBaselineEvidence(inspectedConnection.connection, {
+      protocol: 'responses',
+      capabilities: [CAPABILITIES.TEXT, CAPABILITIES.STRUCTURED_TOOL_CALLS, CAPABILITIES.TOOL_LOOP, CAPABILITIES.STREAMING, CAPABILITIES.USAGE],
+      qualificationContextDigest: engineQualificationContextDigest
+    });
+    agentProviderConfig = resolveCodexProvider({provider:'deepseek', model:'deepseek-flash', evidence:fixtureEvidence, qualificationContextDigest:engineQualificationContextDigest});
+    modelBridge = {
+      start: async()=>({baseUrl:'http://127.0.0.1:1',token:'fixture'}),
+      beginTaskBudget: async()=>{}, beginExecutionLease: async()=>{}, cancelActiveRequests: async()=>0,
+      endExecutionLease: async()=>true, endTaskBudget: async()=>true, close: async()=>{}
+    };
     codexAdapter.configure({command:fixtureCommand,apiKey:null,provider:'deepseek',model:'deepseek-flash'});
     const handlers = new Map();
     registerIpcHandlers({handle:(name,handler)=>handlers.set(name,handler)});

@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { certificationPath, publishCertificationSnapshot } from "../certification-publication.mjs";
+
+test("publication commits one pointer and leaves the previous snapshot intact on precommit failure", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "certification-publication-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, "supported-cli.json");
+  const policy = { version: 1, modelCertificationsFile: "model-certifications.json" };
+  const original = { version: 2, certifications: [] };
+  writeFileSync(certificationPath(root, policy), JSON.stringify(original));
+  writeFileSync(path, JSON.stringify(policy));
+  const next = { version: 2, certifications: [{ id: "new" }] };
+  const hash = createHash("sha256").update(`${JSON.stringify(next, null, 2)}\n`).digest("hex");
+  const destination = join(root, `model-certifications-${hash}.json`);
+  writeFileSync(destination, "incomplete snapshot");
+  assert.throws(() => publishCertificationSnapshot(path, policy, next));
+  assert.deepEqual(JSON.parse(readFileSync(path)), policy);
+  assert.deepEqual(JSON.parse(readFileSync(certificationPath(root, policy))), original);
+  rmSync(destination);
+  const committed = publishCertificationSnapshot(path, policy, next);
+  assert.deepEqual(JSON.parse(readFileSync(path)), committed);
+  assert.deepEqual(JSON.parse(readFileSync(certificationPath(root, committed))), next);
+  assert.deepEqual(JSON.parse(readFileSync(certificationPath(root, policy))), original);
+  assert.throws(() => certificationPath(root, { modelCertificationsFile: "../outside.json" }), /filename/);
+});

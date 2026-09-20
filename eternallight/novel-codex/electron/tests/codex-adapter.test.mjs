@@ -42,10 +42,28 @@ test("uses the completed agent message as the bounded turn result", async () => 
   adapter.close();
 });
 
+test("rejects DSML protocol text without exposing it as an agent response", async () => {
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
+  const events = [];
+  adapter.setCallbacks({ onEvent: (event) => events.push(event) });
+
+  await assert.rejects(adapter.sendTurn([{ type: "text", text: "protocol-leak" }]), /结构化工具协议/);
+
+  assert.ok(events.some((event) => event.method === "agent/error" && /结构化工具协议/.test(event.params.message)));
+  assert.ok(events.every((event) => !JSON.stringify(event).includes("DSML")));
+  adapter.close();
+});
+
 test("caps a streamed agent message before returning it", async () => {
   const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
+  const rawEvents = [];
+  const visibleEvents = [];
+  adapter.setCallbacks({ onRawEvent: (event) => rawEvents.push(event), onEvent: (event) => visibleEvents.push(event) });
   const result = await adapter.sendTurn([{ type: "text", text: "long-message" }]);
   assert.equal(result.message.length, 64 * 1024);
+  adapter.handleLine(JSON.stringify({ method: "item/completed", params: { item: { id: "large-audit-event", type: "mcpToolCall", result: "x".repeat(70 * 1024) } } }));
+  assert.ok(rawEvents.some((event) => JSON.stringify(event).length > 64 * 1024));
+  assert.ok(visibleEvents.some((event) => event.method === "agent/error" && /显示上限/.test(event.params.message)));
   adapter.close();
 });
 
@@ -201,6 +219,17 @@ test("lists, pins, archives, restores and resumes an isolated app-server thread"
   adapter.close();
 });
 
+test("reads local history while inference credentials are unavailable", async () => {
+  const adapter = new CodexAppServerAdapter({ command, configurationError: "capability evidence expired" });
+  const listed = await adapter.listThreads();
+  assert.equal(listed.threads[0].id, "thr-history");
+  const detail = await adapter.readThread("thr-history");
+  assert.equal(detail.thread.id, "thr-history");
+  await assert.rejects(adapter.sendTurn([{ type: "text", text: "must not reach a model" }]), /未配置/);
+  assert.equal(adapter.status().mode, "local-history");
+  adapter.close();
+});
+
 test("interrupts an active turn", async () => {
   const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   let started;
@@ -225,7 +254,7 @@ test("supports task review, context compaction and background terminal controls"
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.ok(events.some((event) => event.method === "agent/review"));
   assert.ok(events.some((event) => event.method === "item/completed" && event.params.item?.type === "exitedReviewMode"));
-  assert.deepEqual(await adapter.compactThread("thr-test"), { started: true });
+  assert.deepEqual(await adapter.compactThread("thr-test"), { started: true, turn: { id: "compact-turn", status: "completed", items: [] } });
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.ok(events.some((event) => event.method === "item/completed" && event.params.item?.type === "contextCompaction"));
   const terminals = await adapter.listBackgroundTerminals("thr-test");

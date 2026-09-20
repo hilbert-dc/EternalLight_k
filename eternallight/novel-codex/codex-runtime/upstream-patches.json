@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "patches": [
+    {
+      "id": "trusted-mcp-agent-lineage-v1",
+      "status": "active",
+      "motivation": "Expose trusted Codex-owned parent, root, role, depth and turn lineage to MCP authorization without trusting model arguments.",
+      "upstreamBaseline": "78245b47af2a7aafcabe025828ceecca69db4df1",
+      "paths": [
+        "codex-rs/core/src/mcp_tool_call.rs",
+        "codex-rs/core/src/mcp_tool_call_tests.rs"
+      ],
+      "symbols": [
+        "MCP_TOOL_CALLER_THREAD_ID_META_KEY",
+        "MCP_TOOL_ROOT_THREAD_ID_META_KEY",
+        "MCP_TOOL_PARENT_THREAD_ID_META_KEY",
+        "MCP_TOOL_AGENT_ROLE_META_KEY",
+        "MCP_TOOL_AGENT_DEPTH_META_KEY",
+        "MCP_TOOL_SESSION_SOURCE_META_KEY",
+        "MCP_TOOL_TURN_ID_META_KEY"
+      ],
+      "tests": [
+        "mcp_tool_call_ids_are_added_to_request_meta"
+      ],
+      "expectedDiffSha256": "5f03c2775c857a79600878a88459e87702d53e688ed66aad6606d947c21f318f",
+      "upstreamTracking": null,
+      "removalCondition": "Remove after upstream exposes equivalent trusted MCP lineage metadata and Agent Engine integration tests pass without this patch."
+    }
+  ]
+}

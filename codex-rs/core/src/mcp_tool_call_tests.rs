@@ -1893,12 +1893,29 @@ fn mcp_tool_call_ids_are_added_to_request_meta() {
             })),
             "thread-live",
             "session-live",
+            "turn-live",
+            &SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+                parent_thread_id: codex_protocol::ThreadId::from_u128(
+                    /*value*/ 0x018f_2f4d_90e3_7b92_a6f2_a96f_559b_51b0,
+                ),
+                depth: 1,
+                agent_path: None,
+                agent_nickname: None,
+                agent_role: Some("continuity_critic".to_string()),
+            }),
             Some(&origin),
         ),
         Some(serde_json::json!({
             "source": "test-client",
             "threadId": "thread-live",
+            "callerThreadId": "thread-live",
+            "rootThreadId": "session-live",
             "sessionId": "session-live",
+            "turnId": "turn-live",
+            "sessionSource": "subagent_thread_spawn_018f2f4d-90e3-7b92-a6f2-a96f559b51b0_d1",
+            "parentThreadId": "018f2f4d-90e3-7b92-a6f2-a96f559b51b0",
+            "agentRole": "continuity_critic",
+            "agentDepth": 1,
             "itemId": "fc-live",
             "windowId": "thread-live:2",
         }))
@@ -1909,11 +1926,17 @@ fn mcp_tool_call_ids_are_added_to_request_meta() {
             /*meta*/ None,
             "thread-live",
             "session-live",
+            "turn-live",
+            &SessionSource::Mcp,
             /*originating_call*/ None,
         ),
         Some(serde_json::json!({
             "threadId": "thread-live",
+            "callerThreadId": "thread-live",
+            "rootThreadId": "session-live",
             "sessionId": "session-live",
+            "turnId": "turn-live",
+            "sessionSource": "mcp",
         }))
     );
 
@@ -1922,6 +1945,8 @@ fn mcp_tool_call_ids_are_added_to_request_meta() {
             Some(serde_json::json!("invalid-meta")),
             "thread-live",
             "session-live",
+            "turn-live",
+            &SessionSource::Mcp,
             /*originating_call*/ None,
         ),
         Some(serde_json::json!("invalid-meta"))

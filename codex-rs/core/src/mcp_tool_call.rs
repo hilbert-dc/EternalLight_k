@@ -522,6 +522,8 @@ async fn handle_approved_mcp_tool_call(
                         request_meta,
                         &sess.thread_id.to_string(),
                         &sess.session_id().to_string(),
+                        &step_context.turn.sub_id,
+                        &step_context.turn.session_source,
                         originating_call,
                     );
                     let request_meta = augment_mcp_tool_request_meta_with_sandbox_state(
@@ -1262,6 +1264,13 @@ const MCP_TOOL_ITEM_ID_META_KEY: &str = "itemId";
 const MCP_TOOL_SESSION_ID_META_KEY: &str = "sessionId";
 const MCP_TOOL_WINDOW_ID_META_KEY: &str = "windowId";
 const MCP_TOOL_THREAD_ID_META_KEY: &str = "threadId";
+const MCP_TOOL_CALLER_THREAD_ID_META_KEY: &str = "callerThreadId";
+const MCP_TOOL_ROOT_THREAD_ID_META_KEY: &str = "rootThreadId";
+const MCP_TOOL_PARENT_THREAD_ID_META_KEY: &str = "parentThreadId";
+const MCP_TOOL_AGENT_ROLE_META_KEY: &str = "agentRole";
+const MCP_TOOL_AGENT_DEPTH_META_KEY: &str = "agentDepth";
+const MCP_TOOL_SESSION_SOURCE_META_KEY: &str = "sessionSource";
+const MCP_TOOL_TURN_ID_META_KEY: &str = "turnId";
 const MCP_TOOL_CONNECTED_ACCOUNT_EMAIL_META_KEY: &str = "connected_account_email";
 const MCP_TOOL_RESOURCE_URI_META_KEY: &str = "resource_uri";
 
@@ -1403,6 +1412,8 @@ fn with_mcp_tool_call_ids_meta(
     meta: Option<serde_json::Value>,
     thread_id: &str,
     session_id: &str,
+    turn_id: &str,
+    session_source: &codex_protocol::protocol::SessionSource,
     originating_call: Option<&ToolCallOrigin>,
 ) -> Option<serde_json::Value> {
     let mut map = match meta {
@@ -1415,9 +1426,52 @@ fn with_mcp_tool_call_ids_meta(
         serde_json::Value::String(thread_id.to_string()),
     );
     map.insert(
+        MCP_TOOL_CALLER_THREAD_ID_META_KEY.to_string(),
+        serde_json::Value::String(thread_id.to_string()),
+    );
+    map.insert(
+        MCP_TOOL_ROOT_THREAD_ID_META_KEY.to_string(),
+        serde_json::Value::String(session_id.to_string()),
+    );
+    map.insert(
         MCP_TOOL_SESSION_ID_META_KEY.to_string(),
         serde_json::Value::String(session_id.to_string()),
     );
+    map.insert(
+        MCP_TOOL_SESSION_SOURCE_META_KEY.to_string(),
+        serde_json::Value::String(session_source.to_string()),
+    );
+    map.insert(
+        MCP_TOOL_TURN_ID_META_KEY.to_string(),
+        serde_json::Value::String(turn_id.to_string()),
+    );
+    if let Some(parent_thread_id) = session_source.parent_thread_id() {
+        map.insert(
+            MCP_TOOL_PARENT_THREAD_ID_META_KEY.to_string(),
+            serde_json::Value::String(parent_thread_id.to_string()),
+        );
+    } else {
+        map.remove(MCP_TOOL_PARENT_THREAD_ID_META_KEY);
+    }
+    if let Some(agent_role) = session_source.get_agent_role() {
+        map.insert(
+            MCP_TOOL_AGENT_ROLE_META_KEY.to_string(),
+            serde_json::Value::String(agent_role),
+        );
+    } else {
+        map.remove(MCP_TOOL_AGENT_ROLE_META_KEY);
+    }
+    if let codex_protocol::protocol::SessionSource::SubAgent(
+        codex_protocol::protocol::SubAgentSource::ThreadSpawn { depth, .. },
+    ) = session_source
+    {
+        map.insert(
+            MCP_TOOL_AGENT_DEPTH_META_KEY.to_string(),
+            serde_json::Value::Number((*depth).into()),
+        );
+    } else {
+        map.remove(MCP_TOOL_AGENT_DEPTH_META_KEY);
+    }
     if let Some(origin) = originating_call {
         map.insert(
             MCP_TOOL_WINDOW_ID_META_KEY.to_string(),

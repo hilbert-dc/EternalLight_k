@@ -192,6 +192,41 @@ function itemDetail(item: JsonRecord): string | undefined {
   return detail ? bounded(detail, MAX_DETAIL_TEXT) : undefined;
 }
 
+function collabAgentTitle(tool: string | null): string {
+  if (tool === "spawnAgent") return "委派小说审阅";
+  if (tool === "wait") return "等待子 Agent";
+  if (tool === "sendMessage" || tool === "followupTask") return "协调子 Agent";
+  if (tool === "interruptAgent") return "停止子 Agent";
+  if (tool === "listAgents") return "检查子 Agent 状态";
+  return "协同小说分析";
+}
+
+function collabAgentDetail(item: JsonRecord): string | undefined {
+  const receivers = Array.isArray(item.receiverThreadIds) ? item.receiverThreadIds.length : 0;
+  const states = record(item.agentsStates);
+  const stateCounts = new Map<string, number>();
+  for (const value of Object.values(states ?? {})) {
+    const status = stringValue(record(value)?.status) ?? "unknown";
+    stateCounts.set(status, (stateCounts.get(status) ?? 0) + 1);
+  }
+  const statusLabels: Record<string, string> = {
+    pendingInit: "准备中",
+    running: "分析中",
+    completed: "已完成",
+    errored: "失败",
+    interrupted: "已停止",
+    shutdown: "已关闭",
+  };
+  const stateSummary = [...stateCounts.entries()]
+    .map(([status, count]) => `${statusLabels[status] ?? status} ${count}`)
+    .join(" · ");
+  const prompt = stringValue(item.prompt);
+  const detail = [receivers > 0 ? `${receivers} 位子 Agent` : null, stateSummary || null, prompt ? `任务：${prompt}` : null]
+    .filter(Boolean)
+    .join("\n");
+  return detail ? bounded(detail, MAX_DETAIL_TEXT) : undefined;
+}
+
 function itemId(item: JsonRecord, fallback: string): string {
   return stringValue(item.id) ?? fallback;
 }
@@ -199,6 +234,7 @@ function itemId(item: JsonRecord, fallback: string): string {
 function itemStep(item: JsonRecord, status: AgentStepStatus): AgentStep {
   const type = stringValue(item.type) ?? "unknown";
   const normalized = type.toLowerCase();
+  if (normalized === "collabagenttoolcall") return { id: itemId(item, `item:${type}`), kind: "interaction", title: collabAgentTitle(stringValue(item.tool)), detail: collabAgentDetail(item), status };
   if (normalized.includes("contextcompaction")) return { id: itemId(item, `item:${type}`), kind: "system", title: "压缩上下文", detail: itemDetail(item) ?? "正在整理历史上下文", status };
   if (normalized.includes("hook")) return { id: itemId(item, `item:${type}`), kind: "system", title: "运行 Hook", detail: itemDetail(item), status };
   if (normalized.includes("enteredreview") || normalized.includes("exitedreview") || normalized.includes("review")) return { id: itemId(item, `item:${type}`), kind: "system", title: "审查任务", detail: itemDetail(item), status };
@@ -212,6 +248,7 @@ function itemStep(item: JsonRecord, status: AgentStepStatus): AgentStep {
 
 function phaseForItem(item: JsonRecord): AgentPhaseId {
   const type = (stringValue(item.type) ?? "").toLowerCase();
+  if (type === "collabagenttoolcall") return "tools";
   if (type.includes("agentmessage") || type.includes("message")) return "response";
   if (type.includes("reason") || type.includes("plan")) return "planning";
   return "tools";

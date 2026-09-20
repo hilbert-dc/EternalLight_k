@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assertTaskCompletable, bindActiveTask, bindExecutionTask, createTaskExecution, requestTaskCancellation, shouldMarkTaskFailed } from "../task-lifecycle.mjs";
+import { assertTaskCompletable, bindActiveTask, bindExecutionTask, createTaskExecution, requestTaskCancellation, shouldMarkTaskFailed } from "@eternallight/agent-engine";
 
 test("a cancellation request prevents completion and failure transitions", () => {
   const task = bindActiveTask({ id: "task-1", status: "running" });

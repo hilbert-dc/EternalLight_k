@@ -32,15 +32,19 @@ def fit_context_snapshot(snapshot: dict[str, Any], byte_budget: int) -> dict[str
         if encoded_size <= bounded:
             break
         excerpts = result.get("sourceExcerpts")
-        removable_excerpt = next(
-            (
-                index
-                for index in range(len(excerpts) - 1, -1, -1)
-                if excerpts[index].get("evidenceClass", "supporting")
-                == "supporting"
-            ),
-            None,
-        ) if isinstance(excerpts, list) else None
+        removable_excerpt = (
+            next(
+                (
+                    index
+                    for index in range(len(excerpts) - 1, -1, -1)
+                    if excerpts[index].get("evidenceClass", "supporting")
+                    == "supporting"
+                ),
+                None,
+            )
+            if isinstance(excerpts, list)
+            else None
+        )
         if removable_excerpt is not None:
             excerpts.pop(removable_excerpt)
             omitted["sourceExcerptCount"] = (

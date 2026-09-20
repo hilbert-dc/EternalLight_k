@@ -1,6 +1,12 @@
 # Novel Codex 当前架构
 
-版本：0.5 · 2026-09-19
+> 2026-09-20 审查后更正：下文“本地纵向闭环已落地”“唯一状态权威已明确实现”等完成判断不再有效。分层方向保留，实际预算、资格、取消、恢复与交付仍有缺口；当前状态与重构顺序见 [优化与重构方案 v3](ENGINE_REFACTOR_PLAN_V3.md)。本次仅更新方案，未修改实现。
+
+版本：0.9 · 2026-09-20（通用 Agent Engine 本地纵向闭环已落地）
+
+通用引擎目标见 [理想技术方案（v4.6）](MODEL_AGNOSTIC_CODEX_ENGINE_DESIGN.md)，具体整改和证据见 [修复与局部重构实施方案（v2.2）](ENGINE_REMEDIATION_PLAN.md)。44 项 review 问题已按纵向链路整改：F01–F41 与 F44 达到本地验证，F42–F43 已实现发布门禁但仍待签名双平台最终产物。本文区分本地闭环和真实供应商/目标安装终验，不用 fixture 结论替代外部报告。
+
+实施顺序为 M0 可信基线 → M1 Chat Completions 完整链路 → M2 Messages 检验公共抽象 → M3 四协议覆盖 → M4 高级能力与独立交付。M0–M3 已由当前 CLI + 可控端点纵向测试覆盖；M4 的签名安装和真实端点属于外部终验。Codex、Host、资格仓库、预算账本、Runtime 各自拥有明确的唯一状态权威；原生与转换共用准入门禁，但不强求内部语义统一。
 
 ## 产品边界
 
@@ -50,7 +56,7 @@ Electron Main / Author Gateway
 - Electron 主进程持有 author token，只为用户明确操作调用采用、撤销和锁定。
 - Novel Agent Engine 内核运行在独立 `CODEX_HOME` / `CODEX_SQLITE_HOME`，只获得 candidate MCP 能力；这些是私有实现目录，不与 Codex CLI 或桌面应用共享。
 - Runtime 监听随机回环端口；candidate/author token 通过 stdin 交给 Runtime，不进入参数、环境、磁盘或日志。
-- 私有 App Server 内核可在自身进程中读取显式选择的 Provider 密钥和 candidate MCP 环境，但它启动的 shell 使用 `inherit = "core"` 并排除 `NOVEL_CODEX_*`、OpenAI/DeepSeek/Codex 凭据；模型不能通过 shell 回显这些秘密。
+- 下游 Provider 密钥通过 IPC 注入独立 Bridge，不交给 Renderer、Creative Runtime 或 Codex 子进程。私有 App Server 只持有短期 Bridge token 和 candidate MCP 环境；shell 环境策略排除产品凭据。统一原生透传与转换路径的租约门禁、可信路由及权限链已通过 W5/W8 本地纵向测试，最终签名安装包另按 W9/W10 验收。
 - 产品 API、IPC 和 UI 只暴露 `Novel Agent Engine`。底层内核不读取 Codex/ChatGPT 登录态，不消费其订阅额度，也不把软件权限请求交给用户批准。
 - 当前 provider 为 DeepSeek；认证、计费和限流由 Novel Codex 自有 Provider 配置承担，模型服务商自身额度仍然有效。
 - 开发窗口只允许精确 Renderer origin，生产窗口只允许唯一打包入口；重定向、外部导航和新窗口均被拦截，所有 IPC 还会二次校验 sender WebContents 与 frame URL。
@@ -164,18 +170,25 @@ Electron userData/
 ```
 
 - 开发环境只解析项目专用 CLI 或当前仓库构建产物，不从 PATH 或 ChatGPT.app 取 CLI。
-- Novel Agent Engine 与 Creative Runtime 都剥离继承的 Codex、OpenAI 和其他 provider 凭据。DeepSeek Key 只进入引擎私有 App Server 进程，并且不会写入配置文件、Runtime 或日志。
+- Novel Agent Engine 与 Creative Runtime 剥离继承的 Codex、OpenAI 和其他 provider 凭据。显式配置的下游 Key 由 Host 管理并通过 IPC 提供给 Bridge，不注入 App Server、Renderer、Runtime 或日志。
 - Creative Runtime、普通 Codex CLI 和 Codex 桌面应用不共用配置、会话、认证或数据库。
 
 ## 当前验证
 
-- `npm run build`
-- `npm run test:runtime`：70 项
-- `npm run test:agent`：48 项
-- Electron 主进程、适配器与 Python 模块语法检查
-- macOS 独立 Electron 进程三栏视觉走查，包括章节生成卡片、正文主列和后续表单滚动
+模型接入采用“显式连接配置 + 发布前离线认证 + 运行时轻量账号检查”，详细流程见 [模型接入与发布认证](MODEL_ONBOARDING_AND_CERTIFICATION.md)。认证文件会转换为现有 CapabilityEvidence，SessionPlan 仍是唯一执行资格来源；不会按供应商创建第二套调度器或连接状态机。
 
-Windows 实机核心旅程、真实模型从空作品完成单章生成，以及文学质量盲评属于发布门槛，不由当前自动测试替代。试写分支与连续多章仍未实现。
+- `qualify:model` 是无副作用诊断入口：运行协议、Core 和独立的 spawn/message/wait/route 场景，只落本地报告。
+- `certify:model` 是显式发布入口：只有所有场景及每项能力证据同时通过，才原子更新认证文件与策略摘要；聚合能力已满足但任一场景失败时仍判定失败。
+
+- Agent Engine 62/62；Creative Runtime 122/122；Electron/App Server 102/102；Electron UI 5/5；生产构建通过。
+- `repo:check:strict` 通过；当前 macOS arm64 CLI 已生成并校验 BuildIdentity。
+- Codex Core 的可信 MCP caller/root/parent/role/depth/turn 元数据定向测试 1/1；本轮未运行完整 Core 套件。
+- 四协议均经过真实 App Server → Bridge → Provider fixture → MCP 回环；Chat 路线另覆盖同连接/异连接子 Agent、可信身份、取消和 Runtime 权限。
+- QualificationContext 绑定 CLI、基础指令、Agent Engine 源码、认证 runner/MCP、模型目录、契约和 Codec 版本；任一变化使旧证据失效。
+
+仍未完成的是目标环境验收，而不是隐藏的兼容回退：真实供应商矩阵、签名后的 macOS/Windows 安装旅程、upstream 同步演练和文学质量报告。只有这些固定组合的 G1–G10 报告齐全，才宣布理想目标达到 `VERIFIED_TARGET`。
+
+Windows 实机核心旅程、真实模型从空作品完成单章生成，以及文学质量盲评仍属于发布门槛，不由当前自动测试替代。试写分支与连续多章仍未实现。
 
 ## 非目标
 

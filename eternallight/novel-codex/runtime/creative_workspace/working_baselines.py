@@ -212,9 +212,12 @@ def set_working_baseline(
     initialize(db_path)
     with connect(db_path) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        if connection.execute(
-            "SELECT 1 FROM projects WHERE id = ?", (project_id,)
-        ).fetchone() is None:
+        if (
+            connection.execute(
+                "SELECT 1 FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
+            is None
+        ):
             raise NotFoundError("作品不存在")
         revision = _validate_revision(
             connection, project_id, kind, normalized_object_id, revision_id.strip()

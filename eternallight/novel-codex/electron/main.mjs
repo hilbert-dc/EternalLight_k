@@ -6,14 +6,17 @@ import { createServer } from "node:net";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { AgentEngineHost, CodexSessionRuntime, HostRecoveryJournal, ModelBridgeProcess, PersistentTaskBudget, RecoveryIndex, TaskBudget, assertTaskCompletable, bindExecutionTask, createTaskExecution, requestTaskCancellation, shouldMarkTaskFailed } from "@eternallight/agent-engine";
 import { CodexAppServerAdapter } from "./codex-adapter.mjs";
+import { CodexConformanceRunner } from "./codex-conformance-runner.mjs";
+import { CodexCoreIntegrationRunner } from "./codex-core-integration-runner.mjs";
 import { applyAgentConfiguration } from "./agent-configuration.mjs";
 import { AdvisorySessions } from "./advisory-sessions.mjs";
-import { assertProviderOperation, buildCodexConfig, composeNovelCodexPrompt, createCodexEnvironment, createRuntimeEnvironment, createTaskCapability, loadNovelCodexSkills, prepareIsolatedStorage, providerConfigurationError, resolveCodexCli, resolveCodexProvider } from "./codex-runtime.mjs";
+import { assertProviderOperation, buildCodexConfig, buildCodexModelCatalog, composeNovelCodexPrompt, createCodexEnvironment, createQualificationContextDigest, createRuntimeEnvironment, createTaskCapability, credentialScopesFromEnvironment, inspectCodexConnection, installManagedAgentRoles, listCodexConnections, loadCodexEvidence, loadNovelCodexSkills, prepareIsolatedStorage, providerConfigurationError, recordRuntimeQualificationFailure, resolveCodexCli, resolveCodexProvider, resolveRuntimeBinaries, verifyCodexConnection, verifyCodexConnectionEdge } from "./codex-runtime.mjs";
 import { chapterGenerationTask, planningGenerationTask } from "./creative-task-contract.mjs";
 import { isAllowedRendererNavigation, isTrustedIpcSender } from "./navigation-policy.mjs";
+import { reconcileRecoveryIndex } from "./recovery-reconciliation.mjs";
 import { safeSendToWebContents } from "./webcontents-safety.mjs";
-import { assertTaskCompletable, bindExecutionTask, createTaskExecution, requestTaskCancellation, shouldMarkTaskFailed } from "./task-lifecycle.mjs";
 import { createTaskBoundHandoff, taskBoundInstructions } from "./workflow-handoff.mjs";
 import { validateAuthorIntent } from "../shared/author-input-budget.mjs";
 
@@ -36,23 +39,30 @@ const projectRoot = join(__dirname, "..");
 const runtimeAssetRoot = app.isPackaged ? process.resourcesPath : projectRoot;
 const packagedEntry = join(__dirname, "../dist/index.html");
 let runtimeProcess;
+let bundledRuntime = null;
 let runtimeError = null;
 let agentWebContents = null;
 let removeAgentWebContentsListener = null;
 let agentStorage = null;
 let agentCli = null;
 let agentProviderConfig = null;
+let modelBridge = null;
+let configurationRequestEpoch = 0;
 let novelSkillPrompt = "";
+let engineBaseInstructions = "";
+let engineQualificationContextDigest = null;
 let activeAgentProjectId = null;
 let activeAgentPurpose = null;
 let activeAgentTargetKey = null;
 let activeRuntimeTask = null;
 let activeAgentExecution = null;
+let recoveryIndex = null;
+let recoveryJournal = null;
 const advisorySessions = new AdvisorySessions();
 let rendererWebContents = null;
 let allowWindowClose = false;
 let quitRequested = false;
-const codexAdapter = new CodexAppServerAdapter({ command: null, cwd: projectRoot });
+let codexAdapter = new CodexAppServerAdapter({ command: null, cwd: projectRoot });
 const electronIpcMain = ipcMain;
 const trustedIpcMain = {
   handle(channel, listener) {
@@ -160,8 +170,10 @@ async function startRuntime(runtimeDb) {
     runtimePort = configuredRuntimePort ?? await findFreeLoopbackPort();
     runtimeUrl = `http://127.0.0.1:${runtimePort}`;
     runtimeError = null;
-    const child = spawn(pythonCommand(), [join(runtimeAssetRoot, "runtime", "server.py"), "--host", "127.0.0.1", "--port", String(runtimePort), "--db", runtimeDb, "--token-stdin"], {
-      cwd: projectRoot,
+    const runtimeCommand = bundledRuntime?.creativeRuntime ?? pythonCommand();
+    const runtimeArgs = [...(bundledRuntime ? [] : [join(runtimeAssetRoot, "runtime", "server.py")]), "--host", "127.0.0.1", "--port", String(runtimePort), "--db", runtimeDb, "--token-stdin"];
+    const child = spawn(runtimeCommand, runtimeArgs, {
+      cwd: runtimeAssetRoot,
       env: createRuntimeEnvironment(process.env, runtimeAssetRoot),
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -187,15 +199,38 @@ async function startRuntime(runtimeDb) {
   throw lastError ?? new Error("Creative Runtime 无法启动");
 }
 
-function ensureCodexConfig(codexHome, providerConfig) {
+function ensureCodexConfig(codexHome, providerConfig, bridge = null) {
   const configPath = join(codexHome, "config.toml");
   const modelCatalogPath = join(codexHome, "model-catalog.json");
   const catalogTemporaryPath = `${modelCatalogPath}.${process.pid}.tmp`;
   const configTemporaryPath = `${configPath}.${process.pid}.tmp`;
-  writeFileSync(catalogTemporaryPath, readFileSync(join(runtimeAssetRoot, "codex-runtime", "codex-model-catalog.json")), { mode: 0o600 });
+  writeFileSync(catalogTemporaryPath, `${JSON.stringify(buildCodexModelCatalog({ ...providerConfig, baseInstructions: engineBaseInstructions }), null, 2)}\n`, { mode: 0o600 });
   renameSync(catalogTemporaryPath, modelCatalogPath);
-  writeFileSync(configTemporaryPath, buildCodexConfig({ ...providerConfig, mcpServerCommand: pythonCommand(), mcpServerPath: join(runtimeAssetRoot, "runtime", "mcp_server.py"), modelCatalogPath }), { encoding: "utf8", mode: 0o600 });
+  installManagedAgentRoles(codexHome, join(runtimeAssetRoot, "codex-runtime", "agents"));
+  writeFileSync(configTemporaryPath, buildCodexConfig({
+    ...providerConfig,
+    bridge,
+    mcpServerCommand: bundledRuntime?.novelWorkspaceMcp ?? pythonCommand(),
+    mcpServerPath: bundledRuntime ? null : join(runtimeAssetRoot, "runtime", "mcp_server.py"),
+    mcpServerArgs: bundledRuntime ? [] : null,
+    modelCatalogPath,
+  }), { encoding: "utf8", mode: 0o600 });
   renameSync(configTemporaryPath, configPath);
+}
+
+async function prepareModelTransport(providerConfig, storage = agentStorage) {
+  const instance = new ModelBridgeProcess({
+    sessionPlan: providerConfig.sessionPlan,
+    connections: providerConfig.connections ?? [providerConfig.connection],
+    credentialResolver: async (reference) => process.env[reference] ?? null,
+    qualificationObserver: (failure) => recordRuntimeQualificationFailure({ ...failure, baselineEvidence: providerConfig.evidence, evidencePath: storage.evidencePath }),
+  });
+  const started = await instance.start();
+  return {
+    instance,
+    bridge: { baseUrl: started.baseUrl, credentialRef: "AGENT_ENGINE_BRIDGE_TOKEN" },
+    bridgeCredential: { ref: "AGENT_ENGINE_BRIDGE_TOKEN", value: started.token },
+  };
 }
 
 function clearAgentCallbacks() {
@@ -203,6 +238,147 @@ function clearAgentCallbacks() {
   removeAgentWebContentsListener = null;
   agentWebContents = null;
   codexAdapter.setCallbacks({ onEvent: () => {}, onUserInputRequest: () => {} });
+}
+
+function forwardAgentEvent(message) {
+  sendAgentMessage("agent:event", message);
+}
+
+function recordAgentEvent(message) {
+  void recoveryJournal?.observe(message).catch((error) => {
+    console.error(`[novel-codex] recovery journal failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
+}
+
+async function beginRecoveryRun(task, projectId, threadId) {
+  if (!recoveryJournal) return;
+  await recoveryJournal.beginRun({
+    runId: task.id,
+    planId: agentProviderConfig?.sessionPlan?.id ?? "unresolved-session-plan",
+    sessionPlan: agentProviderConfig?.sessionPlan ?? null,
+    threadId,
+    projectId,
+    operation: task.operation ?? null,
+  });
+}
+
+async function interruptAgentTurn(execution = activeAgentExecution) {
+  if (execution?.engineHost && execution?.engineRunId) return execution.engineHost.cancelRun(execution.engineRunId, "author-interrupt");
+  const bridge = execution?.modelBridge ?? modelBridge;
+  const adapter = execution?.adapter ?? codexAdapter;
+  await bridge?.cancelActiveRequests();
+  return adapter.interruptTurn();
+}
+
+async function assertCurrentAgentPlan(operation, providerConfig = agentProviderConfig) {
+  if (!providerConfig?.sessionPlan) throw new Error("Agent SessionPlan 尚未就绪");
+  if (!engineQualificationContextDigest) throw new Error("Agent QualificationContext 尚未就绪");
+  const evidence = agentStorage
+    ? await loadCodexEvidence(agentStorage.evidencePath)
+    : providerConfig.evidence ?? [];
+  const current = resolveCodexProvider({
+    credentialScopes: agentStorage ? credentialScopesFromEnvironment(process.env, agentStorage.credentialSaltPath) : {},
+    evidence,
+    model: providerConfig.model,
+    operation,
+    provider: providerConfig.provider,
+    qualificationContextDigest: engineQualificationContextDigest,
+  });
+  if (current.sessionPlan.id !== providerConfig.sessionPlan.id) {
+    throw Object.assign(new Error("模型能力证据或路由计划已经变化，请重新选择模型后再开始任务"), { code: "SESSION_PLAN_STALE" });
+  }
+  return current.sessionPlan;
+}
+
+async function beginAgentExecution(execution, operation) {
+  const bridge = modelBridge;
+  const adapter = codexAdapter;
+  const providerConfig = agentProviderConfig;
+  execution.modelBridge = bridge;
+  execution.adapter = adapter;
+  execution.providerConfig = providerConfig;
+  execution.operation = operation;
+  activeAgentExecution = execution;
+  try {
+    execution.sessionPlan = await assertCurrentAgentPlan(operation, providerConfig);
+  } catch (error) {
+    if (activeAgentExecution === execution) activeAgentExecution = null;
+    throw error;
+  }
+}
+
+async function finishAgentExecution(execution) {
+  let cleanupError = null;
+  try {
+    if (execution.engineHost && execution.engineSessionId) await execution.engineHost.closeSession(execution.engineSessionId);
+  } catch (error) {
+    cleanupError = error;
+  }
+  if (recoveryIndex) await reconcileRecoveryIndex(recoveryIndex, runtimeRequest, (projectId, phase, error) => {
+    console.error(`[novel-codex] recovery reconciliation failed (${projectId}/${phase}): ${error instanceof Error ? error.message : String(error)}`);
+  });
+  if (activeAgentExecution === execution) activeAgentExecution = null;
+  if (cleanupError) throw cleanupError;
+}
+
+async function sendAgentTurn(execution, input, options) {
+  if (!execution.modelBridge || !execution.adapter || !execution.sessionPlan) throw new Error("Agent Engine 执行环境尚未准备完成");
+  const runId = execution.task?.id ?? randomUUID();
+  const runtime = new CodexSessionRuntime({
+    appServer: execution.adapter,
+    bridge: execution.modelBridge,
+    bridgeOwnership: "borrowed",
+    closeAppServer: (adapter) => adapter.finishTaskOperation(),
+    budgetFactory: async ({ lease }) => agentStorage?.budgetDb
+      ? new PersistentTaskBudget({ databasePath: agentStorage.budgetDb, runId: lease.runId, id: lease.budgetId })
+      : new TaskBudget({ id: lease.budgetId }),
+    reconcile: async () => {
+      await recoveryJournal?.flush();
+      const report = await recoveryIndex?.recoveryReport() ?? [];
+      const unresolvedOperations = report.find((entry) => entry.runId === runId)?.requests
+        ?.filter((request) => request.recovery === "manual-reconciliation")
+        .map((request) => ({ requestId: request.requestId, operation: request.operation })) ?? [];
+      return { outcome: unresolvedOperations.length ? "outcome-unknown" : "cancelled", unresolvedOperations };
+    },
+  });
+  const host = new AgentEngineHost({
+    connections: execution.providerConfig.connections,
+    evidenceProvider: async () => { throw new Error("the product must resolve a trusted SessionPlan before runtime creation"); },
+    runtimeFactory: async () => runtime,
+  });
+  const sessionId = randomUUID();
+  execution.engineHost = host;
+  execution.engineSessionId = sessionId;
+  execution.engineRunId = runId;
+  try {
+    await host.startSession({ sessionPlan: execution.sessionPlan, sessionId });
+    const started = await host.startRun({ sessionId, runId, budgetId: randomUUID(), mode: execution.operation, input, turnOptions: options });
+    const result = await started.completion;
+    host.closeRun(runId);
+    execution.engineRunId = null;
+    await host.closeSession(sessionId);
+    execution.engineSessionId = null;
+    return result;
+  } finally {
+    if (execution.engineSessionId) await host.closeSession(sessionId).catch(() => undefined);
+    execution.engineHost = null;
+    execution.engineSessionId = null;
+    execution.engineRunId = null;
+  }
+}
+
+async function runCoreTurnWithLease(operation, callback) {
+  if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
+  const execution = createTaskExecution();
+  await beginAgentExecution(execution, operation);
+  try {
+    assertTaskCompletable(execution);
+    const result = await sendAgentTurn(execution, [], { dispatch: callback });
+    assertTaskCompletable(execution);
+    return result;
+  } finally {
+    await finishAgentExecution(execution);
+  }
 }
 
 function attachAgentWebContents(webContents) {
@@ -257,29 +433,33 @@ async function runCreativeAgentTask(event, projectId, prompt, taskType, target =
   assertProviderOperation(agentProviderConfig, taskType.operation);
   attachAgentWebContents(event.sender);
   codexAdapter.setCallbacks({
-    onEvent: (message) => sendAgentMessage("agent:event", message),
+    onEvent: forwardAgentEvent,
     onUserInputRequest: (request) => sendAgentMessage("agent:user-input-request", request),
   });
   const execution = createTaskExecution();
-  activeAgentExecution = execution;
+  await beginAgentExecution(execution, taskType.operation);
+  const adapter = execution.adapter;
   let task = null;
   try {
+    assertTaskCompletable(execution);
     const capability = createTaskCapability();
-    codexAdapter.prepareTaskOperation(taskType.operation, capability.secret);
+    adapter.prepareTaskOperation(taskType.operation, capability.secret);
     const taskPurpose = taskType.operation === "generateChapter" ? "writer" : "planner";
     const targetKey = target?.chapterId ? `${projectId}:${taskPurpose}:${target.chapterId}` : `${projectId}:${taskPurpose}`;
     activeAgentProjectId = projectId;
     activeAgentPurpose = taskPurpose;
     activeAgentTargetKey = targetKey;
-    const threadId = await codexAdapter.ensureSession();
+    const threadId = await adapter.ensureSession();
+    assertTaskCompletable(execution);
     const workspace = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/creative-workspace`);
+    assertTaskCompletable(execution);
     task = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks`, {
       method: "POST",
       body: JSON.stringify({
         target,
         inputRevision: workspace.revision,
         threadId,
-        model: agentProviderConfig?.model ?? null,
+        model: execution.providerConfig?.model ?? null,
         operation: taskType.operation,
         authorIntent: prompt,
         capabilityHash: capability.hash,
@@ -293,12 +473,16 @@ async function runCreativeAgentTask(event, projectId, prompt, taskType, target =
       throw Object.assign(new Error("生成已停止"), { code: "TASK_CANCELLED" });
     }
     const prepared = await prepareNovelWorkflow(projectId, prompt, task, task.purpose);
-    const result = await codexAdapter.sendTurn(prepared.prompt, { disableEnvironment: true, threadName: prompt });
+    await beginRecoveryRun(task, projectId, threadId);
     assertTaskCompletable(execution);
+    const result = await sendAgentTurn(execution, prepared.prompt, { disableEnvironment: true, threadName: prompt });
+    assertTaskCompletable(execution);
+    await recoveryJournal?.flush();
     const completion = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/complete`, {
       method: "POST",
       body: JSON.stringify({ threadId, summary: Array.from(result.message ?? "").slice(0, 4_000).join("") }),
     });
+    await recoveryJournal?.completeRun();
     if (activeRuntimeTask?.id === task.id) activeRuntimeTask = null;
     return { ...result, projectId, workflow: prepared.workflow, completion };
   } catch (error) {
@@ -314,8 +498,9 @@ async function runCreativeAgentTask(event, projectId, prompt, taskType, target =
     if (execution.cancellationRequested) throw Object.assign(new Error("生成已停止"), { code: "TASK_CANCELLED" });
     throw error;
   } finally {
-    await codexAdapter.finishTaskOperation();
-    if (activeAgentExecution === execution) activeAgentExecution = null;
+    await recoveryJournal?.abandonRun().catch(() => undefined);
+    await adapter.finishTaskOperation();
+    await finishAgentExecution(execution);
   }
 }
 
@@ -330,29 +515,35 @@ async function runPlanningReview(event, projectId, request) {
   assertProviderOperation(agentProviderConfig, "reviewPlanningSeat");
   attachAgentWebContents(event.sender);
   codexAdapter.setCallbacks({
-    onEvent: (message) => sendAgentMessage("agent:event", message),
+    onEvent: forwardAgentEvent,
     onUserInputRequest: (request) => sendAgentMessage("agent:user-input-request", request),
   });
   const execution = createTaskExecution();
   execution.projectId = projectId;
-  activeAgentExecution = execution;
+  await beginAgentExecution(execution, "reviewPlanningSeat");
+  const adapter = execution.adapter;
   let run = null;
   try {
+    assertTaskCompletable(execution);
     run = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/planning-reviews`, {
       method: "POST",
       body: JSON.stringify(request),
     });
     execution.runId = run.id;
+    assertTaskCompletable(execution);
     for (const role of run.roles) {
       if (execution.cancellationRequested) break;
       let task = null;
       try {
+        await assertCurrentAgentPlan("reviewPlanningSeat");
+        assertTaskCompletable(execution);
         const capability = createTaskCapability();
-        codexAdapter.prepareTaskOperation("reviewPlanningSeat", capability.secret);
-        const threadId = await codexAdapter.ensureSession();
+        adapter.prepareTaskOperation("reviewPlanningSeat", capability.secret);
+        const threadId = await adapter.ensureSession();
+        assertTaskCompletable(execution);
         task = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/planning-reviews/${encodeURIComponent(run.id)}/seats/${encodeURIComponent(role)}/tasks`, {
           method: "POST",
-          body: JSON.stringify({ threadId, model: agentProviderConfig?.model ?? null, capabilityHash: capability.hash, capabilityExpiresAt: capability.expiresAt }),
+          body: JSON.stringify({ threadId, model: execution.providerConfig?.model ?? null, capabilityHash: capability.hash, capabilityExpiresAt: capability.expiresAt }),
         });
         task = bindExecutionTask(execution, task);
         activeRuntimeTask = task;
@@ -362,18 +553,24 @@ async function runPlanningReview(event, projectId, request) {
         }
         const workspace = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/creative-workspace`);
         const handoff = createTaskBoundHandoff(projectId, workspace, task);
-        codexAdapter.emit({ method: "agent/workflow", params: { workflow: { task, planningReviewId: run.id, role, revision: workspace.revision } } });
+        adapter.emit({ method: "agent/workflow", params: { workflow: { task, planningReviewId: run.id, role, revision: workspace.revision } } });
         const prompt = composeNovelCodexPrompt(novelSkillPrompt, request.authorIntent, `你是规划深审中的独立 ${role} 席。先按以下绑定调用 read_context；不得读取其他席报告，不得修改任何规划、正文或正式事实。按冻结的 checks 逐项检查，允许没有问题或无法判断。然后调用 submit_planning_review_report 保存结构化报告，最后调用 complete_task。\n${JSON.stringify(handoff, null, 2)}`);
-        const result = await codexAdapter.sendTurn(prompt, { disableEnvironment: true, threadName: `规划深审 · ${role}` });
+        await beginRecoveryRun(task, projectId, threadId);
         assertTaskCompletable(execution);
+        const result = await sendAgentTurn(execution, prompt, { disableEnvironment: true, threadName: `规划深审 · ${role}` });
+        assertTaskCompletable(execution);
+        await recoveryJournal?.flush();
         await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/complete`, { method: "POST", body: JSON.stringify({ threadId, summary: Array.from(result.message ?? "").slice(0, 4_000).join("") }) });
+        await recoveryJournal?.completeRun();
       } catch (error) {
         if (shouldMarkTaskFailed(task)) {
           try { await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}`, { method: "PATCH", body: JSON.stringify({ threadId: task.threadId, status: "failed", error: error.message }) }); } catch { /* Preserve reports from other seats. */ }
         }
+        if (error?.code === "SESSION_PLAN_STALE") throw error;
       } finally {
+        await recoveryJournal?.abandonRun().catch(() => undefined);
         if (activeRuntimeTask?.id === task?.id) activeRuntimeTask = null;
-        await codexAdapter.finishTaskOperation();
+        await adapter.finishTaskOperation();
       }
     }
     if (execution.cancellationRequested) {
@@ -383,7 +580,7 @@ async function runPlanningReview(event, projectId, request) {
     const finalized = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/planning-reviews/${encodeURIComponent(run.id)}/finalize`, { method: "POST", body: "{}" });
     return { projectId, run: finalized };
   } finally {
-    if (activeAgentExecution === execution) activeAgentExecution = null;
+    await finishAgentExecution(execution);
   }
 }
 
@@ -393,29 +590,33 @@ async function runAdvisoryAgentTask(event, projectId, prompt) {
   assertProviderOperation(agentProviderConfig, "advisory");
   attachAgentWebContents(event.sender);
   codexAdapter.setCallbacks({
-    onEvent: (message) => sendAgentMessage("agent:event", message),
+    onEvent: forwardAgentEvent,
     onUserInputRequest: (request) => sendAgentMessage("agent:user-input-request", request),
   });
   const execution = createTaskExecution();
-  activeAgentExecution = execution;
+  await beginAgentExecution(execution, "advisory");
+  const adapter = execution.adapter;
   let task = null;
   try {
+    assertTaskCompletable(execution);
     const capability = createTaskCapability();
     const advisoryThreadId = advisorySessions.preferredThread(projectId);
-    codexAdapter.prepareAdvisorySession(capability.secret);
-    if (codexAdapter.threadId && !advisorySessions.canReuseCurrent(projectId, codexAdapter.threadId, activeAgentProjectId, activeAgentPurpose)) {
-      codexAdapter.detachThread();
+    adapter.prepareAdvisorySession(capability.secret);
+    if (adapter.threadId && !advisorySessions.canReuseCurrent(projectId, adapter.threadId, activeAgentProjectId, activeAgentPurpose)) {
+      adapter.detachThread();
     }
-    if (!codexAdapter.threadId && advisoryThreadId) await codexAdapter.resumeThread(advisoryThreadId);
+    if (!adapter.threadId && advisoryThreadId) await adapter.resumeThread(advisoryThreadId);
     activeAgentProjectId = projectId;
     activeAgentPurpose = "advisory";
     activeAgentTargetKey = `${projectId}:advisory`;
-    const threadId = await codexAdapter.ensureSession();
+    const threadId = await adapter.ensureSession();
+    assertTaskCompletable(execution);
     advisorySessions.remember(projectId, threadId);
     const workspace = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/creative-workspace`);
+    assertTaskCompletable(execution);
     task = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks`, {
       method: "POST",
-      body: JSON.stringify({ target: { type: "project" }, inputRevision: workspace.revision, threadId, model: agentProviderConfig?.model ?? null, operation: "advisory", authorIntent: prompt, capabilityHash: capability.hash, capabilityExpiresAt: capability.expiresAt }),
+      body: JSON.stringify({ target: { type: "project" }, inputRevision: workspace.revision, threadId, model: execution.providerConfig?.model ?? null, operation: "advisory", authorIntent: prompt, capabilityHash: capability.hash, capabilityExpiresAt: capability.expiresAt }),
     });
     task = bindExecutionTask(execution, task);
     activeRuntimeTask = task;
@@ -424,11 +625,15 @@ async function runAdvisoryAgentTask(event, projectId, prompt) {
       throw Object.assign(new Error("生成已停止"), { code: "TASK_CANCELLED" });
     }
     const handoff = createTaskBoundHandoff(projectId, workspace, task);
-    codexAdapter.emit({ method: "agent/workflow", params: { workflow: { task, revision: workspace.revision } } });
+    adapter.emit({ method: "agent/workflow", params: { workflow: { task, revision: workspace.revision } } });
     const advisoryPrompt = composeNovelCodexPrompt(novelSkillPrompt, prompt, `只通过 novel_workspace.read_context 读取本次任务的冻结上下文，调用时原样传入以下绑定中的 taskId、projectId、threadId、expectedRevision，并使用 purpose=planner、budget=24、byteBudget=60000：\n${JSON.stringify(handoff, null, 2)}\n\n这是自由讨论任务：只提供分析、问题和建议，不得保存或采用领域产物。讨论结论会由界面带入创作简报、大纲或章纲的专用生成入口。`);
-    const result = await codexAdapter.sendTurn(advisoryPrompt, { disableEnvironment: true, threadName: prompt });
+    await beginRecoveryRun(task, projectId, threadId);
     assertTaskCompletable(execution);
+    const result = await sendAgentTurn(execution, advisoryPrompt, { disableEnvironment: true, threadName: prompt });
+    assertTaskCompletable(execution);
+    await recoveryJournal?.flush();
     const completion = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/complete`, { method: "POST", body: JSON.stringify({ threadId, summary: Array.from(result.message ?? "").slice(0, 4_000).join("") }) });
+    await recoveryJournal?.completeRun();
     if (activeRuntimeTask?.id === task.id) activeRuntimeTask = null;
     return { ...result, projectId, workflow: { task, revision: workspace.revision }, completion };
   } catch (error) {
@@ -439,8 +644,9 @@ async function runAdvisoryAgentTask(event, projectId, prompt) {
     if (execution.cancellationRequested) throw Object.assign(new Error("生成已停止"), { code: "TASK_CANCELLED" });
     throw error;
   } finally {
-    await codexAdapter.finishTaskOperation();
-    if (activeAgentExecution === execution) activeAgentExecution = null;
+    await recoveryJournal?.abandonRun().catch(() => undefined);
+    await adapter.finishTaskOperation();
+    await finishAgentExecution(execution);
   }
 }
 
@@ -504,7 +710,7 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     if (activeAgentExecution?.projectId === projectId && activeAgentExecution?.runId === runId) {
       requestTaskCancellation(activeAgentExecution);
       requestTaskCancellation(activeAgentExecution.task ?? activeRuntimeTask);
-      await codexAdapter.interruptTurn().catch(() => undefined);
+      await interruptAgentTurn().catch(() => undefined);
     }
     return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/planning-reviews/${encodeURIComponent(runId)}/cancel`, { method: "POST", body: "{}" });
   });
@@ -587,37 +793,135 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/search?${params}`);
   });
   ipcMain.handle("agent:status", () => codexAdapter.status());
-  ipcMain.handle("agent:configure", (_event, provider, model) => {
+  ipcMain.handle("agent:recovery-report", () => recoveryIndex?.recoveryReport() ?? []);
+  ipcMain.handle("agent:resolve-recovery", async (_event, projectId, runId) => {
+    if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，不能结束恢复核对");
+    if (typeof projectId !== "string" || !projectId.trim() || typeof runId !== "string" || !runId.trim()) throw new Error("恢复任务参数无效");
+    if (!recoveryIndex) throw new Error("恢复索引尚未就绪");
+    const report = await recoveryIndex.recoveryReport();
+    const run = report.find((entry) => entry.runId === runId && entry.projectId === projectId);
+    if (!run) throw new Error("恢复任务不存在或不属于当前作品");
+    if (!run.requests.some((request) => request.recovery === "manual-reconciliation")) throw new Error("该任务不需要人工核对");
+    await recoveryIndex.resolveRun(runId, "manual-reviewed");
+    return { resolved: true, runId };
+  });
+  ipcMain.handle("agent:list-connections", async () => ({
+    connections: listCodexConnections({
+      credentialScopes: agentStorage ? credentialScopesFromEnvironment(process.env, agentStorage.credentialSaltPath) : {},
+      evidence: agentStorage ? await loadCodexEvidence(agentStorage.evidencePath) : [],
+      qualificationContextDigest: engineQualificationContextDigest ?? "unavailable",
+    }),
+  }));
+  ipcMain.handle("agent:verify-connection", async (_event, provider, model) => {
+    if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，不能验证连接");
+    if (!agentStorage || !agentCli?.path) throw new Error("Novel Codex 内核尚未就绪，无法执行真实能力认证");
+    const conformanceRunner = new CodexConformanceRunner({
+      baseEnvironment: process.env,
+      baseInstructions: engineBaseInstructions,
+      command: [agentCli.path, "app-server"],
+      cwd: agentStorage.workspaceHome,
+      nodeCommand: process.execPath,
+    });
+    const coreRunner = new CodexCoreIntegrationRunner({
+      baseEnvironment: process.env,
+      baseInstructions: engineBaseInstructions,
+      command: [agentCli.path, "app-server"],
+      cwd: agentStorage.workspaceHome,
+      nodeCommand: process.execPath,
+    });
+    return verifyCodexConnection({
+      baseEnvironment: process.env,
+      conformanceRunner,
+      coreRunner,
+      credentialScopes: credentialScopesFromEnvironment(process.env, agentStorage.credentialSaltPath),
+      evidencePath: agentStorage.evidencePath,
+      provider,
+      qualificationContextDigest: engineQualificationContextDigest ?? "unavailable",
+      model,
+    });
+  });
+  ipcMain.handle("agent:verify-connection-edge", async (_event, parentProvider, parentModel, childProvider, childModel) => {
+    if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，不能验证连接");
+    if (!agentStorage || !agentCli?.path) throw new Error("Novel Codex 内核尚未就绪，无法执行真实能力认证");
+    const conformanceRunner = new CodexConformanceRunner({
+      baseEnvironment: process.env,
+      baseInstructions: engineBaseInstructions,
+      command: [agentCli.path, "app-server"],
+      cwd: agentStorage.workspaceHome,
+      nodeCommand: process.execPath,
+    });
+    return verifyCodexConnectionEdge({
+      baseEnvironment: process.env,
+      conformanceRunner,
+      credentialScopes: credentialScopesFromEnvironment(process.env, agentStorage.credentialSaltPath),
+      evidencePath: agentStorage.evidencePath,
+      parentProvider,
+      parentModel,
+      childProvider,
+      childModel,
+      qualificationContextDigest: engineQualificationContextDigest ?? "unavailable",
+    });
+  });
+  ipcMain.handle("agent:configure", async (_event, provider, model) => {
     if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
     if (typeof provider !== "string" || provider.length > 40 || /[\r\n]/.test(provider)) throw new Error("Provider 无效");
     if (typeof model !== "string" || model.length > 120 || /[\r\n]/.test(model)) throw new Error("Model 无效");
-    if (!agentStorage || !agentCli || !agentProviderConfig) throw new Error("Novel Codex 配置尚未就绪");
-    const next = resolveCodexProvider({ provider, model });
+    if (!agentStorage || !agentCli) throw new Error("Novel Codex 配置尚未就绪");
+    const requestEpoch = ++configurationRequestEpoch;
+    const evidence = await loadCodexEvidence(agentStorage.evidencePath);
+    const next = resolveCodexProvider({
+      credentialScopes: credentialScopesFromEnvironment(process.env, agentStorage.credentialSaltPath),
+      evidence,
+      provider,
+      model,
+      qualificationContextDigest: engineQualificationContextDigest ?? "unavailable",
+    });
     const configurationError = providerConfigurationError(next, process.env);
     if (configurationError) throw new Error(configurationError);
-    const status = applyAgentConfiguration({
-      adapter: codexAdapter,
-      configuration: {
-        apiKey: null,
-        command: agentCli.path ? [agentCli.path, "app-server"] : null,
-        commandSource: agentCli.source,
-        configurationError,
-        cwd: projectRoot,
-        env: createCodexEnvironment(process.env, { ...agentStorage, provider: next.provider, runtimeUrl, candidateToken: runtimeCandidateToken }),
-        model: next.model,
-        provider: next.provider,
-      },
-      persist: () => ensureCodexConfig(agentStorage.codexHome, next),
-    });
+    const transport = await prepareModelTransport(next);
+    const previousBridge = modelBridge;
+    const previousAdapter = codexAdapter;
+    const nextAdapter = new CodexAppServerAdapter({ command: null, cwd: projectRoot });
+    let status;
+    try {
+      if (requestEpoch !== configurationRequestEpoch) throw new Error("已有更新的模型配置，本次迟到结果不会发布");
+      if (activeAgentExecution) throw new Error("模型配置准备期间已有任务启动，已取消本次切换");
+      status = applyAgentConfiguration({
+        adapter: nextAdapter,
+        configuration: {
+          apiKey: null,
+          command: agentCli.path ? [agentCli.path, "app-server"] : null,
+          commandSource: agentCli.source,
+          configurationError,
+          cwd: agentStorage.workspaceHome,
+          env: createCodexEnvironment(process.env, { ...agentStorage, credentialRef: transport.bridge ? null : next.credentialRef, bridgeCredential: transport.bridgeCredential, runtimeUrl, candidateToken: runtimeCandidateToken }),
+          model: next.model,
+          provider: next.provider,
+        },
+        persist: () => ensureCodexConfig(agentStorage.codexHome, next, transport.bridge),
+      });
+    } catch (error) {
+      if (transport.instance) await transport.instance.close();
+      nextAdapter.close();
+      throw error;
+    }
+    // Single publication point: readers can observe only the old or the new
+    // adapter/bridge/plan tuple. Cleanup of the old tuple is deliberately later.
+    codexAdapter = nextAdapter;
+    modelBridge = transport.instance;
     agentProviderConfig = next;
+    previousAdapter.close();
+    if (previousBridge) await previousBridge.close();
     return status;
   });
   ipcMain.handle("agent:interrupt", async () => {
     const execution = requestTaskCancellation(activeAgentExecution);
     const task = requestTaskCancellation(execution?.task ?? activeRuntimeTask);
     let interrupted = { interrupted: false };
+    const interruptedExecution = execution;
+    const interruptedAdapter = execution?.adapter ?? codexAdapter;
     try {
-      interrupted = await codexAdapter.interruptTurn();
+      interrupted = await interruptAgentTurn(interruptedExecution);
     } finally {
       try {
         if (execution?.runId && execution?.projectId) {
@@ -628,7 +932,7 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
           if (activeRuntimeTask?.id === task.id) activeRuntimeTask = null;
         }
       } finally {
-        await codexAdapter.finishTaskOperation();
+        await interruptedAdapter.finishTaskOperation();
       }
     }
     return { ...interrupted, interrupted: interrupted.interrupted || Boolean(execution) };
@@ -675,8 +979,8 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     });
   }
   ipcMain.handle("agent:read-thread", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return codexAdapter.readThread(threadId); });
-  ipcMain.handle("agent:review-thread", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return codexAdapter.reviewThread(threadId); });
-  ipcMain.handle("agent:compact-thread", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return codexAdapter.compactThread(threadId); });
+  ipcMain.handle("agent:review-thread", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return runCoreTurnWithLease("advisory", () => codexAdapter.reviewThread(threadId)); });
+  ipcMain.handle("agent:compact-thread", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return runCoreTurnWithLease("advisory", () => codexAdapter.compactThread(threadId)); });
   ipcMain.handle("agent:list-background-terminals", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return codexAdapter.listBackgroundTerminals(threadId); });
   ipcMain.handle("agent:terminate-background-terminal", async (_event, projectId, threadId, processId) => { await assertThreadProject(projectId, threadId); return codexAdapter.terminateBackgroundTerminal(threadId, processId); });
   ipcMain.handle("agent:set-thread-pinned", async (_event, projectId, threadId, isPinned) => {
@@ -708,6 +1012,8 @@ function stopRuntime() {
   if (runtimeProcess && !runtimeProcess.killed) runtimeProcess.kill();
   clearAgentCallbacks();
   codexAdapter.close();
+  if (modelBridge) void modelBridge.close();
+  modelBridge = null;
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -722,34 +1028,76 @@ app.on("second-instance", () => {
 });
 
 app.whenReady().then(async () => {
+  bundledRuntime = app.isPackaged ? resolveRuntimeBinaries({ resourcesPath: process.resourcesPath }) : null;
   const storage = prepareIsolatedStorage(app.getPath("userData"));
-  novelSkillPrompt = loadNovelCodexSkills(projectRoot);
-  const providerConfig = resolveCodexProvider({ model: process.env.NOVEL_CODEX_MODEL, provider: process.env.NOVEL_CODEX_PROVIDER });
-  await startRuntime(storage.runtimeDb);
-  ensureCodexConfig(storage.codexHome, providerConfig);
+  const recoveredBudgets = PersistentTaskBudget.recoverOrphans(storage.budgetDb);
+  if (recoveredBudgets.length) console.warn(`[novel-codex] recovered ${recoveredBudgets.length} unfinished model budget(s) as unknown usage`);
+  recoveryIndex = new RecoveryIndex(storage.recoveryPath);
+  recoveryJournal = new HostRecoveryJournal(recoveryIndex);
+  codexAdapter.setCallbacks({ onRawEvent: recordAgentEvent });
+  novelSkillPrompt = loadNovelCodexSkills(runtimeAssetRoot);
+  const enginePromptPath = app.isPackaged
+    ? join(runtimeAssetRoot, "codex-runtime", "engine-prompt.md")
+    : join(projectRoot, "../../codex-rs/models-manager/prompt.md");
+  engineBaseInstructions = readFileSync(enginePromptPath, "utf8").trim();
+  if (!engineBaseInstructions) throw new Error("Codex 上游基础指令为空");
   const codexCli = resolveCodexCli({
     explicitPath: process.env.NOVEL_CODEX_CLI,
     isPackaged: app.isPackaged,
     projectRoot,
     resourcesPath: process.resourcesPath,
   });
+  engineQualificationContextDigest = codexCli.path
+    ? createQualificationContextDigest({ baseInstructions: engineBaseInstructions, cliPath: codexCli.path })
+    : null;
+  const evidence = await loadCodexEvidence(storage.evidencePath);
+  const selectedConnection = inspectCodexConnection({ model: process.env.NOVEL_CODEX_MODEL, provider: process.env.NOVEL_CODEX_PROVIDER });
+  let providerConfig = null;
+  let capabilityError = null;
+  try {
+    if (!engineQualificationContextDigest) throw new Error(codexCli.reason ?? "Novel Codex CLI 来源不可验证");
+    providerConfig = resolveCodexProvider({
+      credentialScopes: credentialScopesFromEnvironment(process.env, storage.credentialSaltPath),
+      evidence,
+      model: selectedConnection.model,
+      provider: selectedConnection.provider,
+      qualificationContextDigest: engineQualificationContextDigest,
+    });
+  } catch (error) {
+    capabilityError = error instanceof Error ? error.message : String(error);
+  }
+  const modelTransport = providerConfig ? await prepareModelTransport(providerConfig, storage) : { bridge: null, bridgeCredential: null, instance: null };
+  modelBridge = modelTransport.instance;
+  await startRuntime(storage.runtimeDb);
+  await reconcileRecoveryIndex(recoveryIndex, runtimeRequest, (projectId, phase, error) => {
+    console.error(`[novel-codex] recovery ${phase} reconciliation failed for project ${projectId}: ${error instanceof Error ? error.message : String(error)}`);
+  });
+  if (providerConfig) ensureCodexConfig(storage.codexHome, providerConfig, modelTransport.bridge);
   agentStorage = storage;
   agentCli = codexCli;
-  agentProviderConfig = providerConfig;
-  const configurationError = providerConfigurationError(providerConfig, process.env);
+  agentProviderConfig = providerConfig ?? selectedConnection;
+  const configurationError = capabilityError ?? providerConfigurationError(selectedConnection, process.env);
   codexAdapter.configure({
     apiKey: null,
     command: codexCli.path ? [codexCli.path, "app-server"] : null,
     commandSource: codexCli.source,
     configurationError,
-    cwd: projectRoot,
-    env: createCodexEnvironment(process.env, { ...storage, provider: providerConfig.provider, runtimeUrl, candidateToken: runtimeCandidateToken }),
-    model: providerConfig.model,
-    provider: providerConfig.provider,
+    cwd: storage.workspaceHome,
+    env: createCodexEnvironment(process.env, { ...storage, credentialRef: modelTransport.bridge ? null : selectedConnection.credentialRef, bridgeCredential: modelTransport.bridgeCredential, runtimeUrl, candidateToken: runtimeCandidateToken }),
+    model: selectedConnection.model,
+    provider: selectedConnection.provider,
   });
   if (!codexCli.path) console.warn(`[novel-codex] ${codexCli.reason}`);
   if (configurationError) console.warn(`[novel-codex] ${configurationError}`);
   registerIpcHandlers();
+  if (app.isPackaged && process.env.NOVEL_CODEX_PACKAGE_SMOKE === "1") {
+    const health = await runtimeRequest("/health");
+    if (health?.ok !== true) throw new Error("最终安装产物无法访问 Creative Runtime");
+    console.log("NOVEL_CODEX_PACKAGE_SMOKE_OK");
+    allowWindowClose = true;
+    app.quit();
+    return;
+  }
   createWindow();
 
   app.on("activate", () => {

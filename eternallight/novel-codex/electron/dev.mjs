@@ -5,8 +5,13 @@ import { fileURLToPath } from "node:url";
 
 import electronPath from "electron";
 
+import { loadProjectDevelopmentEnvironment, resolveDevelopmentEnvironment, withoutProviderCredentials } from "./development-credentials.mjs";
+
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const host = "127.0.0.1";
+const projectEnvironment = loadProjectDevelopmentEnvironment(projectRoot, process.env);
+const electronEnvironment = resolveDevelopmentEnvironment(projectEnvironment);
+const rendererEnvironment = withoutProviderCredentials(projectEnvironment);
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -38,7 +43,7 @@ const port = await freePort();
 const rendererUrl = `http://${host}:${port}`;
 const vite = spawn(process.execPath, [join(projectRoot, "node_modules", "vite", "bin", "vite.js"), "--host", host, "--port", String(port), "--strictPort"], {
   cwd: projectRoot,
-  env: process.env,
+  env: rendererEnvironment,
   stdio: "inherit",
 });
 
@@ -60,7 +65,7 @@ try {
   await waitUntilReady(rendererUrl);
   electron = spawn(electronPath, [join(projectRoot, "electron", "main.mjs")], {
     cwd: projectRoot,
-    env: { ...process.env, NOVEL_CODEX_RENDERER_URL: rendererUrl },
+    env: { ...electronEnvironment, NOVEL_CODEX_RENDERER_URL: rendererUrl },
     stdio: "inherit",
   });
   electron.once("exit", (code) => stop(code ?? 0));

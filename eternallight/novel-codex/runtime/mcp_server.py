@@ -490,8 +490,21 @@ class CandidateRuntimeClient:
         self._runtime_url = _runtime_url_from_environment()
         self._candidate_token = os.environ.get("NOVEL_CODEX_CANDIDATE_TOKEN", "")
         self._task_capability = os.environ.get("NOVEL_CODEX_TASK_CAPABILITY", "")
+        self._trusted_meta: dict[str, Any] | None = None
 
-    def call_tool(self, name: str, arguments: dict[str, Any]) -> RuntimeResponse:
+    def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        trusted_meta: dict[str, Any] | None = None,
+    ) -> RuntimeResponse:
+        self._trusted_meta = trusted_meta
+        try:
+            return self._call_tool(name, arguments)
+        finally:
+            self._trusted_meta = None
+
+    def _call_tool(self, name: str, arguments: dict[str, Any]) -> RuntimeResponse:
         if name not in _allowed_tool_names():
             raise ValueError("tool is not allowed for this generation operation")
         self._validate_arguments(name, arguments)
@@ -653,6 +666,7 @@ class CandidateRuntimeClient:
                 "Authorization": f"Bearer {self._candidate_token}",
                 "Content-Type": "application/json",
                 "X-Novel-Task-Capability": self._task_capability,
+                **self._execution_headers(),
             },
         )
         try:
@@ -678,6 +692,25 @@ class CandidateRuntimeClient:
             raise RuntimeError(
                 f"Novel Runtime is unavailable: {error.reason}"
             ) from error
+
+    def _execution_headers(self) -> dict[str, str]:
+        meta = self._trusted_meta or {}
+        mapping = {
+            "X-Novel-Root-Thread": "rootThreadId",
+            "X-Novel-Caller-Thread": "callerThreadId",
+            "X-Novel-Parent-Thread": "parentThreadId",
+            "X-Novel-Turn": "turnId",
+            "X-Novel-Tool-Call": "callId",
+        }
+        headers = {
+            header: str(meta[key])
+            for header, key in mapping.items()
+            if isinstance(meta.get(key), str) and meta[key]
+        }
+        tool_name = meta.get("toolName")
+        if isinstance(tool_name, str) and tool_name:
+            headers["X-Novel-Tool-Name"] = tool_name
+        return headers
 
 
 def _decode_json(raw: bytes) -> Any:
@@ -914,9 +947,66 @@ def handle_message(
         arguments = params.get("arguments", {})
         if not isinstance(name, str) or not isinstance(arguments, dict):
             return _jsonrpc_error(request_id, -32602, "Invalid params")
+        trusted_meta = params.get("_meta")
+        if not isinstance(trusted_meta, dict):
+            return _jsonrpc_error(
+                request_id, -32602, "Trusted execution metadata is required"
+            )
+        caller_thread_id = trusted_meta.get("callerThreadId")
+        root_thread_id = trusted_meta.get("rootThreadId")
+        session_id = trusted_meta.get("sessionId")
+        parent_thread_id = trusted_meta.get("parentThreadId")
+        if (
+            not isinstance(caller_thread_id, str)
+            or not caller_thread_id
+            or not isinstance(root_thread_id, str)
+            or not root_thread_id
+            or session_id != root_thread_id
+        ):
+            return _jsonrpc_error(
+                request_id,
+                -32602,
+                "Trusted caller and root thread identities are required",
+            )
+        is_subagent = caller_thread_id != root_thread_id or (
+            isinstance(parent_thread_id, str) and bool(parent_thread_id)
+        )
+        if is_subagent and name != "read_context":
+            result = {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Subagents are restricted to read_context by trusted execution policy.",
+                    }
+                ],
+                "isError": True,
+            }
+            return _jsonrpc_result(request_id, result)
+        bound_thread_id = root_thread_id
+        requested_thread_id = arguments.get("threadId")
+        if requested_thread_id != bound_thread_id:
+            return _jsonrpc_result(
+                request_id,
+                {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Tool threadId does not match the trusted execution identity.",
+                        }
+                    ],
+                    "isError": True,
+                },
+            )
+        arguments = {**arguments, "threadId": bound_thread_id}
         try:
             return _jsonrpc_result(
-                request_id, _tool_result(client.call_tool(name, arguments), name)
+                request_id,
+                _tool_result(
+                    client.call_tool(
+                        name, arguments, {**trusted_meta, "toolName": name}
+                    ),
+                    name,
+                ),
             )
         except ValueError as error:
             return _jsonrpc_error(request_id, -32602, "Invalid params", str(error))

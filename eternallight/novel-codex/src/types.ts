@@ -138,6 +138,8 @@ export interface ThreadSummary {
 export interface ThreadItemSummary { id: string; type: string | null; status: string | null; text: string | null; }
 export interface ThreadTurnSummary { id: string; status: string | null; items: ThreadItemSummary[]; }
 export interface ThreadDetail { thread: ThreadSummary; turns: ThreadTurnSummary[]; }
+export interface RecoveryRequest { requestId: string; turnId: string | null; kind: "model" | "read" | "write"; operation: string | null; state: string; receiptRef: string | null; hasIdempotencyKey: boolean; recovery: "none" | "resume-core" | "manual-reconciliation"; }
+export interface RecoveryRun { runId: string; planId: string; threadId: string; projectId: string | null; operation: string | null; runtimeStatus: string | null; reconciledAt: string | null; requests: RecoveryRequest[]; }
 export interface BackgroundTerminal { processId: string; command: string | null; cwd: string | null; status: string | null; }
 export interface LocalMetricsSummary {
   scope: "local-device";
@@ -181,6 +183,11 @@ export interface NovelCodexApi {
   };
   agent: {
     status: () => Promise<{ configured: boolean; state: string; mode: "novel-agent-engine"; error: string | null; provider?: string; model?: string; commandSource?: string | null; cliPath?: string | null; isolatedHome?: string | null }>;
+    recoveryReport: () => Promise<RecoveryRun[]>;
+    resolveRecovery: (projectId: string, runId: string) => Promise<{ resolved: true; runId: string }>;
+    listConnections: () => Promise<{ connections: { id: string; provider: string; model: string; protocol: "auto" | "responses" | "chat-completions" | "messages" | "generate-content"; selectedProtocol: string | null; declaredCapabilities: string[]; verifiedCapabilities: string[]; failedCapabilities: string[]; operations: string[]; status: "unverified" | "verified" | "failed"; certificationIds: string[]; accountStatus: "configured" | "missing-credential"; isDefault: boolean }[] }>;
+    verifyConnection: (provider: string, model: string) => Promise<{ certificationIds?: string[]; reportId: string; selectedProtocol: string; attempts: { protocol: string; status: string; category?: string; message?: string }[]; records: { capability: string; status: string; scope: unknown; checkedAt: string; expiresAt: string }[]; access?: { status: "available"; protocol: string } }>;
+    verifyConnectionEdge: (parentProvider: string, parentModel: string, childProvider: string, childModel: string) => Promise<{ reportId: string; parentConnectionId: string; childConnectionId: string; selectedProtocols: { parent: string; child: string }; attempt: { protocol: string; status: string; category?: string; message?: string }; record: { capability: string; status: string; scope: unknown; checkedAt: string; expiresAt: string } }>;
     configure: (provider: string, model: string) => Promise<{ configured: boolean; state: string; mode: "novel-agent-engine"; error: string | null; provider?: string; model?: string; commandSource?: string | null; cliPath?: string | null; isolatedHome?: string | null }>;
     sendPrompt: (projectId: string, prompt: string) => Promise<{ mode: string; message: string; projectId: string; workflow?: { task?: unknown; context?: unknown; revision?: number } }>;
     generatePlanning: (projectId: string, operation: "generateBrief" | "generateOutline" | "generatePlan", intent: string) => Promise<{ mode: string; message: string; projectId: string; workflow?: { task?: unknown; context?: unknown; revision?: number } }>;

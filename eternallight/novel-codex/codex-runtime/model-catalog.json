@@ -1,11 +1,36 @@
 {
   "version": 1,
-  "default": { "provider": "deepseek", "model": "deepseek-flash" },
-  "models": [
+  "defaultConnectionId": "deepseek-flash",
+  "connections": [
     {
-      "provider": "deepseek",
+      "id": "deepseek-flash",
+      "provider": "DeepSeek",
+      "endpoint": "https://api.deepseek.com",
       "model": "deepseek-flash",
-      "operations": ["advisory", "generateBrief", "generateOutline", "generatePlan", "generateChapter", "reviewPlanningSeat"]
+      "credentialRef": "DEEPSEEK_API_KEY",
+      "protocol": "responses",
+      "protocolOptions": {
+        "toolChoiceMode": "auto-only",
+        "reasoningState": "native",
+        "namespaceToolsMode": "flatten",
+        "agentMessageMode": "message"
+      },
+      "capabilitySupport": {
+        "text": "native",
+        "structuredToolCalls": "lossless-adapted",
+        "streaming": "native",
+        "usage": "native"
+      },
+      "declaredLimits": {
+        "contextTokens": 131072,
+        "outputTokens": 8192
+      },
+      "declaredCapabilities": [
+        "text",
+        "structuredToolCalls",
+        "streaming",
+        "usage"
+      ]
     }
   ]
 }

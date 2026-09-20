@@ -1,4 +1,5 @@
 import hashlib
+import json
 import time
 import tempfile
 import unittest
@@ -126,6 +127,36 @@ class ExperienceContractTests(unittest.TestCase):
                 "POST",
                 {"threadIds": ["x"] * 101},
                 str(self.db),
+            )
+
+    def test_recovery_lookup_uses_exact_task_identity_and_project_scope(self):
+        task = create_task(self.db, self.project, "advisory", 0, "shared-thread")
+        newer = create_task(self.db, self.project, "generateBrief", 0, "shared-thread")
+        other = create_project(self.db, "另一作品", "")["project"]["id"]
+        foreign = create_task(self.db, other, "advisory", 0, "foreign-thread")
+
+        status, result = response_payload(
+            f"/api/projects/{self.project}/tasks/recovery-lookup",
+            "POST",
+            {"taskIds": [task["id"], newer["id"], foreign["id"]]},
+            str(self.db),
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            [entry["id"] for entry in result["tasks"]],
+            [task["id"], newer["id"]],
+        )
+        self.assertEqual(result["tasks"][0]["status"], "queued")
+        self.assertEqual(result["tasks"][0]["deliveryStatus"], "pending")
+        self.assertEqual(result["tasks"][0]["outputKinds"], [])
+        with self.assertRaises(WorkspaceError):
+            response_payload(
+                f"/api/projects/{self.project}/tasks/recovery-lookup",
+                "POST",
+                {"taskIds": [task["id"]]},
+                str(self.db),
+                actor="candidate",
             )
 
     def test_scoped_checkpoint_keeps_locked_accepted_tail_and_retry_identity(self):

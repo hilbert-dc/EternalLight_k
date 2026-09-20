@@ -230,6 +230,11 @@ class PlanningReviewMcpTests(unittest.TestCase):
                     "method": "tools/call",
                     "params": {
                         "name": "submit_planning_review_report",
+                        "_meta": {
+                            "callerThreadId": "thread-seat-1",
+                            "rootThreadId": "thread-seat-1",
+                            "sessionId": "thread-seat-1",
+                        },
                         "arguments": self.arguments,
                     },
                 },
@@ -274,6 +279,11 @@ class PlanningReviewMcpTests(unittest.TestCase):
                     "method": "tools/call",
                     "params": {
                         "name": "submit_planning_review_report",
+                        "_meta": {
+                            "callerThreadId": "thread-seat-1",
+                            "rootThreadId": "thread-seat-1",
+                            "sessionId": "thread-seat-1",
+                        },
                         "arguments": self.arguments,
                     },
                 },

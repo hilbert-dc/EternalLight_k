@@ -4,3 +4,7 @@ out/
 release/
 .release/
 .vite/
+.env.local
+.certification-reports/
+.upstream-sync-reports/
+.codex-upstream-worktrees/

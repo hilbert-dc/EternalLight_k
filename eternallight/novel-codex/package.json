@@ -8,27 +8,46 @@
   "type": "module",
   "main": "electron/main.mjs",
   "scripts": {
+    "build:native-engine": "npm --prefix ../agent-engine run build:native",
+    "predev": "npm run build:native-engine",
+    "pretest:agent": "npm run build:native-engine",
+    "prestage:release-runtime": "npm run build:native-engine",
+    "precertify:model": "npm run build:native-engine",
+    "prequalify:model": "npm run build:native-engine",
     "dev": "node electron/dev.mjs",
     "build": "tsc --noEmit && vite build",
     "repo:check": "node scripts/verify-fork-boundary.mjs",
     "repo:check:strict": "node scripts/verify-fork-boundary.mjs --strict",
     "sync:upstream": "node scripts/sync-upstream.mjs",
+    "candidate:validate": "node scripts/upstream-candidate-release.mjs validate",
+    "candidate:promote": "node scripts/upstream-candidate-release.mjs promote",
+    "candidate:rollback": "node scripts/upstream-candidate-release.mjs rollback",
     "stage:release-runtime": "node scripts/stage-release-runtime.mjs",
+    "verify:release-runtime": "node scripts/verify-release-runtime.mjs",
+    "build:codex-runtime": "node scripts/build-codex-runtime.mjs",
     "refresh:model-policy": "node scripts/refresh-model-policy.mjs",
-    "package:dir": "npm run build && electron-builder --dir --publish never",
-    "package:mac": "npm run build && electron-builder --mac --publish never",
-    "package:win": "npm run build && electron-builder --win --publish never",
-    "verify": "npm run repo:check && npm run build && npm run test:runtime && npm run test:agent",
+    "qualify:model": "node scripts/qualify-model.mjs",
+    "certify:model": "node scripts/certify-model.mjs",
+    "evaluate:model": "node scripts/evaluate-model.mjs",
+    "package:dir": "node scripts/package-release.mjs dir",
+    "package:mac": "node scripts/package-release.mjs mac",
+    "package:win": "node scripts/package-release.mjs win",
+    "verify": "npm run repo:check && npm run build && npm run test:runtime && npm run test:engine && npm --prefix ../agent-engine run test:delegation-integration && npm run test:release-gate && npm run test:agent",
     "start": "electron electron/main.mjs",
     "test:runtime": "python3 -m unittest discover -s runtime/tests -t .",
-    "test:ui": "node --test electron/tests/creative-workspace-ui.test.mjs electron/tests/export-dialog.test.mjs electron/tests/local-metrics-ui.test.mjs",
-    "test:agent": "node --test electron/tests/advisory-sessions.test.mjs electron/tests/agent-configuration.test.mjs electron/tests/codex-adapter.test.mjs electron/tests/codex-runtime.test.mjs electron/tests/creative-product-logic.test.mjs electron/tests/creative-task-contract.test.mjs electron/tests/fork-boundary.test.mjs electron/tests/navigation-policy.test.mjs electron/tests/release-runtime.test.mjs electron/tests/task-lifecycle.test.mjs electron/tests/webcontents-safety.test.mjs electron/tests/workflow-handoff.test.mjs"
+    "test:engine": "npm --prefix ../agent-engine test",
+    "test:release-gate": "node --test scripts/tests/upstream-candidate-release.test.mjs scripts/tests/model-cli-options.test.mjs scripts/tests/certification-publication.test.mjs",
+    "test:ui": "node --test --test-concurrency=1 electron/tests/agent-events.test.mjs electron/tests/creative-workspace-ui.test.mjs electron/tests/export-dialog.test.mjs electron/tests/local-metrics-ui.test.mjs electron/tests/markdown-content.test.mjs",
+    "test:agent": "node --test --test-concurrency=1 electron/tests/advisory-sessions.test.mjs electron/tests/agent-configuration.test.mjs electron/tests/codex-adapter.test.mjs electron/tests/codex-engine-integration.test.mjs electron/tests/codex-protocol-integration.test.mjs electron/tests/codex-runtime.test.mjs electron/tests/conformance-mcp.test.mjs electron/tests/creative-product-logic.test.mjs electron/tests/creative-task-contract.test.mjs electron/tests/development-credentials.test.mjs electron/tests/fork-boundary.test.mjs electron/tests/model-certification.test.mjs electron/tests/navigation-policy.test.mjs electron/tests/recovery-reconciliation.test.mjs electron/tests/release-runtime.test.mjs electron/tests/task-lifecycle.test.mjs electron/tests/webcontents-safety.test.mjs electron/tests/workflow-handoff.test.mjs"
   },
   "dependencies": {
+    "@eternallight/agent-engine": "file:../agent-engine",
     "@vitejs/plugin-react": "^4.4.1",
     "js-tiktoken": "1.0.21",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/react": "^19.1.2",
@@ -55,9 +74,19 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "codex-runtime/model-catalog.json",
+      "codex-runtime/model-certifications.json",
+      "codex-runtime/supported-cli.json",
       "shared/**/*",
+      "scripts/build-provenance.mjs",
+      "node_modules/@eternallight/agent-engine/**/*",
+      "!node_modules/@eternallight/agent-engine/target/**/*",
       "package.json",
       "!electron/tests/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/@eternallight/agent-engine/src/**/*",
+      "node_modules/@eternallight/agent-engine/native/bin/**/*"
     ],
     "extraResources": [
       {

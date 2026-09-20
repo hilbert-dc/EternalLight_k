@@ -1,34 +1,78 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
-import { join, resolve } from "node:path";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  CAPABILITIES,
+  CAPABILITY_PROFILES,
+  DELEGATION_EXECUTION_CAPABILITIES,
+  CapabilityEvidenceStore,
+  CapabilityReportStore,
+  CapabilityVerifier,
+  TrustedEvidenceRepository,
+  activeEvidence,
+  compileCodexConfig,
+  compileCodexModelCatalog,
+  connectionDefinitionDigest,
+  connectionEnvironmentDigest,
+  contractHash,
+  defineCapabilityReport,
+  defineEvidence,
+  isQualifiedEvidence,
+  materializeCertificationEvidence,
+  parseModelCertificationDocument,
+  defineConnection,
+  digest,
+  getCodec,
+  resolveProtocolSelections,
+  resolveCapabilityProfile,
+  resolveSessionPlan,
+  stableJson,
+  summarizeEvidence,
+  nativeEnginePath,
+} from "@eternallight/agent-engine";
 import { modelInputTokenBudget } from "../shared/author-input-budget.mjs";
-
-const CODEX_ENVIRONMENT_KEYS = [
-  "CODEX_HOME",
-  "CODEX_SQLITE_HOME",
-  "CODEX_API_KEY",
-  "CODEX_ACCESS_TOKEN",
-  "CODEX_APP_SERVER_COMMAND",
-  "DEEPSEEK_API_KEY",
-  "NOVEL_CODEX_CLI",
-  "NOVEL_CODEX_RUNTIME_URL",
-  "NOVEL_CODEX_CANDIDATE_TOKEN",
-  "NOVEL_CODEX_TASK_CAPABILITY",
-  "NOVEL_CODEX_AUTHOR_TOKEN",
-  "OPENAI_API_KEY",
-  "OPENAI_BASE_URL",
-];
+import { readBuildIdentity, sha256File, verifyBuildIdentity } from "../scripts/build-provenance.mjs";
+import { OPERATION_REQUIREMENTS, PRODUCT_OPERATION_IDS, operationRequirement } from "./operation-requirements.mjs";
+import { certificationPath } from "../scripts/certification-publication.mjs";
 
 const MODEL_CATALOG_PATH = fileURLToPath(new URL("../codex-runtime/model-catalog.json", import.meta.url));
-const CODEX_MODEL_CATALOG_PATH = fileURLToPath(new URL("../codex-runtime/codex-model-catalog.json", import.meta.url));
 const CLI_POLICY_PATH = fileURLToPath(new URL("../codex-runtime/supported-cli.json", import.meta.url));
-const MAX_MODEL_MESSAGE_BYTES = 60_000;
+// Reserve space below the engine's 40 KB item cap for Codex message framing.
+const MAX_MODEL_MESSAGE_BYTES = 38_000;
 const MAX_MODEL_MESSAGE_TOKENS = 9_000;
 const MAX_MODEL_INPUT_BYTES = 9_500;
 const NOVEL_MCP_ENVIRONMENT_KEYS = ["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"];
 const DEFAULT_MCP_SERVER_PATH = fileURLToPath(new URL("../runtime/mcp_server.py", import.meta.url));
+const CHILD_ENVIRONMENT_KEYS = [
+  "PATH",
+  "PATHEXT",
+  "SystemRoot",
+  "WINDIR",
+  "ComSpec",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "LANG",
+  "LC_ALL",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+];
+
+function isolatedProcessEnvironment(baseEnvironment) {
+  const environment = {};
+  for (const key of CHILD_ENVIRONMENT_KEYS) {
+    if (typeof baseEnvironment[key] === "string" && baseEnvironment[key]) environment[key] = baseEnvironment[key];
+  }
+  for (const [key, value] of Object.entries(baseEnvironment)) {
+    if (/^LC_[A-Z0-9_]+$/.test(key) && typeof value === "string") environment[key] = value;
+  }
+  return environment;
+}
 
 export function createTaskCapability(now = Date.now()) {
   const secret = randomBytes(32).toString("base64url");
@@ -61,10 +105,10 @@ function isExecutableFile(candidate) {
   }
 }
 
-function readJsonManifest(path, label) {
+function readJsonManifest(path, label, versions = [1]) {
   try {
     const manifest = JSON.parse(readFileSync(path, "utf8"));
-    if (manifest?.version !== 1) throw new Error("unsupported version");
+    if (!versions.includes(manifest?.version)) throw new Error("unsupported version");
     return manifest;
   } catch {
     throw new Error(`${label} 缺失或无效`);
@@ -76,11 +120,103 @@ function sha256(path) {
 }
 
 const CLI_POLICY = readJsonManifest(CLI_POLICY_PATH, "CLI 支持清单");
-if (CLI_POLICY.modelCatalogSha256 !== sha256(MODEL_CATALOG_PATH)
-  || CLI_POLICY.codexModelCatalogSha256 !== sha256(CODEX_MODEL_CATALOG_PATH)) {
+const MODEL_CERTIFICATIONS_PATH = certificationPath(dirname(CLI_POLICY_PATH), CLI_POLICY);
+if (CLI_POLICY.modelCatalogSha256 !== sha256(MODEL_CATALOG_PATH)) {
   throw new Error("运行时模型目录与固定指纹不一致");
 }
+if (CLI_POLICY.modelCertificationsSha256 !== sha256(MODEL_CERTIFICATIONS_PATH)) {
+  throw new Error("运行时模型认证与固定指纹不一致");
+}
 const MODEL_CATALOG = readJsonManifest(MODEL_CATALOG_PATH, "模型目录");
+const MODEL_CERTIFICATIONS = parseModelCertificationDocument(readJsonManifest(MODEL_CERTIFICATIONS_PATH, "模型认证", [2]));
+
+function sourceTreeDigest(directory) {
+  const files = [];
+  const visit = (current) => {
+    for (const entry of readdirSync(current, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      const path = join(current, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (entry.isFile()) files.push(`${path.slice(directory.length + 1).replaceAll("\\", "/")}:${sha256(path)}`);
+    }
+  };
+  visit(directory);
+  return createHash("sha256").update(files.join("\n"), "utf8").digest("hex");
+}
+
+export function createQualificationContextDigest({ baseInstructions, cliPath }) {
+  if (typeof baseInstructions !== "string" || !baseInstructions.trim()) throw new Error("资格上下文缺少 Codex 基础指令");
+  if (!isExecutableFile(cliPath)) throw new Error("资格上下文缺少可验证的 Codex CLI");
+  const agentEngineEntry = fileURLToPath(import.meta.resolve("@eternallight/agent-engine"));
+  return digest({
+    agentEngineSource: sourceTreeDigest(dirname(agentEngineEntry)),
+    agentEngineQualification: sourceTreeDigest(join(dirname(agentEngineEntry), "..", "qualification")),
+    nativeEngine: sha256File(nativeEnginePath),
+    baseInstructions: createHash("sha256").update(baseInstructions, "utf8").digest("hex"),
+    cli: sha256File(cliPath),
+    conformanceMcp: sha256(fileURLToPath(new URL("./conformance-mcp.mjs", import.meta.url))),
+    conformanceRunner: sha256(fileURLToPath(new URL("./codex-conformance-runner.mjs", import.meta.url))),
+    coreConformanceMcp: sha256(fileURLToPath(new URL("./core-conformance-mcp.mjs", import.meta.url))),
+    coreIntegrationRunner: sha256(fileURLToPath(new URL("./codex-core-integration-runner.mjs", import.meta.url))),
+    engineContract: contractHash(),
+  });
+}
+
+function findConnectionEntry({ model, provider }) {
+  const requestedProvider = provider?.trim().toLowerCase() || null;
+  const requestedModel = model?.trim() || null;
+  const entry = MODEL_CATALOG.connections.find((candidate) => {
+    if (requestedProvider && candidate.provider.toLowerCase() !== requestedProvider && candidate.id !== requestedProvider) return false;
+    if (requestedModel && candidate.model !== requestedModel && candidate.id !== requestedModel) return false;
+    return requestedProvider || requestedModel ? true : candidate.id === MODEL_CATALOG.defaultConnectionId;
+  });
+  if (!entry) throw new Error(`未知模型连接：${requestedProvider ?? "<default>"}/${requestedModel ?? "<default>"}`);
+  return entry;
+}
+
+export function inspectCodexConnection({ model, provider }) {
+  const entry = findConnectionEntry({ model, provider });
+  const connection = defineConnection(entry);
+  return {
+    id: connection.id,
+    provider: connection.provider,
+    model: connection.model,
+    endpoint: connection.endpoint,
+    protocol: connection.protocol,
+    credentialRef: connection.credentialRef,
+    capabilitySupport: { ...connection.capabilitySupport },
+    declaredCapabilities: Object.entries(connection.capabilitySupport).filter(([, mode]) => ["native", "lossless-adapted"].includes(mode)).map(([capability]) => capability).sort(),
+    operations: [...PRODUCT_OPERATION_IDS],
+    operationRequirements: Object.freeze(Object.fromEntries(PRODUCT_OPERATION_IDS.map((operation) => [operation, operationRequirement(operation)]))),
+    connection,
+  };
+}
+
+function publishedCertifications(connection, qualificationContextDigest, now = new Date()) {
+  return MODEL_CERTIFICATIONS.certifications.filter((candidate) => candidate.connectionId === connection.id)
+    .filter((certification) => certification.qualificationContextDigest === qualificationContextDigest && Date.parse(certification.expiresAt) > now.getTime())
+    .map((certification) => {
+      if (certification.connectionDigest !== connectionDefinitionDigest(connection)) throw new Error(`模型认证与连接定义不匹配：${connection.id}`);
+      if (certification.protocol !== connection.protocol || certification.codecVersion !== getCodec(connection.protocol).version) throw new Error(`模型认证与协议适配器不匹配：${connection.id}`);
+      if (certification.engineContractHash !== contractHash()) throw new Error(`模型认证与引擎契约不匹配：${connection.id}`);
+      return certification;
+    });
+}
+
+export function publishedCertificationEvidence({ credentialScopes = {}, now = new Date(), qualificationContextDigest = "default" } = {}) {
+  return MODEL_CATALOG.connections.flatMap((entry) => {
+    const connection = defineConnection(entry);
+    return publishedCertifications(connection, qualificationContextDigest, now).flatMap((certification) => materializeCertificationEvidence(certification, {
+      connection,
+      credentialScope: credentialScopes[connection.id] ?? connection.credentialRef,
+      now,
+      qualificationContextDigest,
+    }));
+  });
+}
+
+function combinedRuntimeEvidence({ credentialScopes, evidence, now, qualificationContextDigest }) {
+  return [...publishedCertificationEvidence({ credentialScopes, now, qualificationContextDigest }), ...evidence];
+}
 
 function cliVersion(path) {
   const result = spawnSync(path, ["--version"], { encoding: "utf8", timeout: 15_000, windowsHide: true });
@@ -89,9 +225,18 @@ function cliVersion(path) {
   return version && !/[\r\n]/.test(version) ? version : null;
 }
 
-function cliMatchesPolicy(path, sourcePolicy, platform, architecture) {
+function cliMatchesPolicy(path, sourcePolicy, platform, architecture, identityPath, repositoryRoot = null) {
   const expectedDigest = sourcePolicy.digests?.[`${platform}-${architecture}`];
   if (!/^[a-f0-9]{64}$/.test(expectedDigest ?? "") || sha256(path) !== expectedDigest) return false;
+  const expectedIdentity = sourcePolicy.buildIdentities?.[`${platform}-${architecture}`];
+  if (!expectedIdentity || sha256File(identityPath) !== expectedIdentity.sha256) return false;
+  const identity = readBuildIdentity(identityPath);
+  if (identity.identityId !== expectedIdentity.identityId) return false;
+  if (sourcePolicy.packaged) {
+    if (identity.binary?.sha256 !== expectedIdentity.unsignedBinarySha256) return false;
+  } else {
+    verifyBuildIdentity(identity, path, { repositoryRoot });
+  }
   const version = cliVersion(path);
   return version !== null && Array.isArray(sourcePolicy.versions) && sourcePolicy.versions.includes(version);
 }
@@ -100,18 +245,39 @@ export function codexExecutableName(platform = process.platform) {
   return platform === "win32" ? "codex.exe" : "codex";
 }
 
+export function resolveRuntimeBinaries({ architecture = process.arch, platform = process.platform, resourcesPath }) {
+  const policy = readJsonManifest(join(resourcesPath, "codex-runtime", "supported-cli.json"), "发布运行时支持清单");
+  const release = readJsonManifest(join(resourcesPath, "release-manifest.json"), "发布来源清单");
+  if (release.target?.platform !== platform || release.target?.architecture !== architecture) throw new Error("发布来源清单与当前平台不匹配");
+  const expected = policy.runtimeBinaries?.[`${platform}-${architecture}`];
+  const creativeRuntime = join(resourcesPath, "runtime", "bin", platform === "win32" ? "creative-runtime.exe" : "creative-runtime");
+  const novelWorkspaceMcp = join(resourcesPath, "runtime", "bin", platform === "win32" ? "novel-workspace-mcp.exe" : "novel-workspace-mcp");
+  for (const [label, path, checksum] of [
+    ["Creative Runtime", creativeRuntime, expected?.creativeRuntime],
+    ["Novel Workspace MCP", novelWorkspaceMcp, expected?.novelWorkspaceMcp],
+  ]) {
+    if (!isExecutableFile(path) || !/^[a-f0-9]{64}$/.test(checksum ?? "") || sha256(path) !== checksum) throw new Error(`${label} 发布文件缺失或校验失败`);
+  }
+  if (release.resources?.creativeRuntimeSha256 !== expected.creativeRuntime
+    || release.resources?.novelWorkspaceMcpSha256 !== expected.novelWorkspaceMcp) {
+    throw new Error("发布来源清单与 Runtime 摘要不匹配");
+  }
+  return Object.freeze({ creativeRuntime: canonicalPath(creativeRuntime), novelWorkspaceMcp: canonicalPath(novelWorkspaceMcp) });
+}
+
 export function createCodexEnvironment(baseEnvironment, {
+  bridgeCredential = null,
   candidateToken,
   codexHome,
-  provider = "deepseek",
+  credentialRef = null,
   runtimeUrl,
   sqliteHome,
 }) {
-  const environment = { ...baseEnvironment };
-  for (const key of CODEX_ENVIRONMENT_KEYS) delete environment[key];
-  if (provider === "deepseek" && typeof baseEnvironment.DEEPSEEK_API_KEY === "string" && baseEnvironment.DEEPSEEK_API_KEY.trim()) {
-    environment.DEEPSEEK_API_KEY = baseEnvironment.DEEPSEEK_API_KEY;
+  const environment = isolatedProcessEnvironment(baseEnvironment);
+  if (typeof credentialRef === "string" && credentialRef && typeof baseEnvironment[credentialRef] === "string" && baseEnvironment[credentialRef].trim()) {
+    environment[credentialRef] = baseEnvironment[credentialRef].trim();
   }
+  if (bridgeCredential?.ref && bridgeCredential?.value) environment[bridgeCredential.ref] = bridgeCredential.value;
   if (typeof runtimeUrl === "string" && runtimeUrl.trim()) environment.NOVEL_CODEX_RUNTIME_URL = runtimeUrl.trim();
   if (typeof candidateToken === "string" && candidateToken) environment.NOVEL_CODEX_CANDIDATE_TOKEN = candidateToken;
   return {
@@ -122,93 +288,146 @@ export function createCodexEnvironment(baseEnvironment, {
 }
 
 export function providerConfigurationError(providerConfig, baseEnvironment) {
-  const apiKey = baseEnvironment[providerConfig.apiKeyEnv];
+  const apiKey = baseEnvironment[providerConfig.credentialRef];
   return typeof apiKey === "string" && apiKey.trim()
     ? null
-    : `缺少 ${providerConfig.apiKeyEnv}，${providerConfig.provider} 请求将无法认证`;
+    : `缺少 ${providerConfig.credentialRef}，${providerConfig.provider} 请求将无法认证`;
 }
 
-export function resolveCodexProvider({ model, operation = null, provider }) {
-  const resolvedProvider = provider?.trim().toLowerCase() || MODEL_CATALOG.default.provider;
-  const resolvedModel = model?.trim() || MODEL_CATALOG.models.find((candidate) => candidate.provider === resolvedProvider)?.model || null;
-  const entry = MODEL_CATALOG.models.find((candidate) => candidate.provider === resolvedProvider && candidate.model === resolvedModel);
-  if (!entry) throw new Error(`未审核的 Codex provider/model：${resolvedProvider}/${resolvedModel ?? "<missing>"}`);
-  if (operation !== null && !entry.operations.includes(operation)) {
-    throw new Error(`${resolvedProvider}/${resolvedModel} 未获准执行 ${operation}`);
+export function resolveCodexProvider({ credentialScopes = {}, evidence = [], model, now = new Date(), operation = null, provider, qualificationContextDigest = "default" }) {
+  const inspected = inspectCodexConnection({ model, provider });
+  const entry = findConnectionEntry({ model, provider });
+  const qualifiedEvidence = combinedRuntimeEvidence({ credentialScopes, evidence, now, qualificationContextDigest });
+  if (operation !== null && !inspected.operations.includes(operation)) {
+    throw new Error(`${inspected.id} 未获准执行 ${operation}`);
   }
-  return {
-    provider: resolvedProvider,
-    model: resolvedModel,
-    apiKeyEnv: "DEEPSEEK_API_KEY",
-    operations: [...entry.operations],
-  };
+  const requirement = operationRequirement(operation);
+  const operationProfile = resolveCapabilityProfile(requirement.capabilityProfileId);
+  const connections = [];
+  for (const entry of MODEL_CATALOG.connections) {
+    const connection = defineConnection(entry);
+    try {
+      resolveSessionPlan({
+        connections: [connection],
+        evidence: qualifiedEvidence,
+        now,
+        policy: { capabilityProfileId: "base-tools-v1", credentialScopes, defaultConnectionId: connection.id, allowedChildConnectionIds: [connection.id], forceBridge: true, qualificationContextDigest, requiredCapabilities: [], productExtensions: DELEGATION_EXECUTION_CAPABILITIES, allowedMcpServerIds: ["novel_workspace"] },
+      });
+      connections.push(connection);
+    } catch (error) {
+      if (connection.id === inspected.id) throw error;
+    }
+  }
+  const sessionPlan = resolveSessionPlan({
+    connections,
+    evidence: qualifiedEvidence,
+    now,
+    policy: {
+      credentialScopes,
+      capabilityProfileId: "base-tools-v1",
+      defaultConnectionId: inspected.id,
+      allowedChildConnectionIds: connections.map((connection) => connection.id),
+      forceBridge: true,
+      maxActiveChildren: 3,
+      qualificationContextDigest,
+      requiredCapabilities: [],
+      productExtensions: DELEGATION_EXECUTION_CAPABILITIES,
+      allowedMcpServerIds: ["novel_workspace"],
+    },
+  });
+  if (!sessionPlan.authorizedCapabilityProfiles.includes(operationProfile.id)) {
+    throw new Error(`${inspected.id} 缺少 ${operation ?? "默认"} 所需能力画像：${operationProfile.id}`);
+  }
+  return { ...inspected, connections, sessionPlan, operationProfileId: operationProfile.id, evidence: qualifiedEvidence };
 }
 
 export function assertProviderOperation(providerConfig, operation) {
-  return resolveCodexProvider({ provider: providerConfig?.provider, model: providerConfig?.model, operation });
+  if (!providerConfig?.operations?.includes(operation)) throw new Error(`${providerConfig?.id ?? "当前连接"} 未获准执行 ${operation}`);
+  return providerConfig;
+}
+
+export function listCodexConnections({ credentialScopes = {}, evidence = [], now = new Date(), qualificationContextDigest = "default" } = {}) {
+  const qualifiedEvidence = combinedRuntimeEvidence({ credentialScopes, evidence, now, qualificationContextDigest });
+  return MODEL_CATALOG.connections.map((entry) => {
+    const connection = defineConnection(entry);
+    const selectedProtocol = connection.protocol === "auto"
+      ? resolveProtocolSelections([connection], qualifiedEvidence, { credentialScopes, now, qualificationContextDigest })[connection.id] ?? null
+      : connection.protocol;
+    let summary = new Map();
+    if (selectedProtocol) {
+      const environmentDigest = connectionEnvironmentDigest(connection, { codecVersion: getCodec(selectedProtocol).version, credentialScope: credentialScopes[connection.id] ?? connection.credentialRef, engineContractHash: contractHash(), protocol: selectedProtocol, qualificationContextDigest });
+      summary = summarizeEvidence(activeEvidence(qualifiedEvidence, { environmentDigest, now }));
+    }
+    const verifiedCapabilities = [...summary].filter(([, record]) => isQualifiedEvidence(record)).map(([capability]) => capability).sort();
+    const failedCapabilities = [...summary].filter(([, record]) => record.status === "failed").map(([capability]) => capability).sort();
+    const required = [CAPABILITIES.TEXT, CAPABILITIES.STRUCTURED_TOOL_CALLS];
+    const status = required.some((capability) => failedCapabilities.includes(capability))
+      ? "failed"
+      : required.every((capability) => verifiedCapabilities.includes(capability)) ? "verified" : "unverified";
+    const credentialScope = credentialScopes[connection.id] ?? `missing:${connection.credentialRef}`;
+    const verifiedProfiles = Object.values(CAPABILITY_PROFILES)
+      .filter((profile) => profile.requiredCapabilities.every((capability) => verifiedCapabilities.includes(capability)))
+      .map((profile) => profile.id)
+      .sort();
+    return {
+      id: entry.id,
+      provider: entry.provider,
+      model: entry.model,
+      protocol: entry.protocol,
+      selectedProtocol,
+      declaredCapabilities: Object.entries(connection.capabilitySupport).filter(([, mode]) => ["native", "lossless-adapted"].includes(mode)).map(([capability]) => capability).sort(),
+      capabilitySupport: { ...connection.capabilitySupport },
+      verifiedCapabilities,
+      failedCapabilities,
+      operations: [...PRODUCT_OPERATION_IDS],
+      operationRequirements: Object.fromEntries(PRODUCT_OPERATION_IDS.map((operation) => [operation, OPERATION_REQUIREMENTS[operation]])),
+      verifiedProfiles,
+      status,
+      certificationIds: publishedCertifications(connection, qualificationContextDigest, now).map((certification) => certification.certificationId),
+      accountStatus: credentialScope.startsWith("missing:") ? "missing-credential" : "configured",
+      isDefault: entry.id === MODEL_CATALOG.defaultConnectionId,
+    };
+  });
 }
 
 export function buildCodexConfig({
+  bridge = null,
   modelCatalogPath,
   mcpServerCommand,
   mcpServerPath = DEFAULT_MCP_SERVER_PATH,
+  mcpServerArgs = null,
   model,
   platform = process.platform,
   provider,
+  sessionPlan = null,
 }) {
-  const resolved = resolveCodexProvider({ model, provider });
+  if (!sessionPlan) throw new Error("生成 Codex 配置前必须提供已验证的 SessionPlan");
+  const resolvedPlan = sessionPlan;
   const mcpCommand = mcpServerCommand?.trim() || process.env.NOVEL_CODEX_PYTHON?.trim() || (platform === "win32" ? "python" : "python3");
-  const lines = [
-    "# Managed by Novel Codex. Do not use the ChatGPT desktop auth state.",
-    `model = ${JSON.stringify(resolved.model)}`,
-    ...(resolved.provider === "deepseek" ? ['model_provider = "deepseek"'] : []),
-    `model_catalog_json = ${JSON.stringify(modelCatalogPath ?? CODEX_MODEL_CATALOG_PATH)}`,
-    'web_search = "disabled"',
-    'approval_policy = "never"',
-    'sandbox_mode = "read-only"',
-    'cli_auth_credentials_store = "ephemeral"',
-    "",
-    "[features]",
-    "collab = false",
-    "multi_agent = false",
-    "multi_agent_v2 = false",
-    "tool_search = false",
-    "memory_tool = false",
-    "connectors = false",
-    "computer_use = false",
-    "in_app_browser = false",
-    "image_generation = false",
-    "imagegenext = false",
-    "js_repl = false",
-    "",
-    "[shell_environment_policy]",
-    'inherit = "core"',
-    "ignore_default_excludes = false",
-    'exclude = ["NOVEL_CODEX_*", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "OPENAI_ACCESS_TOKEN", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"]',
-  ];
-  if (resolved.provider === "deepseek") {
-    lines.push(
-      "",
-      "[model_providers.deepseek]",
-      'name = "DeepSeek"',
-      'base_url = "https://api.deepseek.com"',
-      'wire_api = "responses"',
-      'env_key = "DEEPSEEK_API_KEY"',
-    );
-  }
-  lines.push(
-    "",
-    "[mcp_servers.novel_workspace]",
-    `command = ${JSON.stringify(mcpCommand)}`,
-    `args = [${JSON.stringify(mcpServerPath)}]`,
-    `env_vars = [${NOVEL_MCP_ENVIRONMENT_KEYS.map((key) => JSON.stringify(key)).join(", ")}]`,
-  );
-  return `${lines.join("\n")}\n`;
+  return compileCodexConfig({
+    sessionPlan: resolvedPlan,
+    modelCatalogPath,
+    bridge,
+    usageHintText: "Delegate bounded independent story analysis when it materially improves the answer. Prefer story_architect and continuity_critic. Wait for their evidence and synthesize the final result.",
+    subagentDeveloperInstructions: "You are a read-only Novel Codex subagent. Analyze only the assigned scope, ground findings in frozen story context, separate facts from inference, and return concise evidence to the parent. Never write or adopt story data.",
+    sensitiveEnvironmentPatterns: ["NOVEL_CODEX_*", "*_API_KEY", "*_ACCESS_TOKEN", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"],
+    mcpServers: [{
+      id: "novel_workspace",
+      command: mcpCommand,
+      args: mcpServerArgs ?? (mcpServerPath ? [mcpServerPath] : []),
+      envVars: NOVEL_MCP_ENVIRONMENT_KEYS,
+      approvalMode: "approve",
+    }],
+  });
+}
+
+export function buildCodexModelCatalog({ baseInstructions, model, provider, sessionPlan = null }) {
+  if (!sessionPlan) throw new Error("生成模型目录前必须提供已验证的 SessionPlan");
+  return compileCodexModelCatalog(sessionPlan, { baseInstructions });
 }
 
 export function createRuntimeEnvironment(baseEnvironment, projectRoot) {
-  const environment = { ...baseEnvironment };
-  for (const key of CODEX_ENVIRONMENT_KEYS) delete environment[key];
+  const environment = isolatedProcessEnvironment(baseEnvironment);
   return { ...environment, PYTHONPATH: projectRoot };
 }
 
@@ -259,12 +478,267 @@ export function composeNovelCodexPrompt(skillText, prompt, taskInstructions = ""
 }
 
 export function prepareIsolatedStorage(userDataPath) {
+  const workspaceHome = join(userDataPath, "workspace");
   const codexHome = join(userDataPath, "codex-home");
   const sqliteHome = join(codexHome, "sqlite");
   const runtimeData = join(userDataPath, "creative-runtime");
   const runtimeDb = join(runtimeData, "novel-codex-v2.sqlite3");
-  for (const directory of [codexHome, sqliteHome, runtimeData]) mkdirSync(directory, { recursive: true });
-  return { codexHome, sqliteHome, runtimeData, runtimeDb };
+  const engineData = join(userDataPath, "agent-engine");
+  const evidencePath = join(engineData, "capability-evidence.json");
+  const recoveryPath = join(engineData, "recovery-index.json");
+  const budgetDb = join(engineData, "engine-state.sqlite3");
+  const credentialSaltPath = join(engineData, "credential-scope.key");
+  for (const directory of [workspaceHome, codexHome, sqliteHome, runtimeData, engineData]) mkdirSync(directory, { recursive: true });
+  if (!existsSync(credentialSaltPath)) {
+    try {
+      writeFileSync(credentialSaltPath, `${randomBytes(32).toString("base64url")}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+  }
+  chmodSync(credentialSaltPath, 0o600);
+  return { workspaceHome, codexHome, sqliteHome, runtimeData, runtimeDb, engineData, evidencePath, recoveryPath, budgetDb, credentialSaltPath };
+}
+
+export function credentialScopesFromEnvironment(baseEnvironment, credentialSaltPath) {
+  const salt = readFileSync(credentialSaltPath, "utf8").trim();
+  if (!/^[A-Za-z0-9_-]{43}$/.test(salt)) throw new Error("凭据作用域密钥缺失或无效");
+  return Object.freeze(Object.fromEntries(MODEL_CATALOG.connections.map((entry) => {
+    const credential = baseEnvironment[entry.credentialRef];
+    const scope = typeof credential === "string" && credential.trim()
+      ? `credential-v1:${createHmac("sha256", salt).update(`${entry.id}\0${credential.trim()}`, "utf8").digest("hex")}`
+      : `missing:${entry.credentialRef}`;
+    return [entry.id, scope];
+  })));
+}
+
+export async function loadCodexEvidence(path) {
+  return (await loadCodexEvidenceSnapshot(path)).records;
+}
+
+export async function loadCodexEvidenceSnapshot(path) {
+  const records = await new CapabilityEvidenceStore(path).read();
+  const reports = new CapabilityReportStore(join(dirname(path), "capability-reports"));
+  const repository = await TrustedEvidenceRepository.load({ records, reportStore: reports });
+  return repository.resolveSnapshot();
+}
+
+export async function recordRuntimeQualificationFailure({ baselineEvidence = [], evidencePath, environmentDigest, protocol, statusCode }) {
+  const store = new CapabilityEvidenceStore(evidencePath);
+  const existing = await store.read();
+  const now = new Date();
+  const active = [...baselineEvidence, ...existing].filter((record) => record.environmentDigest === environmentDigest
+    && record.scope?.protocol === protocol
+    && record.status === "verified"
+    && Date.parse(record.expiresAt) > now.getTime());
+  if (active.length === 0) return { recorded: false };
+  const failed = active.map((record) => defineEvidence({
+    ...record,
+    status: "failed",
+    source: "probe",
+    evidenceRef: `runtime-auth:${randomUUID()}:${record.capability}`,
+    checkedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+    sample: { category: "authentication", statusCode },
+    reportRef: null,
+    reportDigest: null,
+    supersedes: [],
+  }));
+  await store.append(failed);
+  return { recorded: true, records: failed.length };
+}
+
+export async function checkCodexConnectionAccess({ apiKey, connection, fetchImpl = globalThis.fetch }) {
+  if (typeof fetchImpl !== "function") throw new Error("当前环境不支持模型连接检查");
+  const codec = getCodec(connection.protocol);
+  const prepared = codec.createRequest({
+    model: connection.id,
+    instructions: "Return a short acknowledgement.",
+    input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "connection-check" }] }],
+    tools: [],
+    max_output_tokens: Math.min(16, connection.declaredLimits.outputTokens),
+    stream: false,
+  }, connection, apiKey);
+  const response = await fetchImpl(prepared.url, { method: "POST", headers: prepared.headers, body: JSON.stringify(prepared.body) });
+  if (!response.ok) {
+    const error = new Error(`模型账号检查失败：HTTP ${response.status}`);
+    error.statusCode = response.status;
+    throw error;
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("模型账号检查返回了无效 JSON");
+  }
+  codec.parseResponse(payload, prepared.context);
+  return { status: "available", protocol: connection.protocol };
+}
+
+function redactVerificationValue(value, secret) {
+  if (typeof value === "string") return secret ? value.replaceAll(secret, "[REDACTED]") : value;
+  if (Array.isArray(value)) return value.map((item) => redactVerificationValue(item, secret));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactVerificationValue(item, secret)]));
+}
+
+const EVIDENCE_SOURCE_PRIORITY = Object.freeze({ metadata: 0, probe: 1, "conformance-suite": 2 });
+
+function supersededEvidence(existing, record) {
+  return existing
+    .filter((candidate) => candidate.environmentDigest === record.environmentDigest
+      && candidate.capability === record.capability
+      && stableJson(candidate.scope) === stableJson(record.scope)
+      && EVIDENCE_SOURCE_PRIORITY[candidate.source] <= EVIDENCE_SOURCE_PRIORITY[record.source]
+      && Date.parse(candidate.checkedAt) <= Date.parse(record.checkedAt))
+    .map((candidate) => candidate.evidenceRef);
+}
+
+export async function verifyCodexConnection({ baseEnvironment, conformanceRunner = null, coreRunner = null, credentialScopes = {}, evidencePath, fetchImpl = globalThis.fetch, model, provider, qualificationContextDigest = "default", verifier = new CapabilityVerifier() }) {
+  const entry = findConnectionEntry({ model, provider });
+  const connection = defineConnection(entry);
+  const apiKey = baseEnvironment[connection.credentialRef];
+  if (typeof apiKey !== "string" || !apiKey.trim()) throw new Error(`缺少 ${connection.credentialRef}，无法验证连接`);
+  const credentialScope = credentialScopes[connection.id] ?? connection.credentialRef;
+  const store = new CapabilityEvidenceStore(evidencePath);
+  const reportStore = new CapabilityReportStore(join(dirname(evidencePath), "capability-reports"));
+  const startedAt = new Date();
+  const certifications = publishedCertifications(connection, qualificationContextDigest, startedAt);
+  if (certifications.length) {
+    const baselineEvidence = certifications.flatMap((certification) => materializeCertificationEvidence(certification, { connection, credentialScope, now: startedAt, qualificationContextDigest }));
+    try {
+      const access = await checkCodexConnectionAccess({ apiKey: apiKey.trim(), connection, fetchImpl });
+      return {
+        certificationIds: certifications.map((certification) => certification.certificationId),
+        reportId: certifications[0].reportDigest,
+        selectedProtocol: connection.protocol,
+        attempts: [{ protocol: connection.protocol, suite: "account-access-v1", status: "verified" }],
+        records: [],
+        access,
+      };
+    } catch (error) {
+      if ([401, 403].includes(error?.statusCode)) {
+        await recordRuntimeQualificationFailure({ baselineEvidence, evidencePath, environmentDigest: baselineEvidence[0].environmentDigest, protocol: connection.protocol, statusCode: error.statusCode });
+      }
+      throw error;
+    }
+  }
+  try {
+    const probe = await verifier.verify(connection, { apiKey: apiKey.trim(), credentialScope, now: startedAt, qualificationContextDigest });
+    let unredactedResult = probe;
+    let corePassed = true;
+    if (coreRunner) {
+      const core = await coreRunner.verify({
+        apiKey: apiKey.trim(),
+        connection,
+        credentialScope,
+        now: startedAt,
+        probeEvidence: probe.records,
+        protocol: probe.selectedProtocol,
+        qualificationContextDigest,
+      });
+      const coreAttempt = { protocol: probe.selectedProtocol, suite: core.suiteId, status: core.status === "passed" ? "verified" : "failed", ...(core.blockingFailures?.length ? { message: core.blockingFailures.join(", ") } : {}) };
+      corePassed = core.status === "passed";
+      unredactedResult = { ...probe, attempts: [...probe.attempts, coreAttempt], records: [...probe.records, ...(core.record ? [core.record] : [])] };
+    }
+    if (conformanceRunner && corePassed) {
+      const conformance = await conformanceRunner.verify({
+        apiKey: apiKey.trim(),
+        connection,
+        credentialScope,
+        now: startedAt,
+        probeEvidence: probe.records,
+        protocol: probe.selectedProtocol,
+        qualificationContextDigest,
+      });
+      unredactedResult = {
+        ...probe,
+        attempts: [...unredactedResult.attempts, conformance.attempt],
+        records: [...unredactedResult.records, ...conformance.records],
+      };
+    }
+    const result = redactVerificationValue(unredactedResult, apiKey.trim());
+    const existing = await store.read();
+    const records = result.records.map((record) => ({
+      ...record,
+      supersedes: supersededEvidence(existing, record),
+    }));
+    const report = defineCapabilityReport({ connection, result: { ...result, records }, redactions: [apiKey.trim()], startedAt, completedAt: new Date() });
+    await reportStore.write(report);
+    const boundRecords = records.map((record) => ({ ...record, reportRef: report.reportId, reportDigest: report.reportId }));
+    await store.append(boundRecords);
+    return { reportId: report.reportId, selectedProtocol: result.selectedProtocol, attempts: result.attempts, records: boundRecords.map(({ capability, status, scope, checkedAt, expiresAt }) => ({ capability, status, scope, checkedAt, expiresAt })) };
+  } catch (error) {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    failure.message = redactVerificationValue(failure.message, apiKey.trim());
+    if (Array.isArray(failure.attempts)) failure.attempts = redactVerificationValue(failure.attempts, apiKey.trim());
+    if (Array.isArray(failure.records)) failure.records = redactVerificationValue(failure.records, apiKey.trim());
+    if (Array.isArray(failure.records) && failure.records.length) await store.append(failure.records);
+    const report = defineCapabilityReport({ connection, error: failure, redactions: [apiKey.trim()], startedAt, completedAt: new Date() });
+    try {
+      await reportStore.write(report);
+      failure.reportId = report.reportId;
+    } catch (reportError) {
+      failure.reportError = reportError.message;
+    }
+    throw failure;
+  }
+}
+
+export async function verifyCodexConnectionEdge({ baseEnvironment, conformanceRunner, credentialScopes = {}, evidencePath, parentModel, parentProvider, childModel, childProvider, qualificationContextDigest = "default", verifier = new CapabilityVerifier() }) {
+  if (!conformanceRunner?.verifyDirectedEdge) throw new Error("当前认证器不支持有向子模型认证");
+  const parent = defineConnection(findConnectionEntry({ model: parentModel, provider: parentProvider }));
+  const child = defineConnection(findConnectionEntry({ model: childModel, provider: childProvider }));
+  if (parent.id === child.id) throw new Error("相同连接请使用普通连接认证");
+  const parentApiKey = baseEnvironment[parent.credentialRef];
+  const childApiKey = baseEnvironment[child.credentialRef];
+  if (typeof parentApiKey !== "string" || !parentApiKey.trim() || typeof childApiKey !== "string" || !childApiKey.trim()) throw new Error("父模型或子模型缺少认证凭据");
+  const startedAt = new Date();
+  const parentProbe = await verifier.verify(parent, { apiKey: parentApiKey.trim(), credentialScope: credentialScopes[parent.id] ?? parent.credentialRef, now: startedAt, qualificationContextDigest });
+  const childProbe = await verifier.verify(child, { apiKey: childApiKey.trim(), credentialScope: credentialScopes[child.id] ?? child.credentialRef, now: startedAt, qualificationContextDigest });
+  const edge = await conformanceRunner.verifyDirectedEdge({
+    parentApiKey: parentApiKey.trim(),
+    childApiKey: childApiKey.trim(),
+    parentConnection: parent,
+    childConnection: child,
+    parentCredentialScope: credentialScopes[parent.id] ?? parent.credentialRef,
+    childCredentialScope: credentialScopes[child.id] ?? child.credentialRef,
+    parentProtocol: parentProbe.selectedProtocol,
+    childProtocol: childProbe.selectedProtocol,
+    parentProbeEvidence: parentProbe.records,
+    childProbeEvidence: childProbe.records,
+    qualificationContextDigest,
+    now: startedAt,
+  });
+  const store = new CapabilityEvidenceStore(evidencePath);
+  const existing = await store.read();
+  const record = { ...edge.record, supersedes: supersededEvidence(existing, edge.record) };
+  let result = redactVerificationValue({ selectedProtocol: parentProbe.selectedProtocol, attempts: [...parentProbe.attempts, ...childProbe.attempts, edge.attempt], records: [...parentProbe.records, ...childProbe.records, record] }, parentApiKey.trim());
+  result = redactVerificationValue(result, childApiKey.trim());
+  const report = defineCapabilityReport({ connection: parent, result, redactions: [parentApiKey.trim(), childApiKey.trim()], startedAt, completedAt: new Date() });
+  const reportStore = new CapabilityReportStore(join(dirname(evidencePath), "capability-reports"));
+  await reportStore.write(report);
+  const bound = { ...record, reportRef: report.reportId, reportDigest: report.reportId };
+  await store.append(result.records.map((record) => ({ ...record, reportRef: report.reportId, reportDigest: report.reportId })));
+  return { reportId: report.reportId, parentConnectionId: parent.id, childConnectionId: child.id, selectedProtocols: { parent: parentProbe.selectedProtocol, child: childProbe.selectedProtocol }, attempt: edge.attempt, record: { capability: bound.capability, status: bound.status, scope: bound.scope, checkedAt: bound.checkedAt, expiresAt: bound.expiresAt } };
+}
+
+export function installManagedAgentRoles(codexHome, sourceRoot) {
+  if (!existsSync(sourceRoot)) throw new Error("Novel Codex 子 Agent 角色目录缺失");
+  const roleFiles = readdirSync(sourceRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^[a-z][a-z0-9_-]*\.toml$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+  if (roleFiles.length === 0) throw new Error("Novel Codex 子 Agent 角色为空");
+  const destination = join(codexHome, "agents");
+  rmSync(destination, { recursive: true, force: true });
+  mkdirSync(destination, { recursive: true, mode: 0o700 });
+  for (const name of roleFiles) {
+    const target = join(destination, name);
+    copyFileSync(join(sourceRoot, name), target);
+    chmodSync(target, 0o600);
+  }
+  return roleFiles;
 }
 
 export function resolveCodexCli({
@@ -281,23 +755,35 @@ export function resolveCodexCli({
     policy = readJsonManifest(join(manifestRoot, "codex-runtime", "supported-cli.json"), "CLI 支持清单");
     if (policy.appServerProtocol !== "v2" || policy.mcpProtocol !== "2025-06-18"
       || policy.modelCatalogSha256 !== CLI_POLICY.modelCatalogSha256
-      || policy.codexModelCatalogSha256 !== CLI_POLICY.codexModelCatalogSha256
+      || policy.modelCertificationsSha256 !== CLI_POLICY.modelCertificationsSha256
       || sha256(join(manifestRoot, "codex-runtime", "model-catalog.json")) !== policy.modelCatalogSha256
-      || sha256(join(manifestRoot, "codex-runtime", "codex-model-catalog.json")) !== policy.codexModelCatalogSha256) {
+      || sha256(certificationPath(join(manifestRoot, "codex-runtime"), policy)) !== policy.modelCertificationsSha256) {
       throw new Error("CLI 支持清单的协议版本无效");
+    }
+    if (isPackaged) {
+      const release = readJsonManifest(join(resourcesPath, "release-manifest.json"), "发布来源清单");
+      const expectedDigest = release.codex?.binarySha256;
+      const bundledDigest = policy.sources?.bundled?.digests?.[`${platform}-${architecture}`] ?? null;
+      if (release.target?.platform !== platform || release.target?.architecture !== architecture || expectedDigest !== bundledDigest) {
+        throw new Error("发布来源清单与 CLI 支持清单不一致");
+      }
+      const expectedIdentity = policy.sources?.bundled?.buildIdentities?.[`${platform}-${architecture}`];
+      if (release.codex?.buildIdentityId !== expectedIdentity?.identityId || release.codex?.buildIdentitySha256 !== expectedIdentity?.sha256) throw new Error("发布来源清单与 BuildIdentity 不一致");
+      if (release.codex?.unsignedBinarySha256 !== expectedIdentity?.unsignedBinarySha256) throw new Error("发布来源清单与未签名构建来源不一致");
     }
   } catch (error) {
     return { path: null, source: "missing", reason: error.message };
   }
   const executable = codexExecutableName(platform);
   const candidates = [];
-  if (!isPackaged && explicitPath?.trim()) candidates.push({ path: explicitPath.trim(), source: "explicit" });
+  const developmentIdentity = join(projectRoot, "codex-runtime", "build-identities", `${platform}-${architecture}.json`);
+  if (!isPackaged && explicitPath?.trim()) candidates.push({ path: explicitPath.trim(), source: "explicit", identityPath: developmentIdentity });
   if (isPackaged && resourcesPath) {
-    candidates.push({ path: join(resourcesPath, "codex-runtime", "bin", executable), source: "bundled" });
+    candidates.push({ path: join(resourcesPath, "codex-runtime", "bin", executable), source: "bundled", identityPath: join(resourcesPath, "codex-runtime", "build-identity.json") });
   }
   if (!isPackaged) {
-    candidates.push({ path: join(projectRoot, "codex-runtime", "bin", executable), source: "project-runtime" });
-    candidates.push({ path: join(projectRoot, "..", "..", "codex-rs", "target", "debug", executable), source: "workspace-build" });
+    candidates.push({ path: join(projectRoot, "codex-runtime", "bin", executable), source: "project-runtime", identityPath: developmentIdentity });
+    candidates.push({ path: join(projectRoot, "..", "..", "codex-rs", "target", "debug", executable), source: "workspace-build", identityPath: developmentIdentity });
   }
 
   let rejectedDesktopBinary = false;
@@ -315,7 +801,10 @@ export function resolveCodexCli({
       continue;
     }
     if (isExecutableFile(path)) {
-      if (!cliMatchesPolicy(path, sourcePolicy, platform, architecture)) {
+      try {
+        const repositoryRoot = !isPackaged ? resolve(projectRoot, "../..") : null;
+        if (!cliMatchesPolicy(path, sourcePolicy, platform, architecture, candidate.identityPath, repositoryRoot)) throw new Error("identity mismatch");
+      } catch {
         rejectedIntegrity = true;
         continue;
       }

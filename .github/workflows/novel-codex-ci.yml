@@ -2,20 +2,35 @@ name: novel-codex-ci
 
 on:
   pull_request:
-    paths:
-      - "eternallight/**"
-      - ".github/workflows/novel-codex-*"
   push:
     branches: [main]
-    paths:
-      - "eternallight/**"
-      - ".github/workflows/novel-codex-*"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  native-engine:
+    name: Independent Rust engine (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: eternallight/agent-engine
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582
+      - run: cargo install just --locked
+      - run: just test
+      - run: npm run build:native
+      - run: node --test tests/native-stream-guard.test.mjs tests/codecs.test.mjs tests/remediation-boundaries.test.mjs tests/authority-state.test.mjs
+
   quality:
     name: Product boundary and tests
     runs-on: ubuntu-24.04
@@ -32,6 +47,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: eternallight/novel-codex/package-lock.json
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
       - name: Configure read-only Codex upstream
         working-directory: .
         run: |
@@ -39,13 +55,24 @@ jobs:
           git remote add upstream https://github.com/openai/codex.git
           git fetch upstream main
       - run: npm ci
+      - name: Build and attest App Server used by integration tests
+        run: npm run build:codex-runtime
+      - name: Bind the local CLI policy to this runner's build
+        run: npm run refresh:model-policy
       - run: npm run repo:check:strict
       - run: npm run build
       - run: npm run test:runtime
+      - run: npm run test:engine
+      - run: npm run test:release-gate
+      - name: Test native and portable Responses delegation through Codex
+        run: npm --prefix ../agent-engine run test:delegation-integration
       - run: npm run test:agent
+      - name: Test Electron UI
+        run: xvfb-run -a npm run test:ui
 
   package:
     name: Independent package (${{ matrix.os }})
+    needs: [quality, native-engine]
     if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
@@ -66,22 +93,37 @@ jobs:
           cache: npm
           cache-dependency-path: eternallight/novel-codex/package-lock.json
       - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
-      - name: Build pinned Agent Engine from this commit
-        working-directory: codex-rs
-        run: cargo build --release -p codex-cli --bin codex
+      - uses: actions/setup-python@a3cf8a4d74d988caddb766d1e2cf515ecd2a484b # v6.0.0
+        with:
+          python-version: "3.12"
       - name: Install Novel Codex dependencies
         working-directory: eternallight/novel-codex
         run: npm ci
+      - name: Build and attest pinned Agent Engine from this commit
+        working-directory: eternallight/novel-codex
+        env:
+          NOVEL_CODEX_CARGO_PROFILE: release
+        run: npm run build:codex-runtime
+      - name: Build self-contained Creative Runtime executables
+        working-directory: eternallight/novel-codex
+        run: |
+          python -m pip install --disable-pip-version-check pyinstaller==6.16.0
+          python -m PyInstaller --clean --onefile --name creative-runtime runtime/server.py
+          python -m PyInstaller --clean --onefile --name novel-workspace-mcp runtime/mcp_server.py
       - name: Stage checksummed private engine
         working-directory: eternallight/novel-codex
         env:
-          NOVEL_CODEX_RELEASE_CLI: ${{ github.workspace }}/codex-rs/target/release/codex${{ runner.os == 'Windows' && '.exe' || '' }}
+          NOVEL_CODEX_RELEASE_RUNTIME_SERVER: ${{ github.workspace }}/eternallight/novel-codex/dist/creative-runtime${{ runner.os == 'Windows' && '.exe' || '' }}
+          NOVEL_CODEX_RELEASE_MCP_SERVER: ${{ github.workspace }}/eternallight/novel-codex/dist/novel-workspace-mcp${{ runner.os == 'Windows' && '.exe' || '' }}
           NOVEL_CODEX_RELEASE_RESOURCES: ${{ github.workspace }}/eternallight/novel-codex/.release/resources
         run: npm run stage:release-runtime
       - name: Package Novel Codex
         working-directory: eternallight/novel-codex
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          NOVEL_CODEX_RELEASE_RUNTIME_SERVER: ${{ github.workspace }}/eternallight/novel-codex/dist/creative-runtime${{ runner.os == 'Windows' && '.exe' || '' }}
+          NOVEL_CODEX_RELEASE_MCP_SERVER: ${{ github.workspace }}/eternallight/novel-codex/dist/novel-workspace-mcp${{ runner.os == 'Windows' && '.exe' || '' }}
+          NOVEL_CODEX_RELEASE_RESOURCES: ${{ github.workspace }}/eternallight/novel-codex/.release/resources
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             npm run package:win

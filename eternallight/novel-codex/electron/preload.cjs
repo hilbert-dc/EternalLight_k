@@ -46,6 +46,11 @@ contextBridge.exposeInMainWorld("novelCodex", {
   },
   agent: {
     status: invoke("agent:status"),
+    recoveryReport: invoke("agent:recovery-report"),
+    resolveRecovery: invoke("agent:resolve-recovery"),
+    listConnections: invoke("agent:list-connections"),
+    verifyConnection: invoke("agent:verify-connection"),
+    verifyConnectionEdge: invoke("agent:verify-connection-edge"),
     configure: invoke("agent:configure"),
     sendPrompt: invoke("agent:send-prompt"),
     generatePlanning: invoke("agent:generate-planning"),

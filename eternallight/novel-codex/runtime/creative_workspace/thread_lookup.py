@@ -48,3 +48,48 @@ def lookup_thread_tasks(
                     }
                 )
     return {"tasks": tasks}
+
+
+def lookup_recovery_tasks(
+    db_path: str | Path, project_id: str, task_ids: list[str]
+) -> dict:
+    if (
+        not isinstance(task_ids, list)
+        or not 1 <= len(task_ids) <= 100
+        or any(
+            not isinstance(value, str) or not value.strip() or len(value) > 160
+            for value in task_ids
+        )
+    ):
+        raise WorkspaceError(
+            "invalid_task_ids", "taskIds 必须包含 1 至 100 个有效任务 ID"
+        )
+    initialize(db_path)
+    tasks = []
+    with connect(db_path) as connection:
+        for task_id in dict.fromkeys(task_ids):
+            row = connection.execute(
+                "SELECT id, thread_id, operation, status, delivery_status, updated_at "
+                "FROM task_runs WHERE project_id = ? AND id = ?",
+                (project_id, task_id),
+            ).fetchone()
+            if row is not None:
+                output_kinds = [
+                    output["output_kind"]
+                    for output in connection.execute(
+                        "SELECT DISTINCT output_kind FROM task_outputs WHERE task_id = ? ORDER BY output_kind",
+                        (task_id,),
+                    ).fetchall()
+                ]
+                tasks.append(
+                    {
+                        "id": row["id"],
+                        "threadId": row["thread_id"],
+                        "operation": row["operation"],
+                        "status": row["status"],
+                        "deliveryStatus": row["delivery_status"],
+                        "outputKinds": output_kinds,
+                        "updatedAt": row["updated_at"],
+                    }
+                )
+    return {"tasks": tasks}

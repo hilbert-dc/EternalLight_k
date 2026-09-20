@@ -1,5 +1,7 @@
 import hashlib
 import json
+import sqlite3
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -759,6 +761,7 @@ def save_artifact(
     idempotency_key: str | None = None,
     enforce_candidate_cas: bool = False,
     linked_impact_ids: list[str] | None = None,
+    operation_connection: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     if kind not in ARTIFACT_KINDS or not isinstance(payload, dict):
         raise WorkspaceError("invalid_artifact", "创作产物类型或内容无效")
@@ -771,12 +774,18 @@ def save_artifact(
             "linkedImpactIds": linked_impact_ids or [],
         }
     )
-    initialize(db_path)
+    if operation_connection is None:
+        initialize(db_path)
     if kind == "outline":
         payload = normalize_outline(payload, _id)
     revision_id = _id(kind)
-    with connect(db_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+    with (
+        nullcontext(operation_connection)
+        if operation_connection is not None
+        else connect(db_path)
+    ) as connection:
+        if operation_connection is None:
+            connection.execute("BEGIN IMMEDIATE")
         _assert_actor(connection, project_id, actor, task_id, thread_id)
         owner_key = _candidate_write_owner(actor, task_id)
         if idempotency_key:
@@ -1040,6 +1049,7 @@ def save_draft_checkpoint(
     expected_candidate_revision_id: str | None = None,
     idempotency_key: str | None = None,
     enforce_candidate_cas: bool = False,
+    operation_connection: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     body = payload.get("body", "")
     if not isinstance(body, str) or len(body) > MAX_BODY:
@@ -1058,11 +1068,17 @@ def save_draft_checkpoint(
             "expectedCandidateRevisionId": expected_candidate_revision_id,
         }
     )
-    initialize(db_path)
+    if operation_connection is None:
+        initialize(db_path)
     revision_id = _id("draft")
     checkpoint_id = _id("checkpoint")
-    with connect(db_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+    with (
+        nullcontext(operation_connection)
+        if operation_connection is not None
+        else connect(db_path)
+    ) as connection:
+        if operation_connection is None:
+            connection.execute("BEGIN IMMEDIATE")
         _assert_actor(connection, project_id, actor, task_id, thread_id)
         owner_key = _candidate_write_owner(actor, task_id)
         if idempotency_key:
@@ -1398,14 +1414,20 @@ def create_review(
     task_id: str | None = None,
     thread_id: str | None = None,
     idempotency_key: str | None = None,
+    operation_connection: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     if artifact_kind not in {*ARTIFACT_KINDS, "draft"}:
         raise WorkspaceError("invalid_artifact_kind", "审阅产物类型无效")
-    initialize(db_path)
+    if operation_connection is None:
+        initialize(db_path)
     review_id = _id("review")
     checks: list[dict[str, Any]] = []
     provisional_impacts: list[dict[str, Any]] = []
-    with connect(db_path) as connection:
+    with (
+        nullcontext(operation_connection)
+        if operation_connection is not None
+        else connect(db_path)
+    ) as connection:
         _assert_actor(connection, project_id, actor, task_id, thread_id)
         owner_key = _candidate_write_owner(actor, task_id)
         candidate_task = None

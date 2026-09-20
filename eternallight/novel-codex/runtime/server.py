@@ -13,8 +13,21 @@ from urllib.parse import parse_qs, urlparse
 try:
     from .creative_workspace import planning_reviews
     from .creative_workspace.author_export import export_project
-    from .creative_workspace.thread_lookup import lookup_thread_tasks
+    from .creative_workspace.thread_lookup import (
+        lookup_recovery_tasks,
+        lookup_thread_tasks,
+    )
     from .creative_workspace.metrics import local_metrics, record_abandonment
+    from .creative_workspace.operation_ledger import (
+        accept_operation,
+        begin_operation_commit,
+        commit_operation,
+        finish_operation,
+        is_committed_operation_replay,
+        operation_identity,
+        operation_rows,
+        recovery_snapshot,
+    )
     from .creative_workspace.errors import UnauthorizedError, WorkspaceError
     from .creative_workspace.service import (
         accept_review,
@@ -57,8 +70,21 @@ try:
 except ImportError:
     from creative_workspace import planning_reviews
     from creative_workspace.author_export import export_project
-    from creative_workspace.thread_lookup import lookup_thread_tasks
+    from creative_workspace.thread_lookup import (
+        lookup_recovery_tasks,
+        lookup_thread_tasks,
+    )
     from creative_workspace.metrics import local_metrics, record_abandonment
+    from creative_workspace.operation_ledger import (
+        accept_operation,
+        begin_operation_commit,
+        commit_operation,
+        finish_operation,
+        is_committed_operation_replay,
+        operation_identity,
+        operation_rows,
+        recovery_snapshot,
+    )
     from creative_workspace.errors import UnauthorizedError, WorkspaceError
     from creative_workspace.service import (
         accept_review,
@@ -179,6 +205,7 @@ def response_payload(
     body: dict[str, Any] | None,
     db_path: str,
     actor: str = "author",
+    operation_connection: sqlite3.Connection | None = None,
 ) -> tuple[int, dict[str, Any]]:
     parsed = urlparse(path)
     parts = [part for part in parsed.path.split("/") if part]
@@ -223,7 +250,11 @@ def response_payload(
                 if actor != "candidate":
                     raise UnauthorizedError("规划报告只能由绑定的顾问任务提交")
                 return 201, planning_reviews.save_planning_report(
-                    db_path, project_id, run_id, payload
+                    db_path,
+                    project_id,
+                    run_id,
+                    payload,
+                    operation_connection=operation_connection,
                 )
             _require_author(actor)
             if len(suffix) == 2 and method == "GET":
@@ -284,6 +315,36 @@ def response_payload(
             if set(payload) != {"threadIds"}:
                 raise WorkspaceError("invalid_thread_lookup", "仅允许 threadIds 字段")
             return 200, lookup_thread_tasks(db_path, project_id, payload["threadIds"])
+        if suffix == ["tasks", "recovery-lookup"] and method == "POST":
+            _require_author(actor)
+            if set(payload) != {"taskIds"}:
+                raise WorkspaceError("invalid_task_lookup", "仅允许 taskIds 字段")
+            return 200, lookup_recovery_tasks(db_path, project_id, payload["taskIds"])
+        if suffix == ["tasks", "recovery-operations"] and method == "POST":
+            _require_author(actor)
+            if set(payload) != {"taskIds"}:
+                raise WorkspaceError("invalid_operation_lookup", "仅允许 taskIds 字段")
+            return 200, {
+                "operations": operation_rows(db_path, project_id, payload["taskIds"])
+            }
+        if suffix == ["tasks", "recovery-snapshot"] and method == "POST":
+            _require_author(actor)
+            if (
+                not set(payload).issubset({"taskIds", "fence", "cursor", "limit"})
+                or "taskIds" not in payload
+            ):
+                raise WorkspaceError("invalid_recovery_snapshot", "恢复快照字段无效")
+            fence = payload.get("fence")
+            if fence is not None and (not isinstance(fence, str) or len(fence) > 160):
+                raise WorkspaceError("invalid_recovery_fence", "恢复快照 fence 无效")
+            return 200, recovery_snapshot(
+                db_path,
+                project_id,
+                payload["taskIds"],
+                fence=fence,
+                cursor=payload.get("cursor", 0),
+                limit=payload.get("limit", 500),
+            )
         if suffix == ["tasks"] and method == "POST":
             _require_author(actor)
             allowed_fields = {
@@ -381,6 +442,7 @@ def response_payload(
                 suffix[1],
                 _string(payload, "threadId", required=True, limit=160),
                 _string(payload, "summary", limit=4000) or "",
+                operation_connection=operation_connection,
             )
         if len(suffix) == 2 and suffix[0] == "artifacts" and method == "POST":
             artifact_payload = payload.get("payload")
@@ -404,6 +466,7 @@ def response_payload(
                 _string(payload, "idempotencyKey", required=True, limit=160),
                 "expectedCandidateRevisionId" in payload,
                 _string_list(payload, "linkedImpactIds", limit=50),
+                operation_connection,
             )
         if suffix == ["chapters", "materialize-from-plan"] and method == "POST":
             _require_author(actor)
@@ -486,6 +549,7 @@ def response_payload(
                 _string(payload, "expectedCandidateRevisionId", limit=160),
                 _string(payload, "idempotencyKey", required=True, limit=160),
                 "expectedCandidateRevisionId" in payload,
+                operation_connection,
             )
             if actor == "candidate":
                 saved = {
@@ -512,6 +576,7 @@ def response_payload(
                 _string(payload, "taskId", limit=160),
                 _string(payload, "threadId", limit=160),
                 _string(payload, "idempotencyKey", required=True, limit=160),
+                operation_connection,
             )
         if (
             len(suffix) == 3
@@ -671,6 +736,83 @@ def authorize_candidate_capability(
         raise UnauthorizedError("任务能力凭证已过期")
 
 
+def _execute_request(
+    db_path: str,
+    path: str,
+    method: str,
+    body: dict[str, Any] | None,
+    actor: str,
+    execution_headers: dict[str, str | None],
+) -> tuple[int, dict[str, Any]]:
+    identity = (
+        operation_identity(path, method, body, execution_headers)
+        if actor == "candidate"
+        else None
+    )
+    if identity is None:
+        return response_payload(path, method, body, db_path, actor)
+    existing = accept_operation(db_path, identity)
+    if existing is not None:
+        state = existing["state"]
+        if state == "committed":
+            receipt = json.loads(existing["receipt_json"])
+            return receipt["status"], receipt["payload"]
+        raise WorkspaceError(
+            "operation_not_replayable", f"工具调用已登记为 {state}，不会自动重放", 409
+        )
+    operation_connection = None
+    try:
+        operation_connection = begin_operation_commit(db_path, identity)
+        status, payload = response_payload(
+            path,
+            method,
+            body,
+            db_path,
+            actor,
+            operation_connection=operation_connection,
+        )
+        commit_operation(
+            operation_connection,
+            identity.operation_id,
+            {"status": status, "payload": payload},
+        )
+    except WorkspaceError as error:
+        if operation_connection is not None:
+            operation_connection.rollback()
+            operation_connection.close()
+        finish_operation(
+            db_path,
+            identity.operation_id,
+            "cancelled-before-execution"
+            if isinstance(error, UnauthorizedError)
+            else "rejected",
+            error_code=error.code,
+        )
+        raise
+    except Exception:
+        if operation_connection is not None:
+            operation_connection.rollback()
+            operation_connection.close()
+        finish_operation(
+            db_path, identity.operation_id, "rejected", error_code="runtime_exception"
+        )
+        raise
+    try:
+        operation_connection.commit()
+    except Exception:
+        operation_connection.rollback()
+        operation_connection.close()
+        finish_operation(
+            db_path,
+            identity.operation_id,
+            "outcome-unknown",
+            error_code="commit_outcome_unknown",
+        )
+        raise
+    operation_connection.close()
+    return status, payload
+
+
 class RuntimeHandler(BaseHTTPRequestHandler):
     db_path = "novel-codex-v2.sqlite3"
     candidate_token = ""
@@ -704,15 +846,30 @@ class RuntimeHandler(BaseHTTPRequestHandler):
                     self.author_token,
                 )
             )
-            if actor == "candidate":
+            execution_headers = {
+                "root_thread_id": self.headers.get("X-Novel-Root-Thread"),
+                "caller_thread_id": self.headers.get("X-Novel-Caller-Thread"),
+                "parent_thread_id": self.headers.get("X-Novel-Parent-Thread"),
+                "turn_id": self.headers.get("X-Novel-Turn"),
+                "tool_call_id": self.headers.get("X-Novel-Tool-Call"),
+                "tool_name": self.headers.get("X-Novel-Tool-Name"),
+            }
+            if actor == "candidate" and not is_committed_operation_replay(
+                self.db_path, self.path, method, parsed_body, execution_headers
+            ):
                 authorize_candidate_capability(
                     self.db_path,
                     self.path,
                     parsed_body,
                     self.headers.get("X-Novel-Task-Capability"),
                 )
-            status, payload = response_payload(
-                self.path, method, parsed_body, self.db_path, actor
+            status, payload = _execute_request(
+                self.db_path,
+                self.path,
+                method,
+                parsed_body,
+                actor,
+                execution_headers,
             )
             self.send_json(status, payload)
         except WorkspaceError as error:
@@ -811,15 +968,30 @@ def create_fastapi_app(
                     request.headers.get("authorization"), candidate_token, author_token
                 )
             )
-            if actor == "candidate":
+            execution_headers = {
+                "root_thread_id": request.headers.get("x-novel-root-thread"),
+                "caller_thread_id": request.headers.get("x-novel-caller-thread"),
+                "parent_thread_id": request.headers.get("x-novel-parent-thread"),
+                "turn_id": request.headers.get("x-novel-turn"),
+                "tool_call_id": request.headers.get("x-novel-tool-call"),
+                "tool_name": request.headers.get("x-novel-tool-name"),
+            }
+            if actor == "candidate" and not is_committed_operation_replay(
+                db_path, path, request.method, parsed_body, execution_headers
+            ):
                 authorize_candidate_capability(
                     db_path,
                     path,
                     parsed_body,
                     request.headers.get("x-novel-task-capability"),
                 )
-            status, payload = response_payload(
-                path, request.method, parsed_body, db_path, actor
+            status, payload = _execute_request(
+                db_path,
+                path,
+                request.method,
+                parsed_body,
+                actor,
+                execution_headers,
             )
             return JSONResponse(payload, status_code=status)
         except WorkspaceError as error:

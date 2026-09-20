@@ -1,0 +1,302 @@
+{
+  "CAPABILITIES": {
+    "TEXT": "text",
+    "STRUCTURED_TOOL_CALLS": "structuredToolCalls",
+    "PARALLEL_TOOL_CALLS": "parallelToolCalls",
+    "STREAMING": "streaming",
+    "USAGE": "usage",
+    "CUSTOM_TOOLS": "customTools",
+    "IMAGE_INPUT": "imageInput",
+    "REASONING_SUMMARY": "reasoningSummary",
+    "REMOTE_COMPACTION": "remoteCompaction",
+    "TOOL_SEARCH": "toolSearch",
+    "TOOL_LOOP": "toolLoop",
+    "CHILD_SPAWN": "childSpawn",
+    "CHILD_MESSAGE_RUNNING": "childMessageRunning",
+    "CHILD_WAIT": "childWait",
+    "CHILD_FAILURE": "childFailure",
+    "CHILD_DIRECTED_ROUTE": "childDirectedRoute",
+    "CHILD_FOLLOWUP_IDLE": "childFollowupIdle",
+    "CHILD_CANCEL_TREE": "childCancelTree",
+    "CHILD_RECOVERY": "childRecovery",
+    "CONTEXT_LIFECYCLE": "contextLifecycle"
+  },
+  "CAPABILITY_DEPENDENCIES": {
+    "toolLoop": [
+      "structuredToolCalls"
+    ],
+    "childSpawn": [
+      "toolLoop"
+    ],
+    "childMessageRunning": [
+      "childSpawn"
+    ],
+    "childWait": [
+      "childSpawn"
+    ],
+    "childFailure": [
+      "childWait"
+    ],
+    "childDirectedRoute": [
+      "childSpawn"
+    ],
+    "childFollowupIdle": [
+      "childSpawn"
+    ],
+    "childCancelTree": [
+      "childSpawn"
+    ],
+    "childRecovery": [
+      "childSpawn"
+    ],
+    "parallelToolCalls": [
+      "structuredToolCalls"
+    ],
+    "toolSearch": [
+      "structuredToolCalls"
+    ]
+  },
+  "CAPABILITY_DOMAINS": {
+    "MODEL": "model",
+    "ENGINE": "engine"
+  },
+  "CAPABILITY_PROFILES": {
+    "text-v1": {
+      "id": "text-v1",
+      "requiredCapabilities": [
+        "text"
+      ]
+    },
+    "base-tools-v1": {
+      "id": "base-tools-v1",
+      "requiredCapabilities": [
+        "text",
+        "structuredToolCalls",
+        "toolLoop"
+      ]
+    },
+    "interactive-v1": {
+      "id": "interactive-v1",
+      "requiredCapabilities": [
+        "text",
+        "structuredToolCalls",
+        "toolLoop"
+      ],
+      "preferredCapabilities": [
+        "streaming",
+        "usage"
+      ]
+    },
+    "directed-delegation-v1": {
+      "id": "directed-delegation-v1",
+      "requiredCapabilities": [
+        "text",
+        "structuredToolCalls",
+        "toolLoop",
+        "childSpawn",
+        "childMessageRunning",
+        "childWait",
+        "childDirectedRoute"
+      ],
+      "preferredCapabilities": [
+        "streaming",
+        "usage"
+      ]
+    },
+    "autonomous-delegation-v1": {
+      "id": "autonomous-delegation-v1",
+      "requiredCapabilities": [
+        "text",
+        "structuredToolCalls",
+        "toolLoop",
+        "childSpawn",
+        "childMessageRunning",
+        "childWait",
+        "childDirectedRoute",
+        "childFailure",
+        "childCancelTree"
+      ],
+      "preferredCapabilities": [
+        "streaming",
+        "usage",
+        "childFollowupIdle",
+        "childRecovery",
+        "contextLifecycle"
+      ]
+    }
+  },
+  "CAPABILITY_SUPPORT_MODES": [
+    "native",
+    "lossless-adapted",
+    "unsupported",
+    "unknown"
+  ],
+  "DELEGATION_EXECUTION_CAPABILITIES": [
+    "childSpawn",
+    "childMessageRunning",
+    "childWait",
+    "childDirectedRoute"
+  ],
+  "ENGINE_CAPABILITIES": {
+    "TOOL_LOOP": "toolLoop",
+    "CHILD_SPAWN": "childSpawn",
+    "CHILD_MESSAGE_RUNNING": "childMessageRunning",
+    "CHILD_WAIT": "childWait",
+    "CHILD_FAILURE": "childFailure",
+    "CHILD_DIRECTED_ROUTE": "childDirectedRoute",
+    "CHILD_FOLLOWUP_IDLE": "childFollowupIdle",
+    "CHILD_CANCEL_TREE": "childCancelTree",
+    "CHILD_RECOVERY": "childRecovery",
+    "CONTEXT_LIFECYCLE": "contextLifecycle"
+  },
+  "ENGINE_CAPABILITY_MANIFEST": {
+    "version": 1,
+    "contractId": "codex-capability-parity-2026-09",
+    "groups": {
+      "outputAndTools": [
+        "text",
+        "structuredToolCalls",
+        "parallelToolCalls",
+        "customTools"
+      ],
+      "streamAndTerminal": [
+        "streaming",
+        "usage"
+      ],
+      "context": [
+        "reasoningSummary",
+        "remoteCompaction"
+      ],
+      "childLifecycle": [
+        "toolLoop",
+        "childSpawn",
+        "childMessageRunning",
+        "childWait",
+        "childDirectedRoute",
+        "childFollowupIdle",
+        "childFailure",
+        "childCancelTree",
+        "childRecovery",
+        "contextLifecycle"
+      ],
+      "discovery": [
+        "toolSearch"
+      ],
+      "modalities": [
+        "imageInput"
+      ]
+    },
+    "requiredBehaviors": [
+      "tool-identity-round-trip",
+      "call-id-correlation",
+      "terminal-state-integrity",
+      "bounded-context",
+      "cancellation",
+      "credential-scoped-revocation",
+      "directed-child-routing"
+    ]
+  },
+  "ENGINE_CONTRACT": {
+    "id": "codex-app-server-v2-responses-2026-09",
+    "appServerProtocol": "v2",
+    "canonicalModelProtocol": "responses",
+    "requiredCapabilities": [
+      "text"
+    ],
+    "optionalExtensions": [
+      "structuredToolCalls",
+      "parallelToolCalls",
+      "streaming",
+      "usage",
+      "customTools",
+      "imageInput",
+      "reasoningSummary",
+      "remoteCompaction",
+      "toolSearch",
+      "toolLoop",
+      "childSpawn",
+      "childMessageRunning",
+      "childWait",
+      "childFailure",
+      "childDirectedRoute",
+      "childFollowupIdle",
+      "childCancelTree",
+      "childRecovery",
+      "contextLifecycle"
+    ],
+    "toolResultCorrelation": "call_id",
+    "capabilityManifest": {
+      "version": 1,
+      "contractId": "codex-capability-parity-2026-09",
+      "groups": {
+        "outputAndTools": [
+          "text",
+          "structuredToolCalls",
+          "parallelToolCalls",
+          "customTools"
+        ],
+        "streamAndTerminal": [
+          "streaming",
+          "usage"
+        ],
+        "context": [
+          "reasoningSummary",
+          "remoteCompaction"
+        ],
+        "childLifecycle": [
+          "toolLoop",
+          "childSpawn",
+          "childMessageRunning",
+          "childWait",
+          "childDirectedRoute",
+          "childFollowupIdle",
+          "childFailure",
+          "childCancelTree",
+          "childRecovery",
+          "contextLifecycle"
+        ],
+        "discovery": [
+          "toolSearch"
+        ],
+        "modalities": [
+          "imageInput"
+        ]
+      },
+      "requiredBehaviors": [
+        "tool-identity-round-trip",
+        "call-id-correlation",
+        "terminal-state-integrity",
+        "bounded-context",
+        "cancellation",
+        "credential-scoped-revocation",
+        "directed-child-routing"
+      ]
+    }
+  },
+  "MODEL_CAPABILITIES": {
+    "TEXT": "text",
+    "STRUCTURED_TOOL_CALLS": "structuredToolCalls",
+    "PARALLEL_TOOL_CALLS": "parallelToolCalls",
+    "STREAMING": "streaming",
+    "USAGE": "usage",
+    "CUSTOM_TOOLS": "customTools",
+    "IMAGE_INPUT": "imageInput",
+    "REASONING_SUMMARY": "reasoningSummary",
+    "REMOTE_COMPACTION": "remoteCompaction",
+    "TOOL_SEARCH": "toolSearch"
+  },
+  "PROTOCOLS": [
+    "responses",
+    "chat-completions",
+    "messages",
+    "generate-content"
+  ],
+  "RESILIENT_DELEGATION_CAPABILITIES": [
+    "childSpawn",
+    "childMessageRunning",
+    "childWait",
+    "childDirectedRoute",
+    "childFailure",
+    "childCancelTree"
+  ]
+}

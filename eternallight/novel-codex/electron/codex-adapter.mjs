@@ -11,6 +11,7 @@ const MAX_USER_INPUT_QUESTIONS = 3;
 const MAX_USER_INPUT_OPTIONS = 6;
 const MAX_USER_INPUT_TEXT = 240;
 const PINNED_THREAD_SECTION_ID = "01984de2-8f74-7c91-a3b2-5c5e937cf318";
+const MODEL_PROTOCOL_ERROR = "模型未按结构化工具协议返回，已阻止内部协议文本进入对话。请重试；若持续发生，请检查模型工具模式。";
 
 function waitForChildClose(child, timeoutMs) {
   if (child.exitCode !== null) return Promise.resolve(true);
@@ -42,6 +43,19 @@ function agentMessageText(item) {
     .filter(Boolean)
     .join("");
   return text || null;
+}
+
+function isModelProtocolLeak(value) {
+  return typeof value === "string" && /<(?:\|\||｜｜)\s*DSML\s*(?:\|\||｜｜)/i.test(value);
+}
+
+function messageContainsModelProtocolLeak(message) {
+  if (message?.method === "item/agentMessage/delta" && isModelProtocolLeak(message.params?.delta)) return true;
+  if (message?.method === "item/completed" && message.params?.item?.type === "agentMessage") {
+    return isModelProtocolLeak(agentMessageText(message.params.item));
+  }
+  if (message?.method !== "turn/completed" || !Array.isArray(message.params?.turn?.items)) return false;
+  return message.params.turn.items.some((item) => item?.type === "agentMessage" && isModelProtocolLeak(agentMessageText(item)));
 }
 
 function isUserInputMethod(method) {
@@ -162,7 +176,10 @@ export class CodexAppServerAdapter {
     this.initialized = false;
     this.activeOperation = this.env.NOVEL_CODEX_OPERATION ?? null;
     this.turnWaiter = null;
-    this.callbacks = { onEvent: () => {}, onUserInputRequest: () => {} };
+    this.protocolFailure = false;
+    this.callbacks = { onEvent: () => {}, onRawEvent: () => {}, onUserInputRequest: () => {} };
+    this.eventSubscribers = new Set();
+    this.executionLease = null;
     this.lastError = null;
   }
 
@@ -170,11 +187,15 @@ export class CodexAppServerAdapter {
     return Boolean(this.command) && !this.configurationError;
   }
 
+  get localEnabled() {
+    return Boolean(this.command);
+  }
+
   status() {
     return {
       configured: this.enabled,
       state: this.lastError || this.configurationError ? "error" : this.turnWaiter ? "running" : this.process ? "ready" : "idle",
-      mode: this.enabled ? "novel-agent-engine" : "local",
+      mode: this.enabled ? "novel-agent-engine" : this.localEnabled ? "local-history" : "local",
       error: this.lastError ?? this.configurationError ?? (this.enabled ? null : "未找到 Novel Agent Engine 内核"),
       provider: this.provider,
       model: this.model,
@@ -209,6 +230,7 @@ export class CodexAppServerAdapter {
     this.threadStarting = null;
     this.initialized = false;
     this.activeOperation = this.env.NOVEL_CODEX_OPERATION ?? null;
+    this.protocolFailure = false;
   }
 
   assertConfigurable() {
@@ -220,8 +242,8 @@ export class CodexAppServerAdapter {
     this.callbacks = { ...this.callbacks, ...callbacks };
   }
 
-  async ensureInitialized() {
-    if (!this.enabled) throw new Error("Novel Agent Engine 未配置");
+  async ensureInitialized({ localOnly = false } = {}) {
+    if (!this.localEnabled || (!localOnly && !this.enabled)) throw new Error(localOnly ? "Novel Agent Engine 本地历史不可用" : "Novel Agent Engine 未配置");
     if (this.initialized) return true;
     if (this.initializing) return this.initializing;
     this.initializing = this.initialize().finally(() => { this.initializing = null; });
@@ -237,6 +259,7 @@ export class CodexAppServerAdapter {
     this.notify("initialized", {});
     this.initialized = true;
     this.lastError = null;
+    this.protocolFailure = false;
     return true;
   }
 
@@ -290,6 +313,7 @@ export class CodexAppServerAdapter {
     this.initializing = null;
     this.initialized = false;
     this.lastError = null;
+    this.protocolFailure = false;
     const environment = { ...this.env };
     if (operation) environment.NOVEL_CODEX_OPERATION = operation;
     else delete environment.NOVEL_CODEX_OPERATION;
@@ -322,6 +346,8 @@ export class CodexAppServerAdapter {
     this.initialized = false;
     this.lastError = null;
     this.activeOperation = null;
+    this.protocolFailure = false;
+    this.executionLease = null;
     const environment = { ...this.env };
     delete environment.NOVEL_CODEX_OPERATION;
     delete environment.NOVEL_CODEX_TASK_CAPABILITY;
@@ -339,7 +365,7 @@ export class CodexAppServerAdapter {
   async listThreads({ archived = false, cursor = null } = {}) {
     if (typeof archived !== "boolean") throw new Error("archived 必须是布尔值");
     if (cursor !== null && (typeof cursor !== "string" || cursor.length > MAX_THREAD_TEXT || /[\r\n]/.test(cursor))) throw new Error("任务列表 cursor 无效");
-    await this.ensureInitialized();
+    await this.ensureInitialized({ localOnly: true });
     const result = await this.request("thread/list", {
       cwd: this.cwd,
       limit: MAX_THREAD_LIST,
@@ -356,7 +382,7 @@ export class CodexAppServerAdapter {
 
   async readThread(threadId) {
     validateThreadId(threadId);
-    await this.ensureInitialized();
+    await this.ensureInitialized({ localOnly: true });
     const result = await this.request("thread/read", { threadId, includeTurns: true });
     const thread = result?.thread;
     if (thread?.id !== threadId) throw new Error("Novel Agent Engine 未返回匹配的线程");
@@ -367,7 +393,7 @@ export class CodexAppServerAdapter {
   async resumeThread(threadId) {
     validateThreadId(threadId);
     if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
-    await this.ensureInitialized();
+    await this.ensureInitialized({ localOnly: true });
     const result = await this.request("thread/resume", { threadId });
     const thread = result?.thread;
     if (thread?.id !== threadId) throw new Error("Novel Agent Engine 未返回匹配的线程");
@@ -389,8 +415,8 @@ export class CodexAppServerAdapter {
   async reviewThread(threadId) {
     validateThreadId(threadId);
     if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
-    await this.ensureInitialized();
-    const result = await this.request("review/start", { threadId, delivery: "inline", target: { type: "uncommittedChanges" } });
+    await this.resumeThread(threadId);
+    const result = await this.runManagedTurn(threadId, () => this.request("review/start", { threadId, delivery: "inline", target: { type: "uncommittedChanges" } }));
     this.emit({ method: "agent/review", params: { threadId, delivery: "inline", target: "uncommittedChanges" } });
     return { started: true, turn: result?.turn ?? null };
   }
@@ -398,14 +424,32 @@ export class CodexAppServerAdapter {
   async compactThread(threadId) {
     validateThreadId(threadId);
     if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
-    await this.ensureInitialized();
-    await this.request("thread/compact/start", { threadId });
-    return { started: true };
+    await this.resumeThread(threadId);
+    const result = await this.runManagedTurn(threadId, () => this.request("thread/compact/start", { threadId }));
+    return { started: true, turn: result?.turn ?? null };
+  }
+
+  async runManagedTurn(threadId, start) {
+    const completion = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.turnWaiter = null; reject(new Error("Novel Agent Engine 回合超时")); }, 10 * 60 * 1000);
+      this.turnWaiter = { resolve, reject, timer, threadId, turnId: null, agentMessageItemId: null, agentMessage: "" };
+    });
+    void completion.catch(() => {});
+    try {
+      const started = await start();
+      this.turnId = started?.turn?.id ?? this.turnId;
+      if (this.turnWaiter) this.turnWaiter.turnId = this.turnId;
+      return await completion;
+    } catch (error) {
+      if (this.turnWaiter) clearTimeout(this.turnWaiter.timer);
+      this.turnWaiter = null;
+      throw error;
+    }
   }
 
   async listBackgroundTerminals(threadId) {
     validateThreadId(threadId);
-    await this.ensureInitialized();
+    await this.ensureInitialized({ localOnly: true });
     const result = await this.request("thread/backgroundTerminals/list", { threadId });
     const terminals = Array.isArray(result?.data) ? result.data.slice(0, 12).map((terminal) => ({
       processId: typeof terminal?.processId === "string" && terminal.processId.trim() ? bounded(terminal.processId, MAX_THREAD_TEXT) : null,
@@ -419,7 +463,7 @@ export class CodexAppServerAdapter {
   async terminateBackgroundTerminal(threadId, processId) {
     validateThreadId(threadId);
     validateProcessId(processId);
-    await this.ensureInitialized();
+    await this.ensureInitialized({ localOnly: true });
     await this.request("thread/backgroundTerminals/terminate", { threadId, processId });
     return { terminated: true };
   }
@@ -427,7 +471,7 @@ export class CodexAppServerAdapter {
   async setThreadPinned(threadId, isPinned) {
     validateThreadId(threadId);
     if (typeof isPinned !== "boolean") throw new Error("isPinned 必须是布尔值");
-    await this.ensureInitialized();
+    await this.ensureInitialized({ localOnly: true });
     await this.request("thread/section/move", { threadId, sectionId: isPinned ? PINNED_THREAD_SECTION_ID : null });
     const detail = await this.readThread(threadId);
     return { thread: { ...detail.thread, isPinned } };
@@ -436,7 +480,7 @@ export class CodexAppServerAdapter {
   async archiveThread(threadId) {
     validateThreadId(threadId);
     if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
-    await this.ensureInitialized();
+    await this.ensureInitialized({ localOnly: true });
     await this.request("thread/archive", { threadId });
     if (this.threadId === threadId) {
       this.threadId = null;
@@ -447,7 +491,7 @@ export class CodexAppServerAdapter {
 
   async unarchiveThread(threadId) {
     validateThreadId(threadId);
-    await this.ensureInitialized();
+    await this.ensureInitialized({ localOnly: true });
     const result = await this.request("thread/unarchive", { threadId });
     if (result?.thread?.id !== threadId) throw new Error("Novel Agent Engine 未返回匹配的线程");
     return { thread: threadSummary(result.thread) };
@@ -482,6 +526,14 @@ export class CodexAppServerAdapter {
     if (!line.trim()) return;
     let message;
     try { message = JSON.parse(line); } catch { this.emit({ method: "agent/text", params: { text: line.slice(0, MAX_EVENT_BYTES) } }); return; }
+    if (this.protocolFailure) return;
+    if (messageContainsModelProtocolLeak(message)) {
+      this.protocolFailure = true;
+      const error = new Error(MODEL_PROTOCOL_ERROR);
+      this.fail(error);
+      return;
+    }
+    this.callbacks.onRawEvent(message);
     const safe = safeMessage(message);
     if (message.method?.includes("requestApproval")) {
       if (!validRequestId(message.id)) {
@@ -499,7 +551,7 @@ export class CodexAppServerAdapter {
       });
       return;
     }
-    this.emit(safe);
+    this.callbacks.onEvent(safe);
     if (message.method === "thread/started" && message.params?.thread?.id) this.threadId = message.params.thread.id;
     if (message.method === "thread/closed" && message.params?.threadId === this.threadId) {
       this.threadId = null;
@@ -640,6 +692,10 @@ export class CodexAppServerAdapter {
     }
   }
 
+  resumeSession(threadId) {
+    return this.resumeThread(threadId);
+  }
+
   async interruptTurn() {
     if (!this.turnWaiter || !this.threadId) return { interrupted: false };
     await this.request("turn/interrupt", { threadId: this.threadId, ...(this.turnId ? { turnId: this.turnId } : {}) });
@@ -665,7 +721,35 @@ export class CodexAppServerAdapter {
     return { resolved: true };
   }
 
-  emit(message) { this.callbacks.onEvent(safeMessage(message)); }
+  emit(message) {
+    this.callbacks.onRawEvent(message);
+    this.callbacks.onEvent(safeMessage(message));
+    for (const subscriber of this.eventSubscribers) {
+      try { subscriber(message); } catch { /* Isolate engine event consumers. */ }
+    }
+  }
+
+  subscribeEvents(subscriber) {
+    if (typeof subscriber !== "function") throw new Error("Agent event subscriber is invalid");
+    this.eventSubscribers.add(subscriber);
+    return () => this.eventSubscribers.delete(subscriber);
+  }
+
+  async bindExecution({ lease }) {
+    if (this.executionLease) throw new Error("Novel Agent Engine already has an execution lease");
+    this.executionLease = { ...lease };
+  }
+
+  async revokeExecution({ runId, leaseId, expectedEpoch, revokedEpoch }) {
+    const lease = this.executionLease;
+    if (!lease || lease.runId !== runId || lease.leaseId !== leaseId || lease.epoch !== expectedEpoch) throw new Error("Novel Agent Engine execution lease mismatch");
+    this.executionLease = { ...lease, epoch: revokedEpoch, revoked: true };
+    return { revokedEpoch };
+  }
+
+  async endExecution(lease) {
+    if (this.executionLease?.runId === lease.runId && this.executionLease?.leaseId === lease.leaseId) this.executionLease = null;
+  }
 
   fail(error) {
     this.lastError = error.message;
@@ -690,6 +774,8 @@ export class CodexAppServerAdapter {
     delete this.env.NOVEL_CODEX_OPERATION;
     delete this.env.NOVEL_CODEX_TASK_CAPABILITY;
     this.activeOperation = null;
+    this.protocolFailure = false;
+    this.executionLease = null;
     this.fail(new Error("Novel Agent Engine 已关闭"));
   }
 }

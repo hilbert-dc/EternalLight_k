@@ -46,13 +46,17 @@ input.on("line", (line) => {
   }
   if (message.method === "review/start") {
     output({ id: message.id, result: { turn: { id: "review-turn", status: "inProgress" } } });
+    output({ method: "turn/started", params: { threadId: message.params.threadId, turn: { id: "review-turn", status: "inProgress" } } });
     output({ method: "item/started", params: { threadId: message.params.threadId, item: { id: "review-item", type: "enteredReviewMode", status: "inProgress" } } });
     output({ method: "item/completed", params: { threadId: message.params.threadId, item: { id: "review-item", type: "exitedReviewMode", status: "completed", summary: "工作区变更审查完成" } } });
+    output({ method: "turn/completed", params: { threadId: message.params.threadId, turn: { id: "review-turn", status: "completed", items: [] } } });
   }
   if (message.method === "thread/compact/start") {
-    output({ id: message.id, result: {} });
+    output({ id: message.id, result: { turn: { id: "compact-turn", status: "inProgress" } } });
+    output({ method: "turn/started", params: { threadId: message.params.threadId, turn: { id: "compact-turn", status: "inProgress" } } });
     output({ method: "item/started", params: { threadId: message.params.threadId, item: { id: "compact-item", type: "contextCompaction" } } });
     output({ method: "item/completed", params: { threadId: message.params.threadId, item: { id: "compact-item", type: "contextCompaction" } } });
+    output({ method: "turn/completed", params: { threadId: message.params.threadId, turn: { id: "compact-turn", status: "completed", items: [] } } });
   }
   if (message.method === "thread/backgroundTerminals/list") {
     output({ id: message.id, result: { data: [{ processId: "process-42", command: "npm run watch", cwd: "/tmp/novel", status: "running" }] } });
@@ -80,6 +84,10 @@ input.on("line", (line) => {
       output({ method: "item/completed", params: { threadId: message.params?.threadId ?? "thr-test", turnId: "turn-test", item: { id: "agent-completed", type: "agentMessage", text: "最终讨论结论", status: "completed" } } });
       output({ method: "thread/status/changed", params: { threadId: message.params?.threadId ?? "thr-test", status: { type: "idle" } } });
       output({ method: "turn/completed", params: { threadId: message.params?.threadId ?? "thr-test", turn: { id: "turn-test", status: "completed" } } });
+    } else if (message.params.input[0].text === "protocol-leak") {
+      const leaked = '<｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="exec">internal tool template</｜｜DSML｜｜ invoke></｜｜DSML｜｜ calls>';
+      output({ method: "item/completed", params: { threadId: message.params?.threadId ?? "thr-test", turnId: "turn-test", item: { id: "agent-protocol-leak", type: "agentMessage", text: leaked, status: "completed" } } });
+      output({ method: "turn/completed", params: { threadId: message.params?.threadId ?? "thr-test", turn: { id: "turn-test", status: "completed", items: [{ id: "agent-protocol-leak", type: "agentMessage", text: leaked }] } } });
     } else if (message.params.input.map((item) => item.text).join("").includes("integration-long-reply")) {
       output({ method: "item/completed", params: { threadId: message.params.threadId, turnId: "turn-test", item: { id: "long-completed", type: "agentMessage", text: "🌙".repeat(5000) } } });
       output({ method: "turn/completed", params: { threadId: message.params.threadId, turn: { id: "turn-test", status: "completed" } } });

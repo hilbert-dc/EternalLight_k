@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+import sqlite3
 import time
+from contextlib import nullcontext
 from uuid import uuid4
 
 from .errors import ConflictError, NotFoundError, WorkspaceError
@@ -464,11 +466,23 @@ def _validate_report(report, run, role):
     )
 
 
-def save_planning_report(db_path, project_id, run_id, payload):
+def save_planning_report(
+    db_path,
+    project_id,
+    run_id,
+    payload,
+    operation_connection: sqlite3.Connection | None = None,
+):
     _fields(payload, {"taskId", "threadId", "expectedRevision", "report"})
-    initialize(db_path)
-    with connect(db_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+    if operation_connection is None:
+        initialize(db_path)
+    with (
+        nullcontext(operation_connection)
+        if operation_connection is not None
+        else connect(db_path)
+    ) as connection:
+        if operation_connection is None:
+            connection.execute("BEGIN IMMEDIATE")
         run = _run(connection, project_id, run_id, writable=True)
         task = require_active_task(
             connection,

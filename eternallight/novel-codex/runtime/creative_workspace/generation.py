@@ -1,5 +1,7 @@
 import json
+import sqlite3
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -610,14 +612,21 @@ def complete_task(
     task_id: str,
     thread_id: str,
     summary: str = "",
+    operation_connection: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
-    initialize(db_path)
+    if operation_connection is None:
+        initialize(db_path)
     missing_required_output = False
     failure_code = "required_output_missing"
     target: dict[str, Any] = {}
     refs: list[dict[str, Any]] = []
-    with connect(db_path) as connection:
-        connection.execute("BEGIN IMMEDIATE")
+    with (
+        nullcontext(operation_connection)
+        if operation_connection is not None
+        else connect(db_path)
+    ) as connection:
+        if operation_connection is None:
+            connection.execute("BEGIN IMMEDIATE")
         task = _task_row(connection, project_id, task_id, thread_id)
         if (
             task["status"] == "completed"
