@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createServer, request as httpRequest } from "node:http";
-import { fork } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -479,20 +478,38 @@ test("bridge process isolates transport and preserves cancellation-safe task bud
 test("bridge process resets after start failure and can attempt a fresh worker", async () => {
   const connection = defineConnection({ id: "writer", provider: "test", endpoint: "https://provider.invalid", model: "writer-v1", credentialRef: "WRITER_API_KEY", protocol: "chat-completions", declaredLimits: { contextTokens: 64_000, outputTokens: 4_000 } });
   const sessionPlan = resolveSessionPlan({ connections: [connection], evidence: verifiedBaselineEvidence(connection), policy: {} });
-  let forks = 0;
   const bridge = new ModelBridgeProcess({
     sessionPlan,
     connections: [connection],
     credentialResolver: async () => "secret",
     workerPath: fileURLToPath(new URL("./fixture-failing-worker.mjs", import.meta.url)),
-    forkImpl: (...arguments_) => { forks += 1; return fork(...arguments_); },
     lifecycleTimeoutMs: 100,
     heartbeatIntervalMs: 0,
   });
   await assert.rejects(bridge.start(), /fixture start failed/);
   assert.equal(bridge.processId, null);
   await assert.rejects(bridge.start(), /fixture start failed/);
-  assert.equal(forks, 2);
+  assert.equal(bridge.generation, 2);
+});
+
+test("native bridge startup is single-flight and close waits for late credential resolution", async () => {
+  const connection = defineConnection({ id: "writer", provider: "test", endpoint: "https://provider.invalid", model: "writer-v1", credentialRef: "WRITER_API_KEY", protocol: "chat-completions", declaredLimits: { contextTokens: 64_000, outputTokens: 4_000 } });
+  const sessionPlan = resolveSessionPlan({ connections: [connection], evidence: verifiedBaselineEvidence(connection), policy: {} });
+  let release;
+  const credentials = new Promise(resolve => { release = resolve; });
+  let resolutions = 0;
+  const bridge = new ModelBridgeProcess({ sessionPlan, connections: [connection], credentialResolver: async () => { resolutions += 1; return credentials; }, heartbeatIntervalMs: 0 });
+  const first = bridge.start();
+  const second = bridge.start();
+  assert.equal(first, second);
+  const close = bridge.close();
+  await assert.rejects(bridge.start(), /closing/);
+  release("fixture-secret");
+  await first;
+  await close;
+  assert.equal(resolutions, 1);
+  assert.equal(bridge.processId, null);
+  assert.equal(bridge.pending.size, 0);
 });
 
 test("bridge process cannot restart an active task after its budget worker crashes", async (t) => {
@@ -514,12 +531,35 @@ test("bridge process cannot restart an active task after its budget worker crash
 test("bridge process kills a worker that does not acknowledge close", async () => {
   const connection = defineConnection({ id: "writer", provider: "test", endpoint: "https://provider.invalid", model: "writer-v1", credentialRef: "WRITER_API_KEY", protocol: "chat-completions", declaredLimits: { contextTokens: 64_000, outputTokens: 4_000 } });
   const sessionPlan = resolveSessionPlan({ connections: [connection], evidence: verifiedBaselineEvidence(connection), policy: {} });
-  const bridge = new ModelBridgeProcess({ sessionPlan, connections: [connection], credentialResolver: async () => "secret", workerPath: fileURLToPath(new URL("./fixture-unresponsive-worker.mjs", import.meta.url)), lifecycleTimeoutMs: 30, heartbeatIntervalMs: 0 });
+  const bridge = new ModelBridgeProcess({ sessionPlan, connections: [connection], credentialResolver: async () => "secret", workerPath: fileURLToPath(new URL("./fixture-unresponsive-worker.mjs", import.meta.url)), lifecycleTimeoutMs: 1_000, heartbeatIntervalMs: 0 });
   await bridge.start();
+  bridge.lifecycleTimeoutMs = 30;
   const processId = bridge.processId;
   await assert.rejects(bridge.close(), /bridge close timed out/);
   assert.equal(bridge.processId, null);
   await waitUntil(() => {
     try { process.kill(processId, 0); return false; } catch { return true; }
   });
+});
+
+test("worker exit rejects pending RPCs even when durable budget recovery throws", async (t) => {
+  const connection = defineConnection({ id: "writer", provider: "test", endpoint: "https://provider.invalid", model: "writer-v1", credentialRef: "WRITER_API_KEY", protocol: "chat-completions", declaredLimits: { contextTokens: 64_000, outputTokens: 4_000 } });
+  const sessionPlan = resolveSessionPlan({ connections: [connection], evidence: verifiedBaselineEvidence(connection), policy: {} });
+  const bridge = new ModelBridgeProcess({ sessionPlan, connections: [connection], credentialResolver: async () => "secret", heartbeatIntervalMs: 0, workerPath: fileURLToPath(new URL("./fixture-stalled-cancel-worker.mjs", import.meta.url)) });
+  await bridge.start();
+  t.after(() => bridge.close());
+  const budget = new TaskBudget({ maxRequests: 4, maxTokens: 1_000 });
+  await bridge.beginTaskBudget(budget);
+  const recover = budget.markOutstandingUnknown.bind(budget);
+  budget.markOutstandingUnknown = () => { throw new Error("disk write failed"); };
+  const pending = assert.rejects(bridge.cancelActiveRequests(), /process exited/);
+  process.kill(bridge.processId, "SIGTERM");
+  await pending;
+  await bridge.budgetRecovery;
+  assert.match(bridge.budgetRecoveryError.message, /disk write failed/);
+  await assert.rejects(bridge.start(), /budget outcome is unknown/);
+  await assert.rejects(bridge.endTaskBudget(budget), /disk write failed/);
+  budget.markOutstandingUnknown = recover;
+  assert.equal(await bridge.endTaskBudget(budget), false);
+  await bridge.start();
 });

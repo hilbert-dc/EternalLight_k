@@ -30,6 +30,52 @@ function fixture() {
   return { runtime, lease, calls, appServer, bridge };
 }
 
+test("closing drains resources without fabricating a pending turn result", async () => {
+  const { runtime, lease, appServer } = fixture();
+  await runtime.bindExecution({ lease, sessionPlan: {} });
+  let finish;
+  appServer.sendTurn = () => new Promise(resolve => { finish = resolve; });
+  const turn = runtime.sendTurn([]);
+  let settled = false;
+  void turn.then(() => { settled = true; });
+  await runtime.close();
+  assert.equal(settled, false);
+  finish({ turn: { status: "interrupted" }, message: "stopped" });
+  assert.deepEqual(await turn, { turn: { status: "interrupted" }, message: "stopped" });
+});
+
+test("binding and concurrent turns cannot trigger another execution's cleanup", async () => {
+  const { runtime, lease, appServer, calls } = fixture();
+  let releaseBudget;
+  runtime.budgetFactory = () => new Promise(resolve => { releaseBudget = resolve; });
+  const binding = runtime.bindExecution({ lease, sessionPlan: {} });
+  await assert.rejects(runtime.sendTurn([]), /still binding/);
+  assert.deepEqual(calls, []);
+  releaseBudget({});
+  await binding;
+  let completeTurn;
+  appServer.sendTurn = () => new Promise(resolve => { completeTurn = resolve; });
+  const first = runtime.sendTurn([]);
+  await assert.rejects(runtime.sendTurn([]), /already active/);
+  assert.equal(calls.includes("bridge:lease:end"), false);
+  completeTurn({ message: "done" });
+  assert.deepEqual(await first, { message: "done" });
+  assert.deepEqual(calls.slice(-2), ["bridge:lease:end", "bridge:budget:end"]);
+  await runtime.close();
+});
+
+test("failed cleanup blocks runtime reuse while still closing every owned resource", async () => {
+  const { runtime, lease, bridge, calls } = fixture();
+  bridge.endExecutionLease = async () => { throw new Error("lease drain failed"); };
+  await runtime.bindExecution({ lease, sessionPlan: {} });
+  await assert.rejects(runtime.sendTurn([]), /lease drain failed/);
+  await assert.rejects(runtime.bindExecution({ lease, sessionPlan: {} }), /cleanup is unresolved/);
+  const first = runtime.close();
+  assert.equal(runtime.close(), first);
+  await first;
+  assert.deepEqual(calls.slice(-3), ["bridge:budget:end", "app:close", "bridge:close"]);
+});
+
 test("Codex session runtime owns bridge, budget, lease, and turn ordering", async () => {
   const { runtime, lease, calls } = fixture();
   await runtime.bindExecution({ lease, sessionPlan: { id: "plan-1" } });

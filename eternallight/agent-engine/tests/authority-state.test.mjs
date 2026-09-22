@@ -283,6 +283,26 @@ test("recovery index serializes concurrent updates", async () => {
   }
 });
 
+test("native reconciliation does not continue after failed persistence and can retry", async () => {
+  const candidate = { runId: "r", requestId: "w", operation: "write" };
+  let persisted = false;
+  let fail = true;
+  const marked = [];
+  const index = {
+    reconciliationCandidates: async () => persisted ? [] : [candidate],
+    settleRequest: async () => { if (fail) throw new Error("storage unavailable"); persisted = true; },
+    markReconciliationRequired: async (...args) => marked.push(args),
+  };
+  const coordinator = new RecoveryCoordinator({ index, operationContract: { reconcile: async () => ({ outcome: "committed", receiptRef: "receipt" }) } });
+  await assert.rejects(coordinator.reconcileRun("r", { reconciledAt: "now" }), /storage unavailable/);
+  assert.deepEqual(marked, [[["r"], "storage unavailable", "now"]]);
+  assert.equal(persisted, false);
+  fail = false;
+  assert.deepEqual(await coordinator.reconcileRun("r"), {
+    runId: "r", status: "reconciled", operations: [{ requestId: "w", outcome: "committed", receiptRef: "receipt" }], unresolved: [],
+  });
+});
+
 test("task budgets cap request trees, tokens, and duration", () => {
   const budget = new TaskBudget({ maxRequests: 2, maxTokens: 10, maxDurationMs: 100, startedAt: 1_000 });
   const first = budget.reserveRequest({ estimatedInputTokens: 2, maxOutputTokens: 2 }, 1_010);

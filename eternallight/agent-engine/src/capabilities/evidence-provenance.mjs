@@ -1,6 +1,6 @@
-import { defineEvidence } from "./evidence-store.mjs";
+import { nativeBinding } from "../native.mjs";
 
-const VALIDATED_RECORDS = new WeakSet();
+const VALIDATED_RECORDS = new WeakMap();
 
 function freezeDeep(value) {
   if (value && typeof value === "object") {
@@ -14,10 +14,18 @@ function freezeDeep(value) {
 // or report repository has verified the evidence. Not part of the public API.
 export function registerValidatedEvidence(records) {
   return records.map((raw) => {
-    const record = freezeDeep(defineEvidence(structuredClone(raw)));
-    VALIDATED_RECORDS.add(record);
+    const native = new (nativeBinding().NativeEvidenceSnapshot)(JSON.stringify([raw]));
+    const record = freezeDeep(JSON.parse(native.apply("snapshot", '{"createdAt":"1970-01-01T00:00:00.000Z"}')).records[0]);
+    VALIDATED_RECORDS.set(record, native);
     return record;
   });
+}
+
+// WeakMap only associates JS exports with native owners; serialized or cloned
+// objects cannot reconstruct a native provenance handle.
+export function validatedRecords(records) {
+  if (!hasValidatedProvenance(records)) throw new Error("records have no validated provenance");
+  return records.map(record => JSON.parse(VALIDATED_RECORDS.get(record).apply("snapshot", '{"createdAt":"1970-01-01T00:00:00.000Z"}')).records[0]);
 }
 
 export function hasValidatedProvenance(records) {

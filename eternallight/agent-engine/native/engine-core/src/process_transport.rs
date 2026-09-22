@@ -73,6 +73,14 @@ pub struct ProcessTransport {
 }
 
 impl ProcessTransport {
+    pub fn process_id(&self) -> Result<u32> {
+        Ok(self
+            .shared
+            .child
+            .lock()
+            .map_err(|_| "process lock poisoned")?
+            .id())
+    }
     pub fn start(options: ProcessOptions) -> Result<Self> {
         if options.command.is_empty() || options.command.iter().any(String::is_empty) {
             return Err("App Server command is required".into());

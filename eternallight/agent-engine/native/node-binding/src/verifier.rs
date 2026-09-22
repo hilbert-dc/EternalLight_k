@@ -1,0 +1,31 @@
+use eternallight_engine_core::CapabilityVerifier;
+use napi_derive::napi;
+fn parse(input: &str) -> napi::Result<serde_json::Value> {
+    if input.len() > 40 * 1024 * 1024 {
+        return Err(napi::Error::from_reason("verifier input exceeds limit"));
+    }
+    serde_json::from_str(input).map_err(|_| napi::Error::from_reason("invalid verifier input"))
+}
+#[napi]
+pub struct NativeCapabilityVerifier {
+    state: CapabilityVerifier,
+}
+#[napi]
+impl NativeCapabilityVerifier {
+    #[napi(constructor)]
+    pub fn new(input: String) -> napi::Result<Self> {
+        Ok(Self {
+            state: CapabilityVerifier::new(parse(&input)?).map_err(napi::Error::from_reason)?,
+        })
+    }
+    #[napi]
+    pub fn apply(&mut self, method: String, input: String) -> napi::Result<String> {
+        serde_json::to_string(
+            &self
+                .state
+                .apply(&method, &parse(&input)?)
+                .map_err(napi::Error::from_reason)?,
+        )
+        .map_err(|_| napi::Error::from_reason("invalid verifier output"))
+    }
+}

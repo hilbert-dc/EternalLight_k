@@ -362,7 +362,17 @@ pub fn envelope(input: &Value) -> Value {
         }
     }
     let usage = &input["usage"];
-    let finite = |key: &str| usage[key].as_f64().filter(|v| v.is_finite() && *v >= 0.0);
+    // Responses usage is an integer wire contract, even when a provider's
+    // counters were summed as floating-point values during conversion.
+    let count = |value: &Value| {
+        value
+            .as_f64()
+            .filter(|v| {
+                v.is_finite() && *v >= 0.0 && *v <= 9_007_199_254_740_991.0 && v.fract() == 0.0
+            })
+            .map(|v| v as u64)
+    };
+    let finite = |key: &str| count(&usage[key]);
     if let (Some(i), Some(o)) = (finite("inputTokens"), finite("outputTokens")) {
         let mut inputs = json!({"cached_tokens":0});
         let mut outputs = json!({"reasoning_tokens":0});
@@ -371,6 +381,19 @@ pub fn envelope(input: &Value) -> Value {
         }
         if let Some(details) = usage["outputTokenDetails"].as_object() {
             outputs.as_object_mut().unwrap().extend(details.clone());
+        }
+        for (details, fields) in [
+            (&mut inputs, &["cached_tokens", "cache_write_tokens"][..]),
+            (&mut outputs, &["reasoning_tokens"][..]),
+        ] {
+            for field in fields {
+                if let Some(value) = details.get(*field) {
+                    let Some(value) = count(value) else {
+                        return result;
+                    };
+                    details[*field] = value.into();
+                }
+            }
         }
         result["usage"] = json!({"input_tokens":i,"output_tokens":o,"total_tokens":finite("totalTokens").unwrap_or(i+o),"input_tokens_details":inputs,"output_tokens_details":outputs});
     }

@@ -28,6 +28,12 @@ impl Task for CloseTask {
 
 #[napi]
 impl NativeProcessTransport {
+    #[napi(getter)]
+    pub fn pid(&self) -> napi::Result<u32> {
+        self.transport
+            .process_id()
+            .map_err(napi::Error::from_reason)
+    }
     #[napi(constructor)]
     pub fn new(input: String) -> napi::Result<Self> {
         if input.len() > 2 * 1024 * 1024 {

@@ -1,3 +1,5 @@
+import { nativeBinding } from "../native.mjs";
+
 /**
  * Coordinates unresolved operation reconciliation without knowing domain tool
  * names, payloads, or ledger protocols. The injected operation contract owns
@@ -26,25 +28,23 @@ export class RecoveryCoordinator {
   }
 
   async #reconcileRun(runId, { context, runtimeStatus, fence, reconciledAt }) {
-    const candidates = await this.index.reconciliationCandidates(runId);
-    const operations = [];
+    const machine = new (nativeBinding().NativeReconciliation)(JSON.stringify({ runId, runtimeStatus, fence, reconciledAt }));
+    let effect = JSON.parse(machine.next());
     try {
-      for (const candidate of candidates) {
-        const resolution = await this.operationContract.reconcile(Object.freeze({ ...candidate }), context);
-        await this.index.settleRequest(runId, candidate.requestId, resolution, reconciledAt);
-        operations.push(Object.freeze({ requestId: candidate.requestId, ...resolution }));
+      while (effect.method !== "complete") {
+        const value = effect.method === "resolve"
+          ? await this.operationContract.reconcile(Object.freeze(effect.args[0]), context)
+          : await this.index[effect.method](...effect.args);
+        effect = JSON.parse(machine.accept(JSON.stringify({ method: effect.method, value })));
       }
-      if (runtimeStatus) await this.index.reconcileRun(runId, runtimeStatus, reconciledAt, { fence });
     } catch (error) {
       await this.index.markReconciliationRequired([runId], error instanceof Error ? error.message : String(error), reconciledAt);
       throw error;
     }
-    const unresolved = (await this.index.reconciliationCandidates(runId)).map(({ requestId, operation }) => ({ requestId, operation }));
     return Object.freeze({
-      runId,
-      status: unresolved.length ? "outcome-unknown" : "reconciled",
-      operations: Object.freeze(operations),
-      unresolved: Object.freeze(unresolved),
+      ...effect.result,
+      operations: Object.freeze(effect.result.operations.map(Object.freeze)),
+      unresolved: Object.freeze(effect.result.unresolved.map(Object.freeze)),
     });
   }
 }

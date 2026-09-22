@@ -21,7 +21,7 @@ export async function nativeFetch(url, { method = "GET", headers = {}, body = ""
       signal?.throwIfAborted();
       if (closed) throw new DOMException("HTTP request cancelled", "AbortError");
       const event = transport.poll();
-      if (event?.kind === "error") throw new Error(event.error);
+      if (event?.kind === "error") throw Object.assign(new Error(event.error), { name: event.error === "engine HTTP request timed out" ? "TimeoutError" : "Error" });
       if (event) return event;
       await new Promise(resolve => setTimeout(resolve, 4));
     }

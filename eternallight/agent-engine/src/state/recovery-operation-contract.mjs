@@ -1,4 +1,3 @@
-import { digest } from "../contracts/capabilities.mjs";
 import { nativeCall } from "../native.mjs";
 
 const EFFECTS = new Set(["read", "write"]);
@@ -38,15 +37,10 @@ export function defineRecoveryOperationContract({ classify, hash, receipt, recon
 export function createConservativeRecoveryOperationContract() {
   return defineRecoveryOperationContract({
     classify(toolCall) {
-      const idempotencyKey = toolCall?.arguments?.idempotencyKey;
-      return {
-        effect: "write",
-        operation: toolCall?.tool ?? null,
-        idempotencyRef: typeof idempotencyKey === "string" && idempotencyKey ? `sha256:${digest(idempotencyKey)}` : null,
-      };
+      return nativeCall("recoveryContract.conservative", toolCall);
     },
     hash(toolCall) {
-      return digest({ tool: toolCall?.tool ?? null, arguments: toolCall?.arguments ?? null });
+      return nativeCall("recoveryContract.operationDigest", toolCall);
     },
     receipt() {
       return null;

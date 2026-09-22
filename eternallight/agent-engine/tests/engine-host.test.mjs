@@ -162,3 +162,31 @@ test("outcome-unknown blocks the session from starting another run", async () =>
   assert.equal(engine.sessionStatus(started.sessionId).state, "recovery-blocked");
   await assert.rejects(engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "budget-2", runId: "blocked-run" }), /not idle/);
 });
+
+test("host native event state isolates child events and keeps replay snapshots immutable", async () => {
+  let emit;
+  let finish;
+  const runtime = {
+    subscribeEvents: callback => { emit = callback; return () => {}; },
+    ensureSession: async () => "root", resumeSession: async id => id, bindExecution: async () => {},
+    sendTurn: () => new Promise(resolve => { finish = resolve; }),
+    revokeExecution: async ({ revokedEpoch }) => ({ revokedEpoch }), interruptTurn: async () => false, close: async () => {},
+  };
+  const engine = host(async () => runtime);
+  const { started } = await session(engine);
+  const run = await engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "budget", runId: "event-run" });
+  emit({ method: "item/started", params: { threadId: "child", item: { id: "tool", type: "mcpToolCall" } } });
+  assert.equal(engine.runStatus(run.runId).state, "running");
+  emit({ method: "item/started", params: { threadId: "root", item: { id: "delegate", type: "collabAgentToolCall" } } });
+  assert.equal(engine.runStatus(run.runId).state, "waiting-child");
+  const replay = [];
+  const unsubscribe = engine.subscribeEvents({ runId: run.runId }, event => replay.push(event));
+  assert.throws(() => { replay[1].params.threadId = "root"; }, TypeError);
+  finish({ turn: { id: "turn", status: "completed" } });
+  await run.completion;
+  emit({ method: "turn/started", params: { threadId: "root" } });
+  assert.equal(engine.runStatus(run.runId).state, "completed");
+  unsubscribe();
+  engine.closeRun(run.runId);
+  await engine.closeSession(started.sessionId);
+});

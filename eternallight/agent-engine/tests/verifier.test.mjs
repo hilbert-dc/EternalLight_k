@@ -17,6 +17,49 @@ function chatStream() {
   return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
 }
 
+test("authentication rejection mentioning tool choice never retries or leaks an echoed credential", async () => {
+  let calls = 0;
+  const verifier = new CapabilityVerifier({ fetchImpl: async () => {
+    calls += 1;
+    return response(401, { error: { message: "unsupported tool_choice for fixture-secret" } });
+  } });
+  const connection = defineConnection({ id: "probe", provider: "Any", endpoint: "https://models.example.test", model: "x", credentialRef: "KEY", protocol: "auto", declaredLimits: { contextTokens: 32000, outputTokens: 2000 } });
+  await assert.rejects(verifier.verify(connection, { apiKey: "fixture-secret" }), error => {
+    assert.equal(error.attempts[0].category, "authentication");
+    assert.doesNotMatch(JSON.stringify({ attempts: error.attempts, records: error.records }), /fixture-secret/);
+    return true;
+  });
+  assert.equal(calls, 1);
+});
+
+test("streaming 403 credential rejection invalidates the entire protocol attempt", async () => {
+  let calls = 0;
+  const verifier = new CapabilityVerifier({ fetchImpl: async (_url, options) => {
+    calls += 1;
+    if (JSON.parse(options.body).stream) return response(403, { error: { code: "invalid_api_key" } });
+    return response(200, { id: "probe", choices: [{ finish_reason: "tool_calls", message: { role: "assistant", tool_calls: [{ id: "call", type: "function", function: { name: "f__engine_probe", arguments: '{"nonce":"agent-engine"}' } }] } }] });
+  } });
+  const connection = defineConnection({ id: "probe", provider: "Any", endpoint: "https://models.example.test", model: "x", credentialRef: "KEY", protocol: "chat-completions", declaredLimits: { contextTokens: 32000, outputTokens: 2000 } });
+  await assert.rejects(verifier.verify(connection, { apiKey: "fixture-secret" }), error => {
+    assert.equal(error.attempts[0].category, "authentication");
+    assert.equal(error.records.every(record => record.status === "failed"), true);
+    return true;
+  });
+  assert.equal(calls, 2);
+});
+
+test("streaming probe observes configured byte limits even with an injected transport", async () => {
+  const verifier = new CapabilityVerifier({ maxResponseBytes: 512, fetchImpl: async (_url, options) => {
+    if (JSON.parse(options.body).stream) return new Response(`data: ${"x".repeat(1024)}\n\n`, { headers: { "content-type": "text/event-stream" } });
+    return response(200, { id: "probe", choices: [{ finish_reason: "tool_calls", message: { role: "assistant", tool_calls: [{ id: "call", type: "function", function: { name: "f__engine_probe", arguments: '{"nonce":"agent-engine"}' } }] } }] });
+  } });
+  const connection = defineConnection({ id: "probe", provider: "Any", endpoint: "https://models.example.test", model: "x", credentialRef: "KEY", protocol: "chat-completions", declaredLimits: { contextTokens: 32000, outputTokens: 2000 } });
+  const result = await verifier.verify(connection, { apiKey: "fixture-secret" });
+  const streaming = result.records.find(record => record.capability === CAPABILITIES.STREAMING);
+  assert.equal(streaming.status, "unknown");
+  assert.match(streaming.sample.message, /byte limit/);
+});
+
 test("auto verification selects the first conforming protocol without model-specific rules", async () => {
   const requests = [];
   const verifier = new CapabilityVerifier({

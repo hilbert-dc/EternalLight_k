@@ -71,7 +71,7 @@ pub fn encode(request: &Value, connection: &Value, key: &str) -> Result<Value> {
         return Err("Responses request must be an object".into());
     }
     body["model"] = connection["model"].clone();
-    body["max_output_tokens"] = maximum.into();
+    body["max_output_tokens"] = (maximum as u64).into();
     body["tools"] = if registry.is_null() {
         request["tools"]
             .as_array()

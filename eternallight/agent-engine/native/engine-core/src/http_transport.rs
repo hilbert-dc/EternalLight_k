@@ -68,6 +68,10 @@ fn network() -> Result<&'static Network> {
         .map_err(Clone::clone)
 }
 
+pub(crate) fn runtime() -> Result<&'static Runtime> {
+    Ok(&network()?.runtime)
+}
+
 /// A cancellable HTTP exchange. The bounded channel propagates consumer pressure
 /// to the socket, and dropping the handle cancels the network task.
 pub struct HttpTransport {

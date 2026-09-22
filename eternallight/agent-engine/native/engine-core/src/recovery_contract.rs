@@ -44,6 +44,16 @@ pub(crate) fn resolution(value: &Value, source: &str) -> Result<Value> {
 
 pub(crate) fn dispatch(method: &str, input: &Value) -> Result<Value> {
     match method {
+        "recoveryContract.conservative" => {
+            let key = &input["arguments"]["idempotencyKey"];
+            Ok(
+                json!({"effect":"write","operation":input["tool"],"idempotencyRef":key.as_str().filter(|s|!s.is_empty()).map(|_|format!("sha256:{}",crate::digest::digest(key)))}),
+            )
+        }
+        "recoveryContract.operationDigest" => Ok(crate::digest::digest(
+            &json!({"tool":input["tool"],"arguments":input["arguments"]}),
+        )
+        .into()),
         "recoveryContract.classify" => classification(&input["value"], &input["tool"]),
         "recoveryContract.hash" => text(input, "operation hash", 256),
         "recoveryContract.resolve" => resolution(

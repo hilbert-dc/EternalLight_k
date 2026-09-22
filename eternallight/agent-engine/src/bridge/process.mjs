@@ -1,12 +1,7 @@
-import { fork } from "node:child_process";
+import { nativeBinding } from "../native.mjs";
 import { existsSync } from "node:fs";
 import { sep } from "node:path";
 import { fileURLToPath } from "node:url";
-
-function workerEnvironment(source = process.env) {
-  const allowed = ["PATH", "SystemRoot", "WINDIR", "TMP", "TEMP", "TMPDIR", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"];
-  return Object.fromEntries(allowed.flatMap((name) => typeof source[name] === "string" ? [[name, source[name]]] : []));
-}
 
 function bridgeWorkerPath() {
   const source = fileURLToPath(new URL("./worker.mjs", import.meta.url));
@@ -14,257 +9,108 @@ function bridgeWorkerPath() {
   return unpacked !== source && existsSync(unpacked) ? unpacked : source;
 }
 
+/** Promise and host-object adapter for the native isolated bridge supervisor. */
 export class ModelBridgeProcess {
-  constructor({ sessionPlan, connections, credentialResolver, qualificationObserver = null, requestObserver = null, responseObserver = null, token = null, toolPolicy = null, responseBarrier = null, heartbeatIntervalMs = 5_000, heartbeatTimeoutMs = 2_000, lifecycleTimeoutMs = 10_000, workerPath = bridgeWorkerPath(), forkImpl = fork }) {
-    this.sessionPlan = sessionPlan;
-    this.connections = connections;
+  constructor({ sessionPlan, connections, credentialResolver, qualificationObserver = null, requestObserver = null, responseObserver = null, token = null, toolPolicy = null, responseBarrier = null, heartbeatIntervalMs = 5_000, heartbeatTimeoutMs = 2_000, lifecycleTimeoutMs = 10_000, workerPath = bridgeWorkerPath() }) {
+    this.native = new (nativeBinding().NativeBridgeSupervisor)(JSON.stringify({ sessionPlan, connections, token, toolPolicy, responseBarrier, heartbeatIntervalMs, heartbeatTimeoutMs, lifecycleTimeoutMs }));
     this.credentialResolver = credentialResolver;
-    this.qualificationObserver = qualificationObserver;
-    this.requestObserver = requestObserver;
-    this.responseObserver = responseObserver;
-    this.token = token;
-    this.toolPolicy = toolPolicy;
-    this.responseBarrier = responseBarrier;
-    this.port = null;
-    this.child = null;
-    this.baseUrl = null;
-    this.nextId = 1;
-    this.pending = new Map();
-    this.budget = null;
-    this.lease = null;
-    this.budgetInvalidated = false;
-    this.heartbeatIntervalMs = heartbeatIntervalMs;
-    this.heartbeatTimeoutMs = heartbeatTimeoutMs;
-    this.lifecycleTimeoutMs = lifecycleTimeoutMs;
-    this.workerPath = workerPath;
-    this.forkImpl = forkImpl;
-    this.heartbeatTimer = null;
-    this.heartbeatInFlight = false;
+    this.observers = { qualification: qualificationObserver, request: requestObserver, response: responseObserver };
+    const allowed = ["PATH", "SystemRoot", "WINDIR", "TMP", "TEMP", "TMPDIR", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"];
+    const env = Object.fromEntries(allowed.flatMap(key => typeof process.env[key] === "string" ? [[key, process.env[key]]] : []));
+    this.processOptions = { command: [process.execPath, workerPath], cwd: process.cwd(), env: { ...env, ELECTRON_RUN_AS_NODE: "1" } };
+    this.transports = new Map(); this.pending = new Map(); this.budgets = new Map(); this.nextId = 0; this.timer = null;
+    this.budgetRecovery = null;
   }
-
-  get processId() {
-    return this.child?.pid ?? null;
+  #inspect() { return JSON.parse(this.native.apply("inspect", "{}")); }
+  get processId() { return this.#inspect().processId; }
+  get generation() { return this.#inspect().generation; }
+  get baseUrl() { return this.#inspect().baseUrl; }
+  get token() { return this.#inspect().token; }
+  get budgetRecoveryError() { const value = this.#inspect().budgetRecoveryError; return value ? new Error(value) : null; }
+  start() {
+    if (!this.#inspect().acceptingStart) return this.#command("start");
+    if (this.starting) return this.starting;
+    const promise = this.#command("start"); this.starting = promise;
+    void promise.then(() => { this.starting = null; }, () => { this.starting = null; });
+    return promise;
   }
-
-  async start() {
-    if (this.child) return { baseUrl: this.baseUrl, token: this.token };
-    if (this.budgetInvalidated) throw new Error("bridge task budget outcome is unknown; terminate the task before restarting");
-    const credentials = {};
-    for (const connection of this.connections) {
-      if (!Object.hasOwn(credentials, connection.credentialRef)) credentials[connection.credentialRef] = await this.credentialResolver(connection.credentialRef);
-    }
-    const child = this.forkImpl(this.workerPath, [], {
-      env: { ...workerEnvironment(), ELECTRON_RUN_AS_NODE: "1" },
-      stdio: ["ignore", "ignore", "ignore", "ipc"],
-      serialization: "json",
-    });
-    this.child = child;
-    child.on("message", (message) => this.#onMessage(message));
-    child.once("exit", (code, signal) => this.#onExit(child, code, signal));
-    child.once("error", (error) => {
-      if (this.child === child) this.#rejectAll(error);
-    });
-    let started;
-    try {
-      started = await this.#requestWithTimeout("start", { sessionPlan: this.sessionPlan, connections: this.connections, credentials, token: this.token, toolPolicy: this.toolPolicy, responseBarrier: this.responseBarrier, port: this.port });
-    } catch (error) {
-      if (child.exitCode === null) child.kill();
-      if (this.child === child) this.child = null;
-      this.#rejectAll(error);
-      throw error;
-    }
-    this.baseUrl = started.baseUrl;
-    this.token = started.token;
-    this.port = Number(new URL(started.baseUrl).port);
-    this.#startHeartbeat();
-    return started;
-  }
-
-  async close() {
-    const child = this.child;
-    if (!child) return;
-    this.#stopHeartbeat();
-    try {
-      await this.#requestWithTimeout("close", {});
-    } catch (error) {
-      if (child.exitCode === null) child.kill();
-      throw error;
-    } finally {
-      this.child = null;
-      this.baseUrl = null;
-      this.budget = null;
-      this.lease = null;
-      this.budgetInvalidated = false;
-      if (child.connected) child.disconnect();
-    }
-  }
-
-  cancelActiveRequests() {
-    if (!this.child) return Promise.resolve(0);
-    return this.#request("cancel", {});
-  }
-
+  async close() { try { return await this.#command("close"); } finally { if (!this.transports.size) this.budgets.clear(); } }
+  cancelActiveRequests() { return this.#command("cancel"); }
   async beginTaskBudget(budget) {
     if (!budget || typeof budget.snapshot !== "function") throw new Error("invalid task budget");
-    if (this.budget) throw new Error("a task budget is already active");
-    this.budget = budget;
-    this.budgetInvalidated = false;
-    try {
-      await this.#request("budget:start", { ...budget.snapshot(), startedAt: budget.startedAt });
-      return budget;
-    } catch (error) {
-      this.budget = null;
-      throw error;
-    }
+    this.budgets.set(budget.id, budget);
+    await this.#command("budget:start", { ...budget.snapshot(), startedAt: budget.startedAt }); return budget;
   }
-
-  async beginExecutionLease(lease) {
-    if (this.lease) throw new Error("an execution lease is already active");
-    const started = await this.#request("lease:start", lease);
-    this.lease = started;
-    return started;
-  }
-
-  async endExecutionLease(lease) {
-    if (this.lease?.leaseId !== lease?.leaseId) return false;
-    try {
-      const result = await this.#request("lease:end", {});
-      return result.ended;
-    } finally {
-      this.lease = null;
-    }
-  }
-
-  async endTaskBudget(budget) {
-    if (this.budget !== budget) return false;
-    if (this.budgetInvalidated) {
-      await budget.markOutstandingUnknown();
-      await budget.complete?.("recovered_unknown");
-      this.budget = null;
-      this.budgetInvalidated = false;
-      return false;
-    }
-    const result = await this.#request("budget:end", {});
-    await budget.complete?.("terminal");
-    this.budget = null;
-    return result.ended;
-  }
-
-  #request(method, params) {
-    if (!this.child?.connected) return Promise.reject(new Error("bridge process is not running"));
-    const id = this.nextId++;
+  beginExecutionLease(lease) { return this.#command("lease:start", lease); }
+  endExecutionLease(lease) { return this.#command("lease:end", lease ?? {}); }
+  async endTaskBudget(budget) { const result = await this.#command("budget:end", { id: budget?.id }); this.budgets.delete(budget?.id); return result; }
+  #command(method, params = {}) {
+    const id = ++this.nextId;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.child.send({ id, method, params }, (error) => {
-        if (!error) return;
-        this.pending.delete(id);
-        reject(error);
-      });
+      try { this.#apply("command", { id, method, params }); }
+      catch (error) { this.pending.delete(id); reject(error); }
     });
   }
-
-  #requestWithTimeout(method, params) {
-    let timeout;
-    return Promise.race([
-      this.#request(method, params),
-      new Promise((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(`bridge ${method} timed out`)), this.lifecycleTimeoutMs);
-      }),
-    ]).finally(() => clearTimeout(timeout));
+  #apply(method, input) {
+    for (const effect of JSON.parse(this.native.apply(method, JSON.stringify({ ...input, now: Math.floor(performance.now()) })))) this.#effect(effect);
+    if (!this.transports.size && !this.pending.size && this.timer) { clearInterval(this.timer); this.timer = null; }
   }
-
-  #onMessage(message) {
-    if (message?.kind === "host-request") {
-      void this.#handleHostRequest(message);
-      return;
-    }
-    const waiter = this.pending.get(message?.id);
-    if (!waiter) return;
-    this.pending.delete(message.id);
-    if (message.error) waiter.reject(Object.assign(new Error(message.error.message), { code: message.error.code }));
-    else waiter.resolve(message.result);
-  }
-
-  async #handleHostRequest(message) {
-    const child = this.child;
-    const reply = (result = null, error = null) => {
-      if (this.child === child && child?.connected) child.send({
-        kind: "host-response",
-        requestId: message.requestId,
-        ...(error ? { error: { message: error instanceof Error ? error.message : String(error) } } : { result }),
-      });
-    };
-    try {
-      if (message.method === "qualification:failure") {
-        this.lease = null;
-        reply(await this.qualificationObserver?.(message.params) ?? { recorded: false });
-        return;
+  #effect(effect) {
+    const generation = effect.generation;
+    switch (effect.kind) {
+      case "resolve": case "reject": {
+        const pending = this.pending.get(effect.id); this.pending.delete(effect.id);
+        if (effect.kind === "resolve") pending?.resolve(effect.result); else pending?.reject(new Error(effect.error));
+        break;
       }
-      if (message.method === "request:observed") {
-        reply(await this.requestObserver?.(message.params) ?? { recorded: false });
-        return;
+      case "spawn": {
+        try {
+          const native = new (nativeBinding().NativeProcessTransport)(JSON.stringify(this.processOptions));
+          this.transports.set(generation, { native, retirement: null });
+          this.#apply("spawned", { generation, pid: native.pid });
+          this.timer ??= setInterval(() => {
+            this.#apply("tick", {});
+            for (const [generation, transport] of this.transports) {
+              if (transport.retirement) continue;
+              try { for (const event of JSON.parse(transport.native.drain())) this.#apply("transport", { generation, event }); }
+              catch (error) { this.#apply("transport", { generation, event: { kind: "error", message: error.message } }); }
+            }
+          }, 4);
+        } catch (error) { this.#apply("transport", { generation, event: { kind: "error", message: error.message } }); }
+        break;
       }
-      if (message.method === "response:observed") {
-        reply(await this.responseObserver?.(message.params) ?? { recorded: false });
-        return;
+      case "write": {
+        const transport = this.transports.get(generation);
+        if (!transport || transport.retirement) break;
+        try { transport.native.send(JSON.stringify(effect.message)); }
+        catch (error) { this.#apply("transport", { generation, event: { kind: "error", message: error.message } }); }
+        break;
       }
-      if (!this.budget) throw new Error("host task budget is not active");
-      if (message.method === "budget:reserve") reply(await this.budget.reserveRequest(message.params));
-      else if (message.method === "budget:settle") reply(await this.budget.settleReservation(message.params.id, message.params.usage, message.params.options));
-      else if (message.method === "budget:observe") reply(await this.budget.observeUsage(message.params.usage));
-      else throw new Error(`unknown host budget method: ${message.method}`);
-    } catch (error) {
-      reply(null, error);
+      case "callback": {
+        const promise = Promise.resolve().then(() => this.#callback(effect));
+        if (effect.method === "recoverBudget") this.budgetRecovery = promise.catch(() => {});
+        void promise.then(result => this.#apply("callback", { id: effect.id, result: result ?? null }), error => this.#apply("callback", { id: effect.id, error: String(error?.message ?? error) }));
+        break;
+      }
+      default: throw new Error(`Unknown native bridge supervisor effect: ${effect.kind}`);
     }
   }
-
-  #onExit(child, code, signal) {
-    if (this.child !== child) return;
-    const error = new Error(`bridge process exited (${code ?? signal ?? "unknown"})`);
-    this.#stopHeartbeat();
-    this.child = null;
-    this.baseUrl = null;
-    if (this.budget) {
-      this.budgetInvalidated = true;
-      this.budget.markOutstandingUnknown();
-    }
-    this.#rejectAll(error);
-  }
-
-  #rejectAll(error) {
-    for (const waiter of this.pending.values()) waiter.reject(error);
-    this.pending.clear();
-  }
-
-  #startHeartbeat() {
-    this.#stopHeartbeat();
-    if (!Number.isFinite(this.heartbeatIntervalMs) || this.heartbeatIntervalMs <= 0) return;
-    this.heartbeatTimer = setInterval(() => void this.#heartbeat(), this.heartbeatIntervalMs);
-    this.heartbeatTimer.unref();
-  }
-
-  #stopHeartbeat() {
-    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-    this.heartbeatTimer = null;
-  }
-
-  async #heartbeat() {
-    const child = this.child;
-    if (!child || this.heartbeatInFlight) return;
-    this.heartbeatInFlight = true;
-    let timeout;
-    try {
-      await Promise.race([
-        this.#request("ping", {}),
-        new Promise((_, reject) => {
-          timeout = setTimeout(() => reject(new Error("bridge heartbeat timed out")), this.heartbeatTimeoutMs);
-        }),
-      ]);
-    } catch {
-      if (this.child === child && child.exitCode === null) child.kill();
-    } finally {
-      clearTimeout(timeout);
-      this.heartbeatInFlight = false;
+  async #callback({ method, params, generation }) {
+    switch (method) {
+      case "credentials": return Object.fromEntries(await Promise.all(params.map(async ref => [ref, await this.credentialResolver(ref)])));
+      case "retire": {
+        const transport = this.transports.get(generation);
+        if (transport) { transport.retirement ??= transport.native.close(0); await transport.retirement; this.transports.delete(generation); }
+        return null;
+      }
+      case "recoverBudget": return this.budgets.get(params.budgetId).markOutstandingUnknown();
+      case "completeBudget": return this.budgets.get(params.budgetId).complete?.(params.outcome);
+      case "budget:reserve": return this.budgets.get(params.budgetId).reserveRequest(params);
+      case "budget:settle": return this.budgets.get(params.budgetId).settleReservation(params.id, params.usage, params.options);
+      case "budget:observe": return this.budgets.get(params.budgetId).observeUsage(params.usage);
+      case "request": case "response": case "qualification": return this.observers[method]?.(params) ?? { recorded: false };
+      default: throw new Error(`Unknown native bridge supervisor callback: ${method}`);
     }
   }
 }

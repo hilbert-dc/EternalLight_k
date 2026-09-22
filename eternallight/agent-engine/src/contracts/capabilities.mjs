@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { nativeCall } from "../native.mjs";
 
 function freezeDeep(value) {
@@ -20,15 +19,11 @@ export const capabilityDomain = (capability) => nativeCall("contracts.domain", c
 export const resolveCapabilityProfile = (profileId = "base-tools-v1") => CAPABILITY_PROFILES[nativeCall("contracts.profile", profileId).id];
 
 export function stableJson(value) {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
+  return nativeCall("identity.stableJson", value);
 }
 
 export function digest(value) {
-  return createHash("sha256").update(stableJson(value), "utf8").digest("hex");
+  return nativeCall("identity.digest", value);
 }
 
 export function contractHash(contract = ENGINE_CONTRACT) {
