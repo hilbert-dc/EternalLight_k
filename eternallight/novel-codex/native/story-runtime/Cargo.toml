@@ -1,0 +1,23 @@
+[package]
+name = "novel-codex-story-runtime"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "novel-codex-story-runtime"
+path = "src/main.rs"
+
+[dependencies]
+novel-codex-story-core = { path = "../story-core" }
+axum = "0.8"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

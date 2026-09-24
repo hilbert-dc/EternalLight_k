@@ -2,6 +2,14 @@
 
 Novel Codex 是面向长篇小说创作的独立桌面产品。它在完整 Codex Fork 单仓库中开发，以便直接同步上游 Agent 内核；产品运行时不依赖 Codex 桌面应用的登录、配置、会话、审批或模型额度。
 
+总体技术方案统一为 [Novel Codex 理想架构](IDEAL_ARCHITECTURE.md)：围绕现有独立 Agent Engine 重构小说领域层，形成故事数据与版本、知识服务、创作能力、创作编排、作者交互五层。系统自动生成小说，作者通过对话指导和调整；该方案尚未全面实施。
+
+数据与行为细则见 [对话式创作与全局故事知识推理架构](STORY_SYSTEM_ARCHITECTURE.md)，覆盖关系、演进、证据、全局检索、实时建模与一致性。
+
+创作技法与专家能力的来源、接入边界、实施顺序和验收见 [EternalLight 创作能力吸收与接入方案](CREATIVE_CAPABILITY_ADOPTION_DESIGN.md)，不直接复制源工程的运行框架。
+
+小说领域运行时已经迁移为独立 Rust Story Core：SQLite 是唯一事实源，Rust HTTP 宿主和 Rust MCP sidecar 承担生产调用，Electron 不再依赖 Python 领域实现。设计与验证边界见 [理想架构](IDEAL_ARCHITECTURE.md)。
+
 ## 本地开发
 
 ```bash
@@ -31,12 +39,11 @@ npm run qualify:model -- <connection-id> --profile directed-delegation-v1
 
 ```bash
 NOVEL_CODEX_CARGO_PROFILE=release npm run build:codex-runtime
-python3 -m pip install pyinstaller==6.16.0
-python3 -m PyInstaller --clean --onefile --name creative-runtime runtime/server.py
-python3 -m PyInstaller --clean --onefile --name novel-workspace-mcp runtime/mcp_server.py
+rustup target add <target-triple>
+cargo build --manifest-path native/Cargo.toml --release --bins --target <target-triple>
 NOVEL_CODEX_RELEASE_CLI=../../codex-rs/target/release/codex \
-NOVEL_CODEX_RELEASE_RUNTIME_SERVER="$PWD/dist/creative-runtime" \
-NOVEL_CODEX_RELEASE_MCP_SERVER="$PWD/dist/novel-workspace-mcp" \
+NOVEL_CODEX_RELEASE_RUNTIME_SERVER="$PWD/native/target/<target-triple>/release/novel-codex-story-runtime" \
+NOVEL_CODEX_RELEASE_MCP_SERVER="$PWD/native/target/<target-triple>/release/novel-workspace-mcp" \
 NOVEL_CODEX_RELEASE_RESOURCES="$PWD/.release/resources" \
 npm run package:mac
 ```

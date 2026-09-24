@@ -1,0 +1,355 @@
+use rusqlite::OptionalExtension;
+use rusqlite::params;
+use serde_json::Value;
+
+use crate::ProjectId;
+use crate::RepositoryError;
+use crate::SqliteStoryRepository;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChapterBinding {
+    pub plan_revision_id: String,
+    pub chapter_plan_id: String,
+    pub chapter_id: String,
+    pub chapter_number: i64,
+    pub result_revision: i64,
+}
+
+pub struct AssociateChapterPlanRequest<'a> {
+    pub project_id: &'a ProjectId,
+    pub chapter_id: &'a str,
+    pub chapter_plan_id: &'a str,
+    pub expected_revision: i64,
+    pub idempotency_key: &'a str,
+    pub request_digest: &'a str,
+    pub now: i64,
+}
+
+impl SqliteStoryRepository {
+    pub fn materialize_standalone_chapter(
+        &mut self,
+        project_id: &ProjectId,
+        title: &str,
+        expected_revision: i64,
+        idempotency_key: &str,
+        request_digest: &str,
+        now: i64,
+    ) -> Result<ChapterBinding, RepositoryError> {
+        let transaction = self.connection.transaction().map_err(storage_error)?;
+        if let Some(result) = replay(
+            &transaction,
+            project_id,
+            "materialize-standalone",
+            idempotency_key,
+            request_digest,
+        )? {
+            return parse_binding(result);
+        }
+        assert_revision(&transaction, project_id, expected_revision)?;
+        let number = transaction
+            .query_row(
+                "SELECT COALESCE(MAX(number), 0) + 1 FROM story_chapters_v2 WHERE project_id = ?1",
+                [project_id.as_str()],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(storage_error)?;
+        let chapter_id = format!("chapter-{}", uuid::Uuid::new_v4().simple());
+        let title = if title.trim().is_empty() {
+            format!("第 {number} 章")
+        } else {
+            title.trim().chars().take(160).collect()
+        };
+        transaction.execute(
+            "INSERT INTO story_chapters_v2(chapter_id, project_id, number, title, status, summary) VALUES (?1, ?2, ?3, ?4, 'draft', '')",
+            params![chapter_id, project_id.as_str(), number, title],
+        ).map_err(storage_error)?;
+        let result = ChapterBinding {
+            plan_revision_id: String::new(),
+            chapter_plan_id: String::new(),
+            chapter_id,
+            chapter_number: number,
+            result_revision: expected_revision + 1,
+        };
+        finish(
+            &transaction,
+            project_id,
+            "materialize-standalone",
+            idempotency_key,
+            request_digest,
+            &result,
+            now,
+        )?;
+        transaction.commit().map_err(storage_error)?;
+        Ok(result)
+    }
+
+    pub fn materialize_chapter_from_plan(
+        &mut self,
+        project_id: &ProjectId,
+        chapter_plan_id: &str,
+        expected_revision: i64,
+        idempotency_key: &str,
+        request_digest: &str,
+        now: i64,
+    ) -> Result<ChapterBinding, RepositoryError> {
+        let transaction = self.connection.transaction().map_err(storage_error)?;
+        if let Some(result) = replay(
+            &transaction,
+            project_id,
+            "materialize-chapter",
+            idempotency_key,
+            request_digest,
+        )? {
+            return parse_binding(result);
+        }
+        assert_revision(&transaction, project_id, expected_revision)?;
+        let plan_revision_id = accepted_revision(&transaction, project_id, "artifact-plan")?
+            .ok_or(RepositoryError::CandidateNotFound)?;
+        let content = transaction.query_row(
+            "SELECT content_json FROM story_revisions_v2 WHERE project_id = ?1 AND revision_id = ?2",
+            params![project_id.as_str(), plan_revision_id], |row| row.get::<_, String>(0),
+        ).map_err(storage_error)?;
+        let envelope: Value = serde_json::from_str(&content)
+            .map_err(|error| RepositoryError::InvalidContent(error.to_string()))?;
+        let payload = envelope.get("payload").unwrap_or(&envelope);
+        let entry = payload
+            .get("chapters")
+            .and_then(Value::as_array)
+            .and_then(|chapters| {
+                chapters.iter().find(|chapter| {
+                    chapter.get("chapterPlanId").and_then(Value::as_str) == Some(chapter_plan_id)
+                })
+            })
+            .ok_or(RepositoryError::CandidateNotFound)?;
+        let number = entry
+            .get("chapterNumber")
+            .and_then(Value::as_i64)
+            .filter(|value| *value > 0)
+            .ok_or(RepositoryError::InvalidChapter)?;
+        let title = entry
+            .get("publicTitle")
+            .or_else(|| entry.get("title"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("第 {number} 章"));
+        let chapter_id = format!("chapter-{}", uuid::Uuid::new_v4().simple());
+        transaction.execute(
+            "INSERT INTO story_chapters_v2(chapter_id, project_id, number, title, status, summary) VALUES (?1, ?2, ?3, ?4, 'draft', '')",
+            params![chapter_id, project_id.as_str(), number, title],
+        ).map_err(storage_error)?;
+        transaction.execute(
+            "INSERT INTO story_chapter_plan_bindings_v2(project_id, plan_revision_id, chapter_plan_id, chapter_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![project_id.as_str(), plan_revision_id, chapter_plan_id, chapter_id, now],
+        ).map_err(storage_error)?;
+        let result = ChapterBinding {
+            plan_revision_id,
+            chapter_plan_id: chapter_plan_id.into(),
+            chapter_id,
+            chapter_number: number,
+            result_revision: expected_revision + 1,
+        };
+        finish(
+            &transaction,
+            project_id,
+            "materialize-chapter",
+            idempotency_key,
+            request_digest,
+            &result,
+            now,
+        )?;
+        transaction.commit().map_err(storage_error)?;
+        Ok(result)
+    }
+
+    pub fn associate_chapter_plan(
+        &mut self,
+        request: AssociateChapterPlanRequest<'_>,
+    ) -> Result<ChapterBinding, RepositoryError> {
+        let AssociateChapterPlanRequest {
+            project_id,
+            chapter_id,
+            chapter_plan_id,
+            expected_revision,
+            idempotency_key,
+            request_digest,
+            now,
+        } = request;
+        let transaction = self.connection.transaction().map_err(storage_error)?;
+        if let Some(result) = replay(
+            &transaction,
+            project_id,
+            "associate-plan",
+            idempotency_key,
+            request_digest,
+        )? {
+            return parse_binding(result);
+        }
+        assert_revision(&transaction, project_id, expected_revision)?;
+        let number = transaction
+            .query_row(
+                "SELECT number FROM story_chapters_v2 WHERE project_id = ?1 AND chapter_id = ?2",
+                params![project_id.as_str(), chapter_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(storage_error)?
+            .ok_or(RepositoryError::CandidateNotFound)?;
+        let plan_revision_id = accepted_revision(&transaction, project_id, "artifact-plan")?
+            .ok_or(RepositoryError::CandidateNotFound)?;
+        transaction.execute(
+            "INSERT INTO story_chapter_plan_bindings_v2(project_id, plan_revision_id, chapter_plan_id, chapter_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![project_id.as_str(), plan_revision_id, chapter_plan_id, chapter_id, now],
+        ).map_err(storage_error)?;
+        let result = ChapterBinding {
+            plan_revision_id,
+            chapter_plan_id: chapter_plan_id.into(),
+            chapter_id: chapter_id.into(),
+            chapter_number: number,
+            result_revision: expected_revision + 1,
+        };
+        finish(
+            &transaction,
+            project_id,
+            "associate-plan",
+            idempotency_key,
+            request_digest,
+            &result,
+            now,
+        )?;
+        transaction.commit().map_err(storage_error)?;
+        Ok(result)
+    }
+
+    pub fn chapter_bindings(
+        &self,
+        project_id: &ProjectId,
+    ) -> Result<Vec<ChapterBinding>, RepositoryError> {
+        let revision = self.project_revision(project_id)?;
+        let mut statement = self.connection.prepare(
+            "SELECT b.plan_revision_id, b.chapter_plan_id, b.chapter_id, c.number FROM story_chapter_plan_bindings_v2 b JOIN story_chapters_v2 c ON c.chapter_id = b.chapter_id WHERE b.project_id = ?1 ORDER BY c.number",
+        ).map_err(storage_error)?;
+        statement
+            .query_map([project_id.as_str()], |row| {
+                Ok(ChapterBinding {
+                    plan_revision_id: row.get(0)?,
+                    chapter_plan_id: row.get(1)?,
+                    chapter_id: row.get(2)?,
+                    chapter_number: row.get(3)?,
+                    result_revision: revision,
+                })
+            })
+            .map_err(storage_error)?
+            .map(|row| row.map_err(storage_error))
+            .collect()
+    }
+}
+
+fn accepted_revision(
+    connection: &rusqlite::Connection,
+    project_id: &ProjectId,
+    object_id: &str,
+) -> Result<Option<String>, RepositoryError> {
+    connection.query_row(
+        "SELECT accepted_revision_id FROM story_object_heads_v2 WHERE project_id = ?1 AND object_id = ?2",
+        params![project_id.as_str(), object_id], |row| row.get(0),
+    ).optional().map_err(storage_error).map(Option::flatten)
+}
+
+fn assert_revision(
+    connection: &rusqlite::Connection,
+    project_id: &ProjectId,
+    expected: i64,
+) -> Result<(), RepositoryError> {
+    let actual = connection
+        .query_row(
+            "SELECT revision FROM story_workspaces_v2 WHERE project_id = ?1",
+            [project_id.as_str()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?
+        .ok_or(RepositoryError::ProjectNotFound)?;
+    if actual != expected {
+        return Err(RepositoryError::StaleProjectRevision { expected, actual });
+    }
+    Ok(())
+}
+
+fn finish(
+    connection: &rusqlite::Connection,
+    project_id: &ProjectId,
+    operation: &str,
+    key: &str,
+    digest: &str,
+    result: &ChapterBinding,
+    now: i64,
+) -> Result<(), RepositoryError> {
+    let result_json = serde_json::to_string(&serde_json::json!({
+        "planRevisionId": result.plan_revision_id, "chapterPlanId": result.chapter_plan_id,
+        "chapterId": result.chapter_id, "chapterNumber": result.chapter_number, "resultRevision": result.result_revision
+    })).map_err(|error| RepositoryError::InvalidContent(error.to_string()))?;
+    connection
+        .execute(
+            "UPDATE story_workspaces_v2 SET revision = ?1 WHERE project_id = ?2",
+            params![result.result_revision, project_id.as_str()],
+        )
+        .map_err(storage_error)?;
+    connection.execute("UPDATE story_tasks_v2 SET status = 'cancelled', stage = 'cancelled', delivery_status = CASE WHEN output_refs_json = '[]' THEN 'pending' ELSE 'incomplete' END, error = 'chapter structure changed', capability_revoked_at = ?1 WHERE project_id = ?2 AND status IN ('queued','running','waiting')", params![now, project_id.as_str()]).map_err(storage_error)?;
+    connection.execute("INSERT INTO story_domain_receipts_v2(project_id, operation, idempotency_key, request_digest, result_json) VALUES (?1, ?2, ?3, ?4, ?5)", params![project_id.as_str(), operation, key, digest, result_json]).map_err(storage_error)?;
+    Ok(())
+}
+
+fn replay(
+    connection: &rusqlite::Connection,
+    project_id: &ProjectId,
+    operation: &str,
+    key: &str,
+    digest: &str,
+) -> Result<Option<Value>, RepositoryError> {
+    let row = connection.query_row(
+        "SELECT request_digest, result_json FROM story_domain_receipts_v2 WHERE project_id = ?1 AND operation = ?2 AND idempotency_key = ?3",
+        params![project_id.as_str(), operation, key], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    ).optional().map_err(storage_error)?;
+    let Some((stored, result)) = row else {
+        return Ok(None);
+    };
+    if stored != digest {
+        return Err(RepositoryError::IdempotencyConflict);
+    }
+    serde_json::from_str(&result)
+        .map(Some)
+        .map_err(|_| RepositoryError::CorruptState)
+}
+
+fn parse_binding(value: Value) -> Result<ChapterBinding, RepositoryError> {
+    Ok(ChapterBinding {
+        plan_revision_id: value
+            .get("planRevisionId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .into(),
+        chapter_plan_id: value
+            .get("chapterPlanId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .into(),
+        chapter_id: value
+            .get("chapterId")
+            .and_then(Value::as_str)
+            .ok_or(RepositoryError::CorruptState)?
+            .into(),
+        chapter_number: value
+            .get("chapterNumber")
+            .and_then(Value::as_i64)
+            .ok_or(RepositoryError::CorruptState)?,
+        result_revision: value
+            .get("resultRevision")
+            .and_then(Value::as_i64)
+            .ok_or(RepositoryError::CorruptState)?,
+    })
+}
+
+fn storage_error(error: rusqlite::Error) -> RepositoryError {
+    RepositoryError::Storage(error.to_string())
+}

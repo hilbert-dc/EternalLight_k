@@ -46,6 +46,7 @@ export interface AgentRunSummary {
   mode: AgentMode;
   state: Exclude<AgentRunState, "idle" | "running" | "waiting">;
   prompt: string;
+  answer: string;
   summary: string;
   artifactCount: number;
   createdAt: number;
@@ -188,7 +189,8 @@ function itemDetail(item: JsonRecord): string | undefined {
   const cwd = stringValue(item.cwd);
   const changes = Array.isArray(item.changes) ? item.changes.map(record).filter((change): change is JsonRecord => change !== null) : [];
   const paths = changes.map((change) => stringValue(change.path)).filter((path): path is string => path !== null);
-  const detail = [command, cwd ? `工作目录：${cwd}` : null, ...paths.map((path) => `文件：${path}`)].filter(Boolean).join("\n");
+  const truncated = item.displayTruncated === true;
+  const detail = [truncated ? "输出过长，已省略" : null, command, cwd ? `工作目录：${cwd}` : null, ...paths.map((path) => `文件：${path}`)].filter(Boolean).join("\n");
   return detail ? bounded(detail, MAX_DETAIL_TEXT) : undefined;
 }
 
@@ -231,6 +233,48 @@ function itemId(item: JsonRecord, fallback: string): string {
   return stringValue(item.id) ?? fallback;
 }
 
+const TOOL_TITLES: Record<string, string> = {
+  read_context: "读取故事上下文",
+  save_brief: "保存创作简报",
+  save_outline: "保存大纲",
+  save_chapter_plans: "保存章纲",
+  save_draft_checkpoint: "保存章节",
+  submit_fact_proposals: "提交事实提案",
+  submit_planning_review_report: "提交审阅报告",
+  complete_task: "完成任务",
+};
+
+function shortLine(value: string, limit = 42): string {
+  const line = value.replace(/\s+/g, " ").trim();
+  return line.length <= limit ? line : `${line.slice(0, limit - 1)}…`;
+}
+
+function commandText(item: JsonRecord): string | null {
+  const command = item.command;
+  if (typeof command === "string" && command.trim()) return command;
+  if (!Array.isArray(command)) return null;
+  const parts = command.filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
+function pathLeaf(path: string): string {
+  return shortLine(path.split(/[/\\]/).filter(Boolean).pop() ?? path, 32);
+}
+
+function toolLeaf(name: string): string {
+  const dotted = name.split(".").pop() ?? name;
+  const parts = dotted.split("__").filter(Boolean);
+  return parts[parts.length - 1] ?? dotted;
+}
+
+function toolTitle(item: JsonRecord): string {
+  const nested = record(item.tool);
+  const name = stringValue(item.name) ?? stringValue(item.toolName) ?? stringValue(nested?.name) ?? (typeof item.tool === "string" ? stringValue(item.tool) : null);
+  if (!name) return "调用工具";
+  const leaf = toolLeaf(name);
+  return TOOL_TITLES[leaf] ?? shortLine(leaf.replace(/_/g, " "));
+}
+
 function itemStep(item: JsonRecord, status: AgentStepStatus): AgentStep {
   const type = stringValue(item.type) ?? "unknown";
   const normalized = type.toLowerCase();
@@ -238,10 +282,22 @@ function itemStep(item: JsonRecord, status: AgentStepStatus): AgentStep {
   if (normalized.includes("contextcompaction")) return { id: itemId(item, `item:${type}`), kind: "system", title: "压缩上下文", detail: itemDetail(item) ?? "正在整理历史上下文", status };
   if (normalized.includes("hook")) return { id: itemId(item, `item:${type}`), kind: "system", title: "运行 Hook", detail: itemDetail(item), status };
   if (normalized.includes("enteredreview") || normalized.includes("exitedreview") || normalized.includes("review")) return { id: itemId(item, `item:${type}`), kind: "system", title: "审查任务", detail: itemDetail(item), status };
-  if (normalized.includes("command") || normalized.includes("shell")) return { id: itemId(item, `item:${type}`), kind: "tool", title: "执行命令", detail: itemDetail(item), status };
-  if (normalized.includes("file") || normalized.includes("patch") || normalized.includes("change")) return { id: itemId(item, `item:${type}`), kind: "tool", title: "修改文件", detail: itemDetail(item), status };
-  if (normalized.includes("mcp") || normalized.includes("tool")) return { id: itemId(item, `item:${type}`), kind: "tool", title: "调用工具", detail: itemDetail(item), status };
-  if (normalized.includes("reason")) return { id: itemId(item, `item:${type}`), kind: "system", title: "分析上下文", detail: itemDetail(item), status };
+  if (normalized.includes("command") || normalized.includes("shell")) {
+    const command = commandText(item);
+    return { id: itemId(item, `item:${type}`), kind: "tool", title: command ? shortLine(command) : "执行命令", detail: itemDetail(item), status };
+  }
+  if (normalized.includes("file") || normalized.includes("patch") || normalized.includes("change")) {
+    const changes = Array.isArray(item.changes) ? item.changes.map(record).filter((change): change is JsonRecord => change !== null) : [];
+    const path = changes.map((change) => stringValue(change.path)).find((value): value is string => value !== null);
+    return { id: itemId(item, `item:${type}`), kind: "tool", title: path ? `修改 ${pathLeaf(path)}` : "修改文件", detail: itemDetail(item), status };
+  }
+  if (normalized.includes("mcp") || normalized.includes("tool")) return { id: itemId(item, `item:${type}`), kind: "tool", title: toolTitle(item), detail: itemDetail(item), status };
+  if (normalized.includes("reason")) {
+    const text = stringValue(item.summary) ?? stringValue(item.text);
+    const title = text ? shortLine(text) : "分析上下文";
+    const detail = itemDetail(item) ?? (text && text.trim() !== title ? bounded(text, MAX_DETAIL_TEXT) : undefined);
+    return { id: itemId(item, `item:${type}`), kind: "system", title, detail, status };
+  }
   if (normalized.includes("agentmessage") || normalized.includes("message")) return { id: "agent-message", kind: "assistant", title: "Agent 回复", text: bounded(stringValue(item.text) ?? "", MAX_DISPLAY_TEXT), status };
   return { id: itemId(item, `item:${type}`), kind: "system", title: "执行步骤", detail: itemDetail(item) ?? type, status };
 }
@@ -341,7 +397,8 @@ export function summarizeAgentRun(run: AgentRun, createdAt = Date.now()): AgentR
     id: `${createdAt}-${run.prompt.slice(0, 24)}`,
     mode: run.mode,
     state: run.state,
-    prompt: bounded(run.prompt, 240),
+    prompt: bounded(run.prompt, 32_000),
+    answer: bounded(run.answer.trim(), MAX_DISPLAY_TEXT),
     summary: bounded(summary, 320),
     artifactCount: run.artifacts.length,
     createdAt,
@@ -470,7 +527,7 @@ export function reduceAgentEvent(run: AgentRun, event: unknown): AgentRun {
     const id = stringValue(params?.itemId) ?? itemId(item, `stream:${method}`);
     const existing = run.steps.find((step) => step.id === id);
     const detail = bounded(`${existing?.detail ? `${existing.detail}\n` : ""}${delta}`, MAX_DETAIL_TEXT);
-    return advancePhase(upsertStep({ ...run, state: "running", error: null }, { id, kind: "tool", title: "执行工具", detail, status: "running" }), "tools", "running", "正在接收工具输出");
+    return advancePhase(upsertStep({ ...run, state: "running", error: null }, { id, kind: "tool", title: existing?.title ?? itemStep(item, "running").title, detail, status: "running" }), "tools", "running", "正在接收工具输出");
   }
 
   if (method === "item/started" || method === "item/completed") {

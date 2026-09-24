@@ -130,10 +130,15 @@ function createWindow() {
   }
 }
 
-function pythonCommand() {
-  if (process.env.NOVEL_CODEX_PYTHON) return process.env.NOVEL_CODEX_PYTHON;
-  const virtualEnvPython = process.platform === "win32" ? join(projectRoot, ".venv", "Scripts", "python.exe") : join(projectRoot, ".venv", "bin", "python");
-  return existsSync(virtualEnvPython) ? virtualEnvPython : process.platform === "win32" ? "python" : "python3";
+function developmentRuntimeBinaries() {
+  const suffix = process.platform === "win32" ? ".exe" : "";
+  const directory = join(projectRoot, "native", "target", "debug");
+  const creativeRuntime = join(directory, `novel-codex-story-runtime${suffix}`);
+  const novelWorkspaceMcp = join(directory, `novel-workspace-mcp${suffix}`);
+  if (!existsSync(creativeRuntime) || !existsSync(novelWorkspaceMcp)) {
+    throw new Error("Rust Story Runtime 尚未构建，请先运行 npm run build:story-runtime");
+  }
+  return { creativeRuntime, novelWorkspaceMcp };
 }
 
 function findFreeLoopbackPort() {
@@ -170,11 +175,11 @@ async function startRuntime(runtimeDb) {
     runtimePort = configuredRuntimePort ?? await findFreeLoopbackPort();
     runtimeUrl = `http://127.0.0.1:${runtimePort}`;
     runtimeError = null;
-    const runtimeCommand = bundledRuntime?.creativeRuntime ?? pythonCommand();
-    const runtimeArgs = [...(bundledRuntime ? [] : [join(runtimeAssetRoot, "runtime", "server.py")]), "--host", "127.0.0.1", "--port", String(runtimePort), "--db", runtimeDb, "--token-stdin"];
+    const runtimeCommand = bundledRuntime.creativeRuntime;
+    const runtimeArgs = ["--host", "127.0.0.1", "--port", String(runtimePort), "--db", runtimeDb, "--token-stdin"];
     const child = spawn(runtimeCommand, runtimeArgs, {
       cwd: runtimeAssetRoot,
-      env: createRuntimeEnvironment(process.env, runtimeAssetRoot),
+      env: createRuntimeEnvironment(process.env),
       stdio: ["pipe", "pipe", "pipe"],
     });
     runtimeProcess = child;
@@ -210,9 +215,9 @@ function ensureCodexConfig(codexHome, providerConfig, bridge = null) {
   writeFileSync(configTemporaryPath, buildCodexConfig({
     ...providerConfig,
     bridge,
-    mcpServerCommand: bundledRuntime?.novelWorkspaceMcp ?? pythonCommand(),
-    mcpServerPath: bundledRuntime ? null : join(runtimeAssetRoot, "runtime", "mcp_server.py"),
-    mcpServerArgs: bundledRuntime ? [] : null,
+    mcpServerCommand: bundledRuntime.novelWorkspaceMcp,
+    mcpServerPath: null,
+    mcpServerArgs: [],
     modelCatalogPath,
   }), { encoding: "utf8", mode: 0o600 });
   renameSync(configTemporaryPath, configPath);
@@ -305,6 +310,25 @@ async function beginAgentExecution(execution, operation) {
     if (activeAgentExecution === execution) activeAgentExecution = null;
     throw error;
   }
+}
+
+const QUIET_RECOVERY_OPERATIONS = new Set(["read_context"]);
+
+async function closeFinishedReads(index) {
+  if (!index) return [];
+  const report = await index.recoveryReport();
+  const visible = [];
+  for (const run of report) {
+    const manual = run.requests.filter((request) => request.recovery === "manual-reconciliation");
+    const finished = ["completed", "failed", "cancelled"].includes(run.runtimeStatus);
+    const onlyReads = manual.length > 0 && manual.every((request) => QUIET_RECOVERY_OPERATIONS.has(request.operation));
+    if (finished && onlyReads) {
+      await index.resolveRun(run.runId, "manual-reviewed");
+      continue;
+    }
+    visible.push(run);
+  }
+  return visible;
 }
 
 async function finishAgentExecution(execution) {
@@ -732,7 +756,10 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     if (!Number.isInteger(projectRevision) || projectRevision < 0 || !Number.isInteger(readingChapter) || readingChapter < 1 || !Number.isInteger(sceneOrder) || sceneOrder < 0) throw new Error("Writer 预览范围无效");
     if (povCharacterId !== null && (typeof povCharacterId !== "string" || !povCharacterId.trim())) throw new Error("Writer 预览 POV 无效");
     if (storyTime !== null && !Number.isInteger(storyTime)) throw new Error("Writer 预览故事时间无效");
-    return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/context`, { method: "POST", body: JSON.stringify({ purpose: "writer", projectRevision, readingChapter, sceneOrder, povCharacterId, storyTime, budget: 24, byteBudget: 60_000 }) });
+    const params = new URLSearchParams({ purpose: "writer", projectRevision: String(projectRevision), readingChapter: String(readingChapter), sceneOrder: String(sceneOrder), budget: "24", byteBudget: "60000" });
+    if (povCharacterId !== null) params.set("povCharacterId", povCharacterId);
+    if (storyTime !== null) params.set("storyTime", String(storyTime));
+    return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/context?${params}`);
   });
   ipcMain.handle("runtime:list-planning-impacts", (_event, projectId, cursor = null, limit = 25) => {
     if (cursor !== null && typeof cursor !== "string") throw new Error("规划反馈 cursor 无效");
@@ -793,7 +820,7 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/search?${params}`);
   });
   ipcMain.handle("agent:status", () => codexAdapter.status());
-  ipcMain.handle("agent:recovery-report", () => recoveryIndex?.recoveryReport() ?? []);
+  ipcMain.handle("agent:recovery-report", () => closeFinishedReads(recoveryIndex));
   ipcMain.handle("agent:resolve-recovery", async (_event, projectId, runId) => {
     if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，不能结束恢复核对");
     if (typeof projectId !== "string" || !projectId.trim() || typeof runId !== "string" || !runId.trim()) throw new Error("恢复任务参数无效");
@@ -1028,7 +1055,7 @@ app.on("second-instance", () => {
 });
 
 app.whenReady().then(async () => {
-  bundledRuntime = app.isPackaged ? resolveRuntimeBinaries({ resourcesPath: process.resourcesPath }) : null;
+  bundledRuntime = app.isPackaged ? resolveRuntimeBinaries({ resourcesPath: process.resourcesPath }) : developmentRuntimeBinaries();
   const storage = prepareIsolatedStorage(app.getPath("userData"));
   const recoveredBudgets = PersistentTaskBudget.recoverOrphans(storage.budgetDb);
   if (recoveredBudgets.length) console.warn(`[novel-codex] recovered ${recoveredBudgets.length} unfinished model budget(s) as unknown usage`);

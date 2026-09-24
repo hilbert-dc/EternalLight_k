@@ -64,10 +64,10 @@ interface Props {
 }
 
 const labels: Record<WorkspaceView, { title: string; description: string; agentPrompt: string }> = {
-  brief: { title: "创作简报", description: "先固定作品承诺、核心冲突与边界，再让后续规划围绕同一目标收敛。", agentPrompt: "请基于当前 Canon 与已有内容，为这部作品生成一份可审阅的 Story Brief 候选。" },
-  outline: { title: "长篇大纲", description: "管理故事阶段、转折和结局方向；候选大纲不会直接覆盖正式版本。", agentPrompt: "请读取当前 Story Brief 和 Canon，生成结构清晰、可审阅的长篇大纲候选。" },
-  plans: { title: "近章规划", description: "只精细规划未来 1–5 章，并在已确认事实变化后显示受影响章节。", agentPrompt: "请基于正式大纲、当前事实状态和最近正文，滚动规划接下来三章并保存为候选。" },
-  chapters: { title: "章节草稿", description: "正文按不可变检查点保存，经过场景级审阅和事实确认后才进入正式稿。", agentPrompt: "请读取当前章节计划和时态上下文，继续写当前章节，并把结果保存为草稿检查点。" },
+  brief: { title: "创作简报", description: "这部作品承诺什么，读者会得到什么。", agentPrompt: "请基于当前故事设定与已有内容，为这部作品生成一份可审阅的创作简报候选。" },
+  outline: { title: "长篇大纲", description: "按全书、卷和单元安排故事。", agentPrompt: "请读取当前创作简报和故事设定，生成结构清晰、可审阅的长篇大纲候选。" },
+  plans: { title: "近章规划", description: "只规划接下来要写的几章。", agentPrompt: "请基于正式大纲、当前事实状态和最近正文，滚动规划接下来三章并保存为候选。" },
+  chapters: { title: "章节", description: "直接写这一章的正文。", agentPrompt: "请读取当前章节计划和时态上下文，继续写当前章节并保存。" },
 };
 const DEFAULT_GENERATION_INTENT = "根据当前正式前文和章节计划，写出完整、连贯的章节候选；保留已有悬念和人物信息边界。";
 
@@ -509,7 +509,7 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
     void api.runtime.getWriterPreview(projectId, workspace.revision, selectedChapter.number, previewSceneOrder, chapterPlan?.povCharacterId ?? null, chapterPlan?.storyTime ?? null).then((preview) => {
       if (!cancelled) setWriterPreviewState({ identity, value: preview });
     }).catch((reason) => {
-      if (!cancelled) { setWriterPreviewState(null); setError(reason instanceof Error ? reason.message : "Writer 公开预览加载失败"); }
+      if (!cancelled) { setWriterPreviewState(null); setError(reason instanceof Error ? reason.message : "创作依据加载失败"); }
     });
     return () => { cancelled = true; };
   }, [api, writerPreviewIdentity]);
@@ -649,6 +649,19 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
     }
   }
 
+  async function publishChapterRevision(revisionId: string, sceneGroupIds: string[], proposals: Record<string, unknown>[] = []) {
+    if (!api || sceneGroupIds.length === 0) return;
+    const review = await api.runtime.createReview(projectId, "draft", revisionId, proposals);
+    const factDecisions = proposals.length > 0 ? Object.fromEntries(review.factProposals.map((fact) => [fact.id, "confirmed"])) : {};
+    await api.runtime.acceptReview(projectId, review.id, review.projectRevision, {
+      sceneGroupIds,
+      factDecisions,
+      noConfirmedChanges: proposals.length === 0,
+      factDependencyLinks: [],
+      directionChangeDecisions: {},
+    });
+  }
+
   async function saveCurrent(baselineWorkspace?: CreativeWorkspace): Promise<boolean> {
     const activeWorkspace = baselineWorkspace ?? workspace;
     if (!api || !activeWorkspace) return false;
@@ -657,7 +670,7 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
     const expectedRevision = session.baseProjectRevision;
     const expectedCandidateRevisionId = session.baseCandidateRevisionId;
     if (view === "brief") {
-      return perform("正在保存 Story Brief…", () => api.runtime.saveArtifact(projectId, "brief", brief, expectedRevision, expectedCandidateRevisionId).then((saved) => { lastSavedRevisionIdRef.current = saved.revisionId; }), "Story Brief 已保存为候选版本。");
+      return perform("正在保存创作简报…", () => api.runtime.saveArtifact(projectId, "brief", brief, expectedRevision, expectedCandidateRevisionId).then((saved) => { lastSavedRevisionIdRef.current = saved.revisionId; }), "创作简报已保存为候选版本。");
     } else if (view === "outline") {
       const firstInvalid = firstOutlineEditorError(outlineNodes);
       if (firstInvalid) {
@@ -680,13 +693,37 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
         setError("请填写空场景正文，或删除不需要的空场景。");
         return false;
       }
+      const hasFactDraft = Boolean(factPredicate.trim() || factEvidence.trim());
+      if (hasFactDraft && (!factPredicate.trim() || !factEvidence.trim())) {
+        setError("新增事实必须同时填写事实键和正文证据。");
+        return false;
+      }
+      let parsedValue: unknown = null;
+      if (hasFactDraft && factValue.trim()) {
+        try { parsedValue = parseFactValue(factValue); } catch (reason) {
+          setError(reason instanceof Error ? reason.message : "事实值格式无效");
+          return false;
+        }
+      }
       const sceneGroups = draftSceneRows.map((scene) => ({ id: scene.id, sceneId: scene.sceneId ?? null, body: scene.body, locked: lockedSceneGroups.includes(scene.id) }));
       const normalizedBody = sceneGroups.map((scene) => scene.body.trim()).join("\n\n---\n\n");
-      return perform("正在保存草稿检查点…", async () => {
+      const factSceneOrder = workspaceChapter?.candidate?.sceneGroups.findIndex((group) => group.id === factSceneGroupId) ?? -1;
+      const factScene = sceneGroups.find((group) => group.id === factSceneGroupId) ?? sceneGroups[Math.max(0, factSceneOrder)];
+      const proposals = hasFactDraft ? [{ sceneGroupId: factScene?.id ?? sceneGroups[0]?.id, sceneId: factScene?.sceneId ?? null, factKind, subjectId: factSubjectId.trim() || null, predicate: factPredicate.trim(), value: parsedValue, epistemicOwnerId: factEpistemicOwnerId.trim() || null, epistemicState: factEpistemicState, storyTime: chapterPlan?.storyTime ?? null, readingChapter: selectedChapter?.number ?? 1, sceneOrder: Math.max(1, (factScene ? sceneGroups.findIndex((group) => group.id === factScene.id) : factSceneOrder) + 1), evidence: factEvidence.trim() }] : [];
+      const published = await perform("正在保存这一章…", async () => {
         const saved = await api.runtime.saveDraftCheckpoint(projectId, { ...(selectedChapter ? { chapterId: selectedChapter.id } : { chapterNumber: 1 }), title: selectedChapter?.title ?? newChapterTitle, body: normalizedBody, sceneGroups }, expectedRevision, expectedCandidateRevisionId);
         lastSavedRevisionIdRef.current = saved.revisionId;
+        await publishChapterRevision(saved.revisionId, sceneGroups.map((scene) => scene.id), proposals);
         await onFormalChange();
-      }, "草稿检查点已保存，正式正文尚未改变。");
+      }, "这一章已保存。");
+      if (published && proposals.length > 0) {
+        setFactPredicate("");
+        setFactEvidence("");
+        setFactValue("");
+        setFactSubjectId("");
+        setFactEpistemicOwnerId("");
+      }
+      return published;
     }
   }
 
@@ -747,7 +784,7 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
         await api.runtime.setArtifactLock(projectId, viewKind, nextLocked, workspace.revision);
         await onFormalChange();
       },
-      nextLocked ? "正式产物已锁定；Codex 不能生成覆盖候选。" : "正式产物已解锁，可以继续修订。",
+      nextLocked ? "正式版本已锁定，不能再生成覆盖候选。" : "正式版本已解锁，可以继续修订。",
     );
   }
 
@@ -936,11 +973,18 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
         povCharacterId: chapterPlan?.povCharacterId ?? null,
         storyTime: chapterPlan?.storyTime ?? null,
       });
+      const refreshed = await api.runtime.getCreativeWorkspace(projectId);
+      const written = refreshed.chapters.find((chapter) => chapter.id === selectedChapter.id);
+      const candidate = written?.candidate;
+      if (candidate && candidate.id !== written?.accepted?.id && candidate.sceneGroups.length > 0) {
+        await publishChapterRevision(candidate.id, candidate.sceneGroups.map((group) => group.id));
+        await onFormalChange();
+      }
       await reload();
-      setNotice(`第 ${selectedChapter.number} 章候选已保存，可在下方比较并进入审阅。`);
+      setNotice(`第 ${selectedChapter.number} 章已写入。`);
     } catch (reason) {
       await reload().catch(() => undefined);
-      setError(reason instanceof Error ? reason.message : "章节生成未完成；已保存检查点仍会保留。");
+      setError(reason instanceof Error ? reason.message : "章节生成未完成；已写的正文仍会保留。");
     } finally {
       setGenerating(false);
     }
@@ -1017,44 +1061,56 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
   return (
     <div className="creative-workspace-view" aria-busy={busy}>
       <header className="creative-view-header">
-        <div><span className="creative-kicker">CREATIVE WORKSPACE</span><h2>{info.title}</h2><p>{info.description}</p></div>
-        <div className="creative-header-actions"><span className="revision-badge">作品 v{workspace?.revision ?? "—"}</span>{viewKind !== "draft" && artifact?.accepted && <button className="secondary-button" disabled={busy || agentRunning} aria-pressed={artifact.locked} onClick={() => void toggleArtifactLock()}>{artifact.locked ? "已锁定 · 点击解锁" : "锁定正式版本"}</button>}{viewKind !== "draft" && <button className="secondary-button" disabled={busy || agentRunning || dirty || artifactLocked || !agentAvailable || !planningPrompt || Boolean(planningInputError)} title={!agentAvailable ? "请先配置可用模型" : agentRunning ? "当前已有 Agent 任务正在执行" : dirty ? "请先保存中央文档修改" : undefined} onClick={() => onGeneratePlanning(view === "brief" ? "generateBrief" : view === "outline" ? "generateOutline" : "generatePlan", planningPrompt)}>✦ 交给 Codex</button>}</div>
+        <div><span className="creative-kicker">创作</span><h2>{info.title}</h2><p>{info.description}</p></div>
+        <div className="creative-header-actions"><span className="revision-badge">作品 v{workspace?.revision ?? "—"}</span>{viewKind !== "draft" && artifact?.accepted && <button className="secondary-button" disabled={busy || agentRunning} aria-pressed={artifact.locked} title={artifact.locked ? "解锁后可以继续修订" : "锁定后不能再生成覆盖"} onClick={() => void toggleArtifactLock()}>{artifact.locked ? "已锁定" : "锁定"}</button>}</div>
       </header>
       {error && <div className="creative-alert error" role="alert">{error}</div>}
       {notice && <div className="creative-alert success" role="status">{notice}</div>}
       {busyAction && <div className="creative-alert" role="status">{busyAction}</div>}
-      {dirty && candidateId && <div className="creative-alert warning">当前编辑尚未保存；请先保存为新候选，再进入审阅。</div>}
+      {dirty && candidateId && <div className="creative-alert warning">{view === "chapters" ? "这一章还有未保存的修改。" : "还有未保存的修改。先保存，再进入审阅。"}</div>}
       {conflict && <div className="creative-alert warning editor-conflict" role="alert"><div><strong>服务器候选已变化，本地编辑仍被保留</strong><span>当前编辑基于 {conflict.baseCandidateRevisionId ?? "空候选"}，服务器现为 {conflict.serverCandidateRevisionId ?? "空候选"}。上方编辑器是本地版本，下方候选栏是服务器版本。</span><details><summary>查看本地编辑的基线版本</summary><pre>{conflict.baseContent}</pre></details></div><div className="editor-conflict-actions"><button className="primary-button" disabled={busy} onClick={() => void saveLocalAsLatestCandidate()}>以最新版为基线保存本地稿</button><button className="secondary-button" disabled={busy} onClick={() => void copyLocalEditor()}>复制本地稿</button><button className="secondary-button" disabled={busy} onClick={() => { if (workspace) loadEditor(workspace); }}>放弃本地稿并载入服务器版本</button></div></div>}
       {artifactLocked && <div className="creative-alert warning">正式版本已锁定。当前内容只读；解锁后才能创建新候选或进入审阅。</div>}
-      {!agentAvailable && <div className="creative-alert">当前未配置可用模型；仍可手动编辑并保存候选。</div>}
+      {!agentAvailable && <div className="creative-alert">{view === "chapters" ? "当前未配置可用模型；仍可手动编辑并保存这一章。" : "当前未配置可用模型；仍可手动编辑并保存候选。"}</div>}
       {workspace?.index.status === "stale" && <div className="creative-alert warning">长篇索引正在追赶正式版本，检索结果可能暂时滞后。</div>}
       {workspace?.planLineageStatus === "stale" && <div className="creative-alert warning">正式大纲已经更新，当前章纲属于旧基线。请先在“近章规划”中基于新版大纲保存并采用新候选；旧章纲不会继续指导正文。</div>}
       {feedbackTarget && view !== "chapters" && <div className="feedback-return-bar"><span>正在处理反馈：{feedbackTarget.targetLabel}</span><button className="secondary-button" onClick={() => { onReturnToFeedback(); }}>返回原反馈</button></div>}
 
-      {viewKind !== "draft" && <section className="planning-intent-card"><div><strong>本轮生成意图</strong><small>{planningIntentSeed.trim() ? "已完整带入最近一次构想对话。下方会按实际输入预算检查，可先整理本轮要求再生成候选。" : "写下这一轮希望 Codex 解决的创作问题；生成结果只会保存为候选。"}</small></div><textarea aria-label="规划生成意图" value={planningIntent} placeholder={info.agentPrompt} onChange={(event) => setPlanningIntent(event.target.value)} disabled={busy || agentRunning} />{planningInputError && <p role="alert">{planningInputError}</p>}</section>}
-      {latestPlanningTask && <GenerationTaskStatus task={latestPlanningTask} outputName="规划候选" />}
       {view === "brief" && <ArtifactEditor disabled={artifactLocked || busy || agentRunning} fields={[{ key: "premise", label: "核心命题", hint: "故事真正要讨论什么" }, { key: "promise", label: "读者承诺", hint: "读者持续阅读会得到什么体验" }, { key: "stakes", label: "核心代价", hint: "失败会失去什么" }, { key: "endingDirection", label: "结局方向", hint: "允许变化，但不能毫无方向" }]} value={brief} onChange={(key, value) => { setBrief((current) => ({ ...current, [key]: value })); setDirty(true); }} />}
       {view === "outline" && <OutlineTreeEditor disabled={artifactLocked || busy || agentRunning} error={outlineError} focusNodeId={outlineError?.nodeId ?? (feedbackTarget?.targetKind === "outline" ? feedbackTarget.targetNodeId : null)} nodes={outlineNodes} onChange={(nodes) => { setOutlineNodes(nodes); setOutlineError(null); setDirty(true); }} />}
       {view === "plans" && <fieldset className="plan-editor-list" disabled={artifactLocked || busy || agentRunning}>
-        {acceptedPlanChapters.length > 0 && <section className="plan-materialization"><div><strong>正式章纲 · 按需开写</strong><small>{workspace?.planLineageStatus === "stale" ? "章纲基线已过期，采用新版章纲后才能继续开写。" : "只有点击创建后才生成实体章节，未开写的后续章仍可自由调整。"}</small></div>{acceptedPlanChapters.map((entry) => <div key={entry.chapterPlanId}><span>第 {entry.chapterNumber} 章 · {entry.publicTitle || entry.title || "未命名"}</span>{entry.chapterPlanId && <button type="button" className="secondary-button" disabled={dirty || workspace?.planLineageStatus !== "current" || boundPlanIds.has(entry.chapterPlanId)} onClick={() => void materializePlanChapter(entry.chapterPlanId!, entry.chapterNumber)}>{boundPlanIds.has(entry.chapterPlanId) ? "已创建" : "创建正文"}</button>}</div>)}</section>}
+        {acceptedPlanChapters.length > 0 && <details className="plan-materialization"><summary>已采用的章纲 · {acceptedPlanChapters.length}</summary><small>{workspace?.planLineageStatus === "stale" ? "章纲基线已过期，采用新版章纲后才能继续开写。" : "创建后才会出现可写的章节。还没开写的章可以继续改。"}</small>{acceptedPlanChapters.map((entry) => <div key={entry.chapterPlanId}><span>第 {entry.chapterNumber} 章 · {entry.publicTitle || entry.title || "未命名"}</span>{entry.chapterPlanId && <button type="button" className="secondary-button" disabled={dirty || workspace?.planLineageStatus !== "current" || boundPlanIds.has(entry.chapterPlanId)} onClick={() => void materializePlanChapter(entry.chapterPlanId!, entry.chapterNumber)}>{boundPlanIds.has(entry.chapterPlanId) ? "已创建" : "创建正文"}</button>}</div>)}</details>}
         {plans.map((item, index) => <div className="plan-editor-card" data-planning-node-id={item.chapterPlanId ?? item.id} key={item.id}>
-          <span className="plan-number">第 <input aria-label={`第 ${item.chapterNumber} 章序号`} type="number" min="1" value={item.chapterNumber} onChange={(event) => updatePlan(index, { chapterNumber: Number(event.target.value) })} /> 章</span>
-          <input aria-label={`第 ${item.chapterNumber} 章标题`} placeholder="章节标题" value={item.title} onChange={(event) => updatePlan(index, { title: event.target.value })} />
-          <textarea aria-label={`第 ${item.chapterNumber} 章目标`} placeholder="本章目标" value={item.goal} onChange={(event) => updatePlan(index, { goal: event.target.value })} />
-          <input aria-label={`第 ${item.chapterNumber} 章核心冲突`} placeholder="核心冲突" value={item.conflict} onChange={(event) => updatePlan(index, { conflict: event.target.value })} />
-          <input aria-label={`第 ${item.chapterNumber} 章公开标题`} placeholder="提供给正文写作者的公开标题（可留空）" value={item.publicTitle ?? ""} onChange={(event) => updatePlan(index, { publicTitle: event.target.value })} />
-          <textarea aria-label={`第 ${item.chapterNumber} 章写作指引`} placeholder="提供给正文写作者的公开指引" value={item.writerGuidance ?? ""} onChange={(event) => updatePlan(index, { writerGuidance: event.target.value })} />
-          <input aria-label={`第 ${item.chapterNumber} 章公开承诺`} placeholder="必须兑现的安排，以分号分隔" value={(item.publicCommitments ?? []).join("；")} onChange={(event) => updatePlan(index, { publicCommitments: event.target.value.split(/[；;]/).map((value) => value.trim()).filter(Boolean) })} />
-          <input aria-label={`第 ${item.chapterNumber} 章创作余地`} placeholder="允许自由发挥的空间，以分号分隔" value={(item.allowances ?? []).join("；")} onChange={(event) => updatePlan(index, { allowances: event.target.value.split(/[；;]/).map((value) => value.trim()).filter(Boolean) })} />
-          {outlineForPlan && <label><span>服务的上级规划</span><select value={item.primaryNodeId} onChange={(event) => updatePlan(index, { primaryNodeId: event.target.value })}><option value="">请选择全书／卷／单元</option>{(outlineForPlan.payload.nodes as OutlineNode[]).map((node) => <option key={node.id} value={node.id}>{node.id ? outlinePaths.get(node.id) : undefined}</option>)}</select></label>}
-          <details className="plan-advanced"><summary>高级详情 · 事实依赖与 Writer 视角</summary><label><span>依赖事实键</span><input aria-label={`第 ${item.chapterNumber} 章依赖事实`} placeholder="以逗号分隔" value={item.dependencyKeys} onChange={(event) => updatePlan(index, { dependencyKeys: event.target.value })} /></label><label><span>视角人物</span><select aria-label={`第 ${item.chapterNumber} 章视角人物`} value={item.povCharacterId ?? ""} onChange={(event) => updatePlan(index, { povCharacterId: event.target.value || null })}><option value="">未指定</option>{item.povCharacterId && !state.canon.characters.some((character) => character.id === item.povCharacterId) && <option value={item.povCharacterId}>未知角色 · {item.povCharacterId}</option>}{state.canon.characters.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.role}</option>)}</select></label>{item.povCharacterId && <small>稳定 ID：{item.povCharacterId}</small>}</details>
-          <label><span>故事时间</span><input aria-label={`第 ${item.chapterNumber} 章故事时间`} type="number" min="0" placeholder="未指定" value={item.storyTime ?? ""} onChange={(event) => updatePlan(index, { storyTime: event.target.value === "" ? null : Number(event.target.value) })} /></label>
-          <label className="plan-lock"><input type="checkbox" checked={item.locked === true} onChange={(event) => updatePlan(index, { locked: event.target.checked })} /><span>锁定本章安排</span></label>
-          <aside className="writer-projection" aria-label={`第 ${item.chapterNumber} 章 Writer 公开预览`}><strong>Writer 将看到</strong><span>{item.publicTitle || "（无公开标题）"}</span><p>{item.writerGuidance || "（无公开写作指引）"}</p><small>{(item.publicCommitments ?? []).length > 0 ? `公开承诺：${item.publicCommitments?.join("；")}` : "无公开承诺"}</small></aside>
-          {(item.scenes?.length ?? 0) > 0 && <div className="plan-scenes"><strong>Scene / Beat（稳定 ID 与锁定状态随候选保留）</strong>{item.scenes?.map((scene) => <article key={scene.id}><div><b>{scene.title || scene.id}</b>{scene.locked && <span>已锁定</span>}</div><p>{scene.goal}</p>{scene.beats.map((beat) => <small key={beat.id}>· {beat.description}{beat.locked ? " · 已锁定" : ""}</small>)}</article>)}</div>}
+          <div className="plan-card-head">
+            <span className="plan-number">第 <input aria-label={`第 ${item.chapterNumber} 章序号`} type="number" min="1" value={item.chapterNumber} onChange={(event) => updatePlan(index, { chapterNumber: Number(event.target.value) })} /> 章</span>
+            <input className="plan-title" aria-label={`第 ${item.chapterNumber} 章标题`} placeholder="章节标题" value={item.title} onChange={(event) => updatePlan(index, { title: event.target.value })} />
+            <label className="plan-lock"><input type="checkbox" checked={item.locked === true} onChange={(event) => updatePlan(index, { locked: event.target.checked })} /><span>锁定</span></label>
+          </div>
+          <label className="plan-field"><span>本章目标</span><textarea aria-label={`第 ${item.chapterNumber} 章目标`} placeholder="这一章要完成什么" value={item.goal} onChange={(event) => updatePlan(index, { goal: event.target.value })} /></label>
+          <label className="plan-field"><span>核心冲突</span><input aria-label={`第 ${item.chapterNumber} 章核心冲突`} placeholder="谁和什么对着干" value={item.conflict} onChange={(event) => updatePlan(index, { conflict: event.target.value })} /></label>
+          <label className="plan-field"><span>正文标题</span><input aria-label={`第 ${item.chapterNumber} 章公开标题`} placeholder="写正文时使用的标题，可留空" value={item.publicTitle ?? ""} onChange={(event) => updatePlan(index, { publicTitle: event.target.value })} /></label>
+          <label className="plan-field"><span>给正文的指引</span><textarea aria-label={`第 ${item.chapterNumber} 章写作指引`} placeholder="写这一章时需要知道的安排" value={item.writerGuidance ?? ""} onChange={(event) => updatePlan(index, { writerGuidance: event.target.value })} /></label>
+          <details className="plan-advanced"><summary>承诺、余地和依据</summary>
+            <label><span>必须兑现</span><input aria-label={`第 ${item.chapterNumber} 章公开承诺`} placeholder="以分号分隔" value={(item.publicCommitments ?? []).join("；")} onChange={(event) => updatePlan(index, { publicCommitments: event.target.value.split(/[；;]/).map((value) => value.trim()).filter(Boolean) })} /></label>
+            <label><span>可以自由发挥</span><input aria-label={`第 ${item.chapterNumber} 章创作余地`} placeholder="以分号分隔" value={(item.allowances ?? []).join("；")} onChange={(event) => updatePlan(index, { allowances: event.target.value.split(/[；;]/).map((value) => value.trim()).filter(Boolean) })} /></label>
+            {outlineForPlan && <label><span>服务的上级规划</span><select value={item.primaryNodeId} onChange={(event) => updatePlan(index, { primaryNodeId: event.target.value })}><option value="">请选择全书／卷／单元</option>{(outlineForPlan.payload.nodes as OutlineNode[]).map((node) => <option key={node.id} value={node.id}>{node.id ? outlinePaths.get(node.id) : undefined}</option>)}</select></label>}
+            <label><span>故事时间</span><input aria-label={`第 ${item.chapterNumber} 章故事时间`} type="number" min="0" placeholder="未指定" value={item.storyTime ?? ""} onChange={(event) => updatePlan(index, { storyTime: event.target.value === "" ? null : Number(event.target.value) })} /></label>
+            <label><span>依赖事实键</span><input aria-label={`第 ${item.chapterNumber} 章依赖事实`} placeholder="以逗号分隔" value={item.dependencyKeys} onChange={(event) => updatePlan(index, { dependencyKeys: event.target.value })} /></label>
+            <label><span>视角人物</span><select aria-label={`第 ${item.chapterNumber} 章视角人物`} value={item.povCharacterId ?? ""} onChange={(event) => updatePlan(index, { povCharacterId: event.target.value || null })}><option value="">未指定</option>{item.povCharacterId && !state.canon.characters.some((character) => character.id === item.povCharacterId) && <option value={item.povCharacterId}>未知角色 · {item.povCharacterId}</option>}{state.canon.characters.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.role}</option>)}</select></label>
+            {item.povCharacterId && <small>稳定 ID：{item.povCharacterId}</small>}
+          </details>
+          <details className="plan-writer-note"><summary>写正文时会看到</summary><div aria-label={`第 ${item.chapterNumber} 章正文可见内容`}><span>{item.publicTitle || "（无公开标题）"}</span><p>{item.writerGuidance || "（无公开写作指引）"}</p><small>{(item.publicCommitments ?? []).length > 0 ? `公开承诺：${item.publicCommitments?.join("；")}` : "无公开承诺"}</small></div></details>
+          {(item.scenes?.length ?? 0) > 0 && <div className="plan-scenes"><strong>场景与节拍</strong>{item.scenes?.map((scene) => <article key={scene.id}><div><b>{scene.title || scene.id}</b>{scene.locked && <span>已锁定</span>}</div><p>{scene.goal}</p>{scene.beats.map((beat) => <small key={beat.id}>· {beat.description}{beat.locked ? " · 已锁定" : ""}</small>)}</article>)}</div>}
         </div>)}
         <button className="text-button" type="button" onClick={() => { setPlans((rows) => [...rows, newPlanRow((rows.at(-1)?.chapterNumber ?? 0) + 1)]); setDirty(true); }}>＋ 添加下一章</button>
       </fieldset>}
+      {viewKind !== "draft" && <section className="planning-intent-card">
+        <label className="sr-only" htmlFor="planning-intent">本轮要改什么</label>
+        <textarea id="planning-intent" aria-label="规划生成意图" value={planningIntent} placeholder="这一轮想调整什么……" onChange={(event) => setPlanningIntent(event.target.value)} disabled={busy || agentRunning} />
+        {planningIntentSeed.trim() && <small>已带入最近一次构想。</small>}
+        {planningInputError && <p role="alert">{planningInputError}</p>}
+        <button className="primary-button" disabled={busy || agentRunning || dirty || artifactLocked || !agentAvailable || !planningPrompt || Boolean(planningInputError)} title={!agentAvailable ? "请先配置可用模型" : agentRunning ? "当前已有 Agent 任务正在执行" : dirty ? "请先保存当前修改" : "生成一份可审阅的规划，不会直接覆盖已采用的版本"} onClick={() => onGeneratePlanning(view === "brief" ? "generateBrief" : view === "outline" ? "generateOutline" : "generatePlan", planningPrompt)}>生成</button>
+        {latestPlanningTask && <GenerationTaskStatus task={latestPlanningTask} outputName="规划稿" />}
+      </section>}
       {(view === "outline" || view === "plans") && <PlanningReviewPanel
         key={view}
         runs={workspace?.planningReviews ?? []}
@@ -1067,25 +1123,25 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
         onCancel={onCancelPlanningReview}
       />}
       {view === "chapters" && (selectedChapter ? <div className="draft-workspace">
-        <nav className="chapter-strip" aria-label="章节">{state.novelEdition.chapters.map((chapter) => <button disabled={draftInteractionLocked} aria-current={chapter.id === selectedChapter.id ? "page" : undefined} className={chapter.id === selectedChapter.id ? "active" : ""} key={chapter.id} onClick={() => onSelectChapter(chapter)}><span>{String(chapter.number).padStart(2, "0")}</span>{chapter.title}</button>)}</nav>
+        <ChapterSwitcher chapters={state.novelEdition.chapters} selectedId={selectedChapter.id} disabled={draftInteractionLocked} onSelect={onSelectChapter} />
         <div className="draft-main-column">
         <DraftSceneEditor scenes={draftSceneRows} lockedIds={lockedSceneGroups} disabled={draftInteractionLocked} firstEditorRef={draftEditorRef} onChange={(scenes) => { setDraftSceneRows(scenes); dirtyRef.current = true; setDirty(true); }} />
         {draftInteractionLocked && <small role="status">{busy ? `${busyAction}完成后可继续编辑。` : "生成期间正文已锁定；停止或完成后可继续编辑。"}</small>}
-        <section className="writer-runtime-preview"><div><span className="creative-kicker">本次创作依据</span><strong>{writerPreview?.planningContext?.chapter?.publicTitle || "无公开标题"}</strong><small>{writerPreview?.planningContext?.lineageStatus === "working" ? "使用作者选定的工作规划" : writerPreview?.planningContext?.lineageStatus === "historical" ? "使用本章绑定的历史规划快照" : writerPreview?.planningContext ? "使用当前正式规划" : "无规划指导"}</small></div><p>{writerPreview?.planningContext?.chapter?.writerGuidance || "未提供公开写作指引；内部目标不会自动发送给 Writer。"}</p>{(writerPreview?.planningContext?.outlinePath ?? []).length > 0 && <small>公开路径：{writerPreview?.planningContext?.outlinePath.map((node) => node.publicTitle || "无公开标题").join(" → ")}</small>}<small>{(writerPreview?.planningContext?.chapter?.publicCommitments ?? []).length > 0 ? `公开承诺：${writerPreview?.planningContext?.chapter?.publicCommitments?.join("；")}` : "无公开承诺"} · POV：{writerPreview?.povCharacterId || "未指定"} · 范围：整章 · 故事时间：{writerPreview?.storyTime ?? "未指定"}</small>{previewTargetSource && <small>本次目标稿：第 {previewTargetSource.chapterNumber} 章 · {previewTargetSource.sourceRole === "workingSelected" ? "作者选定工作稿" : "正式稿"}</small>}{previewReferenceSources.length > 0 ? <details><summary>参考前文 · {previewReferenceSources.length} 项</summary>{previewReferenceSources.map((source) => <small key={source.draftRevisionId}>第 {source.chapterNumber} 章 · {source.sourceRole === "workingSelected" ? "作者选定工作稿" : "正式稿"}{source.truncated ? " · 已截取" : ""}</small>)}</details> : <small>未使用前文章节</small>}<small>上下文：{writerPreview?.contextBudget.usedBytes ?? 0}/{writerPreview?.contextBudget.maxBytes ?? 0} bytes{writerPreview?.contextBudget.truncated ? " · 已截断" : ""} · 事实遗漏：{writerPreview?.omissions.factCount ?? 0}{writerPreview?.sourceFingerprint ? ` · 依据 ${writerPreview.sourceFingerprint.slice(0, 10)}` : ""}</small></section>
         <section className="chapter-generation-card" aria-busy={generating}>
-          <div><span className="creative-kicker">GENERATE CHAPTER</span><h3>生成第 {selectedChapter.number} 章 · {selectedChapter.title}</h3><p>任务会固定绑定当前章节。模型回复结束但没有保存有效草稿时，任务会显示为未完成。</p><small className="planning-basis">本章依据：{chapterPlan ? `${chapterPlan.primaryNodeId && outlinePaths.get(chapterPlan.primaryNodeId) ? `${outlinePaths.get(chapterPlan.primaryNodeId)} → ` : ""}第 ${chapterPlan.chapterNumber} 章 · ${chapterPlan.publicTitle || "未命名章纲"}` : "独立章节（localOnly），尚未关联正式章纲"}</small></div>
-          <textarea aria-label={`第 ${selectedChapter.number} 章创作意图`} value={generationIntent} onChange={(event) => setGenerationIntent(event.target.value)} disabled={draftInteractionLocked} />
+          <label className="sr-only" htmlFor={`chapter-intent-${selectedChapter.id}`}>续写这一章</label>
+          <textarea id={`chapter-intent-${selectedChapter.id}`} aria-label={`第 ${selectedChapter.number} 章创作意图`} placeholder="这一章接下来要发生什么……" value={generationIntent} onChange={(event) => setGenerationIntent(event.target.value)} disabled={draftInteractionLocked} />
           {chapterInputError && <p role="alert">{chapterInputError}</p>}
           {!hasPublicWriterGuidance && <small className="planning-basis">当前没有公开规划指导；将按作者意图与已选工作来源创作。</small>}
-          <button className="primary-button" disabled={draftInteractionLocked || !generationIntent.trim() || Boolean(chapterInputError)} title={agentRunning ? "当前已有 Agent 任务正在执行" : !agentAvailable ? "会先保留工作稿与意图；配置模型后可再次继续" : undefined} onClick={() => void generateSelectedChapter()}>{busy ? "正在保存…" : draftInteractionLocked ? "正在生成并保存…" : "保留并按此意图继续"}</button>
-          {latestChapterTask && latestTaskStatus && <GenerationTaskStatus task={latestChapterTask} outputName="正文检查点" />}
+          <button className="primary-button" disabled={draftInteractionLocked || !generationIntent.trim() || Boolean(chapterInputError)} title={agentRunning ? "当前已有 Agent 任务正在执行" : !agentAvailable ? "会先保存这一章；配置模型后可再次继续" : undefined} onClick={() => void generateSelectedChapter()}>{busy ? "正在保存…" : draftInteractionLocked ? "正在生成并保存…" : "保留并按此意图继续"}</button>
+          {latestChapterTask && latestTaskStatus && <GenerationTaskStatus task={latestChapterTask} outputName="本章正文" />}
         </section>
-        {!chapterPlan && <section className="standalone-planning-card"><div><strong>这是独立章节</strong><small>保持独立不会伪造大纲来源；也可以关联同章号且尚未开写的正式章纲。</small></div>{availableAssociationPlans.length > 0 ? <><select disabled={draftInteractionLocked} aria-label="可关联的正式章纲" value={associationPlanId} onChange={(event) => setAssociationPlanId(event.target.value)}>{availableAssociationPlans.map((entry) => <option key={entry.chapterPlanId} value={entry.chapterPlanId}>{entry.publicTitle || entry.title || `第 ${entry.chapterNumber} 章章纲`}</option>)}</select><button className="secondary-button" disabled={busy || draftInteractionLocked || dirty || !associationPlanId} onClick={() => void associateChapterPlan()}>关联章纲</button></> : <button className="secondary-button" disabled={draftInteractionLocked} onClick={() => onOpenPlanningTarget("plan")}>从正文建立章纲</button>}{workspaceChapter?.candidate && <small>关联会推进作品版本，并使当前候选的旧审阅失效；草稿检查点仍会保留。</small>}</section>}
-        {draftSceneRows.length > 0 && <fieldset className="scene-lock-editor" disabled={draftInteractionLocked}><legend>场景保护</legend>{draftSceneRows.map((group, index) => <label key={group.id}><input type="checkbox" checked={lockedSceneGroups.includes(group.id)} onChange={(event) => { setLockedSceneGroups((current) => event.target.checked ? [...new Set([...current, group.id])] : current.filter((id) => id !== group.id)); setDirty(true); }} /><span><strong>场景 {index + 1}</strong><small>{group.body.slice(0, 72)}</small></span></label>)}</fieldset>}
-        {lockedDraftConflict && <div className="creative-alert warning">锁定场景的正文已变化。请先恢复正文，只提交一次“取消保护”，采用后再修改。</div>}
-        <fieldset className="fact-proposal-form" disabled={draftInteractionLocked || dirty || !candidateId}>
-          <h3>本章新事实（可选）</h3>
-          <small>事实的主体、值和认知状态会原样进入 Canon，请按正文实际含义填写。</small>
+        <details className="writer-runtime-preview"><summary>本次创作依据 · {chapterPlan ? `第 ${chapterPlan.chapterNumber} 章${chapterPlan.publicTitle ? ` · ${chapterPlan.publicTitle}` : ""}` : "独立章节"}</summary><div><strong>{writerPreview?.planningContext?.chapter?.publicTitle || "无公开标题"}</strong><small>{writerPreview?.planningContext?.lineageStatus === "working" ? "使用作者选定的工作规划" : writerPreview?.planningContext?.lineageStatus === "historical" ? "使用本章绑定的历史规划快照" : writerPreview?.planningContext ? "使用当前正式规划" : "无规划指导"}</small></div><p>{writerPreview?.planningContext?.chapter?.writerGuidance || "还没有给正文的公开写作指引。内部目标不会发给正文。"}</p>{(writerPreview?.planningContext?.outlinePath ?? []).length > 0 && <small>公开路径：{writerPreview?.planningContext?.outlinePath.map((node) => node.publicTitle || "无公开标题").join(" → ")}</small>}<small>{(writerPreview?.planningContext?.chapter?.publicCommitments ?? []).length > 0 ? `公开承诺：${writerPreview?.planningContext?.chapter?.publicCommitments?.join("；")}` : "无公开承诺"} · 视角：{writerPreview?.povCharacterId || "未指定"} · 范围：整章 · 故事时间：{writerPreview?.storyTime ?? "未指定"}</small>{previewTargetSource && <small>本次目标稿：第 {previewTargetSource.chapterNumber} 章 · {previewTargetSource.sourceRole === "workingSelected" ? "作者选定工作稿" : "正式稿"}</small>}{previewReferenceSources.length > 0 ? <details><summary>参考前文 · {previewReferenceSources.length} 项</summary>{previewReferenceSources.map((source) => <small key={source.draftRevisionId}>第 {source.chapterNumber} 章 · {source.sourceRole === "workingSelected" ? "作者选定工作稿" : "正式稿"}{source.truncated ? " · 已截取" : ""}</small>)}</details> : <small>未使用前文章节</small>}<small>上下文{writerPreview?.contextBudget.truncated ? "已截取" : "完整"} · 未带入事实 {writerPreview?.omissions.factCount ?? 0} 条</small></details>
+        {!chapterPlan && <section className="standalone-planning-card"><div><strong>这是独立章节</strong><small>保持独立不会伪造大纲来源；也可以关联同章号且尚未开写的正式章纲。</small></div>{availableAssociationPlans.length > 0 ? <><select disabled={draftInteractionLocked} aria-label="可关联的正式章纲" value={associationPlanId} onChange={(event) => setAssociationPlanId(event.target.value)}>{availableAssociationPlans.map((entry) => <option key={entry.chapterPlanId} value={entry.chapterPlanId}>{entry.publicTitle || entry.title || `第 ${entry.chapterNumber} 章章纲`}</option>)}</select><button className="secondary-button" disabled={busy || draftInteractionLocked || dirty || !associationPlanId} onClick={() => void associateChapterPlan()}>关联章纲</button></> : <button className="secondary-button" disabled={draftInteractionLocked} onClick={() => onOpenPlanningTarget("plan")}>从正文建立章纲</button>}{workspaceChapter?.candidate && <small>关联会推进作品版本；已写的正文仍会保留。</small>}</section>}
+        {draftSceneRows.length > 0 && <details className="chapter-extra"><summary>场景保护</summary><fieldset className="scene-lock-editor" disabled={draftInteractionLocked}><legend className="sr-only">场景保护</legend>{draftSceneRows.map((group, index) => <label key={group.id}><input type="checkbox" checked={lockedSceneGroups.includes(group.id)} onChange={(event) => { setLockedSceneGroups((current) => event.target.checked ? [...new Set([...current, group.id])] : current.filter((id) => id !== group.id)); setDirty(true); }} /><span><strong>场景 {index + 1}</strong><small>{group.body.slice(0, 72)}</small></span></label>)}</fieldset></details>}
+        {lockedDraftConflict && <div className="creative-alert warning">锁定场景的正文已变化。请先恢复正文，只提交一次“取消保护”，保存后再修改。</div>}
+        <details className="chapter-extra"><summary>记录本章新事实</summary><fieldset className="fact-proposal-form" disabled={draftInteractionLocked || dirty || !candidateId}>
+          <h3 className="sr-only">本章新事实</h3>
+          <small>保存这一章时，填写完整的事实会一起写入故事设定。</small>
           {(workspaceChapter?.candidate?.sceneGroups.length ?? 0) > 1 && <label><span>来源场景</span><select value={factSceneGroupId} onChange={(event) => { setFactSceneGroupId(event.target.value); markReviewDirty(); }}>{workspaceChapter?.candidate?.sceneGroups.map((group, index) => <option key={group.id} value={group.id}>场景 {index + 1}</option>)}</select></label>}
           <label><span>事实种类</span><select value={factKind} onChange={(event) => { setFactKind(event.target.value as FactKind); markReviewDirty(); }}><option value="world">世界事实</option><option value="reader">读者已知</option><option value="character">人物认知</option><option value="author-secret">作者秘密</option></select></label>
           <label><span>主体 ID（可选）</span><input value={factSubjectId} onChange={(event) => { setFactSubjectId(event.target.value); markReviewDirty(); }} placeholder="例如：linxi" /></label>
@@ -1094,16 +1150,16 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
           <label><span>认知状态</span><select value={factEpistemicState} onChange={(event) => { setFactEpistemicState(event.target.value as EpistemicState); markReviewDirty(); }}><option value="unknown">未知</option><option value="suspected">怀疑</option><option value="known">已知</option><option value="false">已证伪</option></select></label>
           <label><span>认知持有者 ID（可选）</span><input value={factEpistemicOwnerId} onChange={(event) => { setFactEpistemicOwnerId(event.target.value); markReviewDirty(); }} placeholder="人物认知由谁持有" /></label>
           <label><span>正文证据</span><input value={factEvidence} onChange={(event) => { setFactEvidence(event.target.value); markReviewDirty(); }} placeholder="引用支持该事实的正文" /></label>
-        </fieldset>
+        </fieldset></details>
         </div>
-      </div> : <div className="empty-chapter-editor"><div><h3>直接写章</h3><p>先创建一个独立章节，再手写或让 Codex 生成。它不会伪造上级规划，之后可再关联章纲。</p></div><label><span>章节标题</span><input disabled={agentRunning} value={newChapterTitle} onChange={(event) => setNewChapterTitle(event.target.value)} /></label><button className="primary-button" disabled={busy || agentRunning || !newChapterTitle.trim()} onClick={() => void materializeStandalone()}>创建独立章节</button></div>)}
+      </div> : <div className="empty-chapter-editor"><div><h3>直接写章</h3><p>先创建一个独立章节，再手写或让引擎续写。它不会伪造上级规划，之后可再关联章纲。</p></div><label><span>章节标题</span><input disabled={agentRunning} value={newChapterTitle} onChange={(event) => setNewChapterTitle(event.target.value)} /></label><button className="primary-button" disabled={busy || agentRunning || !newChapterTitle.trim()} onClick={() => void materializeStandalone()}>创建独立章节</button></div>)}
 
-      <div className="candidate-toolbar"><div><strong>{artifactLocked ? "正式版本已锁定" : dirty ? "有未保存正文修改" : reviewDirty ? "审阅决定已保存在本地，尚未提交" : workingRevision ? `已选用 v${workingRevision.version} 作为后续依据` : "当前内容已与候选同步"}</strong><span>候选不会直接修改正式 Canon、大纲、规划或正文。</span></div><button className="secondary-button" disabled={busy || draftInteractionLocked || artifactLocked || lockedDraftConflict || (view === "chapters" && !draft.trim())} onClick={() => void saveCurrent()}>保存候选</button><button className="secondary-button" aria-pressed={candidateIsWorking} disabled={busy || draftInteractionLocked || dirty || !candidateId} onClick={() => void toggleWorkingBaseline()}>{candidateIsWorking ? "取消用于后续创作" : workingRevision ? "改用当前候选" : "用于后续创作"}</button>{workingRevision && !candidateIsWorking && <button className="secondary-button" disabled={busy || draftInteractionLocked || dirty} onClick={() => void clearWorkingBaseline()}>取消选用 v{workingRevision.version}</button>}<button className="primary-button" disabled={busy || draftInteractionLocked || artifactLocked || dirty || !candidateId} onClick={() => void enterReview()}>进入审阅</button></div>
+      {view === "chapters" ? <div className="candidate-toolbar"><div><strong>{dirty ? "这一章还有未保存的修改" : "正在写这一章"}</strong></div><button className="primary-button" disabled={busy || draftInteractionLocked || lockedDraftConflict || !draft.trim()} onClick={() => void saveCurrent()}>保存章节</button></div> : <div className="candidate-toolbar"><div><strong>{artifactLocked ? "已锁定" : dirty ? "还有未保存的修改" : workingRevision ? `后续依据 v${workingRevision.version}` : "尚未采用"}</strong></div><button className="text-button" aria-pressed={candidateIsWorking} disabled={busy || draftInteractionLocked || dirty || !candidateId} onClick={() => void toggleWorkingBaseline()}>{candidateIsWorking ? "取消后续依据" : "用作后续依据"}</button>{workingRevision && !candidateIsWorking && <button className="text-button" disabled={busy || draftInteractionLocked || dirty} onClick={() => void clearWorkingBaseline()}>取消 v{workingRevision.version}</button>}<button className="secondary-button" disabled={busy || draftInteractionLocked || artifactLocked || lockedDraftConflict} onClick={() => void saveCurrent()}>保存</button><button className="primary-button" disabled={busy || draftInteractionLocked || artifactLocked || dirty || !candidateId} onClick={() => void enterReview()}>进入审阅</button></div>}
 
-      {candidateId && <section className="revision-compare"><RevisionPane title="正式版本" revision={viewKind === "draft" ? workspaceChapter?.accepted : artifact?.accepted} /><RevisionPane title="候选版本" revision={viewKind === "draft" ? workspaceChapter?.candidate : artifact?.candidate} /></section>}
+      {candidateId && view !== "chapters" && <details className="planning-compare"><summary>对照已采用的版本</summary><section className="revision-compare"><RevisionPane title="已采用" revision={artifact?.accepted} /><RevisionPane title="当前稿" revision={artifact?.candidate} /></section></details>}
 
-      {currentReview && <section className="review-panel" ref={reviewRef} tabIndex={-1}>
-        <div><span className="creative-kicker">REVIEW</span><h3>采用前检查</h3></div>
+      {currentReview && view !== "chapters" && <section className="review-panel" ref={reviewRef} tabIndex={-1}>
+        <div><span className="creative-kicker">审阅</span><h3>采用前检查</h3></div>
         {currentReview.checks.map((check) => {
           const selectionAware = viewKind === "draft" && !check.passed && (check.id === "fact-evidence" || check.id === "fact-evidence-anchor");
           const passed = selectionAware
@@ -1113,7 +1169,7 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
           return <div className={`review-check ${pending ? "pending" : passed ? "passed" : "failed"}`} key={check.id}><span>{pending ? "…" : passed ? "✓" : "!"}</span>{check.message}{selectionAware ? "；当前只检查将采用的已确认事实" : ""}</div>;
         })}
         {viewKind === "draft" && <fieldset className="scene-selection" disabled={draftInteractionLocked}><legend>选择要采用的场景</legend>{workspaceChapter?.candidate?.sceneGroups.map((group, index) => <label key={group.id}><input type="checkbox" checked={selectedSceneGroups.includes(group.id)} onChange={(event) => { setSelectedSceneGroups((current) => event.target.checked ? [...new Set([...current, group.id])] : current.filter((id) => id !== group.id)); markReviewDirty(); }} /><span><strong>场景 {index + 1}</strong><small>{group.body.slice(0, 120) || "空场景"}</small></span></label>)}</fieldset>}
-        {viewKind === "draft" && reviewFacts.length === 0 && <label className="no-fact-decision"><input type="checkbox" disabled={draftInteractionLocked} checked={noConfirmedChanges} onChange={(event) => { setNoConfirmedChanges(event.target.checked); markReviewDirty(); }} /><span><strong>本章没有要确认的变化</strong><small>我已检查正文，本次采用不写入新的 Canon 事实。</small></span></label>}
+        {viewKind === "draft" && reviewFacts.length === 0 && <label className="no-fact-decision"><input type="checkbox" disabled={draftInteractionLocked} checked={noConfirmedChanges} onChange={(event) => { setNoConfirmedChanges(event.target.checked); markReviewDirty(); }} /><span><strong>本章没有要确认的变化</strong><small>我已检查正文，本次采用不写入新的故事事实。</small></span></label>}
         {reviewFacts.map((fact) => {
           const sceneSelected = selectedSceneGroups.includes(fact.sceneGroupId);
           const factImpacts = provisionalImpacts.filter((impact) => impact.factProposalId === fact.id);
@@ -1122,7 +1178,7 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
           const selectedManualTargets = planningTargets.filter((target) => (factDependencyTargets[fact.id] ?? []).includes(target.key));
           const confirmed = sceneSelected && factDecisions[fact.id] === "confirmed";
           return <article className={`fact-review-card ${sceneSelected ? "" : "disabled"}`} key={fact.id}>
-            <header><div><small>{fact.source === "agent" ? "Codex 建议" : "作者新增"} · {factKindLabel(fact.factKind)}</small><strong>{fact.predicate}</strong><small>主体：{fact.subjectId || "无"} · 值：{formatFactValue(fact.value)}</small><small>认知状态：{epistemicStateLabel(fact.epistemicState)} · 持有者：{fact.epistemicOwnerId || "无"}</small><p>{fact.evidence}</p><small>{sceneSelected ? "证据来自本次采用场景" : "所属场景未选择，不会写入正式事实"}</small></div><select disabled={!sceneSelected || draftInteractionLocked} aria-label={`${fact.predicate} 的审阅结论`} value={sceneSelected ? factDecisions[fact.id] ?? "" : "rejected"} onChange={(event) => { setFactDecisions((current) => ({ ...current, [fact.id]: event.target.value as "confirmed" | "rejected" })); markReviewDirty(); }}><option value="">请选择</option><option value="confirmed">确认事实</option><option value="rejected">拒绝</option></select></header>
+            <header><div><small>{fact.source === "agent" ? "引擎建议" : "作者新增"} · {factKindLabel(fact.factKind)}</small><strong>{fact.predicate}</strong><small>主体：{fact.subjectId || "无"} · 值：{formatFactValue(fact.value)}</small><small>认知状态：{epistemicStateLabel(fact.epistemicState)} · 持有者：{fact.epistemicOwnerId || "无"}</small><p>{fact.evidence}</p><small>{sceneSelected ? "证据来自本次采用场景" : "所属场景未选择，不会写入正式事实"}</small></div><select disabled={!sceneSelected || draftInteractionLocked} aria-label={`${fact.predicate} 的审阅结论`} value={sceneSelected ? factDecisions[fact.id] ?? "" : "rejected"} onChange={(event) => { setFactDecisions((current) => ({ ...current, [fact.id]: event.target.value as "confirmed" | "rejected" })); markReviewDirty(); }}><option value="">请选择</option><option value="confirmed">确认事实</option><option value="rejected">拒绝</option></select></header>
             {factImpacts.length > 0 && <div className="provisional-impact-list"><strong>采用前影响预览</strong>{factImpacts.map((impact) => { const target = planningTargets.find((item) => item.kind === impact.targetArtifactKind && item.nodeId === impact.targetNodeId); const pathLabel = target?.label ?? impact.targetLabel; return <div className={`provisional-impact ${impact.severity}`} key={impact.id}><div><span>{impact.targetArtifactKind === "outline" ? "大纲" : "章纲"} · {pathLabel}</span>{target?.protected && <small>原安排：{target.currentArrangement}</small>}<small>正文变化：{impact.predicate}；证据：{impact.evidence || "未提供"}</small><small>影响范围：{pathLabel} · {impact.severity === "locked-conflict" ? "受保护，必须先决定" : "将创建待处理规划反馈"} · 自动匹配依赖</small></div>{confirmed && impact.severity === "locked-conflict" && <DirectionDecisionEditor disabled={draftInteractionLocked} value={directionChangeDecisions[impact.id]} onChange={(value) => { setDirectionChangeDecisions((current) => ({ ...current, [impact.id]: value })); markReviewDirty(); }} />}</div>; })}</div>}
             {supplementaryTargets.length > 0 && <fieldset className="manual-fact-link" disabled={!confirmed || draftInteractionLocked}><legend>补充关联遗漏的正式规划（可多选）</legend>{supplementaryTargets.map((target) => <label key={target.key}><input type="checkbox" checked={(factDependencyTargets[fact.id] ?? []).includes(target.key)} onChange={(event) => { setFactDependencyTargets((current) => ({ ...current, [fact.id]: event.target.checked ? [...new Set([...(current[fact.id] ?? []), target.key])] : (current[fact.id] ?? []).filter((key) => key !== target.key) })); markReviewDirty(); }} /><span>{target.kind === "outline" ? "大纲" : "章纲"} · {target.label} · {target.protectionLabel}</span></label>)}</fieldset>}
             {confirmed && selectedManualTargets.filter((target) => target.protected).map((target) => <div className="provisional-impact locked-conflict" key={target.key}><div><span>{target.label}</span><small>原安排：{target.currentArrangement}</small><small>正文变化：{fact.predicate}；证据：{fact.evidence || "未提供"}</small><small>影响范围：{target.label} · {target.protectionLabel}，必须先决定</small></div><DirectionDecisionEditor disabled={draftInteractionLocked} value={manualDirectionDecisions[manualDecisionKey(fact.id, target.key)]} onChange={(value) => { setManualDirectionDecisions((current) => ({ ...current, [manualDecisionKey(fact.id, target.key)]: value })); markReviewDirty(); }} /></div>)}
@@ -1157,6 +1213,35 @@ export function CreativeWorkspaceView({ api, projectId, view, state, selectedCha
   );
 }
 
+function ChapterSwitcher({ chapters, selectedId, disabled, onSelect }: { chapters: Chapter[]; selectedId: string; disabled: boolean; onSelect: (chapter: Chapter) => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLElement | null>(null);
+  const index = Math.max(0, chapters.findIndex((chapter) => chapter.id === selectedId));
+  const selected = chapters[index];
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  if (!selected) return null;
+  const choose = (chapter: Chapter) => {
+    setOpen(false);
+    if (chapter.id !== selected.id) onSelect(chapter);
+  };
+  return <nav className="chapter-switcher" aria-label="章节" ref={rootRef}>
+    <button type="button" className="chapter-switcher-step" disabled={disabled || index === 0} onClick={() => choose(chapters[index - 1])}>上一章</button>
+    <button type="button" className="chapter-switcher-current" aria-expanded={open} aria-haspopup="listbox" disabled={disabled} onClick={() => setOpen((value) => !value)}>
+      <span>第 {String(selected.number).padStart(2, "0")} 章</span>
+      <b>{selected.title}</b>
+    </button>
+    <button type="button" className="chapter-switcher-step" disabled={disabled || index === chapters.length - 1} onClick={() => choose(chapters[index + 1])}>下一章</button>
+    {open && <div className="chapter-switcher-menu" role="listbox" aria-label="全部章节">{chapters.map((chapter) => <button type="button" role="option" aria-selected={chapter.id === selected.id} className={chapter.id === selected.id ? "active" : ""} key={chapter.id} onClick={() => choose(chapter)}><span>{String(chapter.number).padStart(2, "0")}</span><b>{chapter.title}</b></button>)}</div>}
+  </nav>;
+}
+
 function GenerationTaskStatus({ task, outputName }: { task: CreativeTask; outputName: string }) {
   const status = generationStatusLabel(task);
   return <div className={`generation-task-status ${task.delivery_status}${status.failed ? " failed" : ""}`} role="status" aria-live="polite"><strong>{status.label}</strong><span>{task.outputRefs.length > 0 ? `已保存 ${task.outputRefs.length} 个${outputName}` : `没有保存${outputName}`}</span>{task.error && <small>{task.error}</small>}</div>;
@@ -1172,7 +1257,7 @@ function DirectionDecisionEditor({ value, onChange, disabled = false }: { value?
 }
 
 function RevisionPane({ title, revision }: { title: string; revision: { id: string; version: number; body?: string; payload?: Record<string, unknown>; source: string } | null | undefined }) {
-  return <article className="revision-pane"><header><strong>{title}</strong>{revision && <span>v{revision.version} · {revision.source === "agent" ? "Codex" : "作者"}</span>}</header>{revision ? revision.body !== undefined ? <div className="revision-prose">{revision.body.split(/\n{2,}/).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div> : <StructuredPreview value={revision.payload ?? {}} /> : <p className="muted">尚无版本</p>}</article>;
+  return <article className="revision-pane"><header><strong>{title}</strong>{revision && <span>v{revision.version} · {revision.source === "agent" ? "引擎" : "作者"}</span>}</header>{revision ? revision.body !== undefined ? <div className="revision-prose">{revision.body.split(/\n{2,}/).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div> : <StructuredPreview value={revision.payload ?? {}} /> : <p className="muted">尚无版本</p>}</article>;
 }
 
 function StructuredPreview({ value }: { value: Record<string, unknown> }) {

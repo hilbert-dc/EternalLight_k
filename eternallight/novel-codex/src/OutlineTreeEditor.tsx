@@ -60,12 +60,15 @@ export function OutlineTreeEditor({ disabled, error, focusNodeId, nodes, onChang
         <article>
           <header><span>{node.kind === "book" ? "全书" : node.kind === "volume" ? "卷" : "单元"}</span><input ref={(element) => { if (element) titleRefs.current.set(id, element); else titleRefs.current.delete(id); }} aria-label={`${node.title || "未命名节点"}标题`} aria-invalid={error?.nodeId === id || undefined} aria-describedby={error?.nodeId === id ? `outline-error-${id}` : undefined} value={node.title} onChange={(event) => update(id, { title: event.target.value })} /></header>
           {error?.nodeId === id && <p className="field-error" id={`outline-error-${id}`} role="alert">{error.message}</p>}
-          <label><span>创作目的</span><textarea value={node.purpose} onChange={(event) => update(id, { purpose: event.target.value })} /></label>
-          <label><span>给正文模型的公开指导</span><textarea value={node.writerGuidance ?? ""} onChange={(event) => update(id, { writerGuidance: event.target.value })} /></label>
-          <div className="outline-node-controls">
-            <label><span>成熟度</span><select value={node.certainty} onChange={(event) => update(id, { certainty: event.target.value as OutlineNode["certainty"] })}><option value="open">待探索</option><option value="tentative">暂定</option><option value="settled">已明确</option></select></label>
-            <label><span>保护</span><select value={node.protection} onChange={(event) => update(id, { protection: event.target.value as OutlineNode["protection"] })}><option value="free">可调整</option><option value="preserve-intent">保留意图</option><option value="preserve-arrangement">保留层级与顺序</option></select></label>
-          </div>
+          <label><span>这一段要完成什么</span><textarea value={node.purpose} onChange={(event) => update(id, { purpose: event.target.value })} placeholder="这一段在故事里做什么" /></label>
+          <details className="outline-node-extra">
+            <summary>给正文的指引和保护</summary>
+            <label><span>给正文的指引</span><textarea value={node.writerGuidance ?? ""} onChange={(event) => update(id, { writerGuidance: event.target.value })} placeholder="写到这里时需要知道的安排" /></label>
+            <div className="outline-node-controls">
+              <label><span>成熟度</span><select value={node.certainty} onChange={(event) => update(id, { certainty: event.target.value as OutlineNode["certainty"] })}><option value="open">待探索</option><option value="tentative">暂定</option><option value="settled">已明确</option></select></label>
+              <label><span>保护</span><select value={node.protection} onChange={(event) => update(id, { protection: event.target.value as OutlineNode["protection"] })}><option value="free">可调整</option><option value="preserve-intent">保留意图</option><option value="preserve-arrangement">保留层级与顺序</option></select></label>
+            </div>
+          </details>
           <div className="outline-node-actions">
             {node.kind === "book" && <button type="button" onClick={() => add("volume", node)}>＋ 添加卷</button>}
             {node.kind !== "unit" && <button type="button" onClick={() => add("unit", node)}>＋ 添加单元</button>}
@@ -77,5 +80,5 @@ export function OutlineTreeEditor({ disabled, error, focusNodeId, nodes, onChang
         <ol>{render(id, depth + 1)}</ol>
       </li>;
     });
-  return <fieldset className="outline-tree-editor" disabled={disabled}><legend>全书 → 卷 → 单元（卷与单元均可跳过）</legend><ol>{render(null, 0)}</ol></fieldset>;
+  return <fieldset className="outline-tree-editor" disabled={disabled}><legend className="sr-only">全书、卷、单元</legend><ol>{render(null, 0)}</ol></fieldset>;
 }

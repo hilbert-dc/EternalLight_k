@@ -74,10 +74,6 @@ export function stageReleaseRuntime({ source, runtimeServerSource, mcpServerSour
   copyFileSync(resolve(root, "../../codex-rs/models-manager/prompt.md"), join(runtimeDestination, "engine-prompt.md"));
   cpSync(join(runtimeSource, "agents"), join(runtimeDestination, "agents"), { recursive: true });
   cpSync(join(runtimeSource, "skills"), join(runtimeDestination, "skills"), { recursive: true });
-  cpSync(join(root, "runtime"), join(resolve(destination), "runtime"), {
-    recursive: true,
-    filter: (path) => !path.includes("__pycache__") && !path.includes(`${join("runtime", "tests")}`),
-  });
   const executablePath = join(runtimeDestination, "bin", executableName);
   copyFileSync(resolve(source), executablePath);
   const buildIdentityPath = join(runtimeDestination, "build-identity.json");
@@ -130,7 +126,7 @@ export function stageReleaseRuntime({ source, runtimeServerSource, mcpServerSour
     capabilityVerifier: resolve(root, "../agent-engine/src/capabilities/verifier.mjs"),
     conformanceRunner: resolve(root, "electron/codex-conformance-runner.mjs"),
     conformanceMcp: resolve(root, "electron/conformance-mcp.mjs"),
-    operationLedger: resolve(root, "runtime/creative_workspace/operation_ledger.py"),
+    storyCore: resolve(root, "native/story-core/src"),
   };
   for (const path of Object.values(sourceFiles)) {
     if (!statSync(path).isFile() && !statSync(path).isDirectory()) throw new Error(`发布来源缺失：${path}`);
@@ -166,7 +162,7 @@ export function stageReleaseRuntime({ source, runtimeServerSource, mcpServerSour
       capabilityVerifierSha256: digest(sourceFiles.capabilityVerifier),
       conformanceRunnerSha256: digest(sourceFiles.conformanceRunner),
       conformanceMcpSha256: digest(sourceFiles.conformanceMcp),
-      operationLedgerSha256: digest(sourceFiles.operationLedger),
+      storyCoreSha256: treeDigest(sourceFiles.storyCore),
       files: null,
     },
     reports: (process.env.NOVEL_CODEX_RELEASE_REPORTS ?? "").split(",").map((value) => value.trim()).filter(Boolean),

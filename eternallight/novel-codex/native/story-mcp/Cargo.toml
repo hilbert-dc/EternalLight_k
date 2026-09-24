@@ -1,0 +1,12 @@
+[package]
+name = "novel-codex-story-mcp"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "novel-workspace-mcp"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true

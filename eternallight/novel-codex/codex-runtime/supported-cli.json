@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "modelCertificationsFile": "model-certifications-0827c9509da887fd4a16709968c54c0c1710ecbad23da8813bdd245732822bc1.json",
+  "modelCertificationsFile": "model-certifications-c8bcabd940bba281a3d418c50e7762eac794bfcef8016089d4f926702b502c2c.json",
   "appServerProtocol": "v2",
   "mcpProtocol": "2025-06-18",
   "modelCatalogSha256": "36dc40dcc139575a710c29ae4bf4c1336ab9f0c2d6eb5ed3c0e95aea8a2a7213",
-  "modelCertificationsSha256": "0827c9509da887fd4a16709968c54c0c1710ecbad23da8813bdd245732822bc1",
+  "modelCertificationsSha256": "c8bcabd940bba281a3d418c50e7762eac794bfcef8016089d4f926702b502c2c",
   "sources": {
     "bundled": {
       "packaged": true,

@@ -1,5 +1,7 @@
 # Novel Codex 当前架构
 
+> 2026-09-23：新的总体目标统一为 [Novel Codex 理想架构](IDEAL_ARCHITECTURE.md)，围绕现有独立引擎重构小说领域层。本文保留阶段性实现背景；下文旧状态不代表新目标已完成，最新领域设计与验收以总纲链接的详细方案为准。
+
 > 2026-09-20 审查后更正：下文“本地纵向闭环已落地”“唯一状态权威已明确实现”等完成判断不再有效。分层方向保留，实际预算、资格、取消、恢复与交付仍有缺口；当前状态与重构顺序见 [优化与重构方案 v3](ENGINE_REFACTOR_PLAN_V3.md)。本次仅更新方案，未修改实现。
 
 版本：0.9 · 2026-09-20（通用 Agent Engine 本地纵向闭环已落地）
@@ -46,10 +48,10 @@ Electron Main / Author Gateway
                   App Server core       │
                     │ stdio MCP         │
                     ▼                   ▼
-              candidate tools ──► Creative Runtime
+              candidate tools ──► Rust Story Runtime
                                       │
                                       ▼
-                                    SQLite
+                              Rust Story Core + SQLite
 ```
 
 - Renderer 不持有 Runtime token、API Key、Node 能力或任意文件能力。
@@ -135,7 +137,7 @@ Novel Agent Engine 的私有 App Server 内核只注册 `novel_workspace` 本地
 - `save_chapter_plans`
 - `save_draft_checkpoint`
 - `submit_fact_proposals`
-- `propose_plan_revisions`
+- `submit_planning_review_report`
 - `complete_task`
 
 所有工具都要求 `taskId + projectId + threadId + expectedRevision`（读取工具按其契约携带版本和用途）。MCP 不提供 accept、undo、lock 或任意 SQL/文件写入。
@@ -165,7 +167,7 @@ Novel Agent Engine 的私有 App Server 内核只注册 `novel_workspace` 本地
 Electron userData/
 ├── codex-home/                 # Novel Agent Engine 私有配置、线程与日志（不含桌面登录态）
 │   └── sqlite/
-└── creative-runtime/
+└── story-runtime/
     └── novel-codex-v2.sqlite3  # 当前 schema 的小说领域数据
 ```
 

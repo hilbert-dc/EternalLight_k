@@ -34,7 +34,7 @@ import { CodexCoreIntegrationRunner } from "../codex-core-integration-runner.mjs
 
 const codex = fileURLToPath(new URL("../../../../codex-rs/target/debug/codex", import.meta.url));
 const mcpServer = fileURLToPath(new URL("./fixture-mcp-server.mjs", import.meta.url));
-const novelMcpServer = fileURLToPath(new URL("../../runtime/mcp_server.py", import.meta.url));
+const novelMcpServer = fileURLToPath(new URL("../../native/target/debug/novel-workspace-mcp", import.meta.url));
 
 async function listen(server) {
   await new Promise((resolve, reject) => {
@@ -587,8 +587,8 @@ test("real Novel MCP denies child writes and cross-task reads in a delegated Cod
     bridge: { baseUrl: bridgeAddress.baseUrl, credentialRef: "AGENT_ENGINE_BRIDGE_TOKEN" },
     mcpServers: [{
       id: "novel_workspace",
-      command: process.env.NOVEL_CODEX_PYTHON ?? (process.platform === "win32" ? "python" : "python3"),
-      args: [novelMcpServer],
+      command: novelMcpServer,
+      args: [],
       envVars: ["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"],
       approvalMode: "approve",
     }],

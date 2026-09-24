@@ -63,7 +63,11 @@ test("caps a streamed agent message before returning it", async () => {
   assert.equal(result.message.length, 64 * 1024);
   adapter.handleLine(JSON.stringify({ method: "item/completed", params: { item: { id: "large-audit-event", type: "mcpToolCall", result: "x".repeat(70 * 1024) } } }));
   assert.ok(rawEvents.some((event) => JSON.stringify(event).length > 64 * 1024));
-  assert.ok(visibleEvents.some((event) => event.method === "agent/error" && /显示上限/.test(event.params.message)));
+  const visible = visibleEvents.find((event) => event.params?.item?.id === "large-audit-event");
+  assert.equal(visible?.method, "item/completed");
+  assert.ok(JSON.stringify(visible).length <= 64 * 1024);
+  assert.match(visible.params.item.result, /内容过长，已截断显示/);
+  assert.ok(visibleEvents.every((event) => event.method !== "agent/error"));
   adapter.close();
 });
 

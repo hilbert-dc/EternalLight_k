@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -532,7 +531,7 @@ test("installs only managed read-only Agent roles into the isolated Codex home",
 });
 
 test("builds an isolated Agent Engine provider without persisting the downstream API key", () => {
-  const config = buildCodexConfig({ sessionPlan: verifiedProvider().sessionPlan, bridge: TEST_BRIDGE, modelCatalogPath: "/runtime/model-catalog.json", mcpServerCommand: "python3", mcpServerPath: "/runtime/mcp_server.py" });
+  const config = buildCodexConfig({ sessionPlan: verifiedProvider().sessionPlan, bridge: TEST_BRIDGE, modelCatalogPath: "/runtime/model-catalog.json", mcpServerCommand: "/runtime/novel-workspace-mcp" });
   assert.match(config, /model_provider = "agent_engine"/);
   assert.match(config, /model_catalog_json = /);
   assert.match(config, /base_url = "http:\/\/127\.0\.0\.1:43123"/);
@@ -558,27 +557,20 @@ test("builds an isolated Agent Engine provider without persisting the downstream
   assert.match(config, /max_concurrent_threads_per_session = 3/);
 });
 
-test("places the selected DeepSeek provider at the TOML root", () => {
-  const config = buildCodexConfig({ sessionPlan: verifiedProvider().sessionPlan, bridge: TEST_BRIDGE, modelCatalogPath: "/runtime/model-catalog.json", mcpServerCommand: "python3", mcpServerPath: "/runtime/mcp_server.py" });
-  const python = process.env.NOVEL_CODEX_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
-  const parsed = spawnSync(python, ["-c", "import json,sys,tomllib; print(json.dumps(tomllib.loads(sys.stdin.read())))"], {
-    encoding: "utf8",
-    input: config,
-  });
-  assert.equal(parsed.status, 0, parsed.stderr);
-  const document = JSON.parse(parsed.stdout);
-  assert.equal(document.model_provider, "agent_engine");
-  assert.equal(document.shell_environment_policy.model_provider, undefined);
-  assert.equal(document.model_providers.agent_engine.name, "Eternal Light Agent Engine");
-  assert.equal(document.features.multi_agent, false);
-  assert.equal(document.features.multi_agent_v2.enabled, false);
-  assert.deepEqual(document.agents, { enabled: false, max_concurrent_threads_per_session: 3 });
+test("places the selected provider at the TOML root without a Python parser", () => {
+  const config = buildCodexConfig({ sessionPlan: verifiedProvider().sessionPlan, bridge: TEST_BRIDGE, modelCatalogPath: "/runtime/model-catalog.json", mcpServerCommand: "/runtime/novel-workspace-mcp" });
+  assert.match(config, /^model_provider = "agent_engine"$/m);
+  const shellPolicy = config.slice(config.indexOf("[shell_environment_policy]"), config.indexOf("[features]"));
+  assert.doesNotMatch(shellPolicy, /model_provider/);
+  assert.match(config, /\[model_providers\.agent_engine\][\s\S]*name = "Eternal Light Agent Engine"/);
+  assert.match(config, /\[features\][\s\S]*multi_agent = false/);
+  assert.match(config, /\[features\.multi_agent_v2\][\s\S]*enabled = false/);
+  assert.match(config, /\[agents\][\s\S]*enabled = false[\s\S]*max_concurrent_threads_per_session = 3/);
 });
 
 test("builds a cross-platform candidate-only MCP sidecar config", () => {
   const config = buildCodexConfig({
-    mcpServerCommand: "C:\\Python313\\python.exe",
-    mcpServerPath: "C:\\Novel Codex\\runtime\\mcp_server.py",
+    mcpServerCommand: "C:\\Novel Codex\\runtime\\novel-workspace-mcp.exe",
     modelCatalogPath: "C:\\Novel Codex\\model-catalog.json",
     bridge: TEST_BRIDGE,
     sessionPlan: verifiedProvider().sessionPlan,
@@ -586,8 +578,8 @@ test("builds a cross-platform candidate-only MCP sidecar config", () => {
     provider: "deepseek",
   });
   assert.match(config, /\[mcp_servers\.novel_workspace\]/);
-  assert.match(config, /command = "C:\\\\Python313\\\\python\.exe"/);
-  assert.match(config, /args = \["C:\\\\Novel Codex\\\\runtime\\\\mcp_server\.py"\]/);
+  assert.match(config, /command = "C:\\\\Novel Codex\\\\runtime\\\\novel-workspace-mcp\.exe"/);
+  assert.match(config, /args = \[\]/);
   assert.match(config, /env_vars = \["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"\]/);
   assert.match(config, /default_tools_approval_mode = "approve"/);
   assert.doesNotMatch(config, /AUTHOR_TOKEN|candidate-secret|accept|undo/);
@@ -646,13 +638,13 @@ test("isolates Runtime and author credentials from the Codex child", () => {
   assert.equal(codexEnv.CODEX_API_KEY, undefined);
   assert.equal(codexEnv.OPENAI_API_KEY, undefined);
 
-  const runtimeEnv = createRuntimeEnvironment(base, "/novel/project");
+  const runtimeEnv = createRuntimeEnvironment(base);
   assert.equal(runtimeEnv.NOVEL_CODEX_RUNTIME_URL, undefined);
   assert.equal(runtimeEnv.NOVEL_CODEX_CANDIDATE_TOKEN, undefined);
   assert.equal(runtimeEnv.NOVEL_CODEX_AUTHOR_TOKEN, undefined);
   assert.equal(runtimeEnv.CODEX_API_KEY, undefined);
   assert.equal(runtimeEnv.OPENAI_API_KEY, undefined);
-  assert.equal(runtimeEnv.PYTHONPATH, "/novel/project");
+  assert.equal(runtimeEnv.PYTHONPATH, undefined);
   assert.equal(runtimeEnv.PATH, "/usr/bin");
 });
 
@@ -681,8 +673,9 @@ test("MCP sidecar lists only candidate tools and forwards bearer-authenticated c
   t.after(() => new Promise((resolve) => server.close(resolve)));
 
   const address = server.address();
-  const sidecarPath = realpathSync(join(dirname(fileURLToPath(import.meta.url)), "../../runtime/mcp_server.py"));
-  const child = spawn(process.env.NOVEL_CODEX_PYTHON || (process.platform === "win32" ? "python" : "python3"), [sidecarPath], {
+  const suffix = process.platform === "win32" ? ".exe" : "";
+  const sidecarPath = realpathSync(join(dirname(fileURLToPath(import.meta.url)), `../../native/target/debug/novel-workspace-mcp${suffix}`));
+  const child = spawn(sidecarPath, [], {
     env: {
       ...process.env,
       NOVEL_CODEX_CANDIDATE_TOKEN: "candidate-secret",

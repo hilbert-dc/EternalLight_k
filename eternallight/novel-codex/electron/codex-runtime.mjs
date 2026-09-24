@@ -44,7 +44,6 @@ const MAX_MODEL_MESSAGE_BYTES = 38_000;
 const MAX_MODEL_MESSAGE_TOKENS = 9_000;
 const MAX_MODEL_INPUT_BYTES = 9_500;
 const NOVEL_MCP_ENVIRONMENT_KEYS = ["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"];
-const DEFAULT_MCP_SERVER_PATH = fileURLToPath(new URL("../runtime/mcp_server.py", import.meta.url));
 const CHILD_ENVIRONMENT_KEYS = [
   "PATH",
   "PATHEXT",
@@ -394,7 +393,7 @@ export function buildCodexConfig({
   bridge = null,
   modelCatalogPath,
   mcpServerCommand,
-  mcpServerPath = DEFAULT_MCP_SERVER_PATH,
+  mcpServerPath = null,
   mcpServerArgs = null,
   model,
   platform = process.platform,
@@ -403,7 +402,8 @@ export function buildCodexConfig({
 }) {
   if (!sessionPlan) throw new Error("生成 Codex 配置前必须提供已验证的 SessionPlan");
   const resolvedPlan = sessionPlan;
-  const mcpCommand = mcpServerCommand?.trim() || process.env.NOVEL_CODEX_PYTHON?.trim() || (platform === "win32" ? "python" : "python3");
+  const mcpCommand = mcpServerCommand?.trim();
+  if (!mcpCommand) throw new Error("Novel Workspace MCP Rust 可执行文件未配置");
   return compileCodexConfig({
     sessionPlan: resolvedPlan,
     modelCatalogPath,
@@ -426,9 +426,8 @@ export function buildCodexModelCatalog({ baseInstructions, model, provider, sess
   return compileCodexModelCatalog(sessionPlan, { baseInstructions });
 }
 
-export function createRuntimeEnvironment(baseEnvironment, projectRoot) {
-  const environment = isolatedProcessEnvironment(baseEnvironment);
-  return { ...environment, PYTHONPATH: projectRoot };
+export function createRuntimeEnvironment(baseEnvironment) {
+  return isolatedProcessEnvironment(baseEnvironment);
 }
 
 export function loadNovelCodexSkills(projectRoot) {

@@ -26,9 +26,54 @@ function splitCommand(command) {
   return command.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((part) => part.replace(/^"|"$/g, "")) ?? [];
 }
 
+const TRUNCATION_MARK = "\n…内容过长，已截断显示";
+
+function jsonSize(value) {
+  try { return JSON.stringify(value).length; } catch { return Number.POSITIVE_INFINITY; }
+}
+
+function shrinkStrings(value, maxEach) {
+  if (typeof value === "string") return value.length > maxEach ? `${value.slice(0, maxEach)}${TRUNCATION_MARK}` : value;
+  if (Array.isArray(value)) return value.map((item) => shrinkStrings(item, maxEach));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, shrinkStrings(child, maxEach)]));
+  }
+  return value;
+}
+
+function compactVisibleMessage(message) {
+  const params = message?.params ?? {};
+  const item = params.item;
+  return {
+    method: typeof message?.method === "string" ? message.method : "agent/text",
+    id: message?.id,
+    params: {
+      threadId: params.threadId,
+      turnId: params.turnId,
+      itemId: params.itemId,
+      displayTruncated: true,
+      note: "内容过长，已截断显示",
+      item: item && typeof item === "object" ? {
+        id: item.id,
+        type: item.type,
+        name: item.name,
+        tool: typeof item.tool === "string" ? item.tool : undefined,
+        status: item.status,
+        displayTruncated: true,
+      } : undefined,
+    },
+  };
+}
+
 function safeMessage(message) {
-  const encoded = JSON.stringify(message);
-  return encoded.length > MAX_EVENT_BYTES ? { method: "agent/error", params: { message: "Novel Agent Engine 事件超过显示上限" } } : message;
+  if (jsonSize(message) <= MAX_EVENT_BYTES) return message;
+  let maxEach = 8 * 1024;
+  let visible = shrinkStrings(message, maxEach);
+  while (jsonSize(visible) > MAX_EVENT_BYTES && maxEach > 256) {
+    maxEach = Math.floor(maxEach / 2);
+    visible = shrinkStrings(message, maxEach);
+  }
+  return jsonSize(visible) <= MAX_EVENT_BYTES ? visible : compactVisibleMessage(message);
 }
 
 function bounded(value, limit) {

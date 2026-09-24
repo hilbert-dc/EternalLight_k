@@ -96,9 +96,10 @@ export function PlanningReviewPanel({ runs, artifactKind, revisionId, outlineNod
     }
   }
 
-  return <section className="planning-review-panel" aria-labelledby={`${id}-title`}>
+  return <details className="planning-review-panel">
+    <summary>规划深审</summary>
     <header className="planning-review-heading">
-      <div><h3 id={`${id}-title`}>规划深审</h3><p id={`${id}-description`}>从不同视角审阅安排，保留有价值的设计和分歧。只生成意见，不修改或采用规划；无需先写正文，也不必先确定结局。</p></div>
+      <div><h3 className="sr-only" id={`${id}-title`}>规划深审</h3><p id={`${id}-description`}>从不同视角审阅安排，保留有价值的设计和分歧。只生成意见，不修改或采用规划；无需先写正文，也不必先确定结局。</p></div>
       <span className="planning-review-badge">只读评审</span>
     </header>
     <form className="planning-review-form" onSubmit={(event) => void start(event)} aria-describedby={`${id}-description`}>
@@ -155,7 +156,7 @@ export function PlanningReviewPanel({ runs, artifactKind, revisionId, outlineNod
       <details className="planning-review-source"><summary>本次来源记录</summary><p>规划修订：{latest.revisionId}</p><p>作品版本：{latest.inputRevision}</p><p>材料摘要：{latest.sourcePacketHash}</p>{latest.targetNodeId && <p>卷节点：{latest.targetNodeId}</p>}<p>创建时间：<time dateTime={latest.createdAt}>{latest.createdAt}</time></p></details>
       <p className="planning-review-note">评审意见不会阻止采用。你可以保留原案、稍后再看，或继续编辑。</p>
     </section>}
-  </section>;
+  </details>;
 }
 
 function FindingCard({ finding, role }: { finding: PlanningReviewFinding; role: PlanningReviewRole }) {
