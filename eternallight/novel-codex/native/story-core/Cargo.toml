@@ -7,11 +7,17 @@ license.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[[example]]
+name = "story_retrieval_evaluation"
+test = true
+
 [dependencies]
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+pretty_assertions = "1"
 tempfile = "3"

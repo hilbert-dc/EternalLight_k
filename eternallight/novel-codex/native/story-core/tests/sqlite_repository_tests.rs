@@ -11,6 +11,8 @@ use novel_codex_story_core::RepositoryError;
 use novel_codex_story_core::RevisionId;
 use novel_codex_story_core::RevisionRecord;
 use novel_codex_story_core::SaveCandidateRequest;
+use novel_codex_story_core::SearchQuery;
+use novel_codex_story_core::SearchScope;
 use novel_codex_story_core::SnapshotId;
 use novel_codex_story_core::SqliteStoryRepository;
 use novel_codex_story_core::UndoRequest;
@@ -34,6 +36,7 @@ fn request() -> CommitRequest {
         revisions: vec![RevisionRecord {
             project_id: parse("project-1", ProjectId::parse),
             object_id: parse("chapter-1", ObjectId::parse),
+            object_kind: "draft".into(),
             revision_id: parse("revision-1", RevisionId::parse),
             parent_revision_id: None,
             content_digest: "content-digest".into(),
@@ -68,6 +71,79 @@ fn durable_commit_replay_and_content_read_are_atomic() {
             .revision_content(&parse("revision-1", RevisionId::parse))
             .unwrap(),
         Some(r#"{"body":"hello"}"#.into()),
+    );
+}
+
+#[test]
+fn historical_search_reads_immutable_revision_without_a_current_object_head() {
+    let mut repository = SqliteStoryRepository::in_memory().unwrap();
+    let project_id = parse("project-1", ProjectId::parse);
+    repository
+        .create_project(
+            ProjectRecord {
+                project_id: project_id.clone(),
+                title: "Search".into(),
+                logline: String::new(),
+                created_at: 10,
+                updated_at: 10,
+            },
+            parse("main", BranchId::parse),
+            parse("snapshot-0", SnapshotId::parse),
+        )
+        .unwrap();
+    repository.apply_commit(request()).unwrap();
+
+    let snapshot_id = parse("snapshot-1", SnapshotId::parse);
+    let found = repository
+        .search_documents(SearchQuery {
+            project_id: &project_id,
+            snapshot_id: Some(&snapshot_id),
+            text: "hello",
+            kind: Some("draft"),
+            scope: SearchScope::All,
+            limit: 10,
+            cursor: None,
+        })
+        .unwrap();
+    assert_eq!(found["results"][0]["sourceRevisionId"], "revision-1");
+    assert_eq!(found["results"][0]["kind"], "draft");
+    assert_eq!(found["results"][0]["title"], "draft");
+}
+
+#[test]
+fn durable_commit_rejects_object_kind_change_without_advancing_head() {
+    let mut repository = SqliteStoryRepository::in_memory().unwrap();
+    repository
+        .create_branch(
+            parse("project-1", ProjectId::parse),
+            parse("main", BranchId::parse),
+            parse("snapshot-0", SnapshotId::parse),
+        )
+        .unwrap();
+    repository.apply_commit(request()).unwrap();
+    let mut next = request();
+    next.commit_id = parse("commit-kind-change", CommitId::parse);
+    next.idempotency_key = parse("request-kind-change", IdempotencyKey::parse);
+    next.base_snapshot_id = parse("snapshot-1", SnapshotId::parse);
+    next.next_snapshot_id = parse("snapshot-kind-change", SnapshotId::parse);
+    next.revisions[0].revision_id = parse("revision-kind-change", RevisionId::parse);
+    next.revisions[0].parent_revision_id = Some(parse("revision-1", RevisionId::parse));
+    next.revisions[0].object_kind = "outline".into();
+
+    assert_eq!(
+        repository.apply_commit(next),
+        Err(RepositoryError::InvalidObjectKind)
+    );
+    assert_eq!(
+        repository
+            .branch_head(
+                &parse("project-1", ProjectId::parse),
+                &parse("main", BranchId::parse)
+            )
+            .unwrap()
+            .unwrap()
+            .snapshot_id,
+        parse("snapshot-1", SnapshotId::parse)
     );
 }
 

@@ -42,6 +42,29 @@ test("engine host reuses a session across independently leased runs", async () =
   await engine.closeSession(started.sessionId);
 });
 
+test("engine host caps an execution lease at the caller's absolute deadline", async () => {
+  const runtime = appServerRuntime();
+  const bind = runtime.bindExecution.bind(runtime);
+  let issuedLease;
+  runtime.bindExecution = async (params) => {
+    issuedLease = params.lease;
+    return bind(params);
+  };
+  const engine = host(async () => runtime);
+  const { started } = await session(engine, "text-v1", "absolute-deadline-session");
+  const deadlineAtMs = Date.now() + 10_000;
+  const run = await engine.startRun({ sessionId: started.sessionId, input: [{ type: "text", text: "deadline" }],
+    budgetId: "budget-deadline", runId: "absolute-deadline-run", maxDurationMs: 60_000, deadlineAtMs });
+  assert.ok(Date.parse(issuedLease.deadline) <= deadlineAtMs);
+  assert.equal((await run.completion).status, "completed");
+  engine.closeRun("absolute-deadline-run");
+  await assert.rejects(engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "budget-expired",
+    runId: "expired-deadline-run", maxDurationMs: 60_000, deadlineAtMs: Date.now() - 1_000 }), /expired/);
+  await assert.rejects(engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "budget-invalid",
+    runId: "invalid-deadline-run", maxDurationMs: 60_000, deadlineAtMs: "tomorrow" }), /invalid/);
+  await engine.closeSession(started.sessionId);
+});
+
 test("engine host revokes a run before interrupting its active turn", async () => {
   const engine = host();
   const { started } = await session(engine);

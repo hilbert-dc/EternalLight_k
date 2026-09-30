@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { digest, stableJson } from "../src/contracts/capabilities.mjs";
+
+test("native identity round trips IEEE-754 values without parser precision drift", () => {
+  const value = { nested: [1.0000000000000002, 1.2345678901234567, 0.000001, Number.MIN_VALUE, Number.MAX_VALUE, Number.MAX_SAFE_INTEGER, -Number.MAX_SAFE_INTEGER] };
+  assert.deepEqual(JSON.parse(stableJson(value)), value);
+  assert.equal(digest(value), digest(JSON.parse(stableJson(value))));
+});
 import { nativeBinding } from "../src/native.mjs";
 import { defineConnection } from "../src/connections/connection-spec.mjs";
 import { verifiedBaselineEvidence } from "../src/testing/verified-evidence.mjs";

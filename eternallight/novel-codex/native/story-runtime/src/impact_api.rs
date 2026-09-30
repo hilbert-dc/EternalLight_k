@@ -7,6 +7,9 @@ use axum::response::Response;
 use novel_codex_story_core::ProjectId;
 use novel_codex_story_core::ResolvePlanningImpact;
 use novel_codex_story_core::SqliteStoryRepository;
+use novel_codex_story_core::{
+    ImpactAnalysisQuery, ImpactAnalysisScope, ImpactRevisionPair, RevisionId, SnapshotId,
+};
 use serde::Deserialize;
 use serde_json::json;
 use sha2::Digest;
@@ -21,6 +24,71 @@ use crate::server::repository_error;
 pub(crate) struct ImpactQuery {
     cursor: Option<String>,
     limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AnalyzeImpactQuery {
+    entity_id: String,
+    snapshot_id: Option<String>,
+    from_revision_id: Option<String>,
+    to_revision_id: Option<String>,
+    world_time: Option<i64>,
+    max_hops: Option<usize>,
+    limit: Option<usize>,
+}
+
+pub(crate) async fn analyze_impact(
+    State(state): State<RuntimeState>,
+    Path(project_id): Path<String>,
+    Query(query): Query<AnalyzeImpactQuery>,
+) -> Response {
+    let project_id = match ProjectId::parse(project_id) {
+        Ok(value) => value,
+        Err(error) => return bad_request("invalid_project_id", error),
+    };
+    let snapshot_id = match query.snapshot_id.map(SnapshotId::parse).transpose() {
+        Ok(value) => value,
+        Err(error) => return bad_request("invalid_snapshot_id", error),
+    };
+    let (from_revision_id, to_revision_id) = match (query.from_revision_id, query.to_revision_id) {
+        (None, None) => (None, None),
+        (Some(from), Some(to)) => {
+            let from = match RevisionId::parse(from) {
+                Ok(value) => value,
+                Err(error) => return bad_request("invalid_from_revision_id", error),
+            };
+            let to = match RevisionId::parse(to) {
+                Ok(value) => value,
+                Err(error) => return bad_request("invalid_to_revision_id", error),
+            };
+            (Some(from), Some(to))
+        }
+        _ => return bad_request("invalid_revision_pair", "Both revision IDs are required"),
+    };
+    let repository = match SqliteStoryRepository::open(&state.database_path) {
+        Ok(value) => value,
+        Err(error) => return internal_error(error),
+    };
+    match repository.analyze_explicit_impact(ImpactAnalysisQuery {
+        project_id: &project_id,
+        scope: snapshot_id
+            .as_ref()
+            .map_or(ImpactAnalysisScope::Current, ImpactAnalysisScope::Snapshot),
+        changed_entity_id: &query.entity_id,
+        world_time: query.world_time,
+        max_hops: query.max_hops.unwrap_or(3),
+        limit: query.limit.unwrap_or(25),
+        revision_pair: from_revision_id.as_ref().zip(to_revision_id.as_ref()).map(
+            |(from_revision_id, to_revision_id)| ImpactRevisionPair {
+                from_revision_id,
+                to_revision_id,
+            },
+        ),
+    }) {
+        Ok(report) => Json(report).into_response(),
+        Err(error) => repository_error(error),
+    }
 }
 
 #[derive(Deserialize)]

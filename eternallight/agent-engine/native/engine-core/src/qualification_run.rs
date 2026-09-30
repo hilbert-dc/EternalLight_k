@@ -17,6 +17,10 @@ mod observation;
 mod workspace;
 use workspace::{Workspace, read_bounded, read_json, write_private};
 
+#[cfg(test)]
+#[path = "qualification_observation_tests.rs"]
+mod tests;
+
 /// Owns a bounded, isolated delegation qualification run. The host only executes
 /// the next IO callback; proof checks and cleanup order cannot be skipped.
 pub struct QualificationRun {

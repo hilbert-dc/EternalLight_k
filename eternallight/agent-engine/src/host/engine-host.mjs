@@ -49,10 +49,10 @@ export class AgentEngineHost {
     if (!this.bindings.has(sessionId)) this.bindings.set(sessionId, { runtimeOptions, recovery, runtime: null, unsubscribe: null });
     return this.#command("resumeSession", { sessionPlan, threadId, sessionId });
   }
-  async startRun({ sessionId, input, budgetId, runId = randomUUID(), mode = "interactive", maxDurationMs, turnOptions = {} }) {
+  async startRun({ sessionId, input, budgetId, runId = randomUUID(), mode = "interactive", maxDurationMs, deadlineAtMs, turnOptions = {} }) {
     const inserted = !this.runBindings.has(runId);
     if (inserted) this.runBindings.set(runId, { turnOptions });
-    try { return await this.#command("startRun", { sessionId, input, budgetId, runId, mode, maxDurationMs }); }
+    try { return await this.#command("startRun", { sessionId, input, budgetId, runId, mode, maxDurationMs, deadlineAtMs }); }
     catch (error) { if (inserted) this.runBindings.delete(runId); throw error; }
   }
   cancelRun(runId, reason = "cancelled-by-host") { return this.#command("cancelRun", { runId, reason }); }

@@ -8,4 +8,4 @@ You are a read-only Novel Codex subagent. Analyze only the task assigned by the 
 """
 
 [mcp_servers.novel_workspace]
-enabled_tools = ["read_context"]
+enabled_tools = ["read_context", "search_story", "search_relations", "query_story"]

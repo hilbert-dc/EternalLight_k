@@ -61,15 +61,113 @@ CREATE TABLE IF NOT EXISTS story_revisions_v2 (
   revision_id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
   object_id TEXT NOT NULL,
+  object_kind TEXT NOT NULL CHECK(length(object_kind) > 0),
   parent_revision_id TEXT,
   content_digest TEXT NOT NULL,
   content_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS story_search_documents_v2 (
+  doc_id INTEGER PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  object_id TEXT NOT NULL,
+  revision_id TEXT NOT NULL REFERENCES story_revisions_v2(revision_id) ON DELETE CASCADE,
+  field_path TEXT NOT NULL,
+  text TEXT NOT NULL,
+  UNIQUE(revision_id, field_path)
+);
+CREATE TABLE IF NOT EXISTS story_search_grams_v2 (
+  project_id TEXT NOT NULL,
+  gram TEXT NOT NULL,
+  doc_id INTEGER NOT NULL REFERENCES story_search_documents_v2(doc_id) ON DELETE CASCADE,
+  PRIMARY KEY(project_id, gram, doc_id)
+);
+CREATE INDEX IF NOT EXISTS story_search_documents_revision_v2
+  ON story_search_documents_v2(project_id, revision_id);
+CREATE INDEX IF NOT EXISTS story_search_grams_document_v2
+  ON story_search_grams_v2(doc_id, project_id, gram);
+CREATE TABLE IF NOT EXISTS story_search_index_state_v1 (
+  project_id TEXT PRIMARY KEY REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  generation INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS story_search_audit_jobs_v1 (
+  job_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','paused','cancelled','stale','failed','completed')),
+  version INTEGER NOT NULL DEFAULT 0,
+  source_count INTEGER NOT NULL,
+  source_max_rowid INTEGER NOT NULL,
+  index_generation INTEGER NOT NULL,
+  next_rowid INTEGER NOT NULL DEFAULT 0,
+  audit_json TEXT NOT NULL,
+  error TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_search_audit_active_v1
+  ON story_search_audit_jobs_v1(project_id)
+  WHERE status IN ('queued','running','paused');
 CREATE TABLE IF NOT EXISTS story_snapshots_v2 (
   snapshot_id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
   branch_id TEXT NOT NULL,
   parent_snapshot_id TEXT
+);
+CREATE TABLE IF NOT EXISTS story_hypotheses_v1 (
+  hypothesis_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  base_snapshot_id TEXT NOT NULL REFERENCES story_snapshots_v2(snapshot_id),
+  intent TEXT NOT NULL,
+  assumptions_json TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_digest TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(project_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS story_hypotheses_by_project_v1
+  ON story_hypotheses_v1(project_id, created_at DESC, hypothesis_id);
+CREATE TABLE IF NOT EXISTS story_proposal_sets_v1 (
+  proposal_set_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  branch_id TEXT NOT NULL,
+  base_snapshot_id TEXT NOT NULL REFERENCES story_snapshots_v2(snapshot_id),
+  project_revision INTEGER NOT NULL,
+  intent TEXT NOT NULL,
+  operations_json TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_digest TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(project_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS story_proposal_sets_by_project_v1
+  ON story_proposal_sets_v1(project_id, created_at DESC, proposal_set_id);
+CREATE TABLE IF NOT EXISTS story_proposal_applications_v1 (
+  application_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  proposal_set_id TEXT NOT NULL REFERENCES story_proposal_sets_v1(proposal_set_id),
+  base_snapshot_id TEXT NOT NULL REFERENCES story_snapshots_v2(snapshot_id),
+  result_snapshot_id TEXT NOT NULL REFERENCES story_snapshots_v2(snapshot_id),
+  base_revision INTEGER NOT NULL,
+  result_revision INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('applied', 'undone')),
+  undone_by_application_id TEXT,
+  idempotency_key TEXT NOT NULL,
+  request_digest TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(project_id, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS story_proposal_application_members_v1 (
+  application_id TEXT NOT NULL REFERENCES story_proposal_applications_v1(application_id),
+  operation_id TEXT NOT NULL,
+  acceptance_commit_id TEXT NOT NULL UNIQUE REFERENCES story_acceptances_v2(commit_id),
+  PRIMARY KEY(application_id, operation_id)
+);
+CREATE TABLE IF NOT EXISTS story_proposal_undo_receipts_v1 (
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  idempotency_key TEXT NOT NULL,
+  request_digest TEXT NOT NULL,
+  application_id TEXT NOT NULL REFERENCES story_proposal_applications_v1(application_id),
+  undo_application_id TEXT NOT NULL,
+  result_revision INTEGER NOT NULL,
+  result_snapshot_id TEXT NOT NULL REFERENCES story_snapshots_v2(snapshot_id),
+  PRIMARY KEY(project_id, idempotency_key)
 );
 CREATE TABLE IF NOT EXISTS story_snapshot_members_v2 (
   snapshot_id TEXT NOT NULL REFERENCES story_snapshots_v2(snapshot_id) ON DELETE CASCADE,
@@ -77,6 +175,18 @@ CREATE TABLE IF NOT EXISTS story_snapshot_members_v2 (
   revision_id TEXT NOT NULL REFERENCES story_revisions_v2(revision_id),
   PRIMARY KEY(snapshot_id, object_id)
 );
+CREATE TABLE IF NOT EXISTS story_snapshot_chapters_v1 (
+  snapshot_id TEXT NOT NULL REFERENCES story_snapshots_v2(snapshot_id) ON DELETE CASCADE,
+  chapter_id TEXT NOT NULL,
+  number INTEGER NOT NULL,
+  PRIMARY KEY(snapshot_id, chapter_id)
+);
+CREATE TRIGGER IF NOT EXISTS story_snapshot_chapters_capture_v1
+AFTER INSERT ON story_snapshots_v2
+BEGIN
+  INSERT INTO story_snapshot_chapters_v1(snapshot_id, chapter_id, number)
+  SELECT NEW.snapshot_id, chapter_id, number FROM story_chapters_v2 WHERE project_id = NEW.project_id;
+END;
 CREATE TABLE IF NOT EXISTS story_commits_v2 (
   commit_id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -150,6 +260,89 @@ CREATE TABLE IF NOT EXISTS story_acceptances_v2 (
   target_commit_id TEXT,
   undone_by_commit_id TEXT
 );
+CREATE TABLE IF NOT EXISTS story_fact_audit_state_v1 (
+  project_id TEXT PRIMARY KEY,
+  generation INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS story_fact_audit_jobs_v1 (
+  job_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','paused','cancelled','stale','completed')),
+  version INTEGER NOT NULL DEFAULT 0,
+  source_count INTEGER NOT NULL,
+  source_max_rowid INTEGER NOT NULL,
+  source_generation INTEGER NOT NULL,
+  next_rowid INTEGER NOT NULL DEFAULT 0,
+  audit_json TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_fact_audit_active_v1
+  ON story_fact_audit_jobs_v1(project_id)
+  WHERE status IN ('queued','running','paused');
+CREATE TRIGGER IF NOT EXISTS story_fact_audit_project_delete_v1
+AFTER DELETE ON story_projects_v2
+BEGIN
+  DELETE FROM story_fact_audit_state_v1 WHERE project_id = OLD.project_id;
+END;
+CREATE TRIGGER IF NOT EXISTS story_fact_audit_fact_insert_v1
+AFTER INSERT ON story_facts_v2
+BEGIN
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (NEW.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_fact_audit_fact_update_v1
+AFTER UPDATE ON story_facts_v2
+BEGIN
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (OLD.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (NEW.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_fact_audit_fact_delete_v1
+AFTER DELETE ON story_facts_v2
+BEGIN
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (OLD.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_fact_audit_acceptance_insert_v1
+AFTER INSERT ON story_acceptances_v2
+BEGIN
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (NEW.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_fact_audit_acceptance_update_v1
+AFTER UPDATE ON story_acceptances_v2
+BEGIN
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (OLD.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (NEW.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_fact_audit_acceptance_delete_v1
+AFTER DELETE ON story_acceptances_v2
+BEGIN
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (OLD.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_fact_audit_snapshot_insert_v1
+AFTER INSERT ON story_snapshots_v2
+BEGIN
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (NEW.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_fact_audit_snapshot_update_v1
+AFTER UPDATE ON story_snapshots_v2
+BEGIN
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (OLD.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (NEW.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_fact_audit_snapshot_delete_v1
+BEFORE DELETE ON story_snapshots_v2
+BEGIN
+  INSERT INTO story_fact_audit_state_v1(project_id, generation) VALUES (OLD.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
 CREATE TABLE IF NOT EXISTS story_acceptance_receipts_v2 (
   project_id TEXT NOT NULL,
   idempotency_key TEXT NOT NULL,
@@ -170,6 +363,7 @@ CREATE TABLE IF NOT EXISTS story_tasks_v2 (
   input_manifest_json TEXT NOT NULL,
   input_revision INTEGER NOT NULL,
   model TEXT,
+  turn_id TEXT,
   status TEXT NOT NULL CHECK(status IN ('queued','running','waiting','completed','failed','cancelled')),
   stage TEXT NOT NULL,
   delivery_status TEXT NOT NULL CHECK(delivery_status IN ('pending','ready_for_review','incomplete')),
@@ -185,9 +379,187 @@ CREATE TABLE IF NOT EXISTS story_task_outputs_v2 (
   ordinal INTEGER NOT NULL,
   output_kind TEXT NOT NULL,
   revision_id TEXT NOT NULL,
+  working_base_revision_id TEXT REFERENCES story_revisions_v2(revision_id),
   completeness TEXT,
   PRIMARY KEY(task_id, ordinal)
 );
+CREATE TABLE IF NOT EXISTS story_task_final_replies_v1 (
+  task_id TEXT PRIMARY KEY REFERENCES story_tasks_v2(task_id) ON DELETE CASCADE,
+  receipt_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_author_messages_v1 (
+  message_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id),
+  work_task_id TEXT NOT NULL REFERENCES story_work_tasks_v1(id),
+  task_id TEXT REFERENCES story_tasks_v2(task_id),
+  generation_run_id TEXT REFERENCES story_generation_runs_v1(run_id),
+  review_run_id TEXT REFERENCES story_planning_review_runs_v2(run_id),
+  intent_revision INTEGER NOT NULL CHECK(intent_revision BETWEEN 0 AND 16),
+  thread_id TEXT,
+  author_text TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  CHECK((task_id IS NOT NULL AND generation_run_id IS NULL AND review_run_id IS NULL AND thread_id IS NOT NULL)
+     OR (task_id IS NULL AND generation_run_id IS NOT NULL AND review_run_id IS NULL AND thread_id IS NULL)
+     OR (task_id IS NULL AND generation_run_id IS NULL AND review_run_id IS NOT NULL AND thread_id IS NULL AND intent_revision=0)),
+  UNIQUE(task_id,intent_revision),
+  UNIQUE(generation_run_id,intent_revision),
+  UNIQUE(review_run_id,intent_revision)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_author_message_root_v1
+  ON story_author_messages_v1(work_task_id) WHERE intent_revision=0;
+CREATE TABLE IF NOT EXISTS story_task_intents_v1 (
+  task_id TEXT NOT NULL REFERENCES story_tasks_v2(task_id) ON DELETE CASCADE,
+  intent_revision INTEGER NOT NULL CHECK(intent_revision > 0),
+  author_message_id TEXT NOT NULL UNIQUE REFERENCES story_author_messages_v1(message_id),
+  author_text TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','delivered')),
+  created_at INTEGER NOT NULL,
+  delivered_at INTEGER,
+  PRIMARY KEY(task_id, intent_revision)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_task_intents_pending_v1
+  ON story_task_intents_v1(task_id) WHERE status='pending';
+CREATE TABLE IF NOT EXISTS story_work_tasks_v1 (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  thread_id TEXT NOT NULL,
+  goal TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('conversation','direct','generation')),
+  status TEXT NOT NULL CHECK(status IN ('running','paused','blocked','completed','cancelled')),
+  version INTEGER NOT NULL DEFAULT 0,
+  input_revision INTEGER NOT NULL,
+  error TEXT
+);
+CREATE TABLE IF NOT EXISTS story_work_budgets_v1 (
+  work_task_id TEXT PRIMARY KEY REFERENCES story_work_tasks_v1(id) ON DELETE CASCADE,
+  ledger_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_task_provider_budgets_v1 (
+  task_id TEXT PRIMARY KEY REFERENCES story_tasks_v2(task_id) ON DELETE CASCADE,
+  work_task_id TEXT NOT NULL REFERENCES story_work_budgets_v1(work_task_id) ON DELETE CASCADE,
+  grant_json TEXT NOT NULL,
+  settled INTEGER NOT NULL DEFAULT 0 CHECK(settled IN (0,1))
+);
+CREATE TABLE IF NOT EXISTS story_work_budget_authorizations_v1 (
+  work_task_id TEXT PRIMARY KEY REFERENCES story_work_budgets_v1(work_task_id) ON DELETE CASCADE,
+  authorization_json TEXT NOT NULL,
+  after_attempt_sequence INTEGER NOT NULL,
+  initial_request_digest TEXT,
+  granted_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_task_provider_budget_active_v1
+  ON story_task_provider_budgets_v1(work_task_id) WHERE settled=0;
+CREATE TABLE IF NOT EXISTS story_work_steps_v1 (
+  id TEXT PRIMARY KEY,
+  work_task_id TEXT NOT NULL REFERENCES story_work_tasks_v1(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  operation TEXT NOT NULL,
+  target_json TEXT NOT NULL,
+  input_revision INTEGER NOT NULL,
+  depends_on_step_id TEXT REFERENCES story_work_steps_v1(id),
+  status TEXT NOT NULL CHECK(status IN ('queued','running','completed','blocked','cancelled','superseded')),
+  current_attempt_id TEXT REFERENCES story_tasks_v2(task_id),
+  UNIQUE(work_task_id, ordinal)
+);
+CREATE TABLE IF NOT EXISTS story_domain_task_sources_v1 (
+  step_id TEXT PRIMARY KEY REFERENCES story_work_steps_v1(id),
+  source_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_work_attempts_v1 (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  attempt_id TEXT NOT NULL UNIQUE REFERENCES story_tasks_v2(task_id),
+  step_id TEXT NOT NULL REFERENCES story_work_steps_v1(id),
+  attempt_number INTEGER NOT NULL,
+  started_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  completed_at INTEGER,
+  UNIQUE(step_id, attempt_number)
+);
+CREATE INDEX IF NOT EXISTS story_work_steps_task_v1 ON story_work_steps_v1(work_task_id, ordinal);
+CREATE TABLE IF NOT EXISTS story_task_action_requests_v1 (
+  action_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  source_task_id TEXT NOT NULL REFERENCES story_tasks_v2(task_id) ON DELETE CASCADE,
+  idempotency_key TEXT NOT NULL,
+    operation TEXT NOT NULL CHECK(operation IN ('generateBrief','generateOutline','generatePlan','generateChapter','extractCommitments','reviseCommitment','generatePropertyRules')),
+  target_json TEXT NOT NULL,
+  requested_target_json TEXT NOT NULL,
+  intent_revision INTEGER NOT NULL CHECK(intent_revision >= 0),
+  instruction TEXT NOT NULL,
+  input_revision INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'proposed' CHECK(status IN ('proposed','declined','queued','running','completed','failed','superseded')),
+  result_task_id TEXT,
+  error TEXT,
+  UNIQUE(source_task_id, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS story_execution_scopes_v1 (
+  permit_id TEXT PRIMARY KEY,
+  work_task_id TEXT NOT NULL REFERENCES story_work_tasks_v1(id),
+  kind TEXT NOT NULL CHECK(kind IN ('advisory','generation')),
+  author_message_id TEXT NOT NULL REFERENCES story_author_messages_v1(message_id),
+  source_task_id TEXT REFERENCES story_tasks_v2(task_id),
+  generation_run_id TEXT REFERENCES story_generation_runs_v1(run_id),
+  scope_json TEXT NOT NULL,
+  preview_digest TEXT NOT NULL UNIQUE,
+  confirmed_at INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('active','superseded')),
+  superseded_by_author_message_id TEXT REFERENCES story_author_messages_v1(message_id),
+  CHECK((status='active' AND superseded_by_author_message_id IS NULL)
+     OR (status='superseded' AND superseded_by_author_message_id IS NOT NULL)),
+  CHECK((kind='advisory' AND source_task_id IS NOT NULL AND generation_run_id IS NULL)
+     OR (kind='generation' AND source_task_id IS NULL AND generation_run_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_execution_scope_active_v1
+  ON story_execution_scopes_v1(work_task_id) WHERE status='active';
+CREATE UNIQUE INDEX IF NOT EXISTS story_execution_scope_generation_v1
+  ON story_execution_scopes_v1(generation_run_id) WHERE kind='generation';
+CREATE TABLE IF NOT EXISTS story_action_permits_v1 (
+  action_id TEXT PRIMARY KEY REFERENCES story_task_action_requests_v1(action_id) ON DELETE CASCADE,
+  work_task_id TEXT NOT NULL REFERENCES story_work_tasks_v1(id) ON DELETE CASCADE,
+  scope_permit_id TEXT REFERENCES story_execution_scopes_v1(permit_id),
+  evidence_json TEXT NOT NULL,
+  granted_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_task_input_heads_v2 (
+  task_id TEXT NOT NULL REFERENCES story_tasks_v2(task_id) ON DELETE CASCADE,
+  object_id TEXT NOT NULL,
+  candidate_revision_id TEXT,
+  accepted_revision_id TEXT,
+  working_revision_id TEXT,
+  working_selection_revision INTEGER,
+  PRIMARY KEY(task_id, object_id)
+);
+CREATE TABLE IF NOT EXISTS story_task_input_knowledge_v2 (
+  task_id TEXT NOT NULL REFERENCES story_tasks_v2(task_id) ON DELETE CASCADE,
+  object_id TEXT NOT NULL,
+  batch_id TEXT NOT NULL,
+  PRIMARY KEY(task_id, object_id)
+);
+CREATE TABLE IF NOT EXISTS story_generation_runs_v1 (
+  run_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  state_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS story_revision_decisions_v1 (
+  ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
+  decision_id TEXT NOT NULL UNIQUE,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  writer_task_id TEXT NOT NULL REFERENCES story_tasks_v2(task_id),
+  assessment_revision_id TEXT NOT NULL REFERENCES story_revisions_v2(revision_id),
+  request_json TEXT NOT NULL,
+  record_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS story_revision_decisions_writer_v1
+  ON story_revision_decisions_v1(project_id, writer_task_id, ordinal DESC);
+CREATE TABLE IF NOT EXISTS story_generation_revision_sources_v1 (
+  run_id TEXT PRIMARY KEY REFERENCES story_generation_runs_v1(run_id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  decision_id TEXT NOT NULL REFERENCES story_revision_decisions_v1(decision_id),
+  source_json TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_generation_one_open_run_v1
+  ON story_generation_runs_v1(project_id)
+  WHERE json_extract(state_json, '$.status') IN ('running', 'paused', 'blocked');
 CREATE TABLE IF NOT EXISTS story_working_baselines_v2 (
   project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
   object_kind TEXT NOT NULL,
@@ -258,6 +630,7 @@ CREATE TABLE IF NOT EXISTS story_planning_review_runs_v2 (
   revision_id TEXT NOT NULL,
   target_node_id TEXT,
   author_intent TEXT NOT NULL,
+  author_message_id TEXT NOT NULL,
   input_revision INTEGER NOT NULL,
   roles_json TEXT NOT NULL,
   source_packet_json TEXT NOT NULL,
@@ -293,12 +666,288 @@ CREATE TABLE IF NOT EXISTS story_local_metric_receipts_v2 (
   idempotency_key TEXT PRIMARY KEY,
   metric TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS story_modeling_batches_v2 (
+  batch_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  object_id TEXT NOT NULL,
+  source_revision_id TEXT NOT NULL REFERENCES story_revisions_v2(revision_id),
+  input_project_revision INTEGER NOT NULL,
+  extractor_version TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('queued','ready','stale')),
+  assertions_json TEXT NOT NULL DEFAULT '[]',
+  entities_json TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL,
+  published_at INTEGER,
+  publisher_task_id TEXT REFERENCES story_tasks_v2(task_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_modeling_batches_live_v2
+  ON story_modeling_batches_v2(project_id, object_id, source_revision_id, input_project_revision, extractor_version)
+  WHERE status IN ('queued','ready');
+CREATE INDEX IF NOT EXISTS story_modeling_batches_project_v2
+  ON story_modeling_batches_v2(project_id, object_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS story_knowledge_heads_v2 (
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  object_id TEXT NOT NULL,
+  batch_id TEXT NOT NULL REFERENCES story_modeling_batches_v2(batch_id),
+  PRIMARY KEY(project_id, object_id)
+);
+CREATE TABLE IF NOT EXISTS story_snapshot_knowledge_v2 (
+  snapshot_id TEXT NOT NULL,
+  object_id TEXT NOT NULL,
+  batch_id TEXT REFERENCES story_modeling_batches_v2(batch_id),
+  PRIMARY KEY(snapshot_id, object_id),
+  FOREIGN KEY(snapshot_id, object_id) REFERENCES story_snapshot_members_v2(snapshot_id, object_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS story_snapshot_knowledge_batch_v2
+  ON story_snapshot_knowledge_v2(batch_id, snapshot_id);
+CREATE TRIGGER IF NOT EXISTS story_snapshot_knowledge_capture_v2
+AFTER INSERT ON story_snapshot_members_v2
+BEGIN
+  INSERT INTO story_snapshot_knowledge_v2(snapshot_id, object_id, batch_id)
+  SELECT NEW.snapshot_id, NEW.object_id,
+    (SELECT h.batch_id FROM story_knowledge_heads_v2 h
+     JOIN story_modeling_batches_v2 b ON b.batch_id = h.batch_id
+       AND b.project_id = s.project_id AND b.object_id = NEW.object_id
+     WHERE h.project_id = s.project_id AND h.object_id = NEW.object_id
+       AND b.status = 'ready' AND b.published_at IS NOT NULL
+       AND b.source_revision_id = NEW.revision_id)
+  FROM story_snapshots_v2 s WHERE s.snapshot_id = NEW.snapshot_id;
+END;
+CREATE TABLE IF NOT EXISTS story_snapshot_knowledge_audit_state_v1 (
+  project_id TEXT PRIMARY KEY,
+  generation INTEGER NOT NULL DEFAULT 0
+);
+CREATE TRIGGER IF NOT EXISTS story_snapshot_knowledge_audit_project_delete_v1
+AFTER DELETE ON story_projects_v2
+BEGIN
+  DELETE FROM story_snapshot_knowledge_audit_state_v1 WHERE project_id = OLD.project_id;
+END;
+CREATE TABLE IF NOT EXISTS story_snapshot_knowledge_audit_jobs_v1 (
+  job_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','paused','cancelled','stale','failed','completed')),
+  version INTEGER NOT NULL DEFAULT 0,
+  source_count INTEGER NOT NULL,
+  source_max_rowid INTEGER NOT NULL,
+  source_generation INTEGER NOT NULL,
+  next_rowid INTEGER NOT NULL DEFAULT 0,
+  audit_json TEXT NOT NULL,
+  error TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_snapshot_knowledge_audit_active_v1
+  ON story_snapshot_knowledge_audit_jobs_v1(project_id)
+  WHERE status IN ('queued','running','paused');
+CREATE TRIGGER IF NOT EXISTS story_snapshot_knowledge_audit_capture_insert_v1
+AFTER INSERT ON story_snapshot_knowledge_v2
+BEGIN
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  SELECT project_id, 1 FROM story_snapshots_v2 WHERE snapshot_id = NEW.snapshot_id
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_snapshot_knowledge_audit_capture_update_v1
+AFTER UPDATE ON story_snapshot_knowledge_v2
+BEGIN
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  SELECT project_id, 1 FROM story_snapshots_v2 WHERE snapshot_id = OLD.snapshot_id
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  SELECT project_id, 1 FROM story_snapshots_v2 WHERE snapshot_id = NEW.snapshot_id
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_snapshot_knowledge_audit_capture_delete_v1
+AFTER DELETE ON story_snapshot_knowledge_v2
+BEGIN
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  SELECT project_id, 1 FROM story_snapshots_v2 WHERE snapshot_id = OLD.snapshot_id
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_snapshot_knowledge_audit_member_update_v1
+AFTER UPDATE ON story_snapshot_members_v2
+BEGIN
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  SELECT project_id, 1 FROM story_snapshots_v2 WHERE snapshot_id = OLD.snapshot_id
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  SELECT project_id, 1 FROM story_snapshots_v2 WHERE snapshot_id = NEW.snapshot_id
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_snapshot_knowledge_audit_member_delete_v1
+AFTER DELETE ON story_snapshot_members_v2
+BEGIN
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  SELECT project_id, 1 FROM story_snapshots_v2 WHERE snapshot_id = OLD.snapshot_id
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_snapshot_knowledge_audit_batch_update_v1
+AFTER UPDATE OF project_id, object_id, source_revision_id, status, published_at ON story_modeling_batches_v2
+BEGIN
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  VALUES (OLD.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  VALUES (NEW.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_snapshot_knowledge_audit_revision_update_v1
+AFTER UPDATE OF project_id, object_id, object_kind ON story_revisions_v2
+BEGIN
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  VALUES (OLD.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  VALUES (NEW.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_snapshot_knowledge_audit_snapshot_delete_v1
+BEFORE DELETE ON story_snapshots_v2
+BEGIN
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  VALUES (OLD.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TRIGGER IF NOT EXISTS story_snapshot_knowledge_audit_snapshot_update_v1
+BEFORE UPDATE OF project_id, snapshot_id ON story_snapshots_v2
+BEGIN
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  VALUES (OLD.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+  INSERT INTO story_snapshot_knowledge_audit_state_v1(project_id, generation)
+  VALUES (NEW.project_id, 1)
+  ON CONFLICT(project_id) DO UPDATE SET generation = generation + 1;
+END;
+CREATE TABLE IF NOT EXISTS story_entity_claims_v2 (
+  project_id TEXT NOT NULL,
+  batch_id TEXT NOT NULL REFERENCES story_modeling_batches_v2(batch_id) ON DELETE CASCADE,
+  entity_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  aliases_json TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,
+  PRIMARY KEY(batch_id, entity_id)
+);
+CREATE TABLE IF NOT EXISTS story_entity_names_v2 (
+  project_id TEXT NOT NULL,
+  batch_id TEXT NOT NULL REFERENCES story_modeling_batches_v2(batch_id) ON DELETE CASCADE,
+  entity_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  PRIMARY KEY(batch_id, entity_id, name)
+);
+CREATE INDEX IF NOT EXISTS story_entity_names_lookup_v2
+  ON story_entity_names_v2(project_id, name, batch_id);
+CREATE INDEX IF NOT EXISTS story_entity_claims_lookup_v2
+  ON story_entity_claims_v2(project_id, entity_id);
+CREATE TABLE IF NOT EXISTS story_assertion_claims_v1 (
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  batch_id TEXT NOT NULL REFERENCES story_modeling_batches_v2(batch_id) ON DELETE CASCADE,
+  assertion_index INTEGER NOT NULL,
+  subject_id TEXT,
+  target_id TEXT,
+  owner_id TEXT,
+  assertion_json TEXT NOT NULL,
+  PRIMARY KEY(batch_id, assertion_index)
+);
+CREATE INDEX IF NOT EXISTS story_assertion_subject_v1
+  ON story_assertion_claims_v1(project_id, subject_id, batch_id);
+CREATE INDEX IF NOT EXISTS story_assertion_target_v1
+  ON story_assertion_claims_v1(project_id, target_id, batch_id);
+CREATE INDEX IF NOT EXISTS story_assertion_owner_v1
+  ON story_assertion_claims_v1(project_id, owner_id, batch_id);
+CREATE TABLE IF NOT EXISTS story_relation_claims_v1 (
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  batch_id TEXT NOT NULL REFERENCES story_modeling_batches_v2(batch_id) ON DELETE CASCADE,
+  assertion_index INTEGER NOT NULL,
+  subject_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  relation_type TEXT NOT NULL,
+  assertion_json TEXT NOT NULL,
+  PRIMARY KEY(batch_id, assertion_index)
+);
+CREATE INDEX IF NOT EXISTS story_relation_subject_v1
+  ON story_relation_claims_v1(project_id, subject_id, relation_type, batch_id);
+CREATE INDEX IF NOT EXISTS story_relation_target_v1
+  ON story_relation_claims_v1(project_id, target_id, relation_type, batch_id);
+CREATE TABLE IF NOT EXISTS story_epistemic_claims_v1 (
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  batch_id TEXT NOT NULL REFERENCES story_modeling_batches_v2(batch_id) ON DELETE CASCADE,
+  assertion_index INTEGER NOT NULL,
+  owner_id TEXT NOT NULL,
+  proposition_id TEXT NOT NULL,
+  proposition_source_batch_id TEXT NOT NULL,
+  epistemic_state TEXT NOT NULL,
+  epistemic_time INTEGER,
+  assertion_json TEXT NOT NULL,
+  PRIMARY KEY(batch_id, assertion_index)
+);
+CREATE INDEX IF NOT EXISTS story_epistemic_owner_proposition_v1
+  ON story_epistemic_claims_v1(project_id, owner_id, proposition_id, proposition_source_batch_id, batch_id);
+CREATE INDEX IF NOT EXISTS story_epistemic_source_batch_v1
+  ON story_epistemic_claims_v1(project_id, proposition_source_batch_id, batch_id);
+CREATE TABLE IF NOT EXISTS story_knowledge_index_state_v1 (
+  project_id TEXT PRIMARY KEY REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  generation INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS story_knowledge_audit_jobs_v1 (
+  job_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','paused','cancelled','stale','failed','completed')),
+  version INTEGER NOT NULL DEFAULT 0,
+  source_count INTEGER NOT NULL,
+  source_max_rowid INTEGER NOT NULL,
+  index_generation INTEGER NOT NULL,
+  entity_generation INTEGER NOT NULL,
+  validation_version TEXT NOT NULL,
+  next_rowid INTEGER NOT NULL DEFAULT 0,
+  audit_json TEXT NOT NULL,
+  error TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_knowledge_audit_active_v1
+  ON story_knowledge_audit_jobs_v1(project_id)
+  WHERE status IN ('queued','running','paused');
+CREATE TABLE IF NOT EXISTS story_relation_index_state_v1 (
+  project_id TEXT PRIMARY KEY REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  generation INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS story_relation_audit_jobs_v1 (
+  job_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','paused','cancelled','stale','failed','completed')),
+  version INTEGER NOT NULL DEFAULT 0,
+  source_count INTEGER NOT NULL,
+  source_max_rowid INTEGER NOT NULL,
+  index_generation INTEGER NOT NULL,
+  next_rowid INTEGER NOT NULL DEFAULT 0,
+  audit_json TEXT NOT NULL,
+  error TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_relation_audit_active_v1
+  ON story_relation_audit_jobs_v1(project_id)
+  WHERE status IN ('queued','running','paused');
+CREATE TABLE IF NOT EXISTS story_entity_index_state_v1 (
+  project_id TEXT PRIMARY KEY REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  generation INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS story_entity_audit_jobs_v1 (
+  job_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','paused','cancelled','stale','failed','completed')),
+  version INTEGER NOT NULL DEFAULT 0,
+  source_count INTEGER NOT NULL,
+  source_max_rowid INTEGER NOT NULL,
+  index_generation INTEGER NOT NULL,
+  next_rowid INTEGER NOT NULL DEFAULT 0,
+  audit_json TEXT NOT NULL,
+  error TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS story_entity_audit_active_v1
+  ON story_entity_audit_jobs_v1(project_id)
+  WHERE status IN ('queued','running','paused');
 "#;
 
 /// Durable Story Core repository. Every state transition is committed in one
 /// SQLite transaction; callers never need to mirror an in-memory authority.
 pub struct SqliteStoryRepository {
     pub(crate) connection: Connection,
+    pub(crate) recovery_operation: Option<crate::RecoveryOperationBinding>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -376,7 +1025,25 @@ pub struct TaskOutputBinding {
 impl SqliteStoryRepository {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, RepositoryError> {
         let connection = Connection::open(path).map_err(storage_error)?;
-        Self::from_connection(connection)
+        let repository = Self::from_connection(connection)?;
+        // The file store serves foreground writes and background audits together.
+        // Re-selecting WAL on every read connection would itself contend for locks.
+        let mode: String = repository
+            .connection
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .map_err(storage_error)?;
+        if mode != "wal" {
+            let selected: String = repository
+                .connection
+                .query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))
+                .map_err(storage_error)?;
+            if selected != "wal" {
+                return Err(RepositoryError::Storage(
+                    "file story storage requires WAL journal mode".into(),
+                ));
+            }
+        }
+        Ok(repository)
     }
 
     pub fn in_memory() -> Result<Self, RepositoryError> {
@@ -386,10 +1053,36 @@ impl SqliteStoryRepository {
 
     fn from_connection(connection: Connection) -> Result<Self, RepositoryError> {
         connection
-            .execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")
+            .execute_batch(
+                "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL;",
+            )
             .map_err(storage_error)?;
         connection.execute_batch(SCHEMA).map_err(storage_error)?;
-        Ok(Self { connection })
+        connection
+            .execute_batch(crate::condition_evaluation_jobs::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(&crate::model_dependencies::schema())
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::source_payload_audit_schema::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(&crate::source_payload_audit_schema::index_fences())
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::modeling_outbox_schema::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::recovery_operations::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::reading_checkpoint::SCHEMA)
+            .map_err(storage_error)?;
+        Ok(Self {
+            connection,
+            recovery_operation: None,
+        })
     }
 
     pub fn create_project(
@@ -398,7 +1091,10 @@ impl SqliteStoryRepository {
         branch_id: BranchId,
         snapshot_id: SnapshotId,
     ) -> Result<ProjectRecord, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if exists(
             &transaction,
             "SELECT 1 FROM story_projects_v2 WHERE project_id = ?1",
@@ -471,7 +1167,10 @@ impl SqliteStoryRepository {
         locked: bool,
         expected_project_revision: i64,
     ) -> Result<i64, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         let revision = current_project_revision(&transaction, project_id)?;
         if revision != expected_project_revision {
             return Err(RepositoryError::StaleProjectRevision {
@@ -525,7 +1224,97 @@ impl SqliteStoryRepository {
         if request.object_kind.trim().is_empty() {
             return Err(RepositoryError::InvalidObjectKind);
         }
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        if request.object_kind == "sceneAssessment" && request.task_output.is_none() {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
+        if request.object_kind == "commitmentExtraction"
+            && (request.branch_id.as_str() != "main"
+                || request.chapter_projection.is_some()
+                || request
+                    .task_output
+                    .as_ref()
+                    .is_none_or(|binding| binding.output_kind != "commitmentExtraction"))
+        {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
+        if request
+            .task_output
+            .as_ref()
+            .is_some_and(|binding| binding.output_kind == "commitmentExtraction")
+            && request.object_kind != "commitmentExtraction"
+        {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
+        if request
+            .task_output
+            .as_ref()
+            .is_some_and(|binding| binding.output_kind == "sceneAssessment")
+            && request.object_kind != "sceneAssessment"
+        {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
+        if request.object_kind == "revisionOutcome"
+            && (request.branch_id.as_str() != "main"
+                || request.chapter_projection.is_some()
+                || request
+                    .task_output
+                    .as_ref()
+                    .is_none_or(|binding| binding.output_kind != "revisionOutcome"))
+        {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
+        if request
+            .task_output
+            .as_ref()
+            .is_some_and(|binding| binding.output_kind == "revisionOutcome")
+            && request.object_kind != "revisionOutcome"
+        {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
+        if request.object_kind == "identity" {
+            if request.object_id.as_str() != "artifact-identity" {
+                return Err(RepositoryError::InvalidObjectKind);
+            }
+            crate::identity_decisions::validate_identity_content(&request.content_json)?;
+        }
+        if request.object_kind == "propertyRules" {
+            if request.branch_id.as_str() != "main" || request.chapter_projection.is_some() {
+                return Err(RepositoryError::TaskOutputForbidden);
+            }
+            crate::property_rules::validate_write(&request.object_id, &request.content_json)?;
+            let content: serde_json::Value = serde_json::from_str(&request.content_json)
+                .map_err(|_| RepositoryError::CorruptState)?;
+            let source_valid = match (content["source"].as_str(), request.task_output.as_ref()) {
+                (Some("author"), None) => true,
+                (Some("agent"), Some(binding)) => binding.output_kind == "propertyRules",
+                _ => false,
+            };
+            if !source_valid {
+                return Err(RepositoryError::TaskOutputForbidden);
+            }
+        }
+        if request.object_kind == "commitment"
+            && (request.branch_id.as_str() != "main"
+                || request
+                    .task_output
+                    .as_ref()
+                    .is_some_and(|binding| binding.output_kind != "commitment")
+                || request.chapter_projection.is_some())
+        {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
+        if request
+            .task_output
+            .as_ref()
+            .is_some_and(|binding| binding.output_kind == "commitment")
+            && request.object_kind != "commitment"
+        {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if let Some(receipt) = replay_candidate_receipt(
             &transaction,
             &request.project_id,
@@ -533,6 +1322,15 @@ impl SqliteStoryRepository {
             &request.idempotency_key,
             &request.request_digest,
         )? {
+            crate::recovery_operations::commit_candidate(
+                &transaction,
+                self.recovery_operation.as_ref(),
+                &request.project_id,
+                request.task_output.as_ref(),
+                &request.object_kind,
+                receipt.revision_id.as_str(),
+            )?;
+            transaction.commit().map_err(storage_error)?;
             return Ok(receipt);
         }
         let project_revision = transaction
@@ -557,6 +1355,8 @@ impl SqliteStoryRepository {
                 binding,
                 project_revision,
                 &request.object_id,
+                &request.expected_candidate_revision_id,
+                &request.content_json,
             )?;
         }
         let head = require_head(
@@ -571,6 +1371,17 @@ impl SqliteStoryRepository {
             if chapter.number < 1 || chapter.title.chars().count() > 160 {
                 return Err(RepositoryError::InvalidChapter);
             }
+            if exists(
+                &transaction,
+                "SELECT 1 FROM story_chapters_v2 WHERE project_id = ?1 AND number = ?2 AND chapter_id <> ?3",
+                params![
+                    request.project_id.as_str(),
+                    chapter.number,
+                    chapter.chapter_id
+                ],
+            )? {
+                return Err(RepositoryError::InvalidChapter);
+            }
             let existing_project = transaction
                 .query_row(
                     "SELECT project_id FROM story_chapters_v2 WHERE chapter_id = ?1",
@@ -583,7 +1394,14 @@ impl SqliteStoryRepository {
                 Some(existing_project) if existing_project != request.project_id.as_str() => {
                     return Err(RepositoryError::CrossProjectReference);
                 }
-                Some(_) => {}
+                Some(_) => {
+                    transaction
+                        .execute(
+                            "UPDATE story_chapters_v2 SET number = ?1, title = ?2 WHERE project_id = ?3 AND chapter_id = ?4",
+                            params![chapter.number, chapter.title, request.project_id.as_str(), chapter.chapter_id],
+                        )
+                        .map_err(storage_error)?;
+                }
                 None => {
                     transaction
                         .execute(
@@ -636,9 +1454,11 @@ impl SqliteStoryRepository {
         }
         let parent_revision_id =
             current_candidate.or_else(|| accepted.and_then(|value| RevisionId::parse(value).ok()));
+        let working_source_revision_id = parent_revision_id.clone();
         let revision = RevisionRecord {
             project_id: request.project_id.clone(),
             object_id: request.object_id.clone(),
+            object_kind: request.object_kind.clone(),
             revision_id: request.revision_id.clone(),
             parent_revision_id,
             content_digest: request.content_digest,
@@ -678,12 +1498,43 @@ impl SqliteStoryRepository {
                 params![request.project_id.as_str(), request.object_id.as_str(), request.object_kind, request.revision_id.as_str()],
             )
             .map_err(storage_error)?;
+        if request.object_kind == "draft" {
+            crate::modeling::invalidate_source_modeling(
+                &transaction,
+                &request.project_id,
+                &request.object_id,
+            )?;
+        }
         if let Some(binding) = &request.task_output {
+            let working_base_revision_id = crate::workspace_selection::task_output_working_base(
+                &transaction,
+                &binding.task_id,
+                request.object_id.as_str(),
+                working_source_revision_id.as_ref(),
+            )?;
             crate::tasks::record_task_output(
                 &transaction,
                 binding,
                 &request.revision_id,
                 &request.object_id,
+                working_base_revision_id.as_ref(),
+            )?;
+            crate::workspace_selection::advance_task_working_source(
+                &transaction,
+                &request.project_id,
+                &binding.task_id,
+                &request.object_kind,
+                request.object_id.as_str(),
+                &request.revision_id,
+            )?;
+        } else {
+            crate::workspace_selection::advance_author_working_source(
+                &transaction,
+                &request.project_id,
+                &request.object_kind,
+                request.object_id.as_str(),
+                working_source_revision_id.as_ref(),
+                &request.revision_id,
             )?;
         }
         transaction
@@ -711,6 +1562,14 @@ impl SqliteStoryRepository {
                 params![request.project_id.as_str(), request.branch_id.as_str(), request.idempotency_key.as_str(), request.request_digest, request.revision_id.as_str(), request.next_snapshot_id.as_str(), project_revision],
             )
             .map_err(storage_error)?;
+        crate::recovery_operations::commit_candidate(
+            &transaction,
+            self.recovery_operation.as_ref(),
+            &request.project_id,
+            request.task_output.as_ref(),
+            &request.object_kind,
+            request.revision_id.as_str(),
+        )?;
         transaction.commit().map_err(storage_error)?;
         Ok(CandidateReceipt {
             revision_id: request.revision_id,
@@ -783,7 +1642,10 @@ impl SqliteStoryRepository {
         branch_id: BranchId,
         snapshot_id: SnapshotId,
     ) -> Result<(), RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if exists(
             &transaction,
             "SELECT 1 FROM story_branches_v2 WHERE project_id = ?1 AND branch_id = ?2",
@@ -850,7 +1712,10 @@ impl SqliteStoryRepository {
         if request.revisions.is_empty() {
             return Err(RepositoryError::EmptyCommit);
         }
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if let Some(receipt) = replay_receipt(
             &transaction,
             &request.project_id,
@@ -945,7 +1810,10 @@ impl SqliteStoryRepository {
     }
 
     pub fn undo_latest(&mut self, request: UndoRequest) -> Result<CommitReceipt, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if let Some(receipt) = replay_receipt(
             &transaction,
             &request.project_id,
@@ -1232,14 +2100,50 @@ fn insert_revision(
     connection: &Connection,
     revision: &RevisionRecord,
 ) -> Result<(), RepositoryError> {
+    if revision.object_kind.trim().is_empty() {
+        return Err(RepositoryError::InvalidObjectKind);
+    }
+    if revision.object_kind == "propertyRules" {
+        crate::property_rules::validate_write(&revision.object_id, &revision.content_json)?;
+    }
+    if revision.object_kind == "commitment" {
+        crate::commitment_establishment::validate_revision(connection, revision)?;
+        crate::narrative_commitments::validate_write(
+            connection,
+            &revision.project_id,
+            &revision.object_id,
+            &revision.content_json,
+        )?;
+    }
+    if revision.object_kind == "commitmentExtraction" {
+        crate::commitment_extraction::validate_write(
+            connection,
+            &revision.project_id,
+            &revision.object_id,
+            &revision.content_json,
+        )?;
+    }
+    if let Some(parent_revision_id) = &revision.parent_revision_id {
+        let parent_kind: String = connection
+            .query_row(
+                "SELECT object_kind FROM story_revisions_v2 WHERE revision_id = ?1",
+                [parent_revision_id.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(storage_error)?;
+        if parent_kind != revision.object_kind {
+            return Err(RepositoryError::InvalidObjectKind);
+        }
+    }
     serde_json::from_str::<serde_json::Value>(&revision.content_json)
         .map_err(|error| RepositoryError::Storage(format!("invalid revision JSON: {error}")))?;
     connection
         .execute(
-            "INSERT INTO story_revisions_v2(revision_id, project_id, object_id, parent_revision_id, content_digest, content_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![revision.revision_id.as_str(), revision.project_id.as_str(), revision.object_id.as_str(), revision.parent_revision_id.as_ref().map(RevisionId::as_str), revision.content_digest, revision.content_json],
+            "INSERT INTO story_revisions_v2(revision_id, project_id, object_id, object_kind, parent_revision_id, content_digest, content_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![revision.revision_id.as_str(), revision.project_id.as_str(), revision.object_id.as_str(), revision.object_kind, revision.parent_revision_id.as_ref().map(RevisionId::as_str), revision.content_digest, revision.content_json],
         )
         .map_err(storage_error)?;
+    crate::search_index::index_revision(connection, revision)?;
     Ok(())
 }
 

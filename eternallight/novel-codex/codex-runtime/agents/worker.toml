@@ -8,4 +8,4 @@ Work only as a read-only story analyst. Inspect the frozen task context, perform
 """
 
 [mcp_servers.novel_workspace]
-enabled_tools = ["read_context"]
+enabled_tools = ["read_context", "search_story", "search_relations", "query_story"]

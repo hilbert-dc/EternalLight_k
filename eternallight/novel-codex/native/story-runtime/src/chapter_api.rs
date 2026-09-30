@@ -6,6 +6,7 @@ use axum::response::IntoResponse;
 use axum::response::Response;
 use novel_codex_story_core::AssociateChapterPlanRequest;
 use novel_codex_story_core::ProjectId;
+use novel_codex_story_core::RebindChapterPlanRequest;
 use novel_codex_story_core::SqliteStoryRepository;
 use serde::Deserialize;
 use serde_json::json;
@@ -41,6 +42,47 @@ pub(crate) struct AssociatePlanRequest {
     chapter_plan_id: String,
     expected_revision: i64,
     idempotency_key: String,
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RebindPlanRequest {
+    chapter_id: String,
+    previous_plan_revision_id: String,
+    previous_chapter_plan_id: String,
+    source_revision_id: String,
+    plan_revision_id: String,
+    chapter_plan_id: String,
+    expected_revision: i64,
+    idempotency_key: String,
+}
+
+pub(crate) async fn rebind_plan(
+    State(state): State<RuntimeState>,
+    Path(project_id): Path<String>,
+    Json(request): Json<RebindPlanRequest>,
+) -> Response {
+    let (mut repository, project_id) = match open(&state, project_id) {
+        Ok(value) => value,
+        Err(response) => return *response,
+    };
+    let digest = digest(&json!(request));
+    match repository.rebind_chapter_plan(RebindChapterPlanRequest {
+        project_id: &project_id,
+        chapter_id: &request.chapter_id,
+        previous_plan_revision_id: &request.previous_plan_revision_id,
+        previous_chapter_plan_id: &request.previous_chapter_plan_id,
+        source_revision_id: &request.source_revision_id,
+        plan_revision_id: &request.plan_revision_id,
+        chapter_plan_id: &request.chapter_plan_id,
+        expected_revision: request.expected_revision,
+        idempotency_key: &request.idempotency_key,
+        request_digest: &digest,
+        now: unix_now(),
+    }) {
+        Ok(value) => Json(value).into_response(),
+        Err(source) => repository_error(source),
+    }
 }
 
 pub(crate) async fn materialize_from_plan(

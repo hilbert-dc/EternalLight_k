@@ -135,6 +135,8 @@ impl SessionRuntime {
                 }
                 if execution.stage >= 3 {
                     effects.push("budget");
+                } else if execution.stage >= 1 {
+                    effects.push("budgetRecord");
                 }
                 if execution.stage >= 5 {
                     effects.push("app");

@@ -46,6 +46,15 @@ test("conformance failure classification distinguishes exposure, selection, exec
   unselected.record("bridge", "bridge.response.completed", { parentThreadId: "root", toolCalls: [] });
   assert.equal(classifyConformanceFailure(unselected.snapshot(), { expectedTool: "echo" }), "tool-not-selected");
 
+  const namespaced = make();
+  namespaced.record("bridge", "bridge.request.prepared", {
+    parentThreadId: "root",
+    tools: ["mcp__engine_conformance.engine_conformance_echo"],
+    encodedTools: ["n23__mcp__engine_conformance__engine_conformance_echo"],
+  });
+  namespaced.record("bridge", "bridge.response.completed", { parentThreadId: "root", toolCalls: [] });
+  assert.equal(classifyConformanceFailure(namespaced.snapshot(), { expectedTool: "engine_conformance_echo", requestScope: "child" }), "tool-not-selected");
+
   const textual = make();
   textual.record("bridge", "bridge.request.prepared", { parentThreadId: "root", tools: ["echo"] });
   textual.record("bridge", "bridge.response.completed", { parentThreadId: "root", toolCalls: [], textLooksLikeToolCall: true });

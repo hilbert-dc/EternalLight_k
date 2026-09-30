@@ -30,7 +30,17 @@ pub fn create(input: &Value) -> Result<Value> {
     let expiry = input["planExpiry"]
         .as_f64()
         .ok_or("session plan expiry is invalid")?;
-    let deadline = (now + duration).min(expiry);
+    let mut deadline = (now + duration).min(expiry);
+    if let Some(cap) = input.get("deadlineAtMs").filter(|value| !value.is_null()) {
+        let cap = cap
+            .as_i64()
+            .filter(|value| *value > 0)
+            .ok_or("execution lease deadline cap is invalid")? as f64;
+        if cap <= now {
+            return Err("execution lease deadline has expired".into());
+        }
+        deadline = deadline.min(cap);
+    }
     if deadline <= now {
         return Err("session plan has expired".into());
     }

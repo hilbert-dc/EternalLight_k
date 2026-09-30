@@ -1,6 +1,7 @@
 use rusqlite::OptionalExtension;
 use rusqlite::params;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::CreateTaskRequest;
 use crate::ObjectId;
@@ -17,8 +18,8 @@ pub struct CreatePlanningReview<'a> {
     pub revision_id: &'a str,
     pub target_node_id: Option<&'a str>,
     pub author_intent: &'a str,
+    pub author_message_id: &'a str,
     pub roles: &'a [String],
-    pub source_packet_hash: &'a str,
     pub now: i64,
 }
 
@@ -38,6 +39,10 @@ impl SqliteStoryRepository {
         request: CreatePlanningReview<'_>,
     ) -> Result<Value, RepositoryError> {
         if !matches!(request.artifact_kind, "outline" | "plan")
+            || !crate::author_message::valid_id(request.author_message_id)
+            || request.author_intent.trim().is_empty()
+            || request.author_intent.chars().count() > 4_000
+            || request.now < 0
             || !(2..=3).contains(&request.roles.len())
             || request
                 .roles
@@ -48,7 +53,10 @@ impl SqliteStoryRepository {
                 "invalid planning review scope or roles".into(),
             ));
         }
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         let input_revision = current_revision(&transaction, request.project_id)?;
         let content = transaction
             .query_row(
@@ -111,11 +119,18 @@ impl SqliteStoryRepository {
         let packet = serde_json::json!({
             "artifactKind": request.artifact_kind, "revisionId": request.revision_id,
             "artifact": artifact, "scope": {"targetNodeId": request.target_node_id, "nodeIds": selected},
-            "authorIntent": request.author_intent
+            "authorIntent": request.author_intent, "authorMessageId": request.author_message_id
         });
+        let packet = packet.to_string();
+        if packet.len() > crate::planning_review_author_source::MAX_PACKET_BYTES {
+            return Err(RepositoryError::InvalidContent(
+                "planning review source exceeds storage bound".into(),
+            ));
+        }
+        let source_packet_hash = format!("{:x}", Sha256::digest(packet.as_bytes()));
         transaction.execute(
-            "INSERT INTO story_planning_review_runs_v2(run_id, project_id, artifact_kind, revision_id, target_node_id, author_intent, input_revision, roles_json, source_packet_json, source_packet_hash, checks_json, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'open', ?12, ?12)",
-            params![request.run_id, request.project_id.as_str(), request.artifact_kind, request.revision_id, request.target_node_id, request.author_intent, input_revision, serde_json::to_string(request.roles).map_err(json_error)?, packet.to_string(), request.source_packet_hash, Value::Object(checks).to_string(), request.now],
+            "INSERT INTO story_planning_review_runs_v2(run_id, project_id, artifact_kind, revision_id, target_node_id, author_intent, input_revision, roles_json, source_packet_json, source_packet_hash, checks_json, status, created_at, updated_at, author_message_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'open', ?12, ?12, ?13)",
+            params![request.run_id, request.project_id.as_str(), request.artifact_kind, request.revision_id, request.target_node_id, request.author_intent, input_revision, serde_json::to_string(request.roles).map_err(json_error)?, packet, source_packet_hash, Value::Object(checks).to_string(), request.now, request.author_message_id],
         ).map_err(storage_error)?;
         for role in request.roles {
             transaction
@@ -125,6 +140,9 @@ impl SqliteStoryRepository {
                 )
                 .map_err(storage_error)?;
         }
+        crate::planning_review_work::create(&transaction, &request, input_revision)?;
+        transaction.execute("INSERT INTO story_author_messages_v1(message_id,project_id,work_task_id,review_run_id,intent_revision,author_text,created_at) VALUES (?1,?2,?3,?4,0,?5,?6)",
+            params![request.author_message_id,request.project_id.as_str(),format!("work-{}",request.run_id),request.run_id,request.author_intent,request.now]).map_err(storage_error)?;
         let view = load_run(&transaction, request.project_id, request.run_id)?;
         transaction.commit().map_err(storage_error)?;
         Ok(view)
@@ -139,16 +157,46 @@ impl SqliteStoryRepository {
             .collect()
     }
 
+    pub fn planning_review(
+        &self,
+        project_id: &ProjectId,
+        run_id: &str,
+    ) -> Result<Value, RepositoryError> {
+        let read = self
+            .connection
+            .unchecked_transaction()
+            .map_err(storage_error)?;
+        let run = load_run(&read, project_id, run_id)?;
+        read.commit().map_err(storage_error)?;
+        Ok(run)
+    }
+
     pub fn create_planning_review_seat_task(
         &mut self,
         project_id: &ProjectId,
         run_id: &str,
         role: &str,
-        request: CreateTaskRequest,
+        mut request: CreateTaskRequest,
     ) -> Result<crate::TaskRecord, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         let run = load_run(&transaction, project_id, run_id)?;
-        if run["status"] != "running"
+        let expected_target = crate::planning_review_work::target(
+            run_id,
+            role,
+            run["artifactKind"]
+                .as_str()
+                .ok_or(RepositoryError::CorruptState)?,
+            run["revisionId"]
+                .as_str()
+                .ok_or(RepositoryError::CorruptState)?,
+        );
+        let mut target: Value = serde_json::from_str(&request.target_json).map_err(json_error)?;
+        if request.project_id != *project_id
+            || target != expected_target
+            || run["status"] != "running"
             || !run["roles"]
                 .as_array()
                 .is_some_and(|roles| roles.iter().any(|value| value.as_str() == Some(role)))
@@ -157,14 +205,13 @@ impl SqliteStoryRepository {
         {
             return Err(RepositoryError::TaskBindingInvalid);
         }
+        target["resumeStepId"] = Value::String(format!("review-seat-{run_id}-{role}"));
+        request.target_json = target.to_string();
+        let mut manifest: Value =
+            serde_json::from_str(&request.input_manifest_json).map_err(json_error)?;
+        manifest["target"] = target;
+        request.input_manifest_json = manifest.to_string();
         let task = crate::tasks::create_task_record(&transaction, &request)?;
-        let changed = transaction.execute(
-            "UPDATE story_planning_review_seats_v2 SET task_id = ?1 WHERE run_id = ?2 AND role = ?3 AND task_id IS NULL",
-            params![task.task_id, run_id, role],
-        ).map_err(storage_error)?;
-        if changed != 1 {
-            return Err(RepositoryError::TaskBindingInvalid);
-        }
         transaction.commit().map_err(storage_error)?;
         Ok(task)
     }
@@ -174,6 +221,11 @@ impl SqliteStoryRepository {
         project_id: &ProjectId,
         task_id: &str,
     ) -> Result<Option<Value>, RepositoryError> {
+        let task = crate::tasks::load_task(&self.connection, task_id)?;
+        if task.project_id != *project_id {
+            return Err(RepositoryError::TaskBindingInvalid);
+        }
+        crate::task_input::assert_task_inputs_current(&self.connection, &task)?;
         self.connection.query_row(
             "SELECT run.run_id, seat.role, run.source_packet_json, run.source_packet_hash, run.checks_json, run.author_intent FROM story_planning_review_seats_v2 seat JOIN story_planning_review_runs_v2 run ON run.run_id = seat.run_id WHERE run.project_id = ?1 AND seat.task_id = ?2",
             params![project_id.as_str(), task_id],
@@ -199,7 +251,10 @@ impl SqliteStoryRepository {
             now,
         } = request;
         validate_report(report)?;
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         let task = transaction.query_row(
             "SELECT operation, thread_id, input_revision, status FROM story_tasks_v2 WHERE project_id = ?1 AND task_id = ?2",
             params![project_id.as_str(), task_id],
@@ -212,6 +267,8 @@ impl SqliteStoryRepository {
         {
             return Err(RepositoryError::TaskBindingInvalid);
         }
+        let source_task = crate::tasks::load_task(&transaction, task_id)?;
+        crate::task_input::assert_task_inputs_current(&transaction, &source_task)?;
         let role = transaction.query_row("SELECT role FROM story_planning_review_seats_v2 WHERE run_id = ?1 AND task_id = ?2", params![run_id, task_id], |row| row.get::<_, String>(0)).optional().map_err(storage_error)?.ok_or(RepositoryError::TaskBindingInvalid)?;
         let run = load_run(&transaction, project_id, run_id)?;
         if run["status"] != "running" || run["inputRevision"] != expected_revision {
@@ -240,7 +297,25 @@ impl SqliteStoryRepository {
             if serde_json::from_str::<Value>(&existing).map_err(json_error)? != *report {
                 return Err(RepositoryError::IdempotencyConflict);
             }
-            return Ok(report.clone());
+            let id: String = transaction
+                .query_row(
+                    "SELECT report_id FROM story_planning_review_reports_v2 WHERE task_id=?1",
+                    [task_id],
+                    |row| row.get(0),
+                )
+                .map_err(storage_error)?;
+            crate::recovery_operations::commit_operation(
+                &transaction,
+                self.recovery_operation.as_ref(),
+                project_id,
+                task_id,
+                &["submit_planning_review_report"],
+                &format!("runtime:report:{id}"),
+            )?;
+            transaction.commit().map_err(storage_error)?;
+            return Ok(
+                serde_json::json!({"id":id,"runId":run_id,"role":role,"status":status,"report":report}),
+            );
         }
         let report_id = format!("planning-report-{}", uuid::Uuid::new_v4().simple());
         transaction.execute("INSERT INTO story_planning_review_reports_v2(report_id, run_id, role, task_id, report_json, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![report_id, run_id, role, task_id, report.to_string(), status, now]).map_err(storage_error)?;
@@ -255,6 +330,7 @@ impl SqliteStoryRepository {
             &RevisionId::parse(&report_id).map_err(|_| RepositoryError::CorruptState)?,
             &ObjectId::parse(format!("planning-review-{run_id}"))
                 .map_err(|_| RepositoryError::CorruptState)?,
+            /*working_base_revision_id*/ None,
         )?;
         transaction
             .execute(
@@ -263,6 +339,14 @@ impl SqliteStoryRepository {
             )
             .map_err(storage_error)?;
         let result = serde_json::json!({"id": report_id, "runId": run_id, "role": role, "status": status, "report": report});
+        crate::recovery_operations::commit_operation(
+            &transaction,
+            self.recovery_operation.as_ref(),
+            project_id,
+            task_id,
+            &["submit_planning_review_report"],
+            &format!("runtime:report:{report_id}"),
+        )?;
         transaction.commit().map_err(storage_error)?;
         Ok(result)
     }
@@ -274,7 +358,10 @@ impl SqliteStoryRepository {
         cancel: bool,
         now: i64,
     ) -> Result<Value, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         let current = load_run(&transaction, project_id, run_id)?;
         if current["status"] != "running" {
             return Ok(current);
@@ -303,6 +390,16 @@ impl SqliteStoryRepository {
             let synthesis = serde_json::json!({"priorities": priorities, "disagreements": [], "incompleteRoles": incomplete});
             transaction.execute("UPDATE story_planning_review_runs_v2 SET status = ?1, synthesis_json = ?2, updated_at = ?3 WHERE run_id = ?4", params![status, synthesis.to_string(), now, run_id]).map_err(storage_error)?;
         }
+        crate::planning_review_work::close(
+            &transaction,
+            run_id,
+            if cancel {
+                crate::planning_review_work::ReviewEnd::Cancelled
+            } else {
+                crate::planning_review_work::ReviewEnd::Finished
+            },
+            now,
+        )?;
         let result = load_run(&transaction, project_id, run_id)?;
         transaction.commit().map_err(storage_error)?;
         Ok(result)
@@ -319,6 +416,7 @@ fn load_run(
         params![project_id.as_str(), run_id],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, String>(3)?, row.get::<_, i64>(4)?, row.get::<_, String>(5)?, row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, Option<String>>(9)?, row.get::<_, i64>(10)?, row.get::<_, i64>(11)?)),
     ).optional().map_err(storage_error)?.ok_or(RepositoryError::ReviewNotFound)?;
+    let source = crate::planning_review_author_source::root(connection, project_id, run_id)?;
     let roles: Value = serde_json::from_str(&row.5).map_err(json_error)?;
     let checks: Value = serde_json::from_str(&row.7).map_err(json_error)?;
     let mut seat_statement = connection.prepare("SELECT seat.role, seat.task_id, task.status FROM story_planning_review_seats_v2 seat LEFT JOIN story_tasks_v2 task ON task.task_id = seat.task_id WHERE seat.run_id = ?1 ORDER BY seat.role").map_err(storage_error)?;
@@ -339,7 +437,7 @@ fn load_run(
     };
     Ok(serde_json::json!({
         "id": run_id, "projectId": project_id.as_str(), "artifactKind": row.0, "revisionId": row.1,
-        "targetNodeId": row.2, "authorIntent": row.3, "inputRevision": row.4, "roles": roles,
+        "targetNodeId": row.2, "authorIntent": row.3, "authorMessageId": source.author_message_id, "inputRevision": row.4, "roles": roles,
         "sourcePacketHash": row.6, "status": status, "coverageStatus": coverage, "checksByRole": checks,
         "seats": seats, "reports": reports,
         "synthesis": row.9.map(|value| serde_json::from_str::<Value>(&value).unwrap_or(Value::Null)),

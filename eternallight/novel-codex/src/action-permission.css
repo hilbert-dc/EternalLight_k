@@ -1,0 +1,8 @@
+.action-permission-details { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border, #e3e5ea); border-radius: 8px; }
+.action-permission-details summary { cursor: pointer; }
+.action-permission-details p { line-height: 1.6; }
+.action-permission-details dl { display: grid; grid-template-columns: minmax(90px, 140px) minmax(0, 1fr); gap: 8px 12px; line-height: 1.6; }
+.action-permission-details dt { color: var(--text-secondary, #677080); }
+.action-permission-details dd { margin: 0; overflow-wrap: anywhere; }
+.action-permission-details pre { max-height: 260px; overflow: auto; }
+@media (max-width: 640px) { .action-permission-details dl { grid-template-columns: 1fr; gap: 4px; } .action-permission-details dd { margin-bottom: 8px; } }

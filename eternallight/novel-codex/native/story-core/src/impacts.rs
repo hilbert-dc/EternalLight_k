@@ -122,7 +122,10 @@ impl SqliteStoryRepository {
                 "invalid planning impact resolution".into(),
             ));
         }
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if let Some(result) = transaction
             .query_row(
                 "SELECT request_digest, result_json FROM story_domain_receipts_v2 WHERE project_id = ?1 AND operation = 'resolve-impact' AND idempotency_key = ?2",

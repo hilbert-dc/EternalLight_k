@@ -9,6 +9,14 @@ pub struct NativePersistentBudget {
 
 #[napi]
 impl NativePersistentBudget {
+    #[napi]
+    pub fn receipt(path: String, run_id: String) -> napi::Result<String> {
+        let result = PersistentBudget::receipt(&PathBuf::from(path), &run_id)
+            .map_err(napi::Error::from_reason)?;
+        serde_json::to_string(&result)
+            .map_err(|_| napi::Error::from_reason("invalid budget receipt"))
+    }
+
     #[napi(constructor)]
     pub fn new(path: String, run_id: String, input: String) -> napi::Result<Self> {
         if input.len() > 1024 * 1024 {

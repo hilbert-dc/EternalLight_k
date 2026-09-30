@@ -10,6 +10,7 @@
 - SessionPlan 只采用有效证据，并冻结证据引用、分类依赖摘要、路由及产品扩展授权；配置编译阶段不能追加权限。
 - Responses、Chat Completions、Messages、Generate Content 通过统一 Codec 接入，Bridge 执行预算、租约、取消与认证撤销。
 - 通用 Engine Host、App Server 客户端、资格 runner/MCP、版本化行为任务执行器、证据/报告存储、恢复日志与有向路由位于本包。
+- `startRun` 可同时指定相对 `maxDurationMs` 和绝对 `deadlineAtMs`；Rust 签发租约时取两者及 SessionPlan 到期时间的最早值，跨进程启动不能延长上层许可。
 - 行为评测固定任务集并明确 `authorizationEffect: none`，不会反向授予执行能力。
 - 测试证据仅从 `@eternallight/agent-engine/test-support` 导出，生产入口不能构造基线通过证据。
 

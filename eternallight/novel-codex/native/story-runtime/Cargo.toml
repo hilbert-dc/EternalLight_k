@@ -10,6 +10,8 @@ path = "src/main.rs"
 
 [dependencies]
 novel-codex-story-core = { path = "../story-core" }
+novel-codex-story-authoring = { path = "../story-authoring" }
+eternallight-engine-core = { path = "../../../agent-engine/native/engine-core" }
 axum = "0.8"
 serde.workspace = true
 serde_json.workspace = true
@@ -18,6 +20,8 @@ tokio.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+rusqlite.workspace = true
+pretty_assertions = "1"
 http-body-util = "0.1"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }

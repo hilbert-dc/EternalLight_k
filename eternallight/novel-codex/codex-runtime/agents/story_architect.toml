@@ -8,4 +8,4 @@ Act as a read-only story architect. Examine the assigned chapter or planning sco
 """
 
 [mcp_servers.novel_workspace]
-enabled_tools = ["read_context"]
+enabled_tools = ["read_context", "search_story", "search_relations", "query_story"]

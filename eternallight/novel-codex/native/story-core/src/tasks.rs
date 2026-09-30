@@ -37,6 +37,7 @@ pub struct TaskRecord {
     pub input_manifest_json: String,
     pub input_revision: i64,
     pub model: Option<String>,
+    pub turn_id: Option<String>,
     pub status: String,
     pub stage: String,
     pub delivery_status: String,
@@ -57,6 +58,42 @@ pub struct TaskUpdate {
 }
 
 impl SqliteStoryRepository {
+    pub fn bind_task_turn(
+        &mut self,
+        project_id: &ProjectId,
+        task_id: &str,
+        thread_id: &str,
+        turn_id: &str,
+    ) -> Result<TaskRecord, RepositoryError> {
+        if turn_id.is_empty() || turn_id.len() > 160 {
+            return Err(RepositoryError::TaskBindingInvalid);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        let task = load_task(&tx, task_id)?;
+        if task.project_id != *project_id || task.thread_id != thread_id {
+            return Err(RepositoryError::TaskBindingInvalid);
+        }
+        if task.turn_id.as_deref() == Some(turn_id) {
+            return Ok(task);
+        }
+        if !(ACTIVE_STATUSES.contains(&task.status.as_str()) || task.status == "completed")
+            || task.turn_id.is_some()
+        {
+            return Err(RepositoryError::TaskNotWritable);
+        }
+        tx.execute(
+            "UPDATE story_tasks_v2 SET turn_id = ?1 WHERE task_id = ?2 AND turn_id IS NULL",
+            params![turn_id, task_id],
+        )
+        .map_err(storage_error)?;
+        let updated = load_task(&tx, task_id)?;
+        tx.commit().map_err(storage_error)?;
+        Ok(updated)
+    }
+
     pub fn authorize_task_capability(
         &self,
         project_id: &ProjectId,
@@ -87,7 +124,10 @@ impl SqliteStoryRepository {
         &mut self,
         request: CreateTaskRequest,
     ) -> Result<TaskRecord, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         let task = create_task_record(&transaction, &request)?;
         transaction.commit().map_err(storage_error)?;
         Ok(task)
@@ -134,19 +174,27 @@ impl SqliteStoryRepository {
     ) -> Result<TaskRecord, RepositoryError> {
         if !matches!(
             update.status.as_str(),
-            "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled"
+            "running" | "waiting" | "failed" | "cancelled"
         ) {
             return Err(RepositoryError::TaskNotWritable);
         }
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         let task = load_task(&transaction, task_id)?;
         if task.project_id != *project_id || task.thread_id != thread_id {
             return Err(RepositoryError::TaskBindingInvalid);
         }
-        let terminal = matches!(update.status.as_str(), "completed" | "failed" | "cancelled");
-        let delivery_status = if update.status == "completed" {
-            "ready_for_review"
-        } else if terminal && task.output_refs_json != "[]" {
+        // Repeated delivery is idempotent, but must not overwrite terminal evidence.
+        if task.status == update.status {
+            return Ok(task);
+        }
+        if !ACTIVE_STATUSES.contains(&task.status.as_str()) {
+            return Err(RepositoryError::TaskNotWritable);
+        }
+        let terminal = matches!(update.status.as_str(), "failed" | "cancelled");
+        let delivery_status = if terminal && task.output_refs_json != "[]" {
             "incomplete"
         } else {
             "pending"
@@ -158,6 +206,9 @@ impl SqliteStoryRepository {
             )
             .map_err(storage_error)?;
         let updated = load_task(&transaction, task_id)?;
+        if terminal {
+            crate::work_tasks::finish_attempt(&transaction, &updated)?;
+        }
         transaction.commit().map_err(storage_error)?;
         Ok(updated)
     }
@@ -170,8 +221,27 @@ impl SqliteStoryRepository {
         summary: String,
         now: i64,
     ) -> Result<TaskRecord, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         let task = load_task(&transaction, task_id)?;
+        if task.project_id != *project_id || task.thread_id != thread_id {
+            return Err(RepositoryError::TaskBindingInvalid);
+        }
+        // A completed attempt remains completed even if its source later changes.
+        if task.status == "completed" {
+            crate::recovery_operations::commit_operation(
+                &transaction,
+                self.recovery_operation.as_ref(),
+                project_id,
+                task_id,
+                &["complete_task"],
+                &format!("runtime:task:{task_id}:completed"),
+            )?;
+            transaction.commit().map_err(storage_error)?;
+            return Ok(task);
+        }
         validate_active_task(
             &transaction,
             &task,
@@ -179,6 +249,10 @@ impl SqliteStoryRepository {
             thread_id,
             task.input_revision,
         )?;
+        crate::task_input::assert_task_inputs_current(&transaction, &task)?;
+        if task.operation == "advisory" {
+            crate::task_intents::assert_no_pending_intent(&transaction, task_id)?;
+        }
         if let Some(required) = &task.required_output_kind {
             let output = transaction
                 .query_row(
@@ -195,6 +269,21 @@ impl SqliteStoryRepository {
                 return Err(RepositoryError::TaskOutputMissing);
             }
         }
+        if task.operation == "modelKnowledge" {
+            let target: serde_json::Value = serde_json::from_str(&task.target_json)
+                .map_err(|_| RepositoryError::CorruptState)?;
+            let batch_id = target["batchId"]
+                .as_str()
+                .ok_or(RepositoryError::TaskBindingInvalid)?;
+            let published = transaction.query_row(
+                "SELECT 1 FROM story_modeling_batches_v2 WHERE project_id = ?1 AND batch_id = ?2 AND status = 'ready' AND publisher_task_id = ?3 AND input_project_revision = ?4",
+                params![project_id.as_str(), batch_id, task_id, task.input_revision],
+                |_| Ok(()),
+            ).optional().map_err(storage_error)?.is_some();
+            if !published {
+                return Err(RepositoryError::TaskOutputMissing);
+            }
+        }
         transaction
             .execute(
                 "UPDATE story_tasks_v2 SET status = 'completed', stage = 'ready_for_review', delivery_status = 'ready_for_review', result_summary = ?1, capability_revoked_at = ?2 WHERE task_id = ?3",
@@ -202,12 +291,24 @@ impl SqliteStoryRepository {
             )
             .map_err(storage_error)?;
         let updated = load_task(&transaction, task_id)?;
+        crate::work_tasks::finish_attempt(&transaction, &updated)?;
+        crate::recovery_operations::commit_operation(
+            &transaction,
+            self.recovery_operation.as_ref(),
+            project_id,
+            task_id,
+            &["complete_task"],
+            &format!("runtime:task:{task_id}:completed"),
+        )?;
         transaction.commit().map_err(storage_error)?;
         Ok(updated)
     }
 
     pub fn recover_orphaned_tasks(&mut self, now: i64) -> Result<Vec<String>, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         let mut statement = transaction
             .prepare(
                 "SELECT task_id FROM story_tasks_v2 WHERE status IN ('queued','running','waiting')",
@@ -219,15 +320,65 @@ impl SqliteStoryRepository {
             .map(|row| row.map_err(storage_error))
             .collect::<Result<Vec<_>, _>>()?;
         drop(statement);
-        transaction
-            .execute(
-                "UPDATE story_tasks_v2 SET status = 'cancelled', stage = 'cancelled', delivery_status = CASE WHEN output_refs_json = '[]' THEN 'pending' ELSE 'incomplete' END, error = '应用重启后已回收孤儿任务', capability_revoked_at = ?1 WHERE status IN ('queued','running','waiting')",
-                [now],
-            )
-            .map_err(storage_error)?;
+        for id in &task_ids {
+            let before = load_task(&transaction, id)?;
+            let recovered = recoverable_output(&transaction, &before)?;
+            if recovered {
+                transaction.execute(
+                    "UPDATE story_tasks_v2 SET status = 'completed', stage = 'ready_for_review', delivery_status = 'ready_for_review', result_summary = '根据已保存产物恢复完成', capability_revoked_at = ?1 WHERE task_id = ?2",
+                    params![now, id],
+                ).map_err(storage_error)?;
+            } else {
+                transaction.execute(
+                    "UPDATE story_tasks_v2 SET status = 'failed', stage = 'interrupted', delivery_status = CASE WHEN output_refs_json = '[]' THEN 'pending' ELSE 'incomplete' END, error = '应用重启时执行器已中断', capability_revoked_at = ?1 WHERE task_id = ?2",
+                    params![now, id],
+                ).map_err(storage_error)?;
+            }
+            let attempt = load_task(&transaction, id)?;
+            crate::work_tasks::finish_attempt(&transaction, &attempt)?;
+        }
         transaction.commit().map_err(storage_error)?;
         Ok(task_ids)
     }
+}
+
+fn recoverable_output(
+    connection: &rusqlite::Connection,
+    task: &TaskRecord,
+) -> Result<bool, RepositoryError> {
+    if crate::task_input::assert_task_inputs_current(connection, task).is_err() {
+        return Ok(false);
+    }
+    if task.operation == "modelKnowledge" {
+        let target: serde_json::Value =
+            serde_json::from_str(&task.target_json).map_err(|_| RepositoryError::CorruptState)?;
+        let Some(batch_id) = target.get("batchId").and_then(serde_json::Value::as_str) else {
+            return Ok(false);
+        };
+        return connection.query_row(
+            "SELECT 1 FROM story_modeling_batches_v2 WHERE batch_id = ?1 AND project_id = ?2 AND publisher_task_id = ?3 AND input_project_revision = ?4 AND status = 'ready'",
+            params![batch_id, task.project_id.as_str(), task.task_id, task.input_revision], |_| Ok(()),
+        ).optional().map_err(storage_error).map(|row| row.is_some());
+    }
+    let Some(required) = task.required_output_kind.as_deref() else {
+        return Ok(false);
+    };
+    let output: Option<(String, String, Option<String>)> = connection.query_row(
+        "SELECT output_kind, revision_id, completeness FROM story_task_outputs_v2 WHERE task_id = ?1 ORDER BY ordinal DESC LIMIT 1",
+        [&task.task_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).optional().map_err(storage_error)?;
+    let Some((kind, revision_id, completeness)) = output else {
+        return Ok(false);
+    };
+    if kind != required
+        || (required == "draft" && completeness.as_deref() != Some("chapterComplete"))
+    {
+        return Ok(false);
+    }
+    connection.query_row(
+        "SELECT 1 FROM story_object_heads_v2 h JOIN story_revisions_v2 r ON r.project_id = h.project_id AND r.object_id = h.object_id WHERE h.project_id = ?1 AND h.candidate_revision_id = ?2 AND r.revision_id = ?2",
+        params![task.project_id.as_str(), revision_id], |_| Ok(()),
+    ).optional().map_err(storage_error).map(|row| row.is_some())
 }
 
 pub(crate) fn create_task_record(
@@ -235,8 +386,41 @@ pub(crate) fn create_task_record(
     request: &CreateTaskRequest,
 ) -> Result<TaskRecord, RepositoryError> {
     let (task_kind, purpose, required_output_kind) = operation_contract(&request.operation)?;
-    validate_json(&request.target_json)?;
-    validate_json(&request.input_manifest_json)?;
+    let target: serde_json::Value = serde_json::from_str(&request.target_json)
+        .map_err(|error| RepositoryError::InvalidContent(error.to_string()))?;
+    let mut manifest: serde_json::Value = serde_json::from_str(&request.input_manifest_json)
+        .map_err(|error| RepositoryError::InvalidContent(error.to_string()))?;
+    if !target.is_object() || !manifest.is_object() {
+        return Err(RepositoryError::InvalidContent(
+            "task target and manifest must be objects".into(),
+        ));
+    }
+    // Reject ambiguous lineage before looking up or freezing any author source.
+    crate::task_attempts::validate_origin(&target)?;
+    if request.operation == "extractCommitments" {
+        crate::commitment_extraction::validate_target(connection, &request.project_id, &target)?;
+    }
+    if request.operation == "generateChapter" {
+        crate::scene_revision::validate_target(connection, &request.project_id, &target)?;
+        if !crate::revision_outcome::desired_outcomes(&target)?.is_empty()
+            && target.get("requestedActionId").is_none()
+            && target.get("resumeStepId").is_none()
+        {
+            return Err(RepositoryError::TaskBindingInvalid);
+        }
+    }
+    if request.operation == "assessRevisionOutcome" {
+        crate::revision_outcome::validate_target(connection, &request.project_id, &target)?;
+        if !crate::revision_outcome::inputs_current(connection, &request.project_id, &target)? {
+            return Err(RepositoryError::TaskInputStale);
+        }
+    }
+    if request.operation == "reviseCommitment" {
+        crate::commitment_revision::validate_target(connection, &request.project_id, &target)?;
+    }
+    if request.operation == "generatePropertyRules" && target["type"] != "artifact" {
+        return Err(RepositoryError::TaskBindingInvalid);
+    }
     let revision = current_revision(connection, &request.project_id)?;
     if revision != request.input_revision {
         return Err(RepositoryError::StaleProjectRevision {
@@ -244,12 +428,61 @@ pub(crate) fn create_task_record(
             actual: revision,
         });
     }
+    if let Some(output_kind) = required_output_kind {
+        let object_id = if output_kind == "draft" {
+            let chapter_id = target["chapterId"]
+                .as_str()
+                .ok_or(RepositoryError::TaskBindingInvalid)?;
+            format!("draft-{chapter_id}")
+        } else if output_kind == "revisionOutcome" {
+            let writer = target["writerTaskId"]
+                .as_str()
+                .ok_or(RepositoryError::TaskBindingInvalid)?;
+            format!("revision-outcome-{writer}")
+        } else if matches!(output_kind, "sceneAssessment" | "commitmentExtraction") {
+            let chapter_id = target["chapterId"]
+                .as_str()
+                .ok_or(RepositoryError::TaskBindingInvalid)?;
+            let prefix = if output_kind == "sceneAssessment" {
+                "scene-assessment"
+            } else {
+                "commitment-extraction"
+            };
+            format!("{prefix}-{chapter_id}")
+        } else if output_kind == "commitment" {
+            let id = target["commitmentId"]
+                .as_str()
+                .ok_or(RepositoryError::TaskBindingInvalid)?;
+            format!("commitment-{id}")
+        } else if matches!(output_kind, "brief" | "outline" | "plan" | "propertyRules") {
+            format!("artifact-{output_kind}")
+        } else {
+            String::new()
+        };
+        if !object_id.is_empty() {
+            let candidate: Option<String> = connection.query_row(
+                "SELECT candidate_revision_id FROM story_object_heads_v2 WHERE project_id = ?1 AND object_id = ?2",
+                params![request.project_id.as_str(), object_id],
+                |row| row.get(0),
+            ).optional().map_err(storage_error)?.flatten();
+            manifest["expectedCandidateRevisionId"] = serde_json::json!(candidate);
+            manifest["outputObjectId"] = serde_json::json!(object_id);
+        }
+    }
+    crate::task_author_intent::freeze(connection, request, &target, &mut manifest)?;
+    crate::revision_repair::freeze(connection, request, &target, &mut manifest)?;
+    crate::creative_methods::freeze(connection, request, &target, &mut manifest)?;
     connection
         .execute(
             "INSERT INTO story_tasks_v2(task_id, project_id, thread_id, operation, task_kind, purpose, required_output_kind, target_json, input_manifest_json, input_revision, model, status, stage, delivery_status, capability_hash, capability_expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'queued', 'preparing', 'pending', ?12, ?13)",
-            params![request.task_id, request.project_id.as_str(), request.thread_id, request.operation, task_kind, purpose, required_output_kind, request.target_json, request.input_manifest_json, request.input_revision, request.model, request.capability_hash, request.capability_expires_at],
+            params![request.task_id, request.project_id.as_str(), request.thread_id, request.operation, task_kind, purpose, required_output_kind, request.target_json, manifest.to_string(), request.input_revision, request.model, request.capability_hash, request.capability_expires_at],
         )
         .map_err(storage_error)?;
+    crate::task_input::capture_task_inputs(connection, &request.task_id, &request.project_id)?;
+    crate::task_attempts::attach_attempt(connection, request)?;
+    if request.operation == "reviewPlanningSeat" {
+        crate::planning_review_work::bind_claim(connection, request)?;
+    }
     load_task(connection, &request.task_id)
 }
 
@@ -259,6 +492,8 @@ pub(crate) fn validate_task_write(
     binding: &TaskOutputBinding,
     project_revision: i64,
     object_id: &ObjectId,
+    expected_candidate_revision_id: &Option<RevisionId>,
+    content_json: &str,
 ) -> Result<(), RepositoryError> {
     let task = load_task(connection, &binding.task_id)?;
     validate_active_task(
@@ -268,6 +503,8 @@ pub(crate) fn validate_task_write(
         &binding.thread_id,
         project_revision,
     )?;
+    crate::task_input::assert_task_inputs_current(connection, &task)?;
+    crate::task_scope::validate_scoped_write(connection, &task, content_json)?;
     let Some(required) = &task.required_output_kind else {
         return Err(RepositoryError::TaskOutputForbidden);
     };
@@ -284,6 +521,17 @@ pub(crate) fn validate_task_write(
     {
         return Err(RepositoryError::TaskBindingInvalid);
     }
+    let Some((target_object_id, expected)) =
+        crate::task_input::expected_task_target(connection, &task)?
+    else {
+        return Err(RepositoryError::TaskBindingInvalid);
+    };
+    if target_object_id != *object_id {
+        return Err(RepositoryError::TaskBindingInvalid);
+    }
+    if &expected != expected_candidate_revision_id {
+        return Err(RepositoryError::TaskInputStale);
+    }
     Ok(())
 }
 
@@ -292,6 +540,7 @@ pub(crate) fn record_task_output(
     binding: &TaskOutputBinding,
     revision_id: &RevisionId,
     object_id: &ObjectId,
+    working_base_revision_id: Option<&RevisionId>,
 ) -> Result<(), RepositoryError> {
     let ordinal = connection
         .query_row(
@@ -302,15 +551,18 @@ pub(crate) fn record_task_output(
         .map_err(storage_error)?;
     connection
         .execute(
-            "INSERT INTO story_task_outputs_v2(task_id, ordinal, output_kind, revision_id, completeness) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![binding.task_id, ordinal, binding.output_kind, revision_id.as_str(), binding.completeness],
+            "INSERT INTO story_task_outputs_v2(task_id, ordinal, output_kind, revision_id, working_base_revision_id, completeness) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![binding.task_id, ordinal, binding.output_kind, revision_id.as_str(), working_base_revision_id.map(RevisionId::as_str), binding.completeness],
         )
         .map_err(storage_error)?;
-    let reference = serde_json::json!({
+    let mut reference = serde_json::json!({
         "kind": binding.output_kind,
         "revisionId": revision_id.as_str(),
         "objectId": object_id.as_str()
     });
+    if let Some(source) = working_base_revision_id {
+        reference["workingBaseRevisionId"] = serde_json::json!(source.as_str());
+    }
     connection
         .execute(
             "UPDATE story_tasks_v2 SET status = 'running', stage = 'running', output_refs_json = json_insert(output_refs_json, '$[#]', json(?1)) WHERE task_id = ?2",
@@ -320,21 +572,31 @@ pub(crate) fn record_task_output(
     Ok(())
 }
 
-fn operation_contract(
+pub(crate) fn operation_contract(
     operation: &str,
 ) -> Result<(&'static str, &'static str, Option<&'static str>), RepositoryError> {
     match operation {
         "advisory" => Ok(("advisory", "planner", None)),
+        "reviseCommitment" => Ok(("commitment", "critic", Some("commitment"))),
         "generateBrief" => Ok(("brief", "planner", Some("brief"))),
+        "generatePropertyRules" => Ok(("propertyRules", "planner", Some("propertyRules"))),
         "generateOutline" => Ok(("outline", "planner", Some("outline"))),
         "generatePlan" => Ok(("plan", "planner", Some("plan"))),
         "generateChapter" => Ok(("draft", "writer", Some("draft"))),
         "reviewPlanningSeat" => Ok(("planningReview", "planner", Some("critique"))),
+        "modelKnowledge" => Ok(("knowledge", "critic", None)),
+        "assessSceneOutcome" => Ok(("sceneAssessment", "critic", Some("sceneAssessment"))),
+        "assessRevisionOutcome" => Ok(("revisionOutcome", "critic", Some("revisionOutcome"))),
+        "extractCommitments" => Ok((
+            "commitmentExtraction",
+            "critic",
+            Some("commitmentExtraction"),
+        )),
         _ => Err(RepositoryError::TaskOutputForbidden),
     }
 }
 
-fn validate_active_task(
+pub(crate) fn validate_active_task(
     connection: &rusqlite::Connection,
     task: &TaskRecord,
     project_id: &ProjectId,
@@ -363,15 +625,15 @@ pub(crate) fn load_task(
 ) -> Result<TaskRecord, RepositoryError> {
     connection
         .query_row(
-            "SELECT task_id, project_id, thread_id, operation, task_kind, purpose, required_output_kind, target_json, input_manifest_json, input_revision, model, status, stage, delivery_status, output_refs_json, result_summary, error, capability_hash, capability_expires_at, capability_revoked_at FROM story_tasks_v2 WHERE task_id = ?1",
+            "SELECT task_id, project_id, thread_id, operation, task_kind, purpose, required_output_kind, target_json, input_manifest_json, input_revision, model, status, stage, delivery_status, output_refs_json, result_summary, error, capability_hash, capability_expires_at, capability_revoked_at, turn_id FROM story_tasks_v2 WHERE task_id = ?1",
             [task_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, i64>(9)?, row.get::<_, Option<String>>(10)?, row.get::<_, String>(11)?, row.get::<_, String>(12)?, row.get::<_, String>(13)?, row.get::<_, String>(14)?, row.get::<_, String>(15)?, row.get::<_, Option<String>>(16)?, row.get::<_, String>(17)?, row.get::<_, i64>(18)?, row.get::<_, Option<i64>>(19)?)),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, i64>(9)?, row.get::<_, Option<String>>(10)?, row.get::<_, String>(11)?, row.get::<_, String>(12)?, row.get::<_, String>(13)?, row.get::<_, String>(14)?, row.get::<_, String>(15)?, row.get::<_, Option<String>>(16)?, row.get::<_, String>(17)?, row.get::<_, i64>(18)?, row.get::<_, Option<i64>>(19)?, row.get::<_, Option<String>>(20)?)),
         )
         .optional()
         .map_err(storage_error)?
         .ok_or(RepositoryError::TaskNotFound)
         .and_then(|row| {
-            Ok(TaskRecord {
+            let task = TaskRecord {
                 task_id: row.0,
                 project_id: ProjectId::parse(row.1).map_err(|_| RepositoryError::CorruptState)?,
                 thread_id: row.2,
@@ -383,6 +645,7 @@ pub(crate) fn load_task(
                 input_manifest_json: row.8,
                 input_revision: row.9,
                 model: row.10,
+                turn_id: row.20,
                 status: row.11,
                 stage: row.12,
                 delivery_status: row.13,
@@ -392,7 +655,9 @@ pub(crate) fn load_task(
                 capability_hash: row.17,
                 capability_expires_at: row.18,
                 capability_revoked_at: row.19,
-            })
+            };
+            crate::creative_methods::validate(&task)?;
+            Ok(task)
         })
 }
 
@@ -409,12 +674,6 @@ fn current_revision(
         .optional()
         .map_err(storage_error)?
         .ok_or(RepositoryError::ProjectNotFound)
-}
-
-fn validate_json(value: &str) -> Result<(), RepositoryError> {
-    serde_json::from_str::<serde_json::Value>(value)
-        .map(|_| ())
-        .map_err(|error| RepositoryError::InvalidContent(error.to_string()))
 }
 
 fn storage_error(error: rusqlite::Error) -> RepositoryError {

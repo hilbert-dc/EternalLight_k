@@ -253,8 +253,18 @@ fn observe(run: &mut Value, input: &Value) -> Result<()> {
             let sequence = run["requests"].as_object().unwrap().len();
             run["requests"][&id] = json!({"sequence":sequence,"requestId":id,"turnId":operation["turn_id"],"kind":"write","operation":operation["tool_name"],"idempotencyRef":operation["idempotency_ref"],"requestHash":operation["request_hash"],"state":"tool-dispatched","updatedAt":input["updatedAt"],"receiptRef":null,"outcome":null});
         }
+        let wrong_thread =
+            !operation["thread_id"].is_null() && operation["thread_id"] != run["threadId"];
         let request = &mut run["requests"][&id];
-        if request["kind"] != "write" || request["operation"] != operation["tool_name"] {
+        if request["kind"] != "write"
+            || request["operation"] != operation["tool_name"]
+            || (!request["requestHash"].is_null()
+                && request["requestHash"] != operation["request_hash"])
+            || (!request["idempotencyRef"].is_null()
+                && !operation["idempotency_ref"].is_null()
+                && request["idempotencyRef"] != operation["idempotency_ref"])
+            || wrong_thread
+        {
             return Err(format!(
                 "runtime operation conflicts with recovery request: {id}"
             ));
@@ -272,15 +282,13 @@ fn observe(run: &mut Value, input: &Value) -> Result<()> {
             .ok_or("runtime operation id is required")?;
         match operation["state"].as_str() {
             Some("committed") => {
+                let receipt = operation["receipt_ref"]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .ok_or("committed runtime operation requires a domain receipt")?;
                 request["state"] = "terminal".into();
                 request["outcome"] = "committed".into();
-                request["receiptRef"] = operation
-                    .get("receipt_ref")
-                    .filter(|value| !value.is_null())
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        format!("runtime:operation:{operation_id}:committed").into()
-                    });
+                request["receiptRef"] = receipt.into();
             }
             Some(status @ ("rejected" | "cancelled-before-execution")) => {
                 request["state"] = "terminal".into();

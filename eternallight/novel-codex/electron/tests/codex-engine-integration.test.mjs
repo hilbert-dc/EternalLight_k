@@ -225,6 +225,118 @@ test("core integration runner proves a root Codex model and MCP result loop", { 
   assert.equal(execFileSync(process.execPath, [child, persisted], { encoding: "utf8", timeout: 10000 }), "reloaded execution succeeded");
 });
 
+test("real Codex completes source-bound commitment extraction through native Novel MCP", { timeout: 30_000 }, async (t) => {
+  let binding;
+  let downstreamFailure = null;
+  const requests = [];
+  const runtime = createServer(async (request, response) => {
+    try {
+      assert.equal(request.headers.authorization, "Bearer fixture-candidate-token");
+      assert.equal(request.headers["x-novel-task-capability"], "fixture-extraction-capability");
+      if (request.method === "GET") {
+        const url = new URL(request.url, "http://localhost");
+        assert.equal(url.pathname, "/api/projects/project/context");
+        assert.equal(url.searchParams.get("threadId"), binding.threadId);
+        assert.equal(url.searchParams.get("purpose"), "critic");
+        requests.push({ method: "GET", path: url.pathname });
+        response.end(JSON.stringify({ extractionFixtureContext: true, relevantText: [{ sourceRevisionId: "source-1", content: { body: "白塔将亮起。" } }] }));
+        return;
+      }
+      const body = await readRequest(request);
+      assert.equal(body.taskId ?? "task", "task");
+      assert.equal(body.threadId, binding.threadId);
+      requests.push({ method: request.method, path: request.url, body });
+      if (request.url.endsWith("/commitment-extractions")) {
+        assert.deepEqual(body.payload, { chapterId: "chapter-1", sourceRevisionId: "source-1", examinedRanges: [{ start: 0, end: 6 }], candidates: [] });
+        response.statusCode = 201;
+        response.end(JSON.stringify({ extractionFixtureReceipt: true, revisionId: "report-1" }));
+      } else {
+        assert.equal(request.url, "/api/projects/project/tasks/task/complete");
+        response.end(JSON.stringify({ extractionFixtureComplete: true }));
+      }
+    } catch (error) {
+      downstreamFailure = error;
+      response.statusCode = 500;
+      response.end(JSON.stringify({ error: error.message }));
+    }
+  });
+  const runtimeEndpoint = await listen(runtime);
+  t.after(() => new Promise((resolve) => { runtime.closeAllConnections(); runtime.close(resolve); }));
+  const downstream = createServer(async (request, response) => {
+    try {
+      const body = await readRequest(request);
+      const transcript = JSON.stringify(body.messages);
+      const tool = (name) => body.tools?.find((entry) => entry.function?.name?.includes(name))?.function?.name;
+      assert.equal(tool("save_draft_checkpoint"), undefined);
+      assert.equal(tool("save_outline"), undefined);
+      let name;
+      let argumentsValue;
+      if (!transcript.includes("extractionFixtureContext")) {
+        name = tool("read_context");
+        argumentsValue = { ...binding, purpose: "critic", budget: 24, byteBudget: 60000 };
+      } else if (!transcript.includes("extractionFixtureReceipt")) {
+        name = tool("submit_commitment_extraction");
+        argumentsValue = { ...binding, chapterId: "chapter-1", expectedCandidateRevisionId: null, idempotencyKey: "extraction-once",
+          payload: { chapterId: "chapter-1", sourceRevisionId: "source-1", examinedRanges: [{ start: 0, end: 6 }], candidates: [] } };
+      } else if (!transcript.includes("extractionFixtureComplete")) {
+        name = tool("complete_task");
+        argumentsValue = { ...binding, summary: "未提出有可靠证据的承诺" };
+      } else {
+        stream(response, [{ id: "extraction-final", choices: [{ delta: { content: "Extraction proposal batch saved; no commitments confirmed." } }] }]);
+        return;
+      }
+      assert.ok(name);
+      stream(response, [{ id: "extraction-tool", choices: [{ delta: { tool_calls: [{ index: 0, id: `extraction-${requests.length}`, function: { name, arguments: JSON.stringify(argumentsValue) } }] } }] }]);
+    } catch (error) {
+      downstreamFailure = error;
+      response.statusCode = 500;
+      response.end(JSON.stringify({ error: error.message }));
+    }
+  });
+  const endpoint = await listen(downstream);
+  t.after(() => new Promise((resolve) => { downstream.closeAllConnections(); downstream.close(resolve); }));
+  const connection = defineConnection({ id: "extraction-model", provider: "fixture", endpoint, model: "fixture-extraction", credentialRef: "EXTRACTION_KEY",
+    protocol: "chat-completions", declaredLimits: { contextTokens: 64_000, outputTokens: 4_000 } });
+  const evidence = verifiedBaselineEvidence(connection, { protocol: connection.protocol,
+    capabilities: [CAPABILITIES.TEXT, CAPABILITIES.STRUCTURED_TOOL_CALLS, CAPABILITIES.TOOL_LOOP, CAPABILITIES.STREAMING] });
+  const sessionPlan = resolveSessionPlan({ connections: [connection], evidence, policy: { defaultConnectionId: connection.id, allowedMcpServerIds: ["novel_workspace"] } });
+  const bridge = new ModelBridge({ sessionPlan, connections: [connection], credentialResolver: async () => "fixture-key", token: "extraction-bridge-key" });
+  const address = await bridge.start();
+  activateBridge(bridge, sessionPlan, "extraction");
+  t.after(() => bridge.close());
+  const root = mkdtempSync(join(tmpdir(), "novel-extraction-integration-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const catalogPath = join(root, "catalog.json");
+  writeFileSync(catalogPath, JSON.stringify(compileCodexModelCatalog(sessionPlan, { baseInstructions: "Extract candidate narrative commitments with the bound tools only." })), { mode: 0o600 });
+  writeFileSync(join(root, "config.toml"), compileCodexConfig({ sessionPlan, modelCatalogPath: catalogPath,
+    bridge: { baseUrl: address.baseUrl, credentialRef: "AGENT_ENGINE_BRIDGE_TOKEN" },
+    mcpServers: [{ id: "novel_workspace", command: novelMcpServer, args: [],
+      envVars: ["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"], approvalMode: "approve" }] }), { mode: 0o600 });
+  mkdirSync(join(root, "sqlite"));
+  chmodSync(root, 0o700);
+  const adapter = new CodexAppServerAdapter({ command: [codex, "app-server"], cwd: dirname(root),
+    env: { PATH: process.env.PATH, CODEX_HOME: root, CODEX_SQLITE_HOME: join(root, "sqlite"), AGENT_ENGINE_BRIDGE_TOKEN: address.token,
+      NOVEL_CODEX_RUNTIME_URL: runtimeEndpoint, NOVEL_CODEX_CANDIDATE_TOKEN: "fixture-candidate-token",
+      NOVEL_CODEX_TASK_CAPABILITY: "fixture-extraction-capability", NOVEL_CODEX_OPERATION: "extractCommitments" }, model: connection.id, provider: connection.provider });
+  t.after(() => adapter.close());
+  let markReady;
+  const ready = new Promise((resolve) => { markReady = resolve; });
+  adapter.setCallbacks({ onEvent: (event) => {
+    if (event.method === "mcpServer/startupStatus/updated" && event.params?.name === "novel_workspace" && event.params?.status === "ready") markReady();
+  } });
+  await adapter.ensureSession();
+  binding = { taskId: "task", projectId: "project", threadId: adapter.threadId, expectedRevision: 0 };
+  await within(ready, 10_000, "native extraction MCP did not start");
+  const result = await adapter.sendTurn([{ type: "text", text: "Read the frozen source and save an extraction proposal report, then complete the task." }], { disableEnvironment: true });
+  assert.ifError(downstreamFailure);
+  assert.equal(result.message, "Extraction proposal batch saved; no commitments confirmed.");
+  assert.deepEqual(requests.map(({ method, path }) => ({ method, path })), [
+    { method: "GET", path: "/api/projects/project/context" },
+    { method: "POST", path: "/api/projects/project/chapters/chapter-1/commitment-extractions" },
+    { method: "POST", path: "/api/projects/project/tasks/task/complete" },
+  ]);
+});
+
 test("real Codex App Server completes a model -> MCP -> model loop through Agent Engine", { timeout: 30_000 }, async (t) => {
   const downstreamRequests = [];
   let downstreamFailure = null;
@@ -535,7 +647,7 @@ test("real Novel MCP denies child writes and cross-task reads in a delegated Cod
         return;
       }
       if (!transcript.includes("policy_child_read")) {
-        assert.match(transcript, /Subagents are restricted to read_context/);
+        assert.match(transcript, /Subagents may only use read-only tools/);
         const readContext = toolName("read_context");
         assert.ok(readContext, "child must receive read_context");
         stream(response, [

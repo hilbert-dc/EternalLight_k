@@ -24,15 +24,10 @@ pub(super) fn request(context: &Value, body: &Value, prepared: &Value) -> Value 
 
 pub(super) fn response(context: &Value, payload: &Value) -> Value {
     let output = array(&payload["output"]);
-    let text: String = output
+    let answer: String = output
         .iter()
         .flat_map(|item| array(&item["content"]))
-        .filter(|part| {
-            matches!(
-                part["type"].as_str(),
-                Some("output_text" | "reasoning_text")
-            )
-        })
+        .filter(|part| part["type"] == "output_text")
         .filter_map(|part| part["text"].as_str())
         .collect();
     let calls: Vec<_> = output
@@ -49,8 +44,18 @@ pub(super) fn response(context: &Value, payload: &Value) -> Value {
         let digests:serde_json::Map<_,_>=arguments.as_ref().and_then(Value::as_object).into_iter().flatten().map(|(key,value)|(key.clone(),digest::digest(value).into())).collect();
         json!({"callId":item.get("call_id").unwrap_or(&item["id"]),"name":item["name"],"namespace":item["namespace"],"argumentValueDigests":digests})
     }).collect();
-    let lower = text.to_ascii_lowercase();
-    let extra = json!({"responseId":payload["id"],"status":payload["status"],"outputTypes":output.iter().map(|item|item["type"].as_str().unwrap_or("unknown")).collect::<Vec<_>>(),"toolNames":calls.iter().map(|item|item["name"].clone()).collect::<Vec<_>>(),"toolCalls":tool_calls,"textCharacters":text.encode_utf16().count(),"finalTextDigest":if calls.is_empty(){message_evidence::dispatch("message.digest",&text.trim().into()).unwrap_or(Value::Null)}else{Value::Null},"textLooksLikeToolCall":lower.contains("dsml")||lower.contains("<")&&lower.contains("calls")||lower.contains("invoke name=")||lower.contains("tool_call")||lower.contains("tool call")||lower.contains("toolcall")});
+    let lower = answer.to_ascii_lowercase();
+    let final_text = if calls.is_empty() && !answer.trim().is_empty() {
+        message_evidence::dispatch("message.digest", &answer.trim().into()).unwrap_or(Value::Null)
+    } else {
+        Value::Null
+    };
+    let final_lines = if final_text.is_null() {
+        json!([])
+    } else {
+        message_evidence::dispatch("message.visible", &json!({"input":output})).unwrap_or(json!([]))
+    };
+    let extra = json!({"responseId":payload["id"],"status":payload["status"],"outputTypes":output.iter().map(|item|item["type"].as_str().unwrap_or("unknown")).collect::<Vec<_>>(),"toolNames":calls.iter().map(|item|item["name"].clone()).collect::<Vec<_>>(),"toolCalls":tool_calls,"textCharacters":answer.encode_utf16().count(),"finalTextDigest":final_text,"finalTextLineDigests":final_lines,"textLooksLikeToolCall":lower.contains("dsml")||lower.contains("<")&&lower.contains("calls")||lower.contains("invoke name=")||lower.contains("tool_call")||lower.contains("tool call")||lower.contains("toolcall")});
     let mut result = context.clone();
     result
         .as_object_mut()
@@ -58,3 +63,7 @@ pub(super) fn response(context: &Value, payload: &Value) -> Value {
         .extend(extra.as_object().unwrap().clone());
     result
 }
+
+#[cfg(test)]
+#[path = "bridge_observation_tests.rs"]
+mod tests;

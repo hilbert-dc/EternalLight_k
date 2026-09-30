@@ -1,0 +1,656 @@
+use serde_json::json;
+use sha2::Digest;
+
+use super::{RuntimeClient, validate_execution_identity};
+
+#[test]
+fn revision_outcome_submission_preserves_candidate_cas_and_root_recovery_identity() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    let child = json!({"rootThreadId":"root","callerThreadId":"child","parentThreadId":"root","sessionId":"root"});
+    let root = json!({"rootThreadId":"root","callerThreadId":"root","sessionId":"root","turnId":"turn","callId":"submit-outcome"});
+    for expected in [json!(null), json!("outcome-checkpoint")] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = RuntimeClient {
+            host: "127.0.0.1".into(),
+            port: listener.local_addr().unwrap().port(),
+            candidate_token: "candidate".into(),
+            capability: "capability".into(),
+            operation: "assessRevisionOutcome".into(),
+        };
+        let args = json!({"taskId":"assessment","projectId":"project","threadId":"root","expectedRevision":8,
+            "writerTaskId":"writer-one","expectedCandidateRevisionId":expected,"idempotencyKey":"outcome-one",
+            "payload":{"writerTaskId":"writer-one","chapterId":"chapter-one","originalRevisionId":"original",
+                "draftRevisionId":"revised","knowledgeBatchId":"batch-one","outcomes":[{"id":"evidence",
+                    "status":"supported","reason":"正文呈现信中依据","evidence":[{"groupId":"letter","quote":"🌙信","start":1,"end":3}]}]}});
+        let names = client
+            .exposed_tools()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap().to_owned())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            names,
+            [
+                "read_context",
+                "search_story",
+                "search_relations",
+                "query_story",
+                "submit_revision_outcome",
+                "complete_task"
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<std::collections::BTreeSet<_>>()
+        );
+        assert_eq!(
+            client.call("submit_revision_outcome", &args, &child),
+            Err("Subagents may only use read-only tools".into())
+        );
+        for name in [
+            "save_draft_checkpoint",
+            "request_candidate_task",
+            "submit_scene_assessment",
+            "checkpoint_reading",
+            "read_reading_progress",
+        ] {
+            assert_eq!(
+                client.call(name, &args, &root),
+                Err("tool is not allowed for this generation operation".into())
+            );
+        }
+        let mut missing_cas = args.clone();
+        missing_cas
+            .as_object_mut()
+            .unwrap()
+            .remove("expectedCandidateRevisionId");
+        assert_eq!(
+            client.call("submit_revision_outcome", &missing_cas, &root),
+            Err("missing required argument: expectedCandidateRevisionId".into())
+        );
+        let mut wrong_route = args.clone();
+        wrong_route["chapterId"] = json!("chapter-one");
+        assert_eq!(
+            client.call("submit_revision_outcome", &wrong_route, &root),
+            Err("unexpected argument: chapterId".into())
+        );
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut bytes = [0; 1024];
+                let count = stream.read(&mut bytes).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&bytes[..count]);
+                if let Some(end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                    let header = std::str::from_utf8(&request[..end]).unwrap();
+                    let length = header
+                        .lines()
+                        .find_map(|line| line.strip_prefix("Content-Length: "))
+                        .unwrap()
+                        .parse::<usize>()
+                        .unwrap();
+                    if request.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+            }
+            stream
+                .write_all(
+                    b"HTTP/1.1 201 Created\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                )
+                .unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        assert_eq!(
+            client
+                .call("submit_revision_outcome", &args, &root)
+                .unwrap(),
+            (201, json!({}))
+        );
+        let request = server.join().unwrap();
+        let (headers, body) = request.split_once("\r\n\r\n").unwrap();
+        assert!(
+            headers.starts_with("POST /api/projects/project/revision-outcomes/writer-one HTTP/1.1")
+        );
+        assert!(
+            headers
+                .to_ascii_lowercase()
+                .contains("x-novel-tool-name: submit_revision_outcome")
+        );
+        assert!(
+            headers
+                .to_ascii_lowercase()
+                .contains("x-novel-root-thread: root")
+        );
+        let mut expected = args;
+        expected.as_object_mut().unwrap().remove("projectId");
+        expected.as_object_mut().unwrap().remove("writerTaskId");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(body).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn rule_input_pages_are_root_owned_and_preserve_the_frozen_cursor() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    let child = json!({"rootThreadId":"root","callerThreadId":"child","parentThreadId":"root","sessionId":"root"});
+    let root = json!({"rootThreadId":"root","callerThreadId":"root","sessionId":"root","turnId":"turn","callId":"read-rules"});
+    for cursor in [json!(null), json!(format!("{}:2800", "a".repeat(64)))] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = RuntimeClient {
+            host: "127.0.0.1".into(),
+            port: listener.local_addr().unwrap().port(),
+            candidate_token: "candidate".into(),
+            capability: "capability".into(),
+            operation: "generatePropertyRules".into(),
+        };
+        let args = json!({"taskId":"task","projectId":"project","threadId":"root","expectedRevision":0,"cursor":cursor});
+        assert_eq!(
+            client.call("read_property_rules", &args, &child),
+            Err("Frozen rule inputs belong to the root task".into())
+        );
+        client.operation = "generateChapter".into();
+        assert_eq!(
+            client.call("read_property_rules", &args, &root),
+            Err("tool is not allowed for this generation operation".into())
+        );
+        client.operation = "generatePropertyRules".into();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut bytes = [0; 1024];
+                let count = stream.read(&mut bytes).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&bytes[..count]);
+                if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"readOnly\":true}").unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        assert_eq!(
+            client.call("read_property_rules", &args, &root).unwrap(),
+            (200, json!({"readOnly":true}))
+        );
+        let request = server.join().unwrap();
+        let path = "GET /api/projects/project/tasks/task/property-rule-input?threadId=root&expectedRevision=0";
+        if let Some(cursor) = cursor.as_str() {
+            assert!(request.starts_with(&format!(
+                "{path}&cursor={} HTTP/1.1",
+                super::percent_encode(cursor)
+            )));
+        } else {
+            assert!(request.starts_with(&format!("{path} HTTP/1.1")));
+        }
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("x-novel-tool-name: read_property_rules")
+        );
+        assert!(request.ends_with("\r\n\r\n"));
+    }
+}
+
+#[test]
+fn model_supplied_call_ids_cannot_inject_http_headers() {
+    let client = RuntimeClient {
+        host: "127.0.0.1".into(),
+        port: 1,
+        candidate_token: "candidate".into(),
+        capability: "capability".into(),
+        operation: "generateBrief".into(),
+    };
+    let args = json!({"taskId":"task","projectId":"project","threadId":"root","expectedRevision":0,"payload":{},"expectedCandidateRevisionId":null,"idempotencyKey":"save"});
+    let meta = json!({"rootThreadId":"root","callerThreadId":"root","sessionId":"root","turnId":"turn","callId":"call\r\nAuthorization: forged"});
+    assert_eq!(
+        client.call("save_brief", &args, &meta),
+        Err("execution metadata contains an invalid header value".into())
+    );
+}
+
+#[test]
+fn reading_progress_is_root_owned_and_cannot_be_forged_by_a_child() {
+    let client = RuntimeClient {
+        host: "127.0.0.1".into(),
+        port: 1,
+        candidate_token: "token".into(),
+        capability: "capability".into(),
+        operation: "advisory".into(),
+    };
+    let args =
+        json!({"taskId":"task","projectId":"project","threadId":"root","expectedRevision":0});
+    let child = json!({"rootThreadId":"root","callerThreadId":"child","parentThreadId":"root","sessionId":"root"});
+    for name in ["read_reading_progress", "checkpoint_reading"] {
+        assert!(
+            client
+                .exposed_tools()
+                .iter()
+                .any(|tool| tool["name"] == name)
+        );
+        assert!(validate_execution_identity(&child, "root", name).is_err());
+    }
+    assert_eq!(
+        client.call("read_reading_progress", &args, &child),
+        Err("Reading checkpoints belong to the root WorkStep".into())
+    );
+    let mut args = args;
+    args["plan"] = json!({});
+    args["reportHash"] = json!("a".repeat(64));
+    args["expectedVersion"] = json!(0);
+    args["summary"] = json!("child");
+    assert_eq!(
+        client.call("checkpoint_reading", &args, &child),
+        Err("Reading checkpoints belong to the root WorkStep".into())
+    );
+}
+
+#[test]
+fn context_query_plan_is_encoded_as_a_read_only_task_request() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    for operation in [
+        "advisory",
+        "generateBrief",
+        "generateOutline",
+        "generatePlan",
+        "reviewPlanningSeat",
+        "generateChapter",
+        "modelKnowledge",
+        "assessSceneOutcome",
+        "assessRevisionOutcome",
+        "extractCommitments",
+        "reviseCommitment",
+        "generatePropertyRules",
+    ] {
+        for caller in ["root", "child"] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                loop {
+                    let mut buffer = [0; 1024];
+                    let count = stream.read(&mut buffer).unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                    if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"readOnly\":true}").unwrap();
+                String::from_utf8(request).unwrap()
+            });
+            let client = RuntimeClient {
+                host: "127.0.0.1".into(),
+                port,
+                candidate_token: "candidate-token".into(),
+                capability: "task-capability".into(),
+                operation: operation.into(),
+            };
+            let child = json!({"rootThreadId":"root","callerThreadId":caller,"parentThreadId":if caller == "root" {json!(null)} else {json!("root")},"sessionId":"root"});
+            let mut plan = json!({"question":"港城 & 白塔","byteBudget":4000,"ranking":{"type":"literal"},"steps":[{"id":"text","operation":{"type":"text","query":"港城","limit":2}}]});
+            if caller == "child" {
+                plan["ranking"] = json!({"type":"modelSemantic","baseReportHash":"a".repeat(64),
+                    "judgments":[{"resultId":"b".repeat(64),"score":750,"rationale":"原任务允许范围内的相关性候选"}]});
+            }
+            let purpose = match operation {
+                "generateChapter" => "writer",
+                "modelKnowledge"
+                | "assessSceneOutcome"
+                | "assessRevisionOutcome"
+                | "extractCommitments"
+                | "reviseCommitment" => "critic",
+                _ => "planner",
+            };
+            let arguments = json!({"taskId":"task","projectId":"project","threadId":"root","expectedRevision":0,"purpose":purpose,"budget":24,"byteBudget":60000,"queryPlan":plan});
+            assert_eq!(
+                client.call("read_context", &arguments, &child).unwrap(),
+                (200, json!({"readOnly":true}))
+            );
+            let request = server.join().unwrap();
+            assert!(request.starts_with("GET /api/projects/project/context?"));
+            assert!(request.contains(&format!(
+                "queryPlan={}",
+                super::percent_encode(&plan.to_string())
+            )));
+            assert!(request.contains("threadId=root"));
+            assert!(request.contains("Authorization: Bearer candidate-token"));
+            let expected_hash = format!(
+                "{:x}",
+                sha2::Sha256::digest(
+                    json!({"tool":"read_context","arguments":arguments})
+                        .to_string()
+                        .as_bytes()
+                )
+            );
+            assert!(request.contains(&format!("X-Novel-Request-Hash: {expected_hash}")));
+            let other = RuntimeClient {
+                operation: "unknown".into(),
+                ..client
+            };
+            assert_eq!(
+                other.call("read_context", &arguments, &child).unwrap_err(),
+                "tool is not allowed for this generation operation"
+            );
+        }
+    }
+}
+
+#[test]
+fn commitment_submission_is_root_only_and_never_granted_to_other_operations() {
+    let mut client = RuntimeClient {
+        host: "127.0.0.1".into(),
+        port: 1,
+        candidate_token: "candidate".into(),
+        capability: "capability".into(),
+        operation: "extractCommitments".into(),
+    };
+    let arguments = json!({"taskId":"task","projectId":"project","threadId":"root","expectedRevision":0,
+        "chapterId":"chapter","expectedCandidateRevisionId":null,"idempotencyKey":"save","payload":{}});
+    let child = json!({"rootThreadId":"root","callerThreadId":"child","parentThreadId":"root","sessionId":"root"});
+    assert_eq!(
+        client.call("submit_commitment_extraction", &arguments, &child),
+        Err("Subagents may only use read-only tools".into())
+    );
+    let root = json!({"rootThreadId":"root","callerThreadId":"root","parentThreadId":null,"sessionId":"root"});
+    for operation in ["advisory", "generateChapter", "modelKnowledge"] {
+        client.operation = operation.into();
+        assert_eq!(
+            client.call("submit_commitment_extraction", &arguments, &root),
+            Err("tool is not allowed for this generation operation".into())
+        );
+    }
+}
+
+#[test]
+fn property_rule_submission_uses_the_artifact_route_and_blocks_children_and_other_tasks() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut client = RuntimeClient {
+        host: "127.0.0.1".into(),
+        port: listener.local_addr().unwrap().port(),
+        candidate_token: "candidate".into(),
+        capability: "capability".into(),
+        operation: "generatePropertyRules".into(),
+    };
+    let args = json!({"taskId":"task","projectId":"project","threadId":"root","expectedRevision":0,
+        "payload":{"eventRules":[],"definitions":[]},"expectedCandidateRevisionId":null,"idempotencyKey":"rules"});
+    let child = json!({"rootThreadId":"root","callerThreadId":"child","parentThreadId":"root","sessionId":"root"});
+    let root = json!({"rootThreadId":"root","callerThreadId":"root","sessionId":"root","turnId":"turn","callId":"call"});
+    assert_eq!(
+        client.call("save_property_rules", &args, &child),
+        Err("Subagents may only use read-only tools".into())
+    );
+    for operation in [
+        "advisory",
+        "generateBrief",
+        "generateOutline",
+        "generatePlan",
+        "generateChapter",
+        "modelKnowledge",
+        "assessSceneOutcome",
+        "extractCommitments",
+        "reviseCommitment",
+        "reviewPlanningSeat",
+    ] {
+        client.operation = operation.into();
+        assert_eq!(
+            client.call("save_property_rules", &args, &root),
+            Err("tool is not allowed for this generation operation".into())
+        );
+    }
+    client.operation = "generatePropertyRules".into();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = Vec::new();
+        loop {
+            let mut buffer = [0; 1024];
+            let count = stream.read(&mut buffer).unwrap();
+            assert!(count > 0);
+            request.extend_from_slice(&buffer[..count]);
+            if let Some(end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&request[..end]);
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length: ")
+                            .map(str::to_owned)
+                    })
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap();
+                if request.len() >= end + 4 + length {
+                    break;
+                }
+            }
+        }
+        stream
+            .write_all(b"HTTP/1.1 201 Created\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
+            .unwrap();
+        String::from_utf8(request).unwrap()
+    });
+    assert_eq!(
+        client.call("save_property_rules", &args, &root).unwrap(),
+        (201, json!({}))
+    );
+    let request = server.join().unwrap();
+    let (headers, body) = request.split_once("\r\n\r\n").unwrap();
+    assert!(headers.starts_with("POST /api/projects/project/artifacts/propertyRules "));
+    let mut expected = args;
+    expected.as_object_mut().unwrap().remove("projectId");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(body).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn commitment_revision_write_is_root_only_and_reads_do_not_expand_writer_permissions() {
+    let mut client = RuntimeClient {
+        host: "127.0.0.1".into(),
+        port: 1,
+        candidate_token: "candidate".into(),
+        capability: "capability".into(),
+        operation: "reviseCommitment".into(),
+    };
+    let args = json!({"taskId":"task","projectId":"project","threadId":"root","expectedRevision":0,"commitmentId":"lamp","payload":{},"expectedCandidateRevisionId":null,"idempotencyKey":"save"});
+    let child = json!({"rootThreadId":"root","callerThreadId":"child","parentThreadId":"root","sessionId":"root"});
+    assert_eq!(
+        client.call("submit_commitment_candidate", &args, &child),
+        Err("Subagents may only use read-only tools".into())
+    );
+    for operation in [
+        "advisory",
+        "generateChapter",
+        "modelKnowledge",
+        "extractCommitments",
+    ] {
+        client.operation = operation.into();
+        assert_eq!(
+            client.call("submit_commitment_candidate", &args, &child),
+            Err("tool is not allowed for this generation operation".into())
+        );
+    }
+    for operation in ["generateChapter", "modelKnowledge", "extractCommitments"] {
+        client.operation = operation.into();
+        assert_eq!(
+            client.call("read_commitment", &args, &child),
+            Err("tool is not allowed for this generation operation".into())
+        );
+    }
+}
+
+#[test]
+fn commitment_input_transport_preserves_task_identity_and_percent_encodes_the_target() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    for operation in ["advisory", "reviseCommitment"] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut bytes = [0; 1024];
+                let count = stream.read(&mut bytes).unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&bytes[..count]);
+                if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"readOnly\":true}").unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        let client = RuntimeClient {
+            host: "127.0.0.1".into(),
+            port,
+            candidate_token: "candidate-token".into(),
+            capability: "bound-capability".into(),
+            operation: operation.into(),
+        };
+        let identity = json!({"rootThreadId":"root","callerThreadId":"child","parentThreadId":"root","sessionId":"root"});
+        let args = json!({"taskId":"task","projectId":"project","threadId":"root","expectedRevision":7,"commitmentId":"灯 & promise"});
+        assert_eq!(
+            client.call("read_commitment", &args, &identity).unwrap(),
+            (200, json!({"readOnly":true}))
+        );
+        let request = server.join().unwrap();
+        assert!(request.starts_with(&format!("GET /api/projects/project/commitments/{}/task-input?taskId=task&threadId=root&expectedRevision=7",super::percent_encode("灯 & promise"))));
+        assert!(request.contains("Authorization: Bearer candidate-token"));
+        assert!(
+            request
+                .to_lowercase()
+                .contains("x-novel-task-capability: bound-capability")
+        );
+    }
+}
+
+#[test]
+fn scoped_query_plan_is_forwarded_read_only_for_a_trusted_child() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    for operation in [
+        "advisory",
+        "generateBrief",
+        "generateOutline",
+        "generatePlan",
+        "reviewPlanningSeat",
+        "generateChapter",
+        "modelKnowledge",
+        "assessSceneOutcome",
+        "assessRevisionOutcome",
+        "extractCommitments",
+    ] {
+        for caller in ["root", "child"] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let (header_end, body_length) = loop {
+                    let mut buffer = [0; 1024];
+                    let count = stream.read(&mut buffer).unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                    if let Some(end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                        let header = std::str::from_utf8(&request[..end]).unwrap();
+                        let length = header
+                            .lines()
+                            .find_map(|line| line.strip_prefix("Content-Length: "))
+                            .unwrap()
+                            .parse::<usize>()
+                            .unwrap();
+                        break (end + 4, length);
+                    }
+                };
+                while request.len() < header_end + body_length {
+                    let mut buffer = [0; 1024];
+                    let count = stream.read(&mut buffer).unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                let header = std::str::from_utf8(&request[..header_end])
+                    .unwrap()
+                    .to_owned();
+                let body: serde_json::Value =
+                    serde_json::from_slice(&request[header_end..header_end + body_length]).unwrap();
+                stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"readOnly\":true}").unwrap();
+                (header, body)
+            });
+            let client = RuntimeClient {
+                host: "127.0.0.1".into(),
+                port,
+                candidate_token: "candidate-token".into(),
+                capability: "task-capability".into(),
+                operation: operation.into(),
+            };
+            let child = json!({"rootThreadId":"root","callerThreadId":caller,"parentThreadId":if caller == "root" {json!(null)} else {json!("root")},"sessionId":"root"});
+            let plan = json!({"question":"港城","byteBudget":9000,"ranking":{"type":"literal"},"steps":[{"id":"passage","operation":{"type":"passages","cursor":null,"maxChars":160,"limit":2}}]});
+            let arguments = json!({"taskId":"task","projectId":"project","threadId":"root","expectedRevision":0,"plan":plan});
+            assert_eq!(
+                client.call("query_story", &arguments, &child).unwrap(),
+                (200, json!({"readOnly":true}))
+            );
+            let (header, body) = server.join().unwrap();
+            assert!(header.starts_with("POST /api/projects/project/tasks/task/query HTTP/1.1"));
+            assert_eq!(
+                body,
+                json!({"threadId":"root","expectedRevision":0,"plan":plan})
+            );
+            let other = RuntimeClient {
+                operation: "unknown".into(),
+                ..client
+            };
+            assert_eq!(
+                other.call("query_story", &arguments, &child).unwrap_err(),
+                "tool is not allowed for this generation operation"
+            );
+        }
+    }
+}
+
+#[test]
+fn writer_relation_search_is_read_only_and_not_exposed_to_other_operations() {
+    let client = RuntimeClient {
+        host: "127.0.0.1".into(),
+        port: 1,
+        candidate_token: "token".into(),
+        capability: "capability".into(),
+        operation: "generateChapter".into(),
+    };
+    let names = client
+        .exposed_tools()
+        .into_iter()
+        .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"search_relations".to_owned()));
+    let child = json!({"rootThreadId":"root","callerThreadId":"child","parentThreadId":"root","sessionId":"root"});
+    assert!(validate_execution_identity(&child, "root", "search_relations").is_ok());
+    assert!(validate_execution_identity(&child, "root", "complete_task").is_err());
+    let invalid = json!({"taskId":"task","projectId":"project","threadId":"root",
+        "expectedRevision":0,"entityId":"linxi","maxHops":"many"});
+    assert_eq!(
+        client
+            .call("search_relations", &invalid, &child)
+            .unwrap_err(),
+        "maxHops must be an integer"
+    );
+    let advisory = RuntimeClient {
+        operation: "advisory".into(),
+        ..client
+    };
+    assert!(
+        !advisory
+            .exposed_tools()
+            .iter()
+            .any(|tool| tool["name"] == "search_relations")
+    );
+}

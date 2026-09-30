@@ -31,6 +31,11 @@ test("execution leases expire, revoke by epoch, and enforce directed model linea
   const now = new Date("2026-09-20T00:00:00Z");
   const plan = { id: "plan-1", rootRoute: "root", expiresAt: "2026-09-20T01:00:00Z", allowedChildEdges: [{ parentConnectionId: "root", childConnectionId: "critic" }] };
   const lease = createExecutionLease({ sessionPlan: plan, runId: "run-1", budgetId: "budget-1", now, maxDurationMs: 60_000 });
+  const capped = createExecutionLease({ sessionPlan: plan, runId: "run-capped", budgetId: "budget-capped", now,
+    maxDurationMs: 60_000, deadlineAtMs: now.getTime() + 10_000 });
+  assert.equal(capped.deadline, new Date(now.getTime() + 10_000).toISOString());
+  assert.throws(() => createExecutionLease({ sessionPlan: plan, runId: "run-expired", budgetId: "budget-expired", now,
+    deadlineAtMs: now.getTime() - 1 }), /expired/);
   assert.equal(assertExecutionLease(lease, plan, { now: now.getTime() }), lease);
   assert.throws(() => assertExecutionLease(lease, plan, { epoch: 2, now: now.getTime() }), /revoked/);
   assert.throws(() => assertExecutionLease(lease, plan, { now: now.getTime() + 60_000 }), /expired/);
@@ -333,10 +338,15 @@ test("persistent host budgets recover only outstanding reservations as unknown",
     budget.settleReservation(settled, { total_tokens: 7 });
     budget.reserveRequest({ estimatedInputTokens: 11, maxOutputTokens: 13 }, 1_000_002);
     assert.deepEqual(PersistentTaskBudget.recoverOrphans(databasePath), []);
+    assert.throws(() => PersistentTaskBudget.receipt(databasePath, "run-1"), /not terminal/);
     budget.close();
 
     assert.deepEqual(PersistentTaskBudget.recoverOrphans(databasePath), [{ budgetId: budget.id, unknownTokens: 24, overrun: false }]);
     assert.deepEqual(PersistentTaskBudget.recoverOrphans(databasePath), []);
+    const expected = { runId: "run-1", budgetId: budget.id, status: "recovered_unknown", usage: { requests: 2, tokens: 7, unknownTokens: 24, overrun: false }, limits: { maxRequests: 4, maxTokens: 100, maxDurationMs: 100_000 }, startedAt: 1_000_000 };
+    assert.deepEqual(PersistentTaskBudget.receipt(databasePath, "run-1"), expected);
+    assert.deepEqual(PersistentTaskBudget.receipt(databasePath, "run-1"), expected);
+    assert.throws(() => PersistentTaskBudget.receipt(databasePath, "missing"), /not found/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

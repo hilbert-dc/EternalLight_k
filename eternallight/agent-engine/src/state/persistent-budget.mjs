@@ -10,5 +10,6 @@ export class PersistentTaskBudget extends TaskBudget {
   }
   complete(status = "terminal") { this.#persistent.complete(status); }
   close() { this.#persistent.close(); }
+  static receipt(databasePath, runId) { return Object.freeze(JSON.parse(nativeBinding().NativePersistentBudget.receipt(databasePath, runId))); }
   static recoverOrphans(databasePath) { return Object.freeze(JSON.parse(nativeBinding().NativePersistentBudget.recover(databasePath))); }
 }

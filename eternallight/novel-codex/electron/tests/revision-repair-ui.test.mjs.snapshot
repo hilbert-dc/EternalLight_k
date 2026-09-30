@@ -1,0 +1,14 @@
+{
+  "entry": {
+    "text": "讨论下一次改稿",
+    "disabled": false
+  },
+  "prepared": {
+    "text": "讨论下一次改稿 · 已准备，尚未发送新讨论独立确认预算，写作需候选审批。章节 chapter-2 · 写作尝试 task-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa · 判断 assessment-2 · 决定 repair-1 · 正文 draft-2 · 知识批次 batch-2决策备注（仅供参考，可自行写入或调整下方消息）：建议：先核对守卫的动机；不要直接写作。取消改稿讨论来源",
+    "composer": "我想讨论下一次改稿的方向，请先和我核对需要调整的内容。",
+    "disabled": false
+  },
+  "failed": {
+    "text": "本轮改稿讨论未完成请从任务恢复，或重新选择修改结果并发送。重新讨论需独立确认预算。写作尝试 task-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa · 判断 assessment-2 · 决定 repair-1 · 正文 draft-2 · 知识批次 batch-2“重试对话”不能将本轮改稿请求作为普通聊天发送。取消改稿来源，开始普通讨论"
+  }
+}

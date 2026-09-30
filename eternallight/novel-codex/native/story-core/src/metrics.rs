@@ -30,7 +30,10 @@ impl SqliteStoryRepository {
         metric: &str,
         idempotency_key: &str,
     ) -> Result<Vec<Value>, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         let previous = transaction
             .query_row(
                 "SELECT metric FROM story_local_metric_receipts_v2 WHERE idempotency_key = ?1",

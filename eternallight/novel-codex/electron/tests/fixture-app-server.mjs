@@ -78,7 +78,7 @@ input.on("line", (line) => {
       process.exit(0);
     } else if (message.params.input[0].text === "interrupt") {
       // Wait for the client to send turn/interrupt before ending this turn.
-    } else if (message.params.input[0].text === "steer") {
+    } else if (message.params.input[0].text === "steer" || message.params.input.map((item) => item.text).join("").includes("fixture-wait-for-steer")) {
       // Wait for the client to steer this active turn before ending it.
     } else if (message.params.input[0].text === "completed-message") {
       output({ method: "item/completed", params: { threadId: message.params?.threadId ?? "thr-test", turnId: "turn-test", item: { id: "agent-completed", type: "agentMessage", text: "最终讨论结论", status: "completed" } } });
@@ -95,6 +95,7 @@ input.on("line", (line) => {
       for (let index = 0; index < 70; index += 1) {
         output({ method: "item/agentMessage/delta", params: { threadId: message.params?.threadId ?? "thr-test", turnId: "turn-test", itemId: "agent-long", delta: "x".repeat(1024) } });
       }
+      output({ method: "item/completed", params: { threadId: message.params.threadId, turnId: "turn-test", item: { id: "agent-long", type: "agentMessage", phase: "final_answer", text: "x".repeat(70 * 1024) } } });
       output({ method: "thread/status/changed", params: { threadId: message.params?.threadId ?? "thr-test", status: { type: "idle" } } });
       output({ method: "turn/completed", params: { threadId: message.params?.threadId ?? "thr-test", turn: { id: "turn-test", status: "completed" } } });
     } else {
@@ -107,6 +108,7 @@ input.on("line", (line) => {
       output({ method: "item/agentMessage/delta", params: { threadId: message.params?.threadId ?? "thr-test", turnId: "turn-old", itemId: "agent-old", delta: "旧轮次内容" } });
       output({ method: "item/completed", params: { threadId: message.params?.threadId ?? "thr-test", turnId: "turn-old", item: { id: "agent-old", type: "agentMessage", text: "旧轮次最终内容", status: "completed" } } });
       output({ method: "item/agentMessage/delta", params: { threadId: message.params?.threadId ?? "thr-test", turnId: "turn-test", itemId: "agent-current", delta: "hello" } });
+      output({ method: "item/completed", params: { threadId: message.params.threadId, turnId: "turn-test", item: { id: "agent-current", type: "agentMessage", phase: "final_answer", text: "hello" } } });
       output({ method: "thread/status/changed", params: { threadId: message.params?.threadId ?? "thr-test", status: { type: "idle" } } });
       output({ method: "turn/completed", params: { threadId: "foreign-thread", turn: { id: "foreign-turn", status: "completed" } } });
       output({ method: "turn/completed", params: { threadId: message.params?.threadId ?? "thr-test", turn: { id: "turn-test", status: "completed", receivedParams: message.params } } });
@@ -124,6 +126,7 @@ input.on("line", (line) => {
   if (message.method === "turn/steer") {
     output({ id: message.id, result: { turnId: "turn-test" } });
     output({ method: "item/agentMessage/delta", params: { threadId: message.params?.threadId ?? "thr-test", turnId: "turn-test", itemId: "agent-steered", delta: " steered" } });
+    output({ method: "item/completed", params: { threadId: message.params.threadId, turnId: "turn-test", item: { id: "agent-steered", type: "agentMessage", phase: "final_answer", text: " steered" } } });
     output({ method: "thread/status/changed", params: { threadId: message.params?.threadId ?? "thr-test", status: { type: "idle" } } });
     output({ method: "turn/completed", params: { threadId: message.params?.threadId ?? "thr-test", turn: { id: "turn-test", status: "completed", receivedParams: message.params } } });
   }

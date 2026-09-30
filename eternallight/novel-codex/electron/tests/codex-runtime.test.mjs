@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { CAPABILITIES, defineQualificationSuiteResult } from "@eternallight/agent-engine";
 import { verifiedBaselineEvidence } from "@eternallight/agent-engine/test-support";
 
-import { assertProviderOperation, buildCodexConfig, buildCodexModelCatalog, checkCodexConnectionAccess, composeNovelCodexPrompt, createCodexEnvironment, createQualificationContextDigest, createRuntimeEnvironment, createTaskCapability, credentialScopesFromEnvironment, inspectCodexConnection, installManagedAgentRoles, listCodexConnections, loadCodexEvidence, loadNovelCodexSkills, prepareIsolatedStorage, providerConfigurationError, resolveCodexCli, resolveCodexProvider, verifyCodexConnection } from "../codex-runtime.mjs";
+import { assertProviderOperation, buildCodexConfig, buildCodexModelCatalog, checkCodexConnectionAccess, composeNovelCodexPrompt, createCodexEnvironment, createQualificationContextDigest, createRuntimeEnvironment, createTaskCapability, credentialScopesFromEnvironment, inspectCodexConnection, installManagedAgentRoles, listCodexConnections, loadCodexEvidence, prepareIsolatedStorage, providerConfigurationError, resolveCodexCli, resolveCodexProvider, verifyCodexConnection } from "../codex-runtime.mjs";
 import { initializeFixtureCodexRepository, writeFixtureBuildIdentity } from "./build-identity-fixture.mjs";
 import { certificationPath } from "../../scripts/certification-publication.mjs";
 
@@ -523,7 +523,7 @@ test("installs only managed read-only Agent roles into the isolated Codex home",
     for (const role of roles) {
       const contents = readFileSync(join(codexHome, "agents", role), "utf8");
       assert.match(contents, /sandbox_mode = "read-only"/);
-      assert.match(contents, /enabled_tools = \["read_context"\]/);
+      assert.match(contents, /enabled_tools = \["read_context", "search_story", "search_relations", "query_story"\]/);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -705,10 +705,38 @@ test("MCP sidecar lists only candidate tools and forwards bearer-authenticated c
   const listed = await send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
   assert.deepEqual(listed.result.tools.map((tool) => tool.name), [
     "read_context",
+    "search_story",
+    "query_story",
     "save_outline",
     "complete_task",
+    "read_reading_progress",
+    "checkpoint_reading",
   ]);
   assert.ok(listed.result.tools.every((tool) => ["taskId", "projectId", "threadId", "expectedRevision"].every((key) => tool.inputSchema.required.includes(key))));
+
+  const searched = await send({
+    jsonrpc: "2.0", id: 5, method: "tools/call",
+    params: {
+      name: "search_story",
+      _meta: { callerThreadId: "thread-1", rootThreadId: "thread-1", sessionId: "thread-1" },
+      arguments: { taskId: "task 1", projectId: "project/1", threadId: "thread-1", expectedRevision: 4, query: "密函", limit: 5, entityName: "林夕", entityId: "linxi-first" },
+    },
+  });
+  assert.equal(searched.result.isError, undefined);
+
+  const plan = { question: "密函的正文依据", byteBudget: 4000, ranking: { type: "literal" }, steps: [
+    { id: "text", operation: { type: "text", query: "密函", limit: 1 } },
+    { id: "read", operation: { type: "passages", cursor: null, maxChars: 160, limit: 2 } },
+  ] };
+  const queried = await send({
+    jsonrpc: "2.0", id: 6, method: "tools/call",
+    params: {
+      name: "query_story",
+      _meta: { callerThreadId: "thread-1", rootThreadId: "thread-1", sessionId: "thread-1" },
+      arguments: { taskId: "task 1", projectId: "project/1", threadId: "thread-1", expectedRevision: 4, plan },
+    },
+  });
+  assert.equal(queried.result.isError, undefined);
 
   const called = await send({
     jsonrpc: "2.0",
@@ -736,6 +764,20 @@ test("MCP sidecar lists only candidate tools and forwards bearer-authenticated c
     {
       authorization: "Bearer candidate-secret",
       capability: "task-capability-secret-1234567890",
+      body: null,
+      method: "GET",
+      url: "/api/projects/project%2F1/tasks/task%201/search?threadId=thread-1&expectedRevision=4&q=%E5%AF%86%E5%87%BD&limit=5&entityName=%E6%9E%97%E5%A4%95&entityId=linxi-first",
+    },
+    {
+      authorization: "Bearer candidate-secret",
+      capability: "task-capability-secret-1234567890",
+      body: { threadId: "thread-1", expectedRevision: 4, plan },
+      method: "POST",
+      url: "/api/projects/project%2F1/tasks/task%201/query",
+    },
+    {
+      authorization: "Bearer candidate-secret",
+      capability: "task-capability-secret-1234567890",
       body: { taskId: "task 1", threadId: "thread-1", expectedRevision: 4, expectedCandidateRevisionId: null, idempotencyKey: "outline-task-1", payload: { nodes: [{ clientKey: "book", kind: "book", position: 0, title: "白塔未亮", purpose: "追查被改写的记录", summary: "林夕留下证词，港城记住名字", dependencyKeys: [], certainty: "tentative", protection: "free" }] } },
       method: "POST",
       url: "/api/projects/project%2F1/artifacts/outline",
@@ -750,13 +792,8 @@ test("MCP sidecar lists only candidate tools and forwards bearer-authenticated c
   ]);
 });
 
-test("loads only the Novel Codex skill bundle and composes a bounded prompt", () => {
-  const projectRoot = realpathSync(join(dirname(fileURLToPath(import.meta.url)), "../.."));
-  const skills = loadNovelCodexSkills(projectRoot);
-  assert.match(skills, /novel-canon/);
-  assert.match(skills, /narrative-ir/);
-  assert.match(skills, /story-tests/);
-  assert.match(skills, /novel-workflow/);
+test("composes a bounded prompt from frozen task methods", () => {
+  const skills = "已冻结的任务方法";
   const prompt = composeNovelCodexPrompt(skills, "检查这一章的 Scene Anchor").map((item) => item.text).join("");
   assert.match(prompt, /Novel Codex 专用工作约束/);
   assert.match(prompt, /用户当前指令：\n检查这一章的 Scene Anchor/);

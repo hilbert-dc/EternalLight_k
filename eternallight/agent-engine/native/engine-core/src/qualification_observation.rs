@@ -45,7 +45,7 @@ impl QualificationRun {
             }
             "response" => {
                 self.responses.push(value.clone());
-                self.trace.record(&json!({"source":"bridge","type":if value["status"]=="failed"{"bridge.response.failed"}else{"bridge.response.completed"},"details":{"requestId":value["requestId"],"connectionId":value["connectionId"],"threadId":value["threadId"],"parentThreadId":value["parentThreadId"],"turnId":value["turnId"],"status":value["status"],"errorCategory":value["errorCategory"],"errorMessage":value["errorMessage"],"errorStatusCode":value["errorStatusCode"],"toolCalls":tool_names(&value["toolCalls"]),"outputTypes":value["outputTypes"]}}))?;
+                self.trace.record(&json!({"source":"bridge","type":if value["status"]=="failed"{"bridge.response.failed"}else{"bridge.response.completed"},"details":{"requestId":value["requestId"],"connectionId":value["connectionId"],"threadId":value["threadId"],"parentThreadId":value["parentThreadId"],"turnId":value["turnId"],"status":value["status"],"errorCategory":value["errorCategory"],"errorMessage":value["errorMessage"],"errorStatusCode":value["errorStatusCode"],"toolCalls":tool_names(&value["toolCalls"]),"outputTypes":value["outputTypes"],"textLooksLikeToolCall":value["textLooksLikeToolCall"]}}))?;
             }
             "event" => {
                 self.events.push(value.clone());
@@ -110,11 +110,11 @@ impl QualificationRun {
         let target = self.input["childModel"]
             .as_str()
             .unwrap_or(string(&self.input["sessionPlan"]["rootRoute"]));
-        let terminal = delegation::dispatch(
-            "delegation.terminalWait",
+        let terminal_evidence = delegation::dispatch(
+            "delegation.terminalWaitEvidence",
             &json!({"events":self.events,"childRequests":children,"expectedText":format!("CHILD_TERMINAL:{}",workspace.receipt),"responses":self.responses,"requests":self.requests}),
         )?;
-        result.as_object_mut().unwrap().extend(json!({"childIdentityObserved":identity,"childGateObserved":!gate.is_null(),"childResultObserved":identity&&proof["receipt"]==workspace.receipt,"childTerminalResultObserved":terminal,"directedRouteObserved":children.iter().any(|r|r["connectionId"]==target),"parentFollowupTokenQueued":!ack.is_null(),"childFollowupVisible":delivery.is_some_and(|event|children.iter().any(|r|r["threadId"]==event["params"]["item"]["agentThreadId"]&&array(&r["visibleTextDigests"]).contains(&hash))),"forcedChildToolChoice":workspace.bridge_options(&self.input)["toolPolicy"]["childToolChoiceRequired"]}).as_object().unwrap().clone());
+        result.as_object_mut().unwrap().extend(json!({"childIdentityObserved":identity,"childGateObserved":!gate.is_null(),"childResultObserved":identity&&proof["receipt"]==workspace.receipt,"childTerminalResultObserved":terminal_evidence["observed"],"terminalWaitEvidence":terminal_evidence,"directedRouteObserved":children.iter().any(|r|r["connectionId"]==target),"parentFollowupTokenQueued":!ack.is_null(),"childFollowupVisible":delivery.is_some_and(|event|children.iter().any(|r|r["threadId"]==event["params"]["item"]["agentThreadId"]&&array(&r["visibleTextDigests"]).contains(&hash))),"forcedChildToolChoice":workspace.bridge_options(&self.input)["toolPolicy"]["childToolChoiceRequired"]}).as_object().unwrap().clone());
         Ok(result)
     }
     pub(super) fn proof_ready(&self) -> bool {

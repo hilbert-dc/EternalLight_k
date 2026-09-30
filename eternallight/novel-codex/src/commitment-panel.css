@@ -1,0 +1,33 @@
+.commitment-panel { margin: 18px 0; border: 1px solid var(--nc-border); border-radius: 14px; background: var(--nc-surface); color: var(--nc-ink); }
+.commitment-panel summary { padding: 14px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.commitment-panel summary:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; border-radius: 14px; }
+.commitment-panel-body { display: grid; gap: 12px; padding: 0 16px 16px; }
+.commitment-panel-body p { margin: 0; font-size: 13px; line-height: 1.65; color: var(--nc-ink-soft); }
+.commitment-panel-body > button { justify-self: start; }
+.commitment-panel .commitment-source, .commitment-panel .commitment-coverage { color: var(--nc-ink-muted); font-size: 11px; overflow-wrap: anywhere; }
+.commitment-proposals { display: grid; gap: 10px; }
+.commitment-proposals article > button { justify-self: start; }
+.commitment-proposals article, .commitment-detail { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--nc-border); border-radius: 10px; }
+.commitment-panel header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.commitment-panel header strong { font-size: 14px; }
+.commitment-panel header span { color: var(--nc-ink-muted); font-size: 11px; }
+.commitment-panel blockquote { margin: 0; padding-left: 12px; border-left: 2px solid var(--nc-border); font-size: 13px; line-height: 1.7; }
+.commitment-panel blockquote small { display: block; font-size: 11px; color: var(--nc-ink-muted); overflow-wrap: anywhere; }
+.commitment-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.commitment-panel [role="alert"] { color: #ad3434; }
+.commitment-editor { display: grid; gap: 12px; padding: 16px; border-top: 1px solid var(--nc-border); font-size: 13px; }
+.commitment-fields, .commitment-anchors, .commitment-anchor { display: grid; gap: 10px; }
+.commitment-fields { min-width: 0; margin: 0; padding: 14px; border: 1px solid var(--nc-border); border-radius: 10px; }
+.commitment-fields label { display: grid; gap: 6px; color: var(--nc-ink-soft); }
+.commitment-fields input, .commitment-fields textarea, .commitment-fields select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; border: 1px solid var(--nc-border); border-radius: 8px; background: var(--nc-surface); color: var(--nc-ink); font: inherit; }
+.commitment-fields textarea { min-height: 64px; resize: vertical; }
+.commitment-fields input:focus-visible, .commitment-fields textarea:focus-visible, .commitment-fields select:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 1px; }
+.commitment-anchors { border-top: 1px solid var(--nc-border); padding-top: 12px; }
+.commitment-anchor { padding: 12px; border: 1px solid var(--nc-border); border-radius: 8px; }
+.commitment-editor p, .commitment-editor small { margin: 0; line-height: 1.65; color: var(--nc-ink-soft); }
+.commitment-catalog { border: 1px solid var(--nc-border); border-radius: 10px; }
+.commitment-catalog > div { display: grid; gap: 10px; padding: 0 14px 14px; }
+.commitment-catalog ul { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.commitment-catalog li { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--nc-border); }
+.commitment-catalog button { justify-self: start; text-align: left; overflow-wrap: anywhere; }
+.commitment-catalog small { font-size: 11px; color: var(--nc-ink-muted); }

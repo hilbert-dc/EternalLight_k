@@ -14,7 +14,7 @@ test("chapter generation binds an explicit writer target", () => {
   assert.deepEqual(task, {
     prompt: "为当前选中的第 3 章生成完整候选草稿。\n\n作者意图：父女在饭桌上互相试探",
     taskType: { operation: "generateChapter" },
-    target: { type: "chapter", chapterId: "chapter-3", chapterNumber: 3, readingChapter: 3, scope: { type: "wholeChapter" }, povCharacterId: "daughter" },
+    target: { type: "chapter", chapterId: "chapter-3", chapterNumber: 3, readingChapter: 3, sceneOrder: 1, scope: { type: "wholeChapter" }, povCharacterId: "daughter" },
   });
 });
 
@@ -26,7 +26,7 @@ test("chapter generation rejects ambiguous or mismatched targets before model ex
 
 test("planning generation uses an explicit operation instead of prompt classification", () => {
   assert.deepEqual(planningGenerationTask("generatePlan", "规划接下来三章"), {
-    prompt: "规划接下来三章",
+    prompt: "规划接下来三章\n\n每个规划章节需要稳定 chapterPlanId；每个场景需要稳定 id、目标、节拍与非空 expectedEffects。每个预期效果包含稳定 id、dimension(world/knowledge/relationship/narrative) 和可在正文中核对的 description，以及 commitmentRefs 数组；未关联承诺时为空。引用独立承诺用 {type:commitment,commitmentId,revisionId}，引用提案用 {type:proposal,reportRevisionId,proposalId,sourceRevisionId}，身份从 Context Pack 原样复制。每项最多4条，整份计划最多64条，不引用未来、过期或已建立的旧提案。规划效果不是已发生事实。",
     taskType: { operation: "generatePlan" },
     target: { type: "artifact" },
   });

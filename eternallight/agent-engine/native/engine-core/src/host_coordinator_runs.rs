@@ -26,7 +26,7 @@ impl HostCoordinator {
             .map_err(|_| "invalid plan expiry")?
             .timestamp_millis();
         let mut lease = lease::create(
-            &json!({"sessionPlan":session.plan,"runId":rid,"budgetId":input["budgetId"],"epoch":1,"mode":input["mode"].as_str().unwrap_or("interactive"),"now":now,"planExpiry":expiry,"maxDurationMs":input["maxDurationMs"].as_u64().unwrap_or(1_800_000)}),
+            &json!({"sessionPlan":session.plan,"runId":rid,"budgetId":input["budgetId"],"epoch":1,"mode":input["mode"].as_str().unwrap_or("interactive"),"now":now,"planExpiry":expiry,"maxDurationMs":input["maxDurationMs"].as_u64().unwrap_or(1_800_000),"deadlineAtMs":input["deadlineAtMs"]}),
         )?;
         for field in ["issuedAt", "deadline"] {
             let millis = lease[field].as_f64().ok_or("invalid lease timestamp")? as i64;

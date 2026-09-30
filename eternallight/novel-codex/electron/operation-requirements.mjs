@@ -9,9 +9,15 @@ const BASE_OPERATION = Object.freeze({
 export const OPERATION_REQUIREMENTS = Object.freeze({
   advisory: BASE_OPERATION,
   generateBrief: BASE_OPERATION,
+  generatePropertyRules: BASE_OPERATION,
   generateOutline: BASE_OPERATION,
   generatePlan: BASE_OPERATION,
   generateChapter: BASE_OPERATION,
+  modelKnowledge: BASE_OPERATION,
+  assessSceneOutcome: BASE_OPERATION,
+  assessRevisionOutcome: BASE_OPERATION,
+  extractCommitments: BASE_OPERATION,
+  reviseCommitment: BASE_OPERATION,
   // Planning review is an application-orchestrated fixed panel. Each seat is
   // an independent root task, so it must not be gated on model-led delegation.
   reviewPlanningSeat: BASE_OPERATION,
@@ -25,9 +31,15 @@ export const OPERATION_REQUIREMENTS = Object.freeze({
 export const PRODUCT_OPERATION_IDS = Object.freeze([
   "advisory",
   "generateBrief",
+  "generatePropertyRules",
   "generateOutline",
   "generatePlan",
   "generateChapter",
+  "modelKnowledge",
+  "assessSceneOutcome",
+  "assessRevisionOutcome",
+  "extractCommitments",
+  "reviseCommitment",
   "reviewPlanningSeat",
 ]);
 

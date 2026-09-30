@@ -157,6 +157,19 @@ fn terminal_wait(input: &Value) -> Result<Value> {
     let hash = message_evidence::dispatch("message.digest", &json!(expected))?;
     let events = array(&input["events"]);
     let children = array(&input["childRequests"]);
+    let mut evidence = json!({
+        "waitCompleted": false,
+        "trustedChildObserved": false,
+        "stateCompleted": false,
+        "stateMessageMatched": false,
+        "stateResultPresent": false,
+        "childResponseCompleted": false,
+        "childResponseDigestMatched": false,
+        "completionEventMatched": false,
+        "parentWaitResultMatched": false,
+        "parentMessageMatched": false,
+        "observed": false,
+    });
     for event in events {
         let item = &event["params"]["item"];
         let parent = &event["params"]["threadId"];
@@ -167,59 +180,95 @@ fn terminal_wait(input: &Value) -> Result<Value> {
         {
             continue;
         }
-        let state_proof =
-            item["agentsStates"]
-                .as_object()
-                .into_iter()
-                .flatten()
-                .any(|(thread, state)| {
-                    state["status"] == "completed"
-                        && string(&state["message"]).trim() == expected
-                        && children
-                            .iter()
-                            .any(|r| r["threadId"] == *thread && r["parentThreadId"] == *parent)
-                });
-        if state_proof {
-            return Ok(true.into());
+        evidence["waitCompleted"] = true.into();
+        for (thread, state) in item["agentsStates"].as_object().into_iter().flatten() {
+            if !children
+                .iter()
+                .any(|r| r["threadId"] == *thread && r["parentThreadId"] == *parent)
+            {
+                continue;
+            }
+            evidence["trustedChildObserved"] = true.into();
+            if let Some(message) = state["completed"].as_str() {
+                evidence["stateCompleted"] = true.into();
+                if !message.trim().is_empty() {
+                    evidence["stateResultPresent"] = true.into();
+                    evidence["observed"] = true.into();
+                }
+                if message.trim() == expected {
+                    evidence["stateMessageMatched"] = true.into();
+                }
+            }
         }
-        let mailbox = array(&input["responses"]).iter().any(|response| {
-            response["parentThreadId"] == *parent
-                && response["status"] == "completed"
-                && response["finalTextDigest"] == hash
-                && children.iter().any(|r| {
+        for response in array(&input["responses"]) {
+            // v2 wait reports mailbox activity with no agentsStates. Prove the
+            // child's final answer reached this parent instead of inferring a
+            // terminal result from the wait tool's completion alone.
+            if response["parentThreadId"] != *parent
+                || !children.iter().any(|r| {
                     r["threadId"] == response["threadId"]
                         && r["parentThreadId"] == response["parentThreadId"]
                 })
-                && events.iter().any(|delivery| {
-                    delivery["method"] == "item/completed"
-                        && delivery["params"]["threadId"] == *parent
-                        && delivery["params"]["item"]["type"] == "subAgentActivity"
-                        && delivery["params"]["item"]["kind"] == "completed"
-                        && delivery["params"]["item"]["agentThreadId"] == response["threadId"]
-                        && array(&input["requests"]).iter().any(|request| {
-                            request["threadId"] == *parent
-                                && array(&request["waitResults"]).iter().any(|result| {
-                                    result["callId"] == item["id"] && result["completed"] == true
-                                })
-                                && array(&request["finalAgentMessages"]).iter().any(|message| {
-                                    message["author"] == delivery["params"]["item"]["agentPath"]
-                                        && array(&message["textDigests"]).contains(&hash)
-                                })
-                        })
-                })
-        });
-        if mailbox {
-            return Ok(true.into());
+            {
+                continue;
+            }
+            evidence["trustedChildObserved"] = true.into();
+            if response["status"] != "completed" {
+                continue;
+            }
+            evidence["childResponseCompleted"] = true.into();
+            if response["finalTextDigest"] == hash {
+                evidence["childResponseDigestMatched"] = true.into();
+            }
+            let result_lines = array(&response["finalTextLineDigests"]);
+            if response["finalTextDigest"].as_str().is_none() || result_lines.is_empty() {
+                continue;
+            }
+            for delivery in events {
+                if delivery["method"] != "item/completed"
+                    || delivery["params"]["threadId"] != *parent
+                    || delivery["params"]["item"]["type"] != "subAgentActivity"
+                    || delivery["params"]["item"]["kind"] != "completed"
+                    || delivery["params"]["item"]["agentThreadId"] != response["threadId"]
+                {
+                    continue;
+                }
+                evidence["completionEventMatched"] = true.into();
+                for request in array(&input["requests"]) {
+                    if request["threadId"] != *parent {
+                        continue;
+                    }
+                    let waited = array(&request["waitResults"]).iter().any(|result| {
+                        result["callId"] == item["id"] && result["completed"] == true
+                    });
+                    let consumed = array(&request["finalAgentMessages"]).iter().any(|message| {
+                        message["author"] == delivery["params"]["item"]["agentPath"]
+                            && array(&message["textDigests"])
+                                .iter()
+                                .any(|digest| result_lines.contains(digest))
+                    });
+                    if waited {
+                        evidence["parentWaitResultMatched"] = true.into();
+                    }
+                    if consumed {
+                        evidence["parentMessageMatched"] = true.into();
+                    }
+                    if waited && consumed {
+                        evidence["observed"] = true.into();
+                    }
+                }
+            }
         }
     }
-    Ok(false.into())
+    Ok(evidence)
 }
 
 pub(crate) fn dispatch(method: &str, input: &Value) -> Result<Value> {
     match method {
         "delegation.evaluate" => evaluate(input),
         "delegation.summary" => Ok(summary(input)),
-        "delegation.terminalWait" => terminal_wait(input),
+        "delegation.terminalWait" => Ok(terminal_wait(input)?["observed"].clone()),
+        "delegation.terminalWaitEvidence" => terminal_wait(input),
         "delegation.followupDiagnostics" => Ok(crate::qualification_mcp::diagnostics(
             &input["actual"],
             string(&input["expected"]),

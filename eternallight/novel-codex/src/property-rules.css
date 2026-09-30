@@ -1,0 +1,26 @@
+.property-rules-panel { margin: 20px 0; padding: 20px; border: 1px solid var(--nc-border); border-radius: var(--nc-radius-lg); background: var(--nc-surface); color: var(--nc-ink); }
+.main-panel > .property-rules-panel { order: 3; }
+.property-rules-panel header { display: flex; gap: 16px; justify-content: space-between; align-items: start; }
+.property-rules-panel header > button { flex-shrink: 0; white-space: nowrap; }
+.property-rules-panel h3 { margin: 0 0 8px; font-size: 17px; }
+.property-rules-panel p { font-size: 13px; line-height: 1.6; color: var(--nc-ink-soft); overflow-wrap: anywhere; }
+.property-rules-panel button { padding: 7px 11px; border: 1px solid var(--nc-border); border-radius: 8px; background: var(--nc-surface); color: var(--nc-ink); cursor: pointer; }
+.property-rules-panel button:disabled { opacity: .5; cursor: not-allowed; }
+.property-rules-panel button:focus-visible, .property-rules-panel input:focus-visible, .property-rules-panel textarea:focus-visible, .property-rules-panel select:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+.property-rules-panel details { margin: 16px 0; border-top: 1px solid var(--nc-border); padding-top: 12px; }
+.property-rules-panel summary { cursor: pointer; font-size: 14px; }
+.property-rule-summary { padding-left: 20px; display: grid; gap: 12px; }
+.property-rule-summary strong, .property-rule-summary span { display: block; overflow-wrap: anywhere; }
+.property-rule-summary span { color: var(--nc-ink-soft); font-size: 13px; }
+.property-rule-summary li { min-width: 0; overflow-wrap: anywhere; }
+.property-rule-editor { margin-top: 16px; }
+.property-rule-fields { display: grid; gap: 12px; }
+.property-rule-fields fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 14px; min-width: 0; border: 1px solid var(--nc-border); border-radius: 10px; }
+.property-rule-fields legend { font-size: 13px; }
+.property-rule-fields label { display: grid; gap: 6px; min-width: 0; font-size: 13px; }
+.property-rule-fields input, .property-rule-fields select, .property-rule-fields textarea { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--nc-border); border-radius: 6px; background: var(--nc-surface); color: var(--nc-ink); font: inherit; }
+.property-rule-fields textarea { min-height: 70px; resize: vertical; }
+.property-rule-wide { grid-column: 1 / -1; }
+.property-rule-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.property-rules-panel [role="alert"] { color: var(--nc-red, #b54835); }
+@media (max-width: 700px) { .property-rules-panel header { flex-direction: column; } .property-rule-fields fieldset { grid-template-columns: minmax(0, 1fr); } }

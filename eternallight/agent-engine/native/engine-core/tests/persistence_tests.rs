@@ -18,12 +18,72 @@ fn active_budget_is_not_recovered_and_orphan_reservations_are_charged_once() {
         )
         .unwrap();
     assert_eq!(PersistentBudget::recover(&path).unwrap(), json!([]));
+    assert!(
+        PersistentBudget::receipt(&path, "run")
+            .unwrap_err()
+            .contains("not terminal")
+    );
     budget.close();
     assert_eq!(
         PersistentBudget::recover(&path).unwrap(),
         json!([{"budgetId":"budget","unknownTokens":24.0,"overrun":false}])
     );
     assert_eq!(PersistentBudget::recover(&path).unwrap(), json!([]));
+    assert_eq!(
+        PersistentBudget::receipt(&path, "run").unwrap(),
+        json!({"runId":"run","budgetId":"budget","status":"recovered_unknown","usage":{"requests":1,"tokens":0.0,"unknownTokens":24.0,"overrun":false},"limits":{"maxRequests":64.0,"maxTokens":100.0,"maxDurationMs":1_800_000.0},"startedAt":0.0})
+    );
+}
+
+#[test]
+fn terminal_budget_receipt_is_bounded_repeatable_and_rejects_missing_or_corrupt_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("budget.sqlite3");
+    let mut budget = PersistentBudget::new(
+        &path,
+        "run",
+        json!({"options":{"id":"budget","maxRequests":4,"maxTokens":100,"startedAt":1000},"now":1000}),
+    )
+    .unwrap();
+    let settled = budget
+        .apply(
+            "budget.reserve",
+            json!({"parameters":{"maxOutputTokens":10},"now":1001}),
+        )
+        .unwrap();
+    budget
+        .apply(
+            "budget.settle",
+            json!({"id":settled,"usage":{"total_tokens":7}}),
+        )
+        .unwrap();
+    budget
+        .apply(
+            "budget.reserve",
+            json!({"parameters":{"maxOutputTokens":24},"now":1002}),
+        )
+        .unwrap();
+    assert!(PersistentBudget::receipt(&path, "run").is_err());
+    budget.complete("failed").unwrap();
+    let expected = json!({"runId":"run","budgetId":"budget","status":"failed","usage":{"requests":2,"tokens":7.0,"unknownTokens":24.0,"overrun":false},"limits":{"maxRequests":4.0,"maxTokens":100.0,"maxDurationMs":1_800_000.0},"startedAt":1000.0});
+    assert_eq!(PersistentBudget::receipt(&path, "run").unwrap(), expected);
+    assert_eq!(PersistentBudget::receipt(&path, "run").unwrap(), expected);
+    assert!(PersistentBudget::receipt(&path, "absent").is_err());
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    connection
+        .execute(
+            "UPDATE engine_budgets SET state_json = json_set(state_json, '$.id', 'foreign') WHERE run_id = ?",
+            ["run"],
+        )
+        .unwrap();
+    assert!(PersistentBudget::receipt(&path, "run").is_err());
+    connection
+        .execute(
+            "UPDATE engine_budgets SET state_json = ? WHERE run_id = ?",
+            ["{invalid", "run"],
+        )
+        .unwrap();
+    assert!(PersistentBudget::receipt(&path, "run").is_err());
 }
 
 #[test]

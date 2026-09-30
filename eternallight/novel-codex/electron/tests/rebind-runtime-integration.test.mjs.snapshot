@@ -1,0 +1,27 @@
+exports[`workspace rebind continues through modeling and next-chapter planning across Runtime restart 1`] = `
+"自动创作：0/1 章 · 章纲已更新，需重新规划"
+`;
+
+exports[`workspace rebind continues through modeling and next-chapter planning across Runtime restart 2`] = `
+"重规划已保存，但刷新失败：测试刷新连接中断。请重新打开创作简报读取持久状态，无需再次提交。"
+`;
+
+exports[`workspace rebind continues through modeling and next-chapter planning across Runtime restart 3`] = `
+{
+  "title": "创作范围预览 · 第 1 章",
+  "description": "这是当前作者侧范围预览，执行时以任务冻结的依据为准；覆盖完整不代表故事理解或文学质量通过。",
+  "planTitle": "焚信",
+  "guidance": "主角焚烧密函。",
+  "position": "公开承诺：无 · 视角：linxi · 故事时间：10",
+  "source": "当前目标稿：第 1 章 · 候选稿",
+  "coverage": "覆盖：尚有未覆盖范围 · 语义完整性尚未认证"
+}
+`;
+
+exports[`workspace rebind continues through modeling and next-chapter planning across Runtime restart 4`] = `
+{
+  "planTitle": "藏信",
+  "guidance": "保留作者藏信稿，记录证词。",
+  "position": "公开承诺：无 · 视角：zhangheng · 故事时间：20"
+}
+`;

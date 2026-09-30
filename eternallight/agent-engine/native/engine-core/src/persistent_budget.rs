@@ -1,5 +1,5 @@
 use crate::{Result, budget, storage};
-use rusqlite::{Connection, TransactionBehavior, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::fs::File;
@@ -47,17 +47,84 @@ pub struct PersistentBudget {
 }
 
 impl PersistentBudget {
+    /// Read the bounded, terminal usage evidence for one engine run without mutating its ledger.
+    pub fn receipt(path: &Path, run_id: &str) -> Result<Value> {
+        if path.as_os_str().is_empty() || run_id.is_empty() || run_id.len() > 160 {
+            return Err("persistent budget path and run id are required".into());
+        }
+        let database = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| e.to_string())?;
+        database
+            .busy_timeout(Duration::from_secs(5))
+            .map_err(|e| e.to_string())?;
+        let row: Option<(String, String, String)> = database
+            .query_row(
+                "SELECT budget_id, status, state_json FROM engine_budgets WHERE run_id = ?",
+                [run_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let (budget_id, status, state_json) = row.ok_or("persistent budget run not found")?;
+        if !matches!(
+            status.as_str(),
+            "terminal"
+                | "completed"
+                | "failed"
+                | "cancelled"
+                | "outcome-unknown"
+                | "recovered_unknown"
+        ) {
+            return Err("persistent budget is not terminal".into());
+        }
+        let state: Value =
+            serde_json::from_str(&state_json).map_err(|_| "invalid persisted budget")?;
+        let snapshot = budget::dispatch("budget.snapshot", json!({"state":state}))?
+            .get("result")
+            .cloned()
+            .ok_or("invalid persisted budget snapshot")?;
+        if budget_id.len() > 160
+            || snapshot["id"].as_str() != Some(budget_id.as_str())
+            || snapshot["reservedTokens"].as_f64() != Some(0.0)
+            || !state["reservations"]
+                .as_object()
+                .is_some_and(serde_json::Map::is_empty)
+        {
+            return Err("inconsistent terminal budget state".into());
+        }
+        Ok(json!({
+            "runId": run_id,
+            "budgetId": budget_id,
+            "status": status,
+            "usage": {
+                "requests": snapshot["requests"],
+                "tokens": snapshot["tokens"],
+                "unknownTokens": snapshot["unknownTokens"],
+                "overrun": snapshot["overrun"]
+            },
+            "limits": {
+                "maxRequests": snapshot["maxRequests"],
+                "maxTokens": snapshot["maxTokens"],
+                "maxDurationMs": snapshot["maxDurationMs"]
+            },
+            "startedAt": snapshot["startedAt"]
+        }))
+    }
+
     pub fn new(path: &Path, run_id: &str, input: Value) -> Result<Self> {
         if path.as_os_str().is_empty() {
             return Err("persistent budget database path is required".into());
         }
-        if run_id.is_empty() {
+        if run_id.is_empty() || run_id.len() > 160 {
             return Err("persistent budget run id is required".into());
         }
         let owner = storage::try_own(&owner_path(path, run_id))?
             .ok_or("persistent budget run already has an owner")?;
         let mut database = open(path)?;
         let state = budget::dispatch("budget.create", input)?;
+        if state["id"].as_str().is_none_or(|id| id.len() > 160) {
+            return Err("persistent budget id exceeds limit".into());
+        }
         let transaction = database
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|e| e.to_string())?;

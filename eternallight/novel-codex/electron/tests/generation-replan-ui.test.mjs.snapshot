@@ -1,0 +1,44 @@
+exports[`author replan UI preserves preview authority and survives rejected submissions 1`] = `
+{
+  "title": "按当前作品重新规划",
+  "paragraphs": [
+    "选择需要重建的范围，补充这一轮的创作要求。",
+    "保留当前简报，重建大纲和近章规划；已有正文保留。",
+    "剩余 10 次任务尝试，本范围至少需要 6 次。已完成 0 章，目标共 1 章。",
+    "供应商预算：剩余 93 次请求、86,000 token；已使用 12,000 token，未知用量 2,000 token。"
+  ],
+  "options": [
+    {
+      "label": "从创作简报开始",
+      "selected": false
+    },
+    {
+      "label": "从全书大纲开始",
+      "selected": true
+    }
+  ],
+  "buttons": [
+    {
+      "label": "重新预览",
+      "disabled": false
+    },
+    {
+      "label": "确认重规划",
+      "disabled": false
+    }
+  ],
+  "instruction": "按新藏信设定重新规划"
+}
+`;
+
+exports[`author replan UI preserves preview authority and survives rejected submissions 2`] = `
+{
+  "range": "currentChapter",
+  "description": [
+    "选择需要重建的范围，补充这一轮的创作要求。",
+    "以作者修改后的当前稿为依据重写本章，再重新建模和评估；前文与当前规划绑定保留。",
+    "剩余 10 次任务尝试，本范围至少需要 4 次。已完成 0 章，目标共 1 章。",
+    "供应商预算：剩余 93 次请求、86,000 token；已使用 12,000 token，未知用量 2,000 token。"
+  ]
+}
+`;

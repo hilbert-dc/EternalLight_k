@@ -4,6 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { createHash, randomUUID } from "node:crypto";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import { HostRecoveryJournal, RecoveryIndex } from "@eternallight/agent-engine";
@@ -31,18 +33,134 @@ function snapshot(tasks, operations = []) {
   return { fence: "fence-1", watermark: operations.length, complete: true, nextCursor: null, tasks, operations };
 }
 
+test("a proven Runtime rejection closes recovery without claiming a committed write", async () => {
+  const root = await mkdtemp(join(tmpdir(), "novel-rejected-recovery-"));
+  try {
+    const index = new RecoveryIndex(join(root, "host.json"));
+    await index.beginRun({ runId: "knowledge", planId: "plan", threadId: "root", projectId: "project-1" });
+    await reconcileRecoveryIndex(index, async () => snapshot([{ id: "knowledge", status: "completed" }], [{
+      operation_id: "invalid-publish", run_id: "knowledge", thread_id: "root", turn_id: "turn",
+      tool_call_id: "call-invalid", tool_name: "publish_knowledge_batch", request_hash: "hash",
+      state: "rejected", receipt_ref: null, updated_at: 10,
+    }]));
+    assert.deepEqual(await index.recoveryReport(), []);
+    const operation = (await index.read()).runs.knowledge.requests["mcp:call-invalid"];
+    assert.deepEqual({ state: operation.state, outcome: operation.outcome, receipt: operation.receiptRef }, {
+      state: "terminal", outcome: "rejected", receipt: "runtime:operation:invalid-publish:rejected",
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("real Runtime and MCP recover a committed write across process restart without a Host success event", { timeout: 25_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "novel-authoritative-recovery-"));
+  const author = "test-recovery-author-1234567890123456";
+  const candidate = "test-recovery-candidate-1234567890123";
+  const capability = "test-recovery-capability-123456789012";
+  const suffix = process.platform === "win32" ? ".exe" : "";
+  const runtimePath = fileURLToPath(new URL(`../../native/target/debug/novel-codex-story-runtime${suffix}`, import.meta.url));
+  const mcpPath = fileURLToPath(new URL(`../../native/target/debug/novel-workspace-mcp${suffix}`, import.meta.url));
+  let runtime;
+  async function stop() {
+    if (!runtime || runtime.exitCode !== null || runtime.signalCode !== null) return;
+    const stopped = new Promise((resolve) => runtime.once("exit", resolve));
+    runtime.kill();
+    await stopped;
+  }
+  async function start() {
+    runtime = spawn(runtimePath, ["--port", "0", "--db", join(root, "story.sqlite"), "--engine-budget-db", join(root, "engine-budget.sqlite3"), "--token-stdin"], { stdio: ["pipe", "pipe", "pipe"] });
+    const origin = new Promise((resolve, reject) => {
+      const lines = createInterface({ input: runtime.stdout });
+      lines.on("line", (line) => { if (line.startsWith("Story Runtime listening on ")) resolve(line.slice("Story Runtime listening on ".length)); });
+      runtime.once("error", reject);
+      runtime.once("exit", () => reject(new Error("Runtime exited before listening")));
+    });
+    runtime.stdin.end(`${JSON.stringify({ authorToken: author, candidateToken: candidate })}\n`);
+    return origin;
+  }
+  try {
+    let origin = await start();
+    const request = async (path, options = {}) => {
+      const response = await fetch(`${origin}${path}`, { ...options, headers: { authorization: `Bearer ${author}`, "content-type": "application/json" } });
+      const body = await response.json();
+      assert.ok(response.ok, JSON.stringify(body));
+      return body;
+    };
+    const { project } = await request("/api/projects", { method: "POST", body: JSON.stringify({ title: "恢复证明" }) });
+    const projectPath = `/api/projects/${project.id}`;
+    const workspace = await request(`${projectPath}/creative-workspace`);
+    const task = await request(`${projectPath}/tasks`, { method: "POST", body: JSON.stringify({ operation: "generateBrief", inputRevision: 0, threadId: "root", authorIntent: "写候选简报", target: { type: "artifact" }, capabilityHash: createHash("sha256").update(capability).digest("hex"), capabilityExpiresAt: Math.floor(Date.now() / 1000) + 600,
+      initialBudget: { authorizationId: randomUUID(), authorMessageId: randomUUID(), expectedBaseSnapshotId: workspace.headSnapshotId,
+        expectedSourceDigest: workspace.sourceDigest, maxRequests: 16, maxTokens: 200_000, deadlineAt: Math.floor(Date.now()/1000)+600 } }) });
+    await request(`${projectPath}/tasks/${task.id}/turn`, { method: "POST", body: JSON.stringify({ threadId: "root", turnId: "turn" }) });
+    const arguments_ = { taskId: task.id, projectId: project.id, threadId: "root", expectedRevision: 0, expectedCandidateRevisionId: null, idempotencyKey: "save-one", payload: { premise: "不应保存进恢复日记的正文", draftCount: 1 } };
+    const indexPath = join(root, "host.json");
+    const index = new RecoveryIndex(indexPath);
+    const journal = new HostRecoveryJournal(index);
+    await journal.beginRun({ runId: task.id, threadId: "root", projectId: project.id, planId: "test" });
+    await journal.observe({ method: "item/started", params: { turnId: "turn", item: { id: "write-call", type: "mcpToolCall", tool: "save_brief", arguments: arguments_ } } });
+    await journal.flush();
+    const mcp = spawn(mcpPath, [], { env: { ...process.env, NOVEL_CODEX_RUNTIME_URL: origin, NOVEL_CODEX_CANDIDATE_TOKEN: candidate, NOVEL_CODEX_TASK_CAPABILITY: capability, NOVEL_CODEX_OPERATION: "generateBrief" }, stdio: ["pipe", "pipe", "pipe"] });
+    const output = [];
+    mcp.stdout.on("data", (chunk) => output.push(chunk));
+    const exited = new Promise((resolve, reject) => { mcp.once("error", reject); mcp.once("exit", resolve); });
+    const meta = { sessionId: "root", rootThreadId: "root", callerThreadId: "root", turnId: "turn" };
+    const write = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "save_brief", arguments: arguments_, _meta: { ...meta, callId: "write-call" } } }).replace('"draftCount":1', '"draftCount":1.0');
+    const complete = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "complete_task", arguments: { taskId: task.id, projectId: project.id, threadId: "root", expectedRevision: 0, summary: "completed" }, _meta: { ...meta, callId: "complete-call" } } });
+    mcp.stdin.end(`${write}\n${complete}\n`);
+    assert.equal(await exited, 0);
+    const responses = Buffer.concat(output).toString().trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(responses.length, 2);
+    for (const response of responses) assert.notEqual(response.result.isError, true, JSON.stringify(response));
+    const response = responses[0];
+    const revisionId = JSON.parse(response.result.content[0].text).revisionId;
+    // Neither item/completed nor its receipt reaches the Host journal.
+    await journal.abandonRun();
+    await stop();
+    origin = await start();
+    await request("/api/tasks/recover-orphans", { method: "POST", body: "{}" });
+    const reopened = new RecoveryIndex(indexPath);
+    await reconcileRecoveryIndex(reopened, request);
+    assert.deepEqual(await reopened.recoveryReport(), []);
+    const stored = await reopened.read();
+    assert.equal(stored.runs[task.id].requests["mcp:write-call"].receiptRef, `runtime:candidate:${revisionId}`);
+    assert.equal(stored.runs[task.id].requests["mcp:write-call"].outcome, "committed");
+    assert.equal(stored.runs[task.id].requests["mcp:complete-call"].receiptRef, `runtime:task:${task.id}:completed`);
+    assert.equal(stored.runs[task.id].requests["mcp:complete-call"].outcome, "committed");
+    assert.equal(JSON.stringify(stored).includes("不应保存进恢复日记的正文"), false);
+  } finally {
+    await stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Runtime proofs cannot settle another request hash or invent a committed receipt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "novel-proof-binding-"));
+  try {
+    const index = new RecoveryIndex(join(root, "host.json"));
+    await pendingWrite(index, { runId: "task-proof", requestId: "call" });
+    const original = (await index.read()).runs["task-proof"].requests["mcp:call"];
+    for (const bad of [{ request_hash: "different", receipt_ref: "runtime:wrong" }, { request_hash: original.requestHash, receipt_ref: null }]) {
+      await assert.rejects(index.observeRuntimeOperations("task-proof", [{ operation_id: "operation", run_id: "task-proof", tool_call_id: "call", tool_name: "save_outline", state: "committed", ...bad }]));
+      assert.equal((await index.read()).runs["task-proof"].requests["mcp:call"].outcome, null);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("startup reconciliation closes a write only after the fenced Runtime ledger proves its receipt", async () => {
   const root = await mkdtemp(join(tmpdir(), "novel-reconciliation-"));
   try {
     const index = new RecoveryIndex(join(root, "recovery.json"));
     await pendingWrite(index, { runId: "task-1", requestId: "write-1", idempotencyKey: "outline-attempt-1" });
+    const requestHash=(await index.read()).runs["task-1"].requests["mcp:write-1"].requestHash;
     await reconcileRecoveryIndex(index, async (path, options) => {
       if (path.endsWith("/recovery-snapshot")) return snapshot([{ id: "task-1", status: "cancelled" }], [{
         operation_id: "operation-1",
         run_id: "task-1",
         tool_call_id: "write-1",
         tool_name: "save_outline",
-        request_hash: "runtime-request-hash",
+        request_hash: requestHash,
         state: "committed",
         receipt_ref: "runtime:receipt-1",
         turn_id: "turn-1",

@@ -83,7 +83,12 @@ export class CodexSessionRuntime {
       case "revokeApp": return this.appServer.revokeExecution(params);
       case "interrupt": return this.appServer.interruptTurn();
       case "end:lease": return this.bridge.endExecutionLease(params);
-      case "end:budget": return this.bridge.endTaskBudget(this.#budget);
+      case "end:budget": return Promise.resolve(this.bridge.endTaskBudget(this.#budget)).then(result => {
+        if (result !== true) throw new Error("model bridge did not release the task budget");
+        this.#budget?.complete?.(params.budgetStatus);
+        return result;
+      });
+      case "end:budgetRecord": return this.#budget?.complete?.(params.budgetStatus);
       case "end:app": return this.appServer.endExecution?.(params);
       case "closeApp": return this.closeAppServer(this.appServer);
       case "closeBridge": return this.bridge.close();

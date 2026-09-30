@@ -1,0 +1,16 @@
+.execution-scope-dialog { width: min(620px, calc(100vw - 48px)); max-height: calc(100vh - 64px); overflow-y: auto; }
+.execution-scope-dialog > p { font-size: 13px; line-height: 1.65; }
+.execution-scope-dialog fieldset { border: 1px solid var(--border, #dedee3); border-radius: 12px; padding: 14px; }
+.scope-choice { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0; font-size: 13px; }
+.scope-choice > span { min-width: 0; flex: 1; }
+.scope-choice small { display: block; color: var(--muted, #8e9098); margin-top: 4px; }
+.scope-limits { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+.scope-limits label { display: grid; gap: 8px; font-size: 12px; }
+.scope-limits input { width: 100%; padding: 8px; color: inherit; background: transparent; border: 1px solid var(--border, #dedee3); border-radius: 8px; }
+.scope-preview { margin-top: 16px; padding: 14px; border: 1px solid var(--border, #dedee3); border-radius: 12px; font-size: 13px; }
+.scope-preview p { white-space: pre-wrap; line-height: 1.6; }
+.scope-preview dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; }
+.scope-preview dt { color: var(--muted, #8e9098); }
+.scope-preview dd { margin: 0; }
+.execution-scope-dialog pre { overflow: auto; max-height: 180px; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.execution-scope-dialog summary { cursor: pointer; padding-top: 6px; font-size: 12px; }

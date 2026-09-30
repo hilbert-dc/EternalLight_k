@@ -8,4 +8,4 @@ Explore only the frozen Novel Codex context. Locate relevant Canon, planning, sc
 """
 
 [mcp_servers.novel_workspace]
-enabled_tools = ["read_context"]
+enabled_tools = ["read_context", "search_story", "search_relations", "query_story"]

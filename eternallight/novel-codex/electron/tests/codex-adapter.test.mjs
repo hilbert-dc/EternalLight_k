@@ -46,12 +46,31 @@ test("rejects DSML protocol text without exposing it as an agent response", asyn
   const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   const events = [];
   adapter.setCallbacks({ onEvent: (event) => events.push(event) });
+  try {
+    await assert.rejects(adapter.sendTurn([{ type: "text", text: "protocol-leak" }]), /结构化工具协议/);
+    assert.ok(events.some((event) => event.method === "agent/error" && /结构化工具协议/.test(event.params.message)));
+    assert.ok(events.every((event) => !JSON.stringify(event).includes("DSML")));
+  } finally {
+    adapter.close();
+  }
+});
 
-  await assert.rejects(adapter.sendTurn([{ type: "text", text: "protocol-leak" }]), /结构化工具协议/);
-
-  assert.ok(events.some((event) => event.method === "agent/error" && /结构化工具协议/.test(event.params.message)));
-  assert.ok(events.every((event) => !JSON.stringify(event).includes("DSML")));
-  adapter.close();
+test("protocol failure before follow-up thread naming rejects without a timeout", async () => {
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
+  const request = adapter.request.bind(adapter);
+  adapter.request = async (method, params) => {
+    const result = await request(method, params);
+    if (method === "turn/start") {
+      adapter.handleLine(JSON.stringify({ method: "item/completed", params: { threadId: params.threadId, turnId: "turn-test", item: { id: "early-protocol-leak", type: "agentMessage", text: "<｜｜DSML｜｜ calls>" } } }));
+    }
+    return result;
+  };
+  try {
+    await assert.rejects(adapter.sendTurn([{ type: "text", text: "hello" }]), /结构化工具协议/);
+    assert.equal(adapter.pending.size, 0);
+  } finally {
+    adapter.close();
+  }
 });
 
 test("caps a streamed agent message before returning it", async () => {

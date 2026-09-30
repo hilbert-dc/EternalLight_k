@@ -14,23 +14,26 @@
 
 ## Skills
 
-- `novel-canon`：维护可审阅的角色、关系、规则、事件和信息边界。
-- `narrative-ir`：把意图组织为 Scene → Beat，并保留正文锚点。
-- `story-tests`：执行结构和引用检查，解释失败原因。
-- `novel-workflow`：要求 Agent 读取用途匹配的上下文，并只通过 candidate MCP 保存产物。
+- `novel-workflow`：默认必需执行契约，要求读取绑定上下文、使用候选权限并验证持久产物；stable 不代表文学质量认证。
+- `novel-canon`：实验性故事状态解释，区分正文、候选模型与作者确认。
+- `narrative-ir`：实验性 Scene/Beat 规划与修订，不要求作者手填结构，也不把正文当作可丢弃的 IR 渲染。
+- `story-tests`：实验性连续性与效果检查；不能把不可执行的检查或模型自评称为通过。
 
-技能只约束模型行为，不授予写权限。
+Rust 在任务创建事务中冻结选择、版本、正文和摘要；Host 从任务读取，不再启动时拼接全部 Skill。后三项保持 candidate，Author 创建任务时可显式提供最多两项 `experimentalMethods`；未知、不匹配或重复选择拒绝，缺省不启用。失败步骤恢复继承作者原选择，每次新 Attempt 重新生成绑定；若作者明确传入空列表，则取消本次重试的实验方法。方法和 Context Pack 共用总预算，不能静默裁掉必需契约。技能不授予额外写权限或正式采用能力。详见 [创作方法注册与冻结绑定](../CREATIVE_METHOD_BINDING_DESIGN.md)。
 
 ## Candidate MCP
 
 Novel Agent Engine 的私有 App Server 内核通过本地 stdio `novel_workspace` MCP 调用：
 
-- `read_context`
+- `read_context`（全部八类模型任务可带 `queryPlan`，同来源查询报告与基础上下文共同受整包预算；`queryScope` 明示领域层绑定范围）
+- `search_story`（任务范围内的正文与 Writer 前文知识）
+- `search_relations`（Writer 的有界前文/POV 关系证据）
+- `query_story`（全部八类模型任务的有限联合证据查询；滚动规划只读前章，建模/评估正文绑定源章，Writer 保留章节、场景、POV 和时间门禁）
 - `save_brief`
 - `save_outline`
 - `save_chapter_plans`
 - `save_draft_checkpoint`
-- `submit_fact_proposals`
+- `publish_knowledge_batch`（仅 `modelKnowledge` 任务）
 - `complete_task`
 
 每个任务创建独立的 30 分钟能力凭证。Runtime 只保存其 SHA-256，MCP sidecar 只持有原始凭证；每次候选请求同时验证凭证、TTL、任务状态以及 `taskId / projectId / threadId / expectedRevision` 绑定。任务完成、失败或取消时立即终止 App Server／MCP、擦除明文并撤销 Runtime 能力；应用重启先取消并撤销遗留的活跃任务。MCP 没有 accept、undo、lock 或任意数据库写入工具。候选只有经过桌面端作者审阅，才能由 author gateway 推进正式版本。

@@ -430,24 +430,6 @@ export function createRuntimeEnvironment(baseEnvironment) {
   return isolatedProcessEnvironment(baseEnvironment);
 }
 
-export function loadNovelCodexSkills(projectRoot) {
-  const skillsRoot = join(projectRoot, "codex-runtime", "skills");
-  if (!existsSync(skillsRoot)) return "";
-  const skillFiles = [];
-  const visit = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) visit(path);
-      else if (entry.isFile() && entry.name === "SKILL.md") skillFiles.push(path);
-    }
-  };
-  visit(skillsRoot);
-  return skillFiles
-    .map((path) => readFileSync(path, "utf8").trim())
-    .filter(Boolean)
-    .join("\n\n---\n\n");
-}
-
 export function composeNovelCodexPrompt(skillText, prompt, taskInstructions = "") {
   const normalizedPrompt = prompt.trim();
   const message = `${skillText.trim() ? `Novel Codex 专用工作约束（只对当前应用生效）：\n${skillText}\n\n` : ""}${taskInstructions ? `${taskInstructions}\n\n` : ""}用户当前指令：\n${normalizedPrompt}`;

@@ -1,0 +1,45 @@
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+
+// The Host receives JSON through JavaScript. Preserve IEEE-754 numbers while
+// removing the integral-float representation that serde_json alone retains.
+// Larger integers cannot survive that boundary exactly; reject instead of
+// certifying two different identities for the same call.
+pub(super) fn host_json(value: &Value) -> Result<Value, String> {
+    match value {
+        Value::Number(number) => {
+            let number = number.as_f64().ok_or("operation number is not finite")?;
+            if number.fract() == 0.0 {
+                if number.abs() > 9_007_199_254_740_991.0 {
+                    return Err("operation integer exceeds the exact JSON interoperability range; use a string".into());
+                }
+                Ok(Value::from(number as i64))
+            } else {
+                Ok(value.clone())
+            }
+        }
+        Value::Array(items) => items
+            .iter()
+            .map(host_json)
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array),
+        Value::Object(items) => items
+            .iter()
+            .map(|(key, value)| Ok((key.clone(), host_json(value)?)))
+            .collect::<Result<serde_json::Map<_, _>, String>>()
+            .map(Value::Object),
+        Value::Null | Value::Bool(_) | Value::String(_) => Ok(value.clone()),
+    }
+}
+
+pub(super) fn operation_digest(tool: &str, arguments: &Value) -> Result<String, String> {
+    let canonical = serde_json::json!({"tool":tool,"arguments":host_json(arguments)?});
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(canonical.to_string().as_bytes())
+    ))
+}
+
+#[cfg(test)]
+#[path = "operation_digest_tests.rs"]
+mod tests;

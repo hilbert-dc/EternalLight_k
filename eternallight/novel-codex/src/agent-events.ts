@@ -239,7 +239,6 @@ const TOOL_TITLES: Record<string, string> = {
   save_outline: "保存大纲",
   save_chapter_plans: "保存章纲",
   save_draft_checkpoint: "保存章节",
-  submit_fact_proposals: "提交事实提案",
   submit_planning_review_report: "提交审阅报告",
   complete_task: "完成任务",
 };

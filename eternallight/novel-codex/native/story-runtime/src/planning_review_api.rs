@@ -13,7 +13,6 @@ use novel_codex_story_core::SqliteStoryRepository;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
-use sha2::Digest;
 use uuid::Uuid;
 
 use crate::RuntimeState;
@@ -26,7 +25,7 @@ use crate::server::task_json;
 use crate::server::unix_now;
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct StartRequest {
     artifact_kind: String,
     revision_id: String,
@@ -36,7 +35,7 @@ pub(crate) struct StartRequest {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SeatTaskRequest {
     thread_id: String,
     model: Option<String>,
@@ -65,17 +64,8 @@ pub(crate) async fn start(
     if request.author_intent.trim().is_empty() || request.author_intent.chars().count() > 4_000 {
         return bad_request("invalid_planning_review", "author intent is invalid");
     }
-    let packet_identity = json!({
-        "artifactKind": request.artifact_kind,
-        "revisionId": request.revision_id,
-        "targetNodeId": request.target_node_id,
-        "authorIntent": request.author_intent
-    });
-    let source_packet_hash = format!(
-        "{:x}",
-        sha2::Sha256::digest(packet_identity.to_string().as_bytes())
-    );
     let run_id = format!("planning-review-{}", Uuid::new_v4().simple());
+    let author_message_id = format!("author-{}", Uuid::new_v4().simple());
     let mut repository = match SqliteStoryRepository::open(&state.database_path) {
         Ok(value) => value,
         Err(error) => return internal_error(error),
@@ -87,8 +77,8 @@ pub(crate) async fn start(
         revision_id: &request.revision_id,
         target_node_id: request.target_node_id.as_deref(),
         author_intent: &request.author_intent,
+        author_message_id: &author_message_id,
         roles: &request.roles,
-        source_packet_hash: &source_packet_hash,
         now: unix_now(),
     }) {
         Ok(run) => Json(run).into_response(),
@@ -101,6 +91,12 @@ pub(crate) async fn create_seat_task(
     Path((project_id, run_id, role)): Path<(String, String, String)>,
     Json(request): Json<SeatTaskRequest>,
 ) -> Response {
+    if state.engine_budget_database.is_none() {
+        return bad_request(
+            "engine_budget_unavailable",
+            "engine budget database is not configured",
+        );
+    }
     let project_id = match ProjectId::parse(project_id) {
         Ok(value) => value,
         Err(error) => return bad_request("invalid_project_id", error),
@@ -109,12 +105,9 @@ pub(crate) async fn create_seat_task(
         Ok(value) => value,
         Err(error) => return internal_error(error),
     };
-    let run = match repository.planning_reviews(&project_id) {
-        Ok(runs) => runs.into_iter().find(|run| run["id"] == run_id),
+    let run = match repository.planning_review(&project_id, &run_id) {
+        Ok(run) => run,
         Err(error) => return repository_error(error),
-    };
-    let Some(run) = run else {
-        return repository_error(novel_codex_story_core::RepositoryError::ReviewNotFound);
     };
     let task_id = format!("task-{}", Uuid::new_v4().simple());
     let target = json!({
@@ -123,8 +116,7 @@ pub(crate) async fn create_seat_task(
     });
     let manifest = json!({
         "operation": "reviewPlanningSeat", "projectId": project_id.as_str(),
-        "projectRevision": run["inputRevision"], "target": target,
-        "authorIntent": run["authorIntent"], "sourcePacketHash": run["sourcePacketHash"]
+        "projectRevision": run["inputRevision"], "target": target
     });
     match repository.create_planning_review_seat_task(
         &project_id,
@@ -148,6 +140,24 @@ pub(crate) async fn create_seat_task(
     }
 }
 
+pub(crate) async fn read(
+    State(state): State<RuntimeState>,
+    Path((project_id, run_id)): Path<(String, String)>,
+) -> Response {
+    let project_id = match ProjectId::parse(project_id) {
+        Ok(value) => value,
+        Err(error) => return bad_request("invalid_project_id", error),
+    };
+    let repository = match SqliteStoryRepository::open(&state.database_path) {
+        Ok(value) => value,
+        Err(error) => return internal_error(error),
+    };
+    match repository.planning_review(&project_id, &run_id) {
+        Ok(run) => Json(run).into_response(),
+        Err(error) => repository_error(error),
+    }
+}
+
 pub(crate) async fn submit_report(
     State(state): State<RuntimeState>,
     Path((project_id, run_id)): Path<(String, String)>,
@@ -163,7 +173,7 @@ pub(crate) async fn submit_report(
         Ok(value) => value,
         Err(error) => return internal_error(error),
     };
-    if let Err(response) = candidate_task(
+    let task = match candidate_task(
         &repository,
         actor,
         &headers,
@@ -172,7 +182,17 @@ pub(crate) async fn submit_report(
         Some(&request.thread_id),
         Some(request.expected_revision),
     ) {
-        return *response;
+        Ok(task) => task,
+        Err(response) => return *response,
+    };
+    if let Err(source) = crate::recovery_binding::bind(
+        &mut repository,
+        &headers,
+        task.as_ref(),
+        "submit_planning_review_report",
+        None,
+    ) {
+        return repository_error(source);
     }
     match repository.save_planning_review_report(SavePlanningReviewReport {
         project_id: &project_id,

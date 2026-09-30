@@ -297,7 +297,21 @@ impl RuntimeCoordinator {
                 {
                     if !self.cleanup.is_empty() {
                         let step = self.cleanup.remove(0);
-                        self.effect(Effect::Cleanup, &format!("end:{step}"), self.lease.clone());
+                        let mut params = self.lease.clone();
+                        if matches!(step.as_str(), "budget" | "budgetRecord") {
+                            params["budgetStatus"] = json!(if self.cancelled || self.closing {
+                                "cancelled"
+                            } else if self.binding_error.is_some()
+                                || self.turn_error.is_some()
+                                || self.cleanup_error.is_some()
+                                || self.turn.is_none()
+                            {
+                                "failed"
+                            } else {
+                                "completed"
+                            });
+                        }
+                        self.effect(Effect::Cleanup, &format!("end:{step}"), params);
                     } else {
                         self.state.apply("settled",&json!({"generation":self.generation,"failed":self.cleanup_error.is_some()}))?;
                         self.generation = Value::Null;

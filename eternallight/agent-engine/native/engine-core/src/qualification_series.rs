@@ -99,7 +99,12 @@ impl QualificationSeries {
                     self.observations[scenario] =
                         result.get("observations").cloned().unwrap_or(json!({}));
                     self.digests.push(result["eventDigest"].clone());
-                    json!({"stageId":scenario,"status":"passed","eventDigest":result["eventDigest"],"budget":result["budget"]})
+                    let mut stage = json!({"stageId":scenario,"status":"passed","eventDigest":result["eventDigest"],"budget":result["budget"]});
+                    if scenario == "wait" {
+                        stage["terminalWaitEvidence"] =
+                            self.observations[scenario]["terminalWaitEvidence"].clone();
+                    }
+                    stage
                 } else {
                     self.observations[scenario] = error
                         .get("conformanceObservations")

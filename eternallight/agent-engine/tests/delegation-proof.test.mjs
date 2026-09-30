@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { CAPABILITIES } from "../src/index.mjs";
 import { textDigest } from "../src/observability/message-evidence.mjs";
-import { evaluateDelegationCapability, observedTerminalChildWait, summarizeCollaborationEvents } from "../qualification/delegation-proof.mjs";
+import { evaluateDelegationCapability, inspectTerminalChildWait, observedTerminalChildWait, summarizeCollaborationEvents } from "../qualification/delegation-proof.mjs";
 
 test("delegation capabilities retain completed prefix evidence after a later timeout", () => {
   const observations = {
@@ -63,11 +63,43 @@ test("wait completion requires the same child's terminal result and rejects time
     { method: "item/completed", params: { threadId: "parent", item: { type: "subAgentActivity", kind: "completed", agentThreadId: "child", agentPath: "/root/child" } } },
   ];
   const children = [{ threadId: "child", parentThreadId: "parent" }];
-  const responses = [{ threadId: "child", parentThreadId: "parent", status: "completed", finalTextDigest: textDigest(expected) }];
+  const responses = [{ threadId: "child", parentThreadId: "parent", status: "completed", finalTextDigest: textDigest(expected), finalTextLineDigests: [textDigest(expected)] }];
   const requests = [{ threadId: "parent", visibleTextDigests: [textDigest(expected)], finalAgentMessages: [{ author: "/root/child", textDigests: [textDigest(expected)] }], waitResults: [{ callId: "wait", completed: true }] }];
   assert.equal(observedTerminalChildWait(events, children, expected, responses, requests), true);
+  assert.deepEqual(inspectTerminalChildWait(events, children, expected, responses, requests), {
+    waitCompleted: true, trustedChildObserved: true, stateCompleted: false,
+    stateMessageMatched: false, stateResultPresent: false, childResponseCompleted: true,
+    childResponseDigestMatched: true, completionEventMatched: true,
+    parentWaitResultMatched: true, parentMessageMatched: true, observed: true,
+  });
   assert.equal(observedTerminalChildWait(events, children, expected, responses, [{ ...requests[0], waitResults: [{ callId: "wait", completed: false }] }]), false);
   assert.equal(observedTerminalChildWait(events, children, expected, [{ ...responses[0], threadId: "another-child" }], requests), false);
   assert.equal(observedTerminalChildWait(events, children, expected, [{ ...responses[0], finalTextDigest: null }], requests), false);
   assert.equal(observedTerminalChildWait(events, children, expected, responses, [{ ...requests[0], finalAgentMessages: [] }]), false);
+  const actual = `${expected}.`;
+  const delivered = [{ ...responses[0], finalTextDigest: textDigest(actual), finalTextLineDigests: [textDigest(actual)] }];
+  const consumed = [{ ...requests[0], finalAgentMessages: [{ author: "/root/child", textDigests: [textDigest(actual)] }] }];
+  const deliveredProof = inspectTerminalChildWait(events, children, expected, delivered, consumed);
+  assert.equal(deliveredProof.childResponseDigestMatched, false);
+  assert.equal(deliveredProof.parentMessageMatched, true);
+  assert.equal(deliveredProof.observed, true);
+  assert.equal(observedTerminalChildWait(events, children, expected, delivered, requests), false);
+  const unmatched = inspectTerminalChildWait(events, children, expected, [{ ...responses[0], finalTextDigest: null }], requests);
+  assert.equal(unmatched.observed, false);
+  assert.equal(unmatched.childResponseCompleted, true);
+  assert.equal(unmatched.childResponseDigestMatched, false);
+  assert.equal(Object.values(unmatched).every((value) => typeof value === "boolean"), true);
+  const stateEvents = [{ ...events[0], params: { ...events[0].params, item: { ...events[0].params.item,
+    agentsStates: { child: { completed: expected } } } } }];
+  const stateProof = inspectTerminalChildWait(stateEvents, children, expected);
+  assert.equal(stateProof.stateMessageMatched, true);
+  assert.equal(stateProof.stateResultPresent, true);
+  assert.equal(stateProof.observed, true);
+  const nonLiteralState = inspectTerminalChildWait([{ ...stateEvents[0], params: { ...stateEvents[0].params,
+    item: { ...stateEvents[0].params.item, agentsStates: { child: { completed: actual } } } } }], children, expected);
+  assert.equal(nonLiteralState.stateMessageMatched, false);
+  assert.equal(nonLiteralState.observed, true);
+  const noResultState = inspectTerminalChildWait([{ ...stateEvents[0], params: { ...stateEvents[0].params,
+    item: { ...stateEvents[0].params.item, agentsStates: { child: { completed: null } } } } }], children, expected);
+  assert.equal(noResultState.observed, false);
 });

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use rusqlite::OptionalExtension;
 use rusqlite::params;
 
@@ -10,6 +12,11 @@ use crate::RepositoryError;
 use crate::RevisionId;
 use crate::SnapshotId;
 use crate::SqliteStoryRepository;
+use crate::acceptance_shared::{
+    AcceptanceWrite, record_review_acceptance, validate_review_for_accept,
+};
+use crate::model_sources::ModelSourceScope;
+use crate::proposition_sources::proposition_source_visible;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateReviewRequest {
@@ -22,6 +29,7 @@ pub struct CreateReviewRequest {
     pub request_digest: String,
     pub checks_json: String,
     pub proposals_json: String,
+    pub modeling_batch_id: Option<String>,
     pub selections_json: String,
 }
 
@@ -81,6 +89,7 @@ pub struct AcceptanceRecord {
     pub base_revision: i64,
     pub result_revision: i64,
     pub target_commit_id: Option<CommitId>,
+    pub proposal_application_id: Option<String>,
 }
 
 impl SqliteStoryRepository {
@@ -91,7 +100,19 @@ impl SqliteStoryRepository {
         validate_json(&request.checks_json)?;
         validate_json(&request.proposals_json)?;
         validate_json(&request.selections_json)?;
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        if request.object_kind == "propertyRules"
+            && (request.modeling_batch_id.is_some()
+                || request.proposals_json != "[]"
+                || request.selections_json != "{}")
+        {
+            return Err(RepositoryError::InvalidContent(
+                "property rule review cannot contain facts, selections or modeling batches".into(),
+            ));
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if let Some((stored_digest, review_id)) = transaction
             .query_row(
                 "SELECT request_digest, review_id FROM story_review_receipts_v2 WHERE project_id = ?1 AND idempotency_key = ?2",
@@ -136,10 +157,26 @@ impl SqliteStoryRepository {
                     .map_err(|_| RepositoryError::CorruptState)?,
             });
         }
+        let proposals_json = if let Some(batch_id) = request.modeling_batch_id.as_deref() {
+            if request.object_kind != "draft" || request.proposals_json != "[]" {
+                return Err(RepositoryError::InvalidContent(
+                    "modeling review cannot include caller-supplied fact proposals".into(),
+                ));
+            }
+            crate::modeling_review::proposals_for_current_batch(
+                &transaction,
+                &request.project_id,
+                &request.object_id,
+                &request.revision_id,
+                batch_id,
+            )?
+        } else {
+            request.proposals_json.clone()
+        };
         transaction
             .execute(
                 "INSERT INTO story_reviews_v2(review_id, project_id, object_id, object_kind, revision_id, project_revision, checks_json, proposals_json, selections_json, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'ready')",
-                params![request.review_id, request.project_id.as_str(), request.object_id.as_str(), request.object_kind, request.revision_id.as_str(), revision, request.checks_json, request.proposals_json, request.selections_json],
+                params![request.review_id, request.project_id.as_str(), request.object_id.as_str(), request.object_kind, request.revision_id.as_str(), revision, request.checks_json, proposals_json, request.selections_json],
             )
             .map_err(storage_error)?;
         transaction
@@ -184,24 +221,113 @@ impl SqliteStoryRepository {
             .collect()
     }
 
+    pub fn reject_identity_review(
+        &mut self,
+        project_id: &ProjectId,
+        review_id: &str,
+        expected_project_revision: i64,
+    ) -> Result<(), RepositoryError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        let review = load_review(&transaction, review_id)?;
+        let revision = current_revision(&transaction, project_id)?;
+        if revision != expected_project_revision {
+            return Err(RepositoryError::StaleProjectRevision {
+                expected: expected_project_revision,
+                actual: revision,
+            });
+        }
+        if &review.project_id != project_id || review.object_kind != "identity" {
+            return Err(RepositoryError::InvalidContent(
+                "identity review does not belong to this project".into(),
+            ));
+        }
+        if review.status == "rejected" {
+            return Ok(());
+        }
+        let head = object_head(&transaction, project_id, &review.object_id)?;
+        if review.status != "ready" || head.1.as_deref() != Some(review.revision_id.as_str()) {
+            return Err(RepositoryError::InvalidContent(
+                "identity review is no longer current".into(),
+            ));
+        }
+        transaction
+            .execute(
+                "UPDATE story_reviews_v2 SET status = 'rejected' WHERE review_id = ?1",
+                [review_id],
+            )
+            .map_err(storage_error)?;
+        transaction.commit().map_err(storage_error)?;
+        Ok(())
+    }
+
     pub fn facts(&self, project_id: &ProjectId) -> Result<Vec<serde_json::Value>, RepositoryError> {
-        let mut statement = self
+        let read = || {
+            crate::fact_integrity::validate_fact_ledger(&self.connection, project_id)?;
+            let mut current_batches = self.connection.prepare(
+            "SELECT b.batch_id, b.source_revision_id FROM story_modeling_batches_v2 b JOIN story_knowledge_heads_v2 h ON h.project_id = b.project_id AND h.object_id = b.object_id AND h.batch_id = b.batch_id JOIN story_object_heads_v2 o ON o.project_id = b.project_id AND o.object_id = b.object_id WHERE b.project_id = ?1 AND b.status = 'ready' AND COALESCE(o.candidate_revision_id, o.accepted_revision_id) = b.source_revision_id"
+        ).map_err(storage_error)?;
+            let current = current_batches
+                .query_map([project_id.as_str()], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(storage_error)?
+                .collect::<Result<HashSet<_>, _>>()
+                .map_err(storage_error)?;
+            let mut statement = self
             .connection
             .prepare("SELECT payload_json, project_revision FROM story_facts_v2 WHERE project_id = ?1 AND reverted_by_commit_id IS NULL ORDER BY project_revision, rowid")
             .map_err(storage_error)?;
-        statement
-            .query_map([project_id.as_str()], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })
-            .map_err(storage_error)?
-            .map(|row| {
+            let rows = statement
+                .query_map([project_id.as_str()], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })
+                .map_err(storage_error)?;
+            let mut applicable = Vec::new();
+            for row in rows {
                 let (payload, revision) = row.map_err(storage_error)?;
                 let mut payload: serde_json::Value =
                     serde_json::from_str(&payload).map_err(|_| RepositoryError::CorruptState)?;
+                if payload["modelingAssertion"]["kind"] == "state" {
+                    crate::state_properties::schema(&payload["modelingAssertion"])
+                        .map_err(|_| RepositoryError::CorruptState)?;
+                }
+                if let Some(batch_id) = payload["modelingBatchId"].as_str() {
+                    let source_revision_id = payload["sourceRevisionId"]
+                        .as_str()
+                        .ok_or(RepositoryError::CorruptState)?;
+                    if !current.contains(&(batch_id.to_owned(), source_revision_id.to_owned())) {
+                        continue;
+                    }
+                }
+                if let Some(source_batch_id) =
+                    payload["modelingAssertion"]["propositionSourceBatchId"].as_str()
+                {
+                    let proposition_id = payload["modelingAssertion"]["propositionId"]
+                        .as_str()
+                        .ok_or(RepositoryError::CorruptState)?;
+                    if !proposition_source_visible(
+                        &self.connection,
+                        project_id,
+                        ModelSourceScope::Current,
+                        source_batch_id,
+                        proposition_id,
+                    )? {
+                        continue;
+                    }
+                }
                 payload["projectRevision"] = serde_json::json!(revision);
-                Ok(payload)
-            })
-            .collect()
+                applicable.push(payload);
+            }
+            Ok(applicable)
+        };
+        if self.connection.is_autocommit() {
+            self.with_read_snapshot(read)?
+        } else {
+            read()
+        }
     }
 
     pub fn acceptances(
@@ -211,7 +337,7 @@ impl SqliteStoryRepository {
         let mut statement = self
             .connection
             .prepare(
-                "SELECT commit_id, project_id, operation, object_kind, accepted_revision_id, previous_accepted_revision_id, base_revision, result_revision, target_commit_id FROM story_acceptances_v2 WHERE project_id = ?1 ORDER BY result_revision DESC LIMIT 30",
+                "SELECT a.commit_id, a.project_id, a.operation, a.object_kind, a.accepted_revision_id, a.previous_accepted_revision_id, a.base_revision, a.result_revision, a.target_commit_id, m.application_id FROM story_acceptances_v2 a LEFT JOIN story_proposal_application_members_v1 m ON m.acceptance_commit_id = a.commit_id WHERE a.project_id = ?1 ORDER BY a.result_revision DESC, a.rowid DESC LIMIT 30",
             )
             .map_err(storage_error)?;
         statement
@@ -226,6 +352,7 @@ impl SqliteStoryRepository {
                     row.get::<_, i64>(6)?,
                     row.get::<_, i64>(7)?,
                     row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
                 ))
             })
             .map_err(storage_error)?
@@ -251,6 +378,7 @@ impl SqliteStoryRepository {
                         .map(CommitId::parse)
                         .transpose()
                         .map_err(|_| RepositoryError::CorruptState)?,
+                    proposal_application_id: row.9,
                 })
             })
             .collect()
@@ -261,7 +389,10 @@ impl SqliteStoryRepository {
         request: AcceptReviewRequest,
     ) -> Result<AcceptanceReceipt, RepositoryError> {
         validate_json(&request.selections_json)?;
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if let Some(receipt) = replay_acceptance(
             &transaction,
             &request.project_id,
@@ -270,42 +401,20 @@ impl SqliteStoryRepository {
         )? {
             return Ok(receipt);
         }
-        let review = load_review(&transaction, &request.review_id)?;
         let current_revision = current_revision(&transaction, &request.project_id)?;
-        if current_revision != request.expected_project_revision
-            || review.project_revision != request.expected_project_revision
-            || review.status != "ready"
-        {
+        if current_revision != request.expected_project_revision {
             return Err(RepositoryError::StaleProjectRevision {
                 expected: request.expected_project_revision,
                 actual: current_revision,
             });
         }
-        let checks: serde_json::Value = serde_json::from_str(&review.checks_json)
-            .map_err(|error| RepositoryError::InvalidContent(error.to_string()))?;
-        if checks.as_array().is_some_and(|checks| {
-            checks.iter().any(|check| {
-                check.get("blocking").and_then(serde_json::Value::as_bool) == Some(true)
-                    && check.get("passed").and_then(serde_json::Value::as_bool) != Some(true)
-            })
-        }) {
-            return Err(RepositoryError::ReviewChecksFailed);
-        }
-        let head = object_head(&transaction, &request.project_id, &review.object_id)?;
-        if head.1.as_deref() != Some(review.revision_id.as_str()) || head.3 {
-            return Err(if head.3 {
-                RepositoryError::ObjectLocked
-            } else {
-                RepositoryError::StaleCandidate {
-                    expected: Some(review.revision_id),
-                    actual: head
-                        .1
-                        .map(RevisionId::parse)
-                        .transpose()
-                        .map_err(|_| RepositoryError::CorruptState)?,
-                }
-            });
-        }
+        let validated = validate_review_for_accept(
+            &transaction,
+            &request.project_id,
+            &request.review_id,
+            current_revision,
+            &request.selections_json,
+        )?;
         let base_snapshot_id = branch_head(&transaction, &request.project_id, &request.branch_id)?;
         copy_snapshot(
             &transaction,
@@ -315,45 +424,25 @@ impl SqliteStoryRepository {
             &request.next_snapshot_id,
         )?;
         let result_revision = current_revision + 1;
-        transaction
-            .execute(
-                "UPDATE story_object_heads_v2 SET accepted_revision_id = candidate_revision_id WHERE project_id = ?1 AND object_id = ?2",
-                params![request.project_id.as_str(), review.object_id.as_str()],
-            )
-            .map_err(storage_error)?;
+        record_review_acceptance(
+            &transaction,
+            &validated,
+            AcceptanceWrite {
+                project_id: &request.project_id,
+                branch_id: &request.branch_id,
+                commit_id: &request.commit_id,
+                base_snapshot_id: &base_snapshot_id,
+                result_snapshot_id: &request.next_snapshot_id,
+                base_revision: current_revision,
+                selections_json: &request.selections_json,
+            },
+        )?;
         transaction
             .execute(
                 "UPDATE story_workspaces_v2 SET revision = ?1 WHERE project_id = ?2 AND revision = ?3",
                 params![result_revision, request.project_id.as_str(), current_revision],
             )
             .map_err(storage_error)?;
-        transaction
-            .execute(
-                "UPDATE story_reviews_v2 SET status = 'accepted', selections_json = ?1 WHERE review_id = ?2",
-                params![request.selections_json, review.review_id],
-            )
-            .map_err(storage_error)?;
-        transaction
-            .execute(
-                "INSERT INTO story_acceptances_v2(commit_id, project_id, branch_id, review_id, object_id, object_kind, accepted_revision_id, previous_accepted_revision_id, base_revision, result_revision, base_snapshot_id, result_snapshot_id, operation) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'accept')",
-                params![request.commit_id.as_str(), request.project_id.as_str(), request.branch_id.as_str(), review.review_id, review.object_id.as_str(), review.object_kind, review.revision_id.as_str(), head.2, current_revision, result_revision, base_snapshot_id.as_str(), request.next_snapshot_id.as_str()],
-            )
-            .map_err(storage_error)?;
-        crate::impacts::resolve_linked_impacts_on_accept(
-            &transaction,
-            &request.project_id,
-            &review.object_kind,
-            &review.revision_id,
-            result_revision,
-        )?;
-        apply_confirmed_facts(
-            &transaction,
-            &request.project_id,
-            &request.commit_id,
-            result_revision,
-            &review.proposals_json,
-            &request.selections_json,
-        )?;
         store_acceptance_receipt(
             &transaction,
             &request.project_id,
@@ -373,7 +462,10 @@ impl SqliteStoryRepository {
         &mut self,
         request: UndoAcceptanceRequest,
     ) -> Result<AcceptanceReceipt, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if let Some(receipt) = replay_acceptance(
             &transaction,
             &request.project_id,
@@ -381,6 +473,18 @@ impl SqliteStoryRepository {
             &request.request_digest,
         )? {
             return Ok(receipt);
+        }
+        let grouped = transaction
+            .query_row(
+                "SELECT 1 FROM story_proposal_application_members_v1 WHERE acceptance_commit_id = ?1",
+                [request.target_commit_id.as_str()],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(storage_error)?
+            .is_some();
+        if grouped {
+            return Err(RepositoryError::UndoRequiresLatestCommit);
         }
         let current = current_revision(&transaction, &request.project_id)?;
         let target = transaction
@@ -468,7 +572,7 @@ impl SqliteStoryRepository {
     }
 }
 
-fn apply_confirmed_facts(
+pub(crate) fn apply_confirmed_facts(
     connection: &rusqlite::Connection,
     project_id: &ProjectId,
     commit_id: &CommitId,
@@ -529,7 +633,7 @@ fn storage_error(error: rusqlite::Error) -> RepositoryError {
     RepositoryError::Storage(error.to_string())
 }
 
-fn current_revision(
+pub(crate) fn current_revision(
     connection: &rusqlite::Connection,
     project_id: &ProjectId,
 ) -> Result<i64, RepositoryError> {
@@ -544,7 +648,7 @@ fn current_revision(
         .ok_or(RepositoryError::ProjectNotFound)
 }
 
-fn load_review(
+pub(crate) fn load_review(
     connection: &rusqlite::Connection,
     review_id: &str,
 ) -> Result<ReviewRecord, RepositoryError> {
@@ -573,7 +677,7 @@ fn load_review(
         })
 }
 
-fn object_head(
+pub(crate) fn object_head(
     connection: &rusqlite::Connection,
     project_id: &ProjectId,
     object_id: &ObjectId,
@@ -589,7 +693,7 @@ fn object_head(
         .ok_or(RepositoryError::CandidateNotFound)
 }
 
-fn branch_head(
+pub(crate) fn branch_head(
     connection: &rusqlite::Connection,
     project_id: &ProjectId,
     branch_id: &BranchId,
@@ -606,7 +710,7 @@ fn branch_head(
     SnapshotId::parse(value).map_err(|_| RepositoryError::CorruptState)
 }
 
-fn copy_snapshot(
+pub(crate) fn copy_snapshot(
     connection: &rusqlite::Connection,
     project_id: &ProjectId,
     branch_id: &BranchId,

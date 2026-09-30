@@ -90,6 +90,29 @@ test("Codex session runtime owns bridge, budget, lease, and turn ordering", asyn
   ]);
 });
 
+test("persistent budget reaches a terminal state before a successful turn is returned", async () => {
+  const { runtime, lease, calls } = fixture();
+  runtime.budgetFactory = () => ({ complete: status => calls.push(`budget:${status}`) });
+  await runtime.bindExecution({ lease, sessionPlan: {} });
+  await runtime.sendTurn([]);
+  assert.deepEqual(calls.slice(-3), ["bridge:lease:end", "bridge:budget:end", "budget:completed"]);
+});
+
+test("failed turns and early binding failures finalize acquired budget records", async () => {
+  const failed = fixture();
+  failed.runtime.budgetFactory = () => ({ complete: status => failed.calls.push(`budget:${status}`) });
+  failed.appServer.sendTurn = async () => { throw new Error("model failed"); };
+  await failed.runtime.bindExecution({ lease: failed.lease, sessionPlan: {} });
+  await assert.rejects(failed.runtime.sendTurn([]), /model failed/);
+  assert.deepEqual(failed.calls.slice(-3), ["bridge:lease:end", "bridge:budget:end", "budget:failed"]);
+
+  const binding = fixture();
+  binding.runtime.budgetFactory = () => ({ complete: status => binding.calls.push(`budget:${status}`) });
+  binding.bridge.start = async () => { throw new Error("bridge startup failed"); };
+  await assert.rejects(binding.runtime.bindExecution({ lease: binding.lease, sessionPlan: {} }), /bridge startup failed/);
+  assert.deepEqual(binding.calls, ["budget:failed"]);
+});
+
 test("Codex session runtime revokes provider work before App Server execution", async () => {
   const { runtime, lease, calls } = fixture();
   await runtime.bindExecution({ lease, sessionPlan: { id: "plan-1" } });

@@ -130,7 +130,14 @@ fn details<'a>(trace: &'a Value, kind: &'a str) -> impl Iterator<Item = &'a Valu
 }
 
 fn matches_tool(tool: &Value, expected: &str) -> bool {
-    if tool.as_str() == Some(expected) || tool["name"].as_str() == Some(expected) {
+    if tool.as_str().is_some_and(|name| {
+        name == expected
+            || (!expected.contains('.')
+                && name
+                    .rsplit_once('.')
+                    .is_some_and(|(_, bare_name)| bare_name == expected))
+    }) || tool["name"].as_str() == Some(expected)
+    {
         return true;
     }
     match (tool["namespace"].as_str(), tool["name"].as_str()) {

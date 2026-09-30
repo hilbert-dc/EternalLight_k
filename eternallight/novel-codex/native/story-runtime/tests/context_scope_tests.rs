@@ -1,0 +1,1748 @@
+use axum::{
+    Router,
+    body::Body,
+    http::{Request, StatusCode},
+};
+use http_body_util::BodyExt;
+use novel_codex_story_runtime::router;
+use pretty_assertions::assert_eq;
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+
+const AUTHOR_TOKEN: &str = "scope-author-token-123456789012345678";
+const CANDIDATE_TOKEN: &str = "scope-candidate-token-123456789012345";
+const CAPABILITY: &str = "scope-capability-123456789012345678901";
+
+#[tokio::test]
+async fn writer_relation_tool_is_bound_to_the_active_chapter_task() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("relation-scope.sqlite3");
+    let (_, created) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"title":"港城"})),
+        false,
+    )
+    .await;
+    let project_id = created["project"]["id"].as_str().unwrap();
+    let (status, draft) = call(&path, "POST", &format!("/api/projects/{project_id}/drafts/checkpoints"),
+        Some(json!({"payload":{"chapterNumber":1,"title":"白塔","body":"林夕走进港口。"},
+            "expectedRevision":0,"expectedCandidateRevisionId":null,"idempotencyKey":"relation-writer-draft"})), false).await;
+    assert_eq!(status, StatusCode::CREATED, "{draft}");
+    let chapter_id = draft["chapterId"].as_str().unwrap();
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + 600;
+    let (status, task) = call(&path, "POST", &format!("/api/projects/{project_id}/tasks"),
+        Some(json!({"operation":"generateChapter","inputRevision":0,"threadId":"writer-relation-thread",
+            "target":{"chapterId":chapter_id,"chapterNumber":1,"readingChapter":1,"sceneOrder":1,"povCharacterId":"linxi","storyTime":1},
+            "capabilityHash":format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
+            "capabilityExpiresAt":expires,"authorIntent":"续写"})), false).await;
+    assert_eq!(status, StatusCode::CREATED, "{task}");
+    let task_id = task["id"].as_str().unwrap();
+    let url = format!(
+        "/api/projects/{project_id}/tasks/{task_id}/relations?threadId=writer-relation-thread&expectedRevision=0&entityId=linxi&direction=outgoing&worldTime=1&maxHops=2"
+    );
+    let (status, result) = call(&path, "GET", &url, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    assert_eq!(result["scope"], "writerCharacterKnowledge");
+    assert_eq!(result["visibleThroughChapter"], 0);
+    assert_eq!(result["results"], json!([]));
+    assert_eq!(result["seedFound"], json!(null));
+    let (status, implicit_time) =
+        call(&path, "GET", &url.replace("&worldTime=1", ""), None, true).await;
+    assert_eq!(status, StatusCode::OK, "{implicit_time}");
+    assert_eq!(implicit_time["worldTime"], 1);
+    let (status, time_override) = call(
+        &path,
+        "GET",
+        &url.replace("worldTime=1", "worldTime=2"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{time_override}");
+    assert_eq!(
+        time_override["error"]["code"],
+        "pov_time_override_forbidden"
+    );
+    let override_request = Request::builder()
+        .method("GET")
+        .uri(format!("{url}&povCharacterId=other"))
+        .header("authorization", format!("Bearer {CANDIDATE_TOKEN}"))
+        .header("x-novel-task-capability", CAPABILITY)
+        .body(Body::empty())
+        .unwrap();
+    let override_response = application(&path)
+        .author_fixture_request(override_request)
+        .await
+        .unwrap();
+    assert_eq!(override_response.status(), StatusCode::BAD_REQUEST);
+    let (status, _) = call(&path, "GET", &url, None, false).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(
+        &path,
+        "GET",
+        &format!("{url}&snapshotId=anything"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = call(
+        &path,
+        "GET",
+        &url.replace("expectedRevision=0", "expectedRevision=1"),
+        None,
+        true,
+    )
+    .await;
+    assert_ne!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn author_controls_the_persisted_user_task_across_an_attempt() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("controls.sqlite3");
+    let (_, created) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"title": "任务控制"})),
+        false,
+    )
+    .await;
+    let project_id = created["project"]["id"].as_str().unwrap();
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + 600;
+    let (status, attempt) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks"),
+        Some(json!({
+            "operation": "advisory", "inputRevision": 0, "threadId": "thread-control",
+            "target": {"type":"project"}, "authorIntent":"分析人物",
+            "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
+            "capabilityExpiresAt": expires
+        })),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{attempt}");
+    let attempt_id = attempt["id"].as_str().unwrap();
+    let (status, bound) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks/{attempt_id}/turn"),
+        Some(json!({"threadId":"thread-control","turnId":"turn-control"})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{bound}");
+    assert_eq!(bound["turnId"], "turn-control");
+    let work_path = format!("/api/projects/{project_id}/tasks/{attempt_id}/work-task");
+    let (status, work) = call(&path, "GET", &work_path, None, false).await;
+    assert_eq!(status, StatusCode::OK, "{work}");
+    assert_eq!(work["steps"][0]["attempts"][0]["id"], attempt_id);
+    assert_eq!(work["steps"][0]["attempts"][0]["turnId"], "turn-control");
+    let work_id = work["id"].as_str().unwrap();
+    let control_path = format!("/api/projects/{project_id}/work-tasks/{work_id}/control");
+    let (status, paused) = call(
+        &path,
+        "POST",
+        &control_path,
+        Some(json!({"command":"pause","expectedVersion":work["version"]})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{paused}");
+    assert_eq!(paused["status"], "paused");
+    let (status, completed) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks/{attempt_id}/complete"),
+        Some(json!({"threadId":"thread-control","summary":"人物分析"})),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{completed}");
+    let (status, stale) = call(
+        &path,
+        "POST",
+        &control_path,
+        Some(json!({"command":"resume","expectedVersion":paused["version"]})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{stale}");
+    let (_, latest) = call(
+        &path,
+        "GET",
+        &format!("/api/projects/{project_id}/work-tasks/{work_id}"),
+        None,
+        false,
+    )
+    .await;
+    let (status, resumed) = call(
+        &path,
+        "POST",
+        &control_path,
+        Some(json!({"command":"resume","expectedVersion":latest["version"]})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resumed}");
+    assert_eq!(resumed["status"], "completed");
+}
+
+#[tokio::test]
+async fn completed_chapter_task_exposes_its_pending_knowledge_step() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("followup.sqlite3");
+    let (_, created) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"title": "港城"})),
+        false,
+    )
+    .await;
+    let project_id = created["project"]["id"].as_str().unwrap();
+    let draft_uri = format!("/api/projects/{project_id}/drafts/checkpoints");
+    let (status, initial) = call(&path, "POST", &draft_uri, Some(json!({
+        "payload": {"chapterNumber": 1, "title": "白塔", "body": "林夕看见白塔。"},
+        "expectedRevision": 0, "expectedCandidateRevisionId": null, "idempotencyKey": "first-draft"
+    })), false).await;
+    assert_eq!(status, StatusCode::CREATED, "{initial}");
+    let chapter_id = initial["chapterId"].as_str().unwrap();
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + 600;
+    let (status, task) = call(&path, "POST", &format!("/api/projects/{project_id}/tasks"), Some(json!({
+        "operation": "generateChapter", "inputRevision": 0, "threadId": "writer-thread",
+        "target": {"chapterId": chapter_id, "chapterNumber": 1, "readingChapter": 1, "sceneOrder": 1},
+        "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
+        "capabilityExpiresAt": expires, "authorIntent": "修改白塔章节"
+    })), false).await;
+    assert_eq!(status, StatusCode::CREATED, "{task}");
+    let task_id = task["id"].as_str().unwrap();
+    let next_uri = format!("/api/projects/{project_id}/tasks/{task_id}/next-step");
+    let (status, _) = call(&path, "GET", &next_uri, None, false).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, saved) = call(&path, "POST", &draft_uri, Some(json!({
+        "payload": {"chapterId": chapter_id, "chapterNumber": 1, "title": "白塔", "body": "林夕记录白塔亮灯。"},
+        "expectedRevision": 0, "expectedCandidateRevisionId": initial["revisionId"],
+        "idempotencyKey": "writer-draft", "taskId": task_id, "threadId": "writer-thread",
+        "completeness": "chapterComplete"
+    })), true).await;
+    assert_eq!(status, StatusCode::CREATED, "{saved}");
+    let (status, completed) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks/{task_id}/complete"),
+        Some(json!({"threadId": "writer-thread", "summary": "已修改章节"})),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{completed}");
+    let (status, next) = call(&path, "GET", &next_uri, None, false).await;
+    assert_eq!(status, StatusCode::OK, "{next}");
+    assert_eq!(
+        next["action"],
+        json!({"kind": "modelKnowledge", "chapterId": chapter_id,
+            "sourceRevisionId": saved["revisionId"], "sourceTaskId": task_id})
+    );
+    let (status, resumable) = call(
+        &path,
+        "GET",
+        &format!("/api/projects/{project_id}/chapters/{chapter_id}/next-step"),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(resumable, next);
+}
+
+#[tokio::test]
+async fn scene_scoped_writer_reads_and_changes_only_the_visible_prefix() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("scene-scope.sqlite3");
+    let (_, created) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"title": "港城"})),
+        false,
+    )
+    .await;
+    let project_id = created["project"]["id"].as_str().unwrap();
+    let (status, draft) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/drafts/checkpoints"),
+        Some(json!({
+            "payload": {
+                "chapterNumber": 1, "title": "白塔",
+                "body": "林夕发现密函。\n\n---\n\n张衡就是叛徒。",
+                "sceneGroups": [
+                    {"id": "scene-first", "sceneId": "scene-one", "body": "林夕发现密函。", "locked": false},
+                    {"id": "scene-second", "sceneId": "scene-two", "body": "张衡就是叛徒。", "locked": false}
+                ]
+            },
+            "expectedRevision": 0, "expectedCandidateRevisionId": null,
+            "idempotencyKey": "scene-scope-original"
+        })),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{draft}");
+    let chapter_id = draft["chapterId"].as_str().unwrap();
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + 600;
+    let (status, task) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks"),
+        Some(json!({
+            "operation": "generateChapter", "inputRevision": 0,
+            "threadId": "scene-writer-thread",
+            "target": {"type": "chapter", "chapterId": chapter_id,
+                "chapterNumber": 1, "readingChapter": 1, "sceneOrder": 1,
+                "scope": {"type": "throughScene", "endSceneOrder": 1}},
+            "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
+            "capabilityExpiresAt": expires, "authorIntent": "修改第一场景"
+        })),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{task}");
+    let task_id = task["id"].as_str().unwrap();
+    let context_uri = format!(
+        "/api/projects/{project_id}/context?taskId={task_id}&threadId=scene-writer-thread&projectRevision=0&purpose=writer&readingChapter=1&sceneOrder=1&budget=24&byteBudget=60000"
+    );
+    let (status, context) = call(&path, "GET", &context_uri, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{context}");
+    assert_eq!(
+        context["relevantText"][0]["content"]["body"],
+        "林夕发现密函。"
+    );
+    assert_eq!(
+        context["relevantText"][0]["content"]["sceneGroups"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(!context.to_string().contains("叛徒"));
+    let search_uri = format!(
+        "/api/projects/{project_id}/tasks/{task_id}/search?threadId=scene-writer-thread&expectedRevision=0&limit=5"
+    );
+    let (status, hidden) = call(
+        &path,
+        "GET",
+        &format!("{search_uri}&q=%E5%8F%9B%E5%BE%92"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{hidden}");
+    assert_eq!(hidden["results"], json!([]));
+    assert_eq!(hidden["coverage"]["scope"]["type"], "throughScene");
+    let (status, found) = call(
+        &path,
+        "GET",
+        &format!("{search_uri}&q=%E5%AF%86%E5%87%BD"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(found["results"][0]["evidence"]["quote"], "密函");
+    let (status, rejected) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/drafts/checkpoints"),
+        Some(json!({
+            "payload": {"chapterId": chapter_id, "chapterNumber": 1, "title": "白塔",
+                "body": "林夕打开密函。\n\n---\n\n张衡无罪。",
+                "sceneGroups": [
+                    {"id": "scene-first", "sceneId": "scene-one", "body": "林夕打开密函。", "locked": false},
+                    {"id": "scene-second", "sceneId": "scene-two", "body": "张衡无罪。", "locked": false}]},
+            "expectedRevision": 0, "expectedCandidateRevisionId": draft["revisionId"],
+            "idempotencyKey": "scene-scope-illegal", "taskId": task_id,
+            "threadId": "scene-writer-thread"
+        })),
+        true,
+    )
+    .await;
+    assert_ne!(status, StatusCode::CREATED, "{rejected}");
+    let (status, saved) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/drafts/checkpoints"),
+        Some(json!({
+            "payload": {"chapterId": chapter_id, "chapterNumber": 1, "title": "白塔",
+                "body": "林夕打开密函。",
+                "sceneGroups": [{"id": "scene-first", "sceneId": "scene-one", "body": "林夕打开密函。", "locked": false}]},
+            "expectedRevision": 0, "expectedCandidateRevisionId": draft["revisionId"],
+            "idempotencyKey": "scene-scope-valid", "taskId": task_id,
+            "threadId": "scene-writer-thread"
+        })),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{saved}");
+    assert_eq!(saved["body"], "林夕打开密函。");
+    assert_eq!(saved["sceneGroups"].as_array().unwrap().len(), 1);
+    assert!(!saved.to_string().contains("叛徒"));
+    let (status, author_workspace) = call(
+        &path,
+        "GET",
+        &format!("/api/projects/{project_id}/creative-workspace"),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{author_workspace}");
+    assert_eq!(
+        author_workspace["chapters"][0]["candidate"]["body"],
+        "林夕打开密函。\n\n---\n\n张衡就是叛徒。"
+    );
+    let (status, current) = call(&path, "GET", &context_uri, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{current}");
+    assert_eq!(
+        current["relevantText"][0]["content"]["body"],
+        "林夕打开密函。"
+    );
+    assert!(!current.to_string().contains("叛徒"));
+}
+
+#[tokio::test]
+async fn writer_search_cannot_read_future_chapters_or_planning_text() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("writer-search-scope.sqlite3");
+    let (_, created) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"title": "港城"})),
+        false,
+    )
+    .await;
+    let project_id = created["project"]["id"].as_str().unwrap();
+    let mut first_chapter_id = String::new();
+    let mut second_chapter_id = String::new();
+    for (number, body) in [(1, "林夕发现密函。"), (2, "未来章节揭示叛徒。")] {
+        let (status, draft) = call(
+            &path,
+            "POST",
+            &format!("/api/projects/{project_id}/drafts/checkpoints"),
+            Some(json!({
+                "payload": {"chapterNumber": number, "title": if number == 1 { "密函谜团".to_owned() } else { format!("第 {number} 章") }, "body": body},
+                "expectedRevision": 0, "expectedCandidateRevisionId": null,
+                "idempotencyKey": format!("writer-search-chapter-{number}")
+            })),
+            false,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{draft}");
+        if number == 1 {
+            first_chapter_id = draft["chapterId"].as_str().unwrap().to_owned();
+        } else {
+            second_chapter_id = draft["chapterId"].as_str().unwrap().to_owned();
+        }
+    }
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + 600;
+    let (status, task) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks"),
+        Some(json!({
+            "operation": "generateChapter", "inputRevision": 0,
+            "threadId": "writer-search-thread",
+            "target": {"type": "chapter", "chapterId": first_chapter_id,
+                "chapterNumber": 1, "readingChapter": 1, "sceneOrder": 1},
+            "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
+            "capabilityExpiresAt": expires, "authorIntent": "续写第一章"
+        })),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{task}");
+    let task_id = task["id"].as_str().unwrap();
+    let writer_search = format!(
+        "/api/projects/{project_id}/tasks/{task_id}/search?threadId=writer-search-thread&expectedRevision=0&limit=5"
+    );
+    let (status, own_evidence) = call(
+        &path,
+        "GET",
+        &format!("{writer_search}&q=%E5%AF%86%E5%87%BD"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{own_evidence}");
+    assert_eq!(own_evidence["results"][0]["evidence"]["quote"], "密函");
+    let (status, future) = call(
+        &path,
+        "GET",
+        &format!("{writer_search}&q=%E5%8F%9B%E5%BE%92"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{future}");
+    assert_eq!(future["results"], json!([]));
+    assert_eq!(future["coverage"]["scannedCandidates"], 0);
+    assert_eq!(future["coverage"]["scope"]["type"], "throughChapter");
+    assert_eq!(future["coverage"]["scope"]["chapterNumber"], 1);
+    let (status, author) = call(
+        &path,
+        "GET",
+        &format!("/api/projects/{project_id}/search?q=%E5%8F%9B%E5%BE%92&limit=5"),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{author}");
+    assert_eq!(author["results"][0]["evidence"]["quote"], "叛徒");
+    let (status, author_page) = call(
+        &path,
+        "GET",
+        &format!("/api/projects/{project_id}/search?q=%E5%AF%86%E5%87%BD&limit=1"),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{author_page}");
+    let cursor = author_page["nextCursor"].as_str().unwrap();
+    let (status, _) = call(
+        &path,
+        "GET",
+        &format!("{writer_search}&q=%E5%AF%86%E5%87%BD&cursor={cursor}"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, pov_task) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks"),
+        Some(json!({
+            "operation": "generateChapter", "inputRevision": 0,
+            "threadId": "writer-pov-search-thread",
+            "target": {"type": "chapter", "chapterId": second_chapter_id,
+                "chapterNumber": 2, "readingChapter": 2, "sceneOrder": 1,
+                "storyTime": 10, "povCharacterId": "linxi"},
+            "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
+            "capabilityExpiresAt": expires, "authorIntent": "从林夕视角续写"
+        })),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{pov_task}");
+    let pov_task_id = pov_task["id"].as_str().unwrap();
+    let pov_search = format!(
+        "/api/projects/{project_id}/tasks/{pov_task_id}/search?threadId=writer-pov-search-thread&expectedRevision=0&limit=5"
+    );
+    let (status, withheld) = call(
+        &path,
+        "GET",
+        &format!("{pov_search}&q=%E5%AF%86%E5%87%BD"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{withheld}");
+    assert_eq!(withheld["results"], json!([]));
+    assert_eq!(withheld["coverage"]["complete"], false);
+    assert_eq!(withheld["coverage"]["povTextUnverified"], true);
+    let (status, pov_context) = call(
+        &path,
+        "GET",
+        &format!(
+            "/api/projects/{project_id}/context?taskId={pov_task_id}&threadId=writer-pov-search-thread&projectRevision=0&purpose=writer&readingChapter=2&sceneOrder=1&storyTime=10&povCharacterId=linxi&budget=24&byteBudget=60000"
+        ),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{pov_context}");
+    assert_eq!(pov_context["relevantText"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        pov_context["relevantText"][0]["content"]["chapterNumber"],
+        2
+    );
+    assert_eq!(
+        pov_context["coverage"]["scannedScope"]["chaptersInScope"],
+        1
+    );
+    assert_eq!(
+        pov_context["coverage"]["scannedScope"]["modelingSourcesInScope"],
+        2
+    );
+    assert_eq!(
+        pov_context["operationContext"]["workingKnowledge"]["perspective"],
+        "character"
+    );
+    assert_eq!(pov_context["stateFacts"], json!([]));
+    assert_eq!(pov_context["coverage"]["complete"], false);
+    assert!(
+        pov_context["coverage"]["missingScope"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("povPriorText"))
+    );
+    let (status, _) = call(
+        &path,
+        "GET",
+        &format!("{pov_search}&q=%E5%AF%86%E5%87%BD&cursor={cursor}"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn story_search_is_bound_to_the_live_task_and_returns_source_evidence() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("search.sqlite3");
+    let (_, created) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"title": "港城"})),
+        false,
+    )
+    .await;
+    let project_id = created["project"]["id"].as_str().unwrap();
+    let (status, draft) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/drafts/checkpoints"),
+        Some(json!({"payload": {"chapterNumber": 1, "title": "灯塔", "body": "林夕在白塔下发现密函。"},
+            "expectedRevision": 0, "expectedCandidateRevisionId": null, "idempotencyKey": "search-test-draft"})),
+        false,
+    ).await;
+    assert_eq!(status, StatusCode::CREATED, "{draft}");
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + 600;
+    let (status, task) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks"),
+        Some(
+            json!({"operation": "advisory", "inputRevision": 0, "threadId": "story-search-thread",
+            "target": {"type": "project"},
+            "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
+            "capabilityExpiresAt": expires, "authorIntent": "分析密函"}),
+        ),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{task}");
+    let task_id = task["id"].as_str().unwrap();
+    let search_uri = format!(
+        "/api/projects/{project_id}/tasks/{task_id}/search?threadId=story-search-thread&expectedRevision=0&q=%E5%AF%86%E5%87%BD&limit=5"
+    );
+    let (status, result) = call(&path, "GET", &search_uri, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    assert_eq!(result["results"][0]["evidence"]["quote"], "密函");
+    assert_eq!(
+        result["results"][0]["sourceRevisionId"],
+        draft["revisionId"]
+    );
+    let (status, _) = call(
+        &path,
+        "GET",
+        &format!("{search_uri}&snapshotId=snapshot-before-task"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = call(
+        &path,
+        "GET",
+        &search_uri.replace("story-search-thread", "wrong-thread"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let actions_uri = format!("/api/projects/{project_id}/tasks/{task_id}/actions");
+    let action_request = json!({
+        "taskId": task_id, "threadId": "story-search-thread", "expectedRevision": 0, "expectedIntentRevision": 0,
+        "idempotencyKey": "revise-chapter-one", "operation": "generateChapter",
+        "target": {"chapterId": draft["chapterId"], "chapterNumber": 1,
+            "povCharacterId": "linxi", "storyTime": 10},
+        "instruction": "让林夕主动打开密函"
+    });
+    let (status, action) = call(
+        &path,
+        "POST",
+        &actions_uri,
+        Some(action_request.clone()),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{action}");
+    assert_eq!(action["status"], "proposed");
+    assert_eq!(action["target"]["povCharacterId"], "linxi");
+    assert_eq!(action["target"]["storyTime"], 10);
+    let (status, replay) = call(&path, "POST", &actions_uri, Some(action_request), true).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(replay, action);
+    let (status, listed) = call(&path, "GET", &actions_uri, None, false).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(listed["actions"][0], action);
+    let (status, unrelated) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks"),
+        Some(
+            json!({"operation": "advisory", "inputRevision": 0, "threadId": "other-thread",
+            "target": {"type": "project"},
+            "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
+            "capabilityExpiresAt": expires, "authorIntent": "无关讨论"}),
+        ),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{unrelated}");
+    let unrelated_id = unrelated["id"].as_str().unwrap();
+    let (status, _) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks/{unrelated_id}/complete"),
+        Some(json!({"threadId": "other-thread", "summary": "已完成"})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = call(
+        &path,
+        "POST",
+        &format!("{actions_uri}/{}/finish", action["id"].as_str().unwrap()),
+        Some(json!({"resultTaskId": unrelated_id})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, unchanged) = call(&path, "GET", &search_uri, None, true).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        unchanged["results"][0]["sourceRevisionId"],
+        draft["revisionId"]
+    );
+    let (status, _) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks/{task_id}/cancel"),
+        Some(json!({})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = call(&path, "GET", &search_uri, None, true).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn conversation_writer_actions_freeze_bound_plan_position_before_child_claim() {
+    for selected_scene in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("conversation-writer.sqlite3");
+        let (_, created) = call(
+            &path,
+            "POST",
+            "/api/projects",
+            Some(json!({"title":"港城"})),
+            false,
+        )
+        .await;
+        let project_id = created["project"]["id"].as_str().unwrap();
+        let root = format!("/api/projects/{project_id}");
+        let drafts_uri = format!("{root}/drafts/checkpoints");
+        let (status, prior) = call(
+            &path,
+            "POST",
+            &drafts_uri,
+            Some(json!({
+            "payload":{"chapterNumber":1,"title":"白塔","body":"林夕不知道密函中的名字。"},
+            "expectedRevision":0,"expectedCandidateRevisionId":null,"idempotencyKey":"prior"})),
+            false,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{prior}");
+        let (status, current) = call(&path, "POST", &drafts_uri, Some(json!({
+            "payload":{"chapterNumber":2,"title":"藏信","body":"林夕把密函藏入衣袖。",
+                "sceneGroups":[{"id":"letter","sceneId":null,"body":"林夕把密函藏入衣袖。","locked":false}]},
+            "expectedRevision":0,"expectedCandidateRevisionId":null,"idempotencyKey":"current"})), false).await;
+        assert_eq!(status, StatusCode::CREATED, "{current}");
+        let chapter_id = current["chapterId"].as_str().unwrap();
+        let plan = json!({"payload":{"chapters":[{"chapterPlanId":"planned-two","chapterNumber":2,
+            "publicTitle":"藏信","povCharacterId":"linxi","storyTime":10}]}});
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection.execute(
+            "INSERT INTO story_revisions_v2(revision_id,project_id,object_id,object_kind,content_digest,content_json) VALUES ('conversation-plan',?1,'artifact-plan','plan','fixture',?2)",
+            rusqlite::params![project_id,plan.to_string()],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO story_chapter_plan_bindings_v2(project_id,plan_revision_id,chapter_plan_id,chapter_id,created_at) VALUES (?1,'conversation-plan','planned-two',?2,1)",
+            rusqlite::params![project_id,chapter_id],
+        ).unwrap();
+        let tasks_uri = format!("{root}/tasks");
+        let expires = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            + 600;
+        let common = json!({"inputRevision":0,"threadId":"conversation-writer","authorIntent":"只改密函一节",
+            "capabilityHash":format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":expires});
+        let mut source_request = common.clone();
+        source_request["operation"] = json!("advisory");
+        source_request["target"] = json!({"type":"project"});
+        let (status, source) = call(&path, "POST", &tasks_uri, Some(source_request), false).await;
+        assert_eq!(status, StatusCode::CREATED, "{source}");
+        let source_id = source["id"].as_str().unwrap();
+        let actions_uri = format!("{tasks_uri}/{source_id}/actions");
+        let scope = if selected_scene {
+            json!({"type":"selectedScenes","sourceRevisionId":current["revisionId"],"groupIds":["letter"]})
+        } else {
+            json!({"type":"wholeChapter"})
+        };
+        let request = json!({"taskId":source_id,"threadId":"conversation-writer","expectedRevision":0,"expectedIntentRevision":0,
+            "idempotencyKey":"modify-chapter","operation":"generateChapter",
+            "target":{"chapterId":chapter_id,"chapterNumber":2,"scope":scope},"instruction":"让林夕藏起密函"});
+        let (status, action) = call(&path, "POST", &actions_uri, Some(request.clone()), true).await;
+        assert_eq!(status, StatusCode::CREATED, "{action}");
+        assert_eq!(
+            action["target"],
+            json!({"type":"chapter","chapterId":chapter_id,"chapterNumber":2,
+            "readingChapter":2,"sceneOrder":1,"scope":scope,"povCharacterId":"linxi","storyTime":10})
+        );
+        assert_eq!(
+            call(&path, "POST", &actions_uri, Some(request.clone()), true).await,
+            (StatusCode::CREATED, action.clone())
+        );
+        let changed_plan = json!({"payload":{"chapters":[{"chapterPlanId":"planned-two",
+            "chapterNumber":2,"publicTitle":"另一种计划","povCharacterId":"other","storyTime":11}]}});
+        connection.execute(
+            "INSERT INTO story_revisions_v2(revision_id,project_id,object_id,object_kind,content_digest,content_json) VALUES ('conversation-plan-changed',?1,'artifact-plan','plan','fixture-changed',?2)",
+            rusqlite::params![project_id,changed_plan.to_string()],
+        ).unwrap();
+        connection.execute(
+            "UPDATE story_chapter_plan_bindings_v2 SET plan_revision_id='conversation-plan-changed' WHERE project_id=?1 AND chapter_id=?2",
+            rusqlite::params![project_id,chapter_id],
+        ).unwrap();
+        assert_eq!(
+            call(&path, "POST", &actions_uri, Some(request.clone()), true).await,
+            (StatusCode::CREATED, action.clone())
+        );
+        let mut changed_request = request.clone();
+        changed_request["instruction"] = json!("改成另一个动作");
+        let (status, changed) =
+            call(&path, "POST", &actions_uri, Some(changed_request), true).await;
+        assert!(status.is_client_error(), "{changed}");
+        connection.execute(
+            "UPDATE story_chapter_plan_bindings_v2 SET plan_revision_id='conversation-plan' WHERE project_id=?1 AND chapter_id=?2",
+            rusqlite::params![project_id,chapter_id],
+        ).unwrap();
+        let (_, before) = call(
+            &path,
+            "GET",
+            &format!("{tasks_uri}/{source_id}/work-task"),
+            None,
+            false,
+        )
+        .await;
+        for (field, value) in [("povCharacterId", json!("other")), ("storyTime", json!(11))] {
+            let mut invalid = request.clone();
+            invalid["idempotencyKey"] = json!(format!("invalid-{field}"));
+            invalid["target"][field] = value;
+            let (status, rejected) = call(&path, "POST", &actions_uri, Some(invalid), true).await;
+            assert!(status.is_client_error(), "{rejected}");
+            assert_eq!(
+                call(&path, "GET", &actions_uri, None, false).await.1["actions"],
+                json!([action])
+            );
+            assert_eq!(
+                call(
+                    &path,
+                    "GET",
+                    &format!("{tasks_uri}/{source_id}/work-task"),
+                    None,
+                    false
+                )
+                .await
+                .1,
+                before
+            );
+        }
+        let (status, completed) = call(
+            &path,
+            "POST",
+            &format!("{tasks_uri}/{source_id}/complete"),
+            Some(json!({"threadId":"conversation-writer","summary":"已登记改稿任务"})),
+            false,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{completed}");
+        settle_fixture::settle(&path, project_id, source_id);
+        let (status, approved) = call(
+            &path,
+            "POST",
+            &format!("{actions_uri}/{}/approve", action["id"].as_str().unwrap()),
+            Some(json!({"expectedIntentRevision":0})),
+            false,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{approved}");
+        let mut child = common;
+        child["operation"] = json!("generateChapter");
+        child["target"] = action["target"].clone();
+        child["target"]["requestedByTaskId"] = json!(source_id);
+        child["target"]["requestedActionId"] = action["id"].clone();
+        for field in ["povCharacterId", "storyTime"] {
+            let mut stripped = child.clone();
+            stripped["target"].as_object_mut().unwrap().remove(field);
+            let (status, rejected) = call(&path, "POST", &tasks_uri, Some(stripped), false).await;
+            assert!(status.is_client_error(), "{rejected}");
+        }
+        let (status, writer) = call(&path, "POST", &tasks_uri, Some(child), false).await;
+        assert_eq!(status, StatusCode::CREATED, "{writer}");
+        let context_uri = format!(
+            "{root}/context?taskId={}&threadId=conversation-writer&projectRevision=0&purpose=writer&readingChapter=2&sceneOrder=1&povCharacterId=linxi&storyTime=10&budget=24&byteBudget=60000",
+            writer["id"].as_str().unwrap()
+        );
+        let (status, context) = call(&path, "GET", &context_uri, None, true).await;
+        assert_eq!(status, StatusCode::OK, "{context}");
+        assert_eq!(
+            context["target"]["position"],
+            json!({"readingChapter":2,"sceneOrder":1,"povCharacterId":"linxi","storyTime":10})
+        );
+        assert_eq!(
+            context["plannedEffects"][0]["value"]["planRevisionId"],
+            "conversation-plan"
+        );
+        assert_eq!(
+            context["plannedEffects"][0]["value"]["chapters"],
+            plan["payload"]["chapters"]
+        );
+        assert_eq!(context["relevantText"].as_array().unwrap().len(), 1);
+        assert_eq!(context["relevantText"][0]["content"]["chapterNumber"], 2);
+        assert!(
+            context["coverage"]["missingScope"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("povPriorText"))
+        );
+        for denied_uri in [
+            context_uri.replace("&povCharacterId=linxi", ""),
+            context_uri.replace("storyTime=10", "storyTime=11"),
+        ] {
+            let (status, denied) = call(&path, "GET", &denied_uri, None, true).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{denied}");
+            assert_eq!(denied["error"]["code"], "writer_scope_mismatch");
+        }
+    }
+}
+
+#[tokio::test]
+async fn author_can_decline_a_model_proposal_without_creating_candidate_work() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("declined-action.sqlite3");
+    let (_, created) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"title":"拒绝建议"})),
+        false,
+    )
+    .await;
+    let project = created["project"]["id"].as_str().unwrap();
+    let tasks_uri = format!("/api/projects/{project}/tasks");
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + 600;
+    let source_request = json!({"operation":"advisory","inputRevision":0,"threadId":"decline-thread",
+        "target":{"type":"project"},"authorIntent":"只讨论，不修改",
+        "capabilityHash":format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":expires});
+    let (status, source) = call(&path, "POST", &tasks_uri, Some(source_request), false).await;
+    assert_eq!(status, StatusCode::CREATED, "{source}");
+    let source_id = source["id"].as_str().unwrap();
+    let actions_uri = format!("{tasks_uri}/{source_id}/actions");
+    let (status, action) = call(&path, "POST", &actions_uri, Some(json!({
+        "taskId":source_id,"threadId":"decline-thread","expectedRevision":0,"expectedIntentRevision":0,
+        "idempotencyKey":"decline-request","operation":"generateBrief","target":{},"instruction":"生成简报"
+    })), true).await;
+    assert_eq!(status, StatusCode::CREATED, "{action}");
+    let action_id = action["id"].as_str().unwrap();
+    let (status, completed) = call(
+        &path,
+        "POST",
+        &format!("{tasks_uri}/{source_id}/complete"),
+        Some(json!({"threadId":"decline-thread","summary":"只讨论完成"})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{completed}");
+    let decline_uri = format!("{actions_uri}/{action_id}/decline");
+    let decision = json!({"expectedIntentRevision":0});
+    let (status, _) = call(&path, "POST", &decline_uri, Some(decision.clone()), true).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, declined) = call(&path, "POST", &decline_uri, Some(decision.clone()), false).await;
+    assert_eq!(status, StatusCode::OK, "{declined}");
+    assert_eq!(declined["status"], "declined");
+    assert_eq!(
+        call(&path, "POST", &decline_uri, Some(decision.clone()), false)
+            .await
+            .1,
+        declined
+    );
+    let (status, proposals) = call(
+        &path,
+        "GET",
+        &format!("/api/projects/{project}/task-actions/proposed"),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{proposals}");
+    assert_eq!(proposals["actions"], json!([]));
+    assert_eq!(
+        call(
+            &path,
+            "POST",
+            &format!("{actions_uri}/{action_id}/approve"),
+            Some(decision),
+            false
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    let (_, work) = call(
+        &path,
+        "GET",
+        &format!("{tasks_uri}/{source_id}/work-task"),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(work["steps"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn candidate_action_claim_and_completion_use_the_persisted_domain_binding() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("action-binding.sqlite3");
+    let (_, created) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"title":"任务绑定"})),
+        false,
+    )
+    .await;
+    let project = created["project"]["id"].as_str().unwrap();
+    let tasks_uri = format!("/api/projects/{project}/tasks");
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + 600;
+    let common = json!({"inputRevision":0, "threadId":"binding-thread", "authorIntent":"生成简报",
+        "capabilityHash":format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())), "capabilityExpiresAt":expires});
+    let mut source_request = common.clone();
+    source_request["operation"] = json!("advisory");
+    source_request["target"] = json!({"type":"project"});
+    let (status, source) = call(&path, "POST", &tasks_uri, Some(source_request), false).await;
+    assert_eq!(status, StatusCode::CREATED, "{source}");
+    let source_id = source["id"].as_str().unwrap();
+    let actions_uri = format!("{tasks_uri}/{source_id}/actions");
+    let (status, action) = call(&path, "POST", &actions_uri, Some(json!({
+        "taskId":source_id, "threadId":"binding-thread", "expectedRevision":0, "expectedIntentRevision":0,
+        "idempotencyKey":"binding-request", "operation":"generateBrief", "target":{}, "instruction":"生成简报"
+    })), true).await;
+    assert_eq!(status, StatusCode::CREATED, "{action}");
+    let action_id = action["id"].as_str().unwrap();
+    let (status, completed) = call(
+        &path,
+        "POST",
+        &format!("{tasks_uri}/{source_id}/complete"),
+        Some(json!({"threadId":"binding-thread", "summary":"已规划"})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{completed}");
+    settle_fixture::settle(&path, project, source_id);
+    let proposed_uri = format!("/api/projects/{project}/task-actions/proposed");
+    let (status, proposals) = call(&path, "GET", &proposed_uri, None, false).await;
+    assert_eq!(status, StatusCode::OK, "{proposals}");
+    assert_eq!(proposals["actions"][0]["id"], action_id);
+    assert_eq!(
+        call(&path, "GET", &proposed_uri, None, true).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let approve_uri = format!("{actions_uri}/{action_id}/approve");
+    let (status, denied) = call(
+        &path,
+        "POST",
+        &approve_uri,
+        Some(json!({"expectedIntentRevision":0})),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{denied}");
+    let (status, approved) = call(
+        &path,
+        "POST",
+        &approve_uri,
+        Some(json!({"expectedIntentRevision":0})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{approved}");
+    assert_eq!(
+        call(&path, "GET", &proposed_uri, None, false).await.1["actions"],
+        json!([])
+    );
+    let work_uri = format!("{tasks_uri}/{source_id}/work-task");
+    let (_, before) = call(&path, "GET", &work_uri, None, false).await;
+    let mut child_request = common;
+    child_request["operation"] = json!("generateBrief");
+    child_request["target"] = action["target"].clone();
+    child_request["target"]["requestedByTaskId"] = json!(source_id);
+    child_request["target"]["requestedActionId"] = json!(action_id);
+    let mut forged = child_request.clone();
+    forged["target"]["povCharacterId"] = json!("unexpected");
+    let (status, rejected) = call(&path, "POST", &tasks_uri, Some(forged), false).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{rejected}");
+    let (_, after) = call(&path, "GET", &work_uri, None, false).await;
+    assert_eq!(after, before);
+    let (status, child) = call(&path, "POST", &tasks_uri, Some(child_request), false).await;
+    assert_eq!(status, StatusCode::CREATED, "{child}");
+    let child_id = child["id"].as_str().unwrap();
+    let finish_uri = format!("{actions_uri}/{action_id}/finish");
+    let (status, rejected) = call(
+        &path,
+        "POST",
+        &finish_uri,
+        Some(json!({"resultTaskId":child_id})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{rejected}");
+    let (status, output) = call(&path, "POST", &format!("/api/projects/{project}/artifacts/brief"), Some(json!({
+        "payload":{"premise":"港城正在失去记忆"}, "expectedRevision":0, "expectedCandidateRevisionId":null,
+        "idempotencyKey":"binding-save", "taskId":child_id, "threadId":"binding-thread"
+    })), true).await;
+    assert_eq!(status, StatusCode::CREATED, "{output}");
+    let (status, completed) = call(
+        &path,
+        "POST",
+        &format!("{tasks_uri}/{child_id}/complete"),
+        Some(json!({"threadId":"binding-thread", "summary":"已保存候选"})),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{completed}");
+    let (status, receipt) = call(
+        &path,
+        "POST",
+        &finish_uri,
+        Some(json!({"resultTaskId":child_id})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{receipt}");
+    assert_eq!(receipt["status"], "completed");
+    let (status, repeated) = call(
+        &path,
+        "POST",
+        &finish_uri,
+        Some(json!({"resultTaskId":child_id})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{repeated}");
+    assert_eq!(repeated, receipt);
+    let (status, _) = call(
+        &path,
+        "POST",
+        &finish_uri,
+        Some(json!({"error":"迟到失败"})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (_, listed) = call(&path, "GET", &actions_uri, None, false).await;
+    assert_eq!(listed["actions"], json!([receipt]));
+}
+
+#[tokio::test]
+async fn creative_methods_are_author_selected_frozen_and_included_in_context_budget() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("methods-http.sqlite");
+    let (_, created) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"title":"方法测试"})),
+        false,
+    )
+    .await;
+    let project = created["project"]["id"].as_str().unwrap();
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + 600;
+    let base = format!("/api/projects/{project}");
+    let payload = json!({"operation":"advisory","inputRevision":0,"threadId":"method-thread",
+        "target":{"type":"project"},"capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),
+        "capabilityExpiresAt":expires,"authorIntent":"分析故事","experimentalMethods":["story-tests"]});
+    let (status, task) = call(
+        &path,
+        "POST",
+        &format!("{base}/tasks"),
+        Some(payload.clone()),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{task}");
+    let binding = &task["inputManifest"]["creativeCapabilityBinding"];
+    assert_eq!(binding["selectedMethods"].as_array().unwrap().len(), 2);
+    assert_eq!(binding["selectedMethods"][1]["id"], "story-tests");
+    assert_eq!(binding["selectedMethods"][1]["status"], "candidate");
+    let task_id = task["id"].as_str().unwrap();
+    let uri = format!(
+        "{base}/context?taskId={task_id}&threadId=method-thread&projectRevision=0&purpose=planner&budget=24&byteBudget=60000"
+    );
+    let (status, context) = call(&path, "GET", &uri, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{context}");
+    assert_eq!(context["creativeCapabilityBinding"], *binding);
+    assert!(context.to_string().len() <= 60000);
+    let (status, _) = call(
+        &path,
+        "GET",
+        &uri.replace("byteBudget=60000", "byteBudget=4000"),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _) = call(
+        &path,
+        "POST",
+        &format!("{base}/tasks"),
+        Some(payload.clone()),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let mut invalid = payload;
+    invalid["experimentalMethods"] = json!(["narrative-ir"]);
+    let (status, _) = call(
+        &path,
+        "POST",
+        &format!("{base}/tasks"),
+        Some(invalid),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let repo = novel_codex_story_core::SqliteStoryRepository::open(&path).unwrap();
+    let project_id = novel_codex_story_core::ProjectId::parse(project).unwrap();
+    assert_eq!(repo.tasks(&project_id).unwrap().len(), 1);
+}
+
+fn application(path: &std::path::Path) -> Router {
+    router(task_fixture::state(
+        path.to_owned(),
+        AUTHOR_TOKEN.into(),
+        CANDIDATE_TOKEN.into(),
+    ))
+}
+
+#[tokio::test]
+async fn author_steer_revisions_fence_candidate_actions_and_completion() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("author-intents.sqlite3");
+    let (_, created) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"title":"作者意图"})),
+        false,
+    )
+    .await;
+    let project_id = created["project"]["id"].as_str().unwrap();
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + 600;
+    let (status, task) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks"),
+        Some(json!({
+            "operation":"advisory", "inputRevision":0, "threadId":"intent-thread",
+            "target":{"type":"project"}, "authorIntent":"先讨论白塔",
+            "capabilityHash":format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
+            "capabilityExpiresAt":expires
+        })),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{task}");
+    let task_id = task["id"].as_str().unwrap();
+    let base = format!("/api/projects/{project_id}/tasks/{task_id}");
+    let action = |key: &str, revision: i64| {
+        json!({
+            "taskId":task_id, "threadId":"intent-thread", "expectedRevision":0,
+            "expectedIntentRevision":revision, "idempotencyKey":key,
+            "operation":"generateBrief", "target":{"type":"artifact"}, "instruction":"拟定简报"
+        })
+    };
+    let (status, original) = call(
+        &path,
+        "POST",
+        &format!("{base}/actions"),
+        Some(action("first", 0)),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{original}");
+    assert_eq!(original["intentRevision"], 0);
+    assert_eq!(
+        call(
+            &path,
+            "POST",
+            &format!("{base}/intents"),
+            Some(json!({"expectedIntentRevision":0,"authorText":"不要生成简报，先调查林夕"})),
+            true
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (status, pending) = call(
+        &path,
+        "POST",
+        &format!("{base}/intents"),
+        Some(json!({"expectedIntentRevision":0,"authorText":"改为生成大纲"})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{pending}");
+    assert_eq!(pending["intentRevision"], 1);
+    assert_eq!(pending["status"], "pending");
+    let (status, earlier_actions) =
+        call(&path, "GET", &format!("{base}/actions"), None, false).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(earlier_actions["actions"][0]["status"], "superseded");
+    assert_eq!(
+        call(
+            &path,
+            "POST",
+            &format!("{base}/actions"),
+            Some(action("pending", 0)),
+            true
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            &path,
+            "POST",
+            &format!("{base}/complete"),
+            Some(json!({"threadId":"intent-thread","summary":"结束"})),
+            true
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let (status, delivered) = call(
+        &path,
+        "POST",
+        &format!("{base}/intents/1/delivered"),
+        Some(json!({})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{delivered}");
+    assert_eq!(delivered["status"], "delivered");
+    assert_eq!(
+        call(
+            &path,
+            "POST",
+            &format!("{base}/actions"),
+            Some(action("stale", 0)),
+            true
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        call(
+            &path,
+            "POST",
+            &format!("{base}/actions"),
+            Some(action("future", 2)),
+            true
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let (status, current) = call(
+        &path,
+        "POST",
+        &format!("{base}/actions"),
+        Some(action("current", 1)),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{current}");
+    assert_eq!(current["intentRevision"], 1);
+    let (status, replay) = call(
+        &path,
+        "POST",
+        &format!("{base}/actions"),
+        Some(action("first", 0)),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(replay["id"], original["id"]);
+    assert_eq!(replay["status"], "superseded");
+    assert_eq!(
+        call(
+            &path,
+            "POST",
+            &format!("{base}/complete"),
+            Some(json!({"threadId":"intent-thread","summary":"结束"})),
+            true
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    settle_fixture::settle(&path, project_id, task_id);
+    let (status, approved) = call(
+        &path,
+        "POST",
+        &format!("{base}/actions/{}/approve", current["id"].as_str().unwrap()),
+        Some(json!({"expectedIntentRevision":1})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{approved}");
+    let child_request = |action_id: &Value| {
+        json!({
+            "operation":"generateBrief", "inputRevision":0, "threadId":"child-thread",
+            "target":{"type":"artifact","requestedByTaskId":task_id,"requestedActionId":action_id},
+            "authorIntent":"按作者最新要求拟定简报",
+            "capabilityHash":format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
+            "capabilityExpiresAt":expires
+        })
+    };
+    assert_eq!(
+        call(
+            &path,
+            "POST",
+            &format!("/api/projects/{project_id}/tasks"),
+            Some(child_request(&original["id"])),
+            false
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let (status, child) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{project_id}/tasks"),
+        Some(child_request(&current["id"])),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{child}");
+    assert_eq!(
+        json!({
+            "authorIntent": child["inputManifest"]["authorIntent"],
+            "candidateInstruction": child["inputManifest"]["candidateInstruction"],
+            "authorIntentBinding": child["inputManifest"]["authorIntentBinding"]
+        }),
+        json!({
+            "authorIntent": "先讨论白塔\n\n作者追加要求：\n改为生成大纲",
+            "candidateInstruction": "拟定简报",
+            "authorIntentBinding": {
+                "sourceTaskId": task_id, "intentRevision": 1, "actionId": current["id"]
+            }
+        })
+    );
+    assert_eq!(
+        call(
+            &path,
+            "POST",
+            &format!("{base}/intents"),
+            Some(json!({"expectedIntentRevision":1,"authorText":"继续"})),
+            false
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+async fn call(
+    path: &std::path::Path,
+    method: &str,
+    uri: &str,
+    payload: Option<Value>,
+    writer: bool,
+) -> (StatusCode, Value) {
+    let mut request = Request::builder().method(method).uri(uri).header(
+        "authorization",
+        format!(
+            "Bearer {}",
+            if writer {
+                CANDIDATE_TOKEN
+            } else {
+                AUTHOR_TOKEN
+            }
+        ),
+    );
+    if writer {
+        request = request.header("x-novel-task-capability", CAPABILITY);
+    }
+    let body = if let Some(payload) = payload {
+        request = request.header("content-type", "application/json");
+        Body::from(payload.to_string())
+    } else {
+        Body::empty()
+    };
+    let response = application(path)
+        .author_fixture_request(request.body(body).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or_else(|_| {
+            panic!(
+                "non-JSON response {status}: {}",
+                String::from_utf8_lossy(&bytes)
+            )
+        }),
+    )
+}
+
+#[tokio::test]
+async fn writer_context_keeps_target_chapter_after_eighty_prior_chapters() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("scope.sqlite3");
+    let (_, created) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"title": "Long novel"})),
+        false,
+    )
+    .await;
+    let project_id = created["project"]["id"].as_str().unwrap();
+    let drafts_uri = format!("/api/projects/{project_id}/drafts/checkpoints");
+    let mut target_chapter_id = String::new();
+    let mut latest_chapter_id = String::new();
+    for chapter in 1..=101 {
+        let (status, draft) = call(
+            &path,
+            "POST",
+            &drafts_uri,
+            Some(json!({
+                "payload": {"chapterNumber": chapter, "title": format!("第{chapter}章"),
+                    "body": format!("第{chapter}章正文。")},
+                "expectedRevision": 0, "expectedCandidateRevisionId": null,
+                "idempotencyKey": format!("scope-draft-{chapter}")
+            })),
+            false,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "chapter {chapter}: {draft}");
+        if chapter == 81 {
+            target_chapter_id = draft["chapterId"].as_str().unwrap().to_owned();
+        }
+        if chapter == 101 {
+            latest_chapter_id = draft["chapterId"].as_str().unwrap().to_owned();
+        }
+    }
+    let task_uri = format!("/api/projects/{project_id}/tasks");
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + 600;
+    let (status, task) = call(
+        &path,
+        "POST",
+        &task_uri,
+        Some(json!({
+            "operation": "generateChapter", "inputRevision": 0, "threadId": "scope-writer",
+            "target": {"chapterId": target_chapter_id, "chapterNumber": 81,
+                "readingChapter": 81, "sceneOrder": 1},
+            "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
+            "capabilityExpiresAt": expires, "authorIntent": "Continue chapter eighty-one"
+        })),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{task}");
+    let context_uri = format!(
+        "/api/projects/{project_id}/context?taskId={}&threadId=scope-writer&projectRevision=0&purpose=writer&readingChapter=81&sceneOrder=1&budget=24&byteBudget=60000",
+        task["id"].as_str().unwrap()
+    );
+    let (status, context) = call(&path, "GET", &context_uri, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{context}");
+    assert_eq!(context["relevantText"].as_array().unwrap().len(), 24);
+    assert_eq!(context["relevantText"][0]["content"]["chapterNumber"], 58);
+    assert_eq!(context["relevantText"][23]["content"]["chapterNumber"], 81);
+    assert!(context["relevantText"][23]["sourceRevisionId"].is_string());
+    assert_eq!(context["coverage"]["scannedScope"]["chaptersInScope"], 81);
+    assert_eq!(
+        context["coverage"]["missingScope"],
+        json!(["chapterText", "knowledgeModeling", "workingKnowledge"])
+    );
+    assert_eq!(context["coverage"]["complete"], false);
+    assert_eq!(context["taskId"], task["id"]);
+    assert_eq!(
+        context["snapshotId"],
+        context["sourceWatermarks"]["snapshotId"]
+    );
+    assert_eq!(context["sourceWatermarks"]["objectCount"], 81);
+    let (author_status, author_context) = call(
+        &path,
+        "GET",
+        &format!(
+            "/api/projects/{project_id}/context?projectRevision=0&purpose=planner&budget=24&byteBudget=60000"
+        ),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(author_status, StatusCode::OK, "{author_context}");
+    assert_eq!(author_context["sourceWatermarks"]["objectCount"], 101);
+    assert_eq!(
+        author_context["coverage"]["scannedScope"]["modelingSourcesInScope"],
+        101
+    );
+    assert_eq!(
+        author_context["coverage"]["scannedScope"]["modelingSourcesIncluded"],
+        100
+    );
+    assert_eq!(author_context["coverage"]["complete"], false);
+    assert!(
+        author_context["coverage"]["missingScope"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("knowledgeModeling"))
+    );
+    let (latest_status, latest_context) = call(
+        &path,
+        "GET",
+        &format!(
+            "/api/projects/{project_id}/context?projectRevision=0&purpose=writer&readingChapter=101&sceneOrder=1&budget=24&byteBudget=60000"
+        ),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(latest_status, StatusCode::OK, "{latest_context}");
+    assert_eq!(
+        latest_context["operationContext"]["modeling"]
+            .as_array()
+            .unwrap()
+            .len(),
+        100
+    );
+    assert!(
+        latest_context["operationContext"]["modeling"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|source| source["objectId"] == format!("draft-{latest_chapter_id}"))
+    );
+    assert_eq!(
+        latest_context["coverage"]["scannedScope"]["modelingSourcesInScope"],
+        101
+    );
+    assert_eq!(latest_context["coverage"]["complete"], false);
+    assert_ne!(
+        context["sourceWatermarks"]["digest"],
+        author_context["sourceWatermarks"]["digest"]
+    );
+    assert_eq!(context["sourceWatermarks"]["knowledgeBatchCount"], 0);
+    assert_eq!(
+        context["sourceWatermarks"]["digest"]
+            .as_str()
+            .unwrap()
+            .len(),
+        64
+    );
+    assert_eq!(context["policyDigest"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        context["budgetsUsed"]["byteSize"],
+        context.to_string().len()
+    );
+    let mut hashed_content = context.clone();
+    hashed_content.as_object_mut().unwrap().remove("id");
+    hashed_content
+        .as_object_mut()
+        .unwrap()
+        .remove("contentHash");
+    let expected_hash = format!(
+        "{:x}",
+        Sha256::digest(hashed_content.to_string().as_bytes())
+    );
+    assert_eq!(context["contentHash"], expected_hash);
+    assert_eq!(context["id"], format!("context-{expected_hash}"));
+    assert!(context.get("drafts").is_none());
+    assert!(context.get("inputSnapshot").is_none());
+}
+#[path = "support/author_task_fixture.rs"]
+mod task_fixture;
+use task_fixture::AuthorTaskFixture;
+#[path = "support/settle_task_fixture.rs"]
+mod settle_fixture;

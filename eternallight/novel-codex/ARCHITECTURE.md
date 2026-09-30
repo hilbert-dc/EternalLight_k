@@ -136,7 +136,7 @@ Novel Agent Engine 的私有 App Server 内核只注册 `novel_workspace` 本地
 - `save_outline`
 - `save_chapter_plans`
 - `save_draft_checkpoint`
-- `submit_fact_proposals`
+- `publish_knowledge_batch`（仅知识建模任务）
 - `submit_planning_review_report`
 - `complete_task`
 

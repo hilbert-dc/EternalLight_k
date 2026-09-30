@@ -15,6 +15,7 @@ use crate::SnapshotId;
 pub struct RevisionRecord {
     pub project_id: ProjectId,
     pub object_id: ObjectId,
+    pub object_kind: String,
     pub revision_id: RevisionId,
     pub parent_revision_id: Option<RevisionId>,
     pub content_digest: String,
@@ -72,6 +73,8 @@ pub struct CommitReceipt {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RepositoryError {
     AlreadyExists(&'static str, String),
+    AuthoringRunNotFound,
+    AuthoringRunStale,
     BranchNotFound,
     CandidateNotFound,
     CommitNotFound,
@@ -88,11 +91,13 @@ pub enum RepositoryError {
     ReviewNotFound,
     ReviewChecksFailed,
     TaskBindingInvalid,
+    TaskInputStale,
     TaskCapabilityInvalid,
     TaskNotWritable,
     TaskOutputForbidden,
     TaskOutputMissing,
     TaskNotFound,
+    WorkTaskStale,
     InvalidParent {
         object_id: ObjectId,
         expected: Option<RevisionId>,
@@ -102,10 +107,12 @@ pub enum RepositoryError {
         expected: SnapshotId,
         actual: SnapshotId,
     },
+    StaleSearchCursor,
     StaleProjectRevision {
         expected: i64,
         actual: i64,
     },
+    StaleKnowledgeManifest,
     StaleCandidate {
         expected: Option<RevisionId>,
         actual: Option<RevisionId>,
@@ -207,6 +214,9 @@ impl StoryRepository {
             if revision.project_id != request.project_id {
                 return Err(RepositoryError::CrossProjectReference);
             }
+            if revision.object_kind.trim().is_empty() {
+                return Err(RepositoryError::InvalidObjectKind);
+            }
             if staged
                 .insert(revision.object_id.clone(), revision.revision_id.clone())
                 .is_some()
@@ -228,6 +238,15 @@ impl StoryRepository {
                     expected,
                     actual: revision.parent_revision_id.clone(),
                 });
+            }
+            if let Some(parent_revision_id) = &revision.parent_revision_id {
+                let parent = self
+                    .revisions
+                    .get(parent_revision_id)
+                    .ok_or(RepositoryError::CorruptState)?;
+                if parent.object_kind != revision.object_kind {
+                    return Err(RepositoryError::InvalidObjectKind);
+                }
             }
             members.insert(revision.object_id.clone(), revision.revision_id.clone());
         }

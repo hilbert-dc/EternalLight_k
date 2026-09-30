@@ -1,0 +1,10 @@
+exports[`actual workspace preserves scene identity, author intent, and save boundaries 1`] = `
+{
+  "label": "从已保存候选继续",
+  "disabled": false
+}
+`;
+
+exports[`task list serializes reads, preserves failures, and isolates project lifetimes 1`] = `
+"局部交付\\n执行结束 · 已保存部分产物\\n\\n有 1 项行动提案待确认；尚未执行。\\n\\n执行用量尚未结算，交付判定待更新。\\n\\n生成章节 · 已完成原产物已被后续版本替换\\n执行结束不代表创作目标已达成，请核对结果。"
+`;

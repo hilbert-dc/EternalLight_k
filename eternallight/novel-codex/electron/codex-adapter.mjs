@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import { selectFinalReply } from "./agent-final-reply.mjs";
 
 const MAX_EVENT_BYTES = 64 * 1024;
 const MAX_AGENT_MESSAGE_TEXT = 64 * 1024;
@@ -332,7 +333,7 @@ export class CodexAppServerAdapter {
   }
 
   prepareTaskOperation(operation, taskCapability) {
-    if (!new Set(["generateBrief", "generateOutline", "generatePlan", "generateChapter", "reviewPlanningSeat"]).has(operation)) throw new Error("生成任务 operation 无效");
+    if (!new Set(["generateBrief", "generateOutline", "generatePlan", "generateChapter", "modelKnowledge", "assessSceneOutcome", "assessRevisionOutcome", "extractCommitments", "reviseCommitment", "reviewPlanningSeat", "generatePropertyRules"]).has(operation)) throw new Error("生成任务 operation 无效");
     this.prepareOperationEnvironment(operation, taskCapability);
   }
 
@@ -664,6 +665,7 @@ export class CodexAppServerAdapter {
       && message.params?.item?.type === "agentMessage"
     ) {
       const text = agentMessageText(message.params.item);
+      waiter.finalReply = selectFinalReply(waiter.finalReply, message.params.item);
       if (text !== null) {
         waiter.agentMessageItemId = typeof message.params.item.id === "string" ? message.params.item.id : null;
         waiter.agentMessage = text.slice(0, MAX_AGENT_MESSAGE_TEXT);
@@ -677,11 +679,19 @@ export class CodexAppServerAdapter {
       this.turnWaiter = null;
       clearTimeout(completedWaiter.timer);
       if (message.params?.turn?.status === "failed") completedWaiter.reject(new Error(message.params?.turn?.error?.message ?? "Novel Agent Engine 回合失败"));
-      else completedWaiter.resolve({ mode: "novel-agent-engine", message: completedWaiter.agentMessage, turn: message.params?.turn ?? null });
+      else {
+        for (const item of message.params?.turn?.items ?? []) {
+          completedWaiter.finalReply = selectFinalReply(completedWaiter.finalReply, item);
+        }
+        completedWaiter.resolve({ mode: "novel-agent-engine",
+          message: completedWaiter.finalReply?.text ?? "", finalReply: completedWaiter.finalReply ?? null,
+          turn: message.params?.turn ?? null });
+      }
     }
   }
 
   request(method, params) {
+    if (this.protocolFailure) return Promise.reject(new Error(MODEL_PROTOCOL_ERROR));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

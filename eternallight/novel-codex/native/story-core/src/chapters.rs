@@ -6,7 +6,12 @@ use crate::ProjectId;
 use crate::RepositoryError;
 use crate::SqliteStoryRepository;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[path = "chapter_rebind.rs"]
+mod rebind;
+pub use rebind::{RebindChapterPlanRequest, ReboundChapterPlan};
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChapterBinding {
     pub plan_revision_id: String,
     pub chapter_plan_id: String,
@@ -35,7 +40,10 @@ impl SqliteStoryRepository {
         request_digest: &str,
         now: i64,
     ) -> Result<ChapterBinding, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if let Some(result) = replay(
             &transaction,
             project_id,
@@ -92,7 +100,10 @@ impl SqliteStoryRepository {
         request_digest: &str,
         now: i64,
     ) -> Result<ChapterBinding, RepositoryError> {
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if let Some(result) = replay(
             &transaction,
             project_id,
@@ -126,6 +137,8 @@ impl SqliteStoryRepository {
             .and_then(Value::as_i64)
             .filter(|value| *value > 0)
             .ok_or(RepositoryError::InvalidChapter)?;
+        crate::bound_writer_plan::validate_plan_position(entry)
+            .map_err(|_| RepositoryError::InvalidChapter)?;
         let title = entry
             .get("publicTitle")
             .or_else(|| entry.get("title"))
@@ -175,7 +188,10 @@ impl SqliteStoryRepository {
             request_digest,
             now,
         } = request;
-        let transaction = self.connection.transaction().map_err(storage_error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
         if let Some(result) = replay(
             &transaction,
             project_id,
@@ -197,6 +213,22 @@ impl SqliteStoryRepository {
             .ok_or(RepositoryError::CandidateNotFound)?;
         let plan_revision_id = accepted_revision(&transaction, project_id, "artifact-plan")?
             .ok_or(RepositoryError::CandidateNotFound)?;
+        validate_plan_entry(
+            &transaction,
+            project_id,
+            &plan_revision_id,
+            chapter_plan_id,
+            number,
+        )?;
+        let occupied: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM story_chapter_plan_bindings_v2 WHERE project_id=?1 AND (chapter_id=?2 OR chapter_plan_id=?3))",
+            params![project_id.as_str(),chapter_id,chapter_plan_id], |row| row.get(0),
+        ).map_err(storage_error)?;
+        if occupied {
+            return Err(RepositoryError::InvalidContent(
+                "chapter or plan entry is already associated".into(),
+            ));
+        }
         transaction.execute(
             "INSERT INTO story_chapter_plan_bindings_v2(project_id, plan_revision_id, chapter_plan_id, chapter_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![project_id.as_str(), plan_revision_id, chapter_plan_id, chapter_id, now],
@@ -243,6 +275,36 @@ impl SqliteStoryRepository {
             .map(|row| row.map_err(storage_error))
             .collect()
     }
+}
+
+fn validate_plan_entry(
+    connection: &rusqlite::Connection,
+    project_id: &ProjectId,
+    plan_revision_id: &str,
+    chapter_plan_id: &str,
+    chapter_number: i64,
+) -> Result<(), RepositoryError> {
+    let content: String = connection.query_row(
+        "SELECT content_json FROM story_revisions_v2 WHERE project_id=?1 AND revision_id=?2 AND object_id='artifact-plan' AND object_kind='plan'",
+        params![project_id.as_str(),plan_revision_id], |row| row.get(0),
+    ).map_err(storage_error)?;
+    let envelope: Value =
+        serde_json::from_str(&content).map_err(|_| RepositoryError::CorruptState)?;
+    let chapters = envelope
+        .get("payload")
+        .and_then(|payload| payload.get("chapters"))
+        .and_then(Value::as_array)
+        .ok_or(RepositoryError::InvalidChapter)?;
+    let mut matching = chapters
+        .iter()
+        .filter(|entry| entry["chapterPlanId"].as_str() == Some(chapter_plan_id));
+    let entry = matching.next().ok_or(RepositoryError::CandidateNotFound)?;
+    if matching.next().is_some() || entry["chapterNumber"].as_i64() != Some(chapter_number) {
+        return Err(RepositoryError::InvalidChapter);
+    }
+    crate::bound_writer_plan::validate_plan_position(entry)
+        .map_err(|_| RepositoryError::InvalidChapter)?;
+    Ok(())
 }
 
 fn accepted_revision(
@@ -295,8 +357,38 @@ fn finish(
             params![result.result_revision, project_id.as_str()],
         )
         .map_err(storage_error)?;
-    connection.execute("UPDATE story_tasks_v2 SET status = 'cancelled', stage = 'cancelled', delivery_status = CASE WHEN output_refs_json = '[]' THEN 'pending' ELSE 'incomplete' END, error = 'chapter structure changed', capability_revoked_at = ?1 WHERE project_id = ?2 AND status IN ('queued','running','waiting')", params![now, project_id.as_str()]).map_err(storage_error)?;
+    cancel_active_tasks_for_chapter_structure(connection, project_id, now)?;
     connection.execute("INSERT INTO story_domain_receipts_v2(project_id, operation, idempotency_key, request_digest, result_json) VALUES (?1, ?2, ?3, ?4, ?5)", params![project_id.as_str(), operation, key, digest, result_json]).map_err(storage_error)?;
+    Ok(())
+}
+
+pub(crate) fn cancel_active_tasks_for_chapter_structure(
+    connection: &rusqlite::Connection,
+    project_id: &ProjectId,
+    now: i64,
+) -> Result<(), RepositoryError> {
+    let active_ids = {
+        let mut statement = connection
+            .prepare(
+                "SELECT task_id FROM story_tasks_v2 WHERE project_id = ?1 AND status IN ('queued','running','waiting')",
+            )
+            .map_err(storage_error)?;
+        statement
+            .query_map([project_id.as_str()], |row| row.get::<_, String>(0))
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?
+    };
+    for task_id in active_ids {
+        connection
+            .execute(
+                "UPDATE story_tasks_v2 SET status = 'cancelled', stage = 'cancelled', delivery_status = CASE WHEN output_refs_json = '[]' THEN 'pending' ELSE 'incomplete' END, error = 'chapter structure changed', capability_revoked_at = ?1 WHERE task_id = ?2",
+                params![now, task_id],
+            )
+            .map_err(storage_error)?;
+        let task = crate::tasks::load_task(connection, &task_id)?;
+        crate::work_tasks::finish_attempt(connection, &task)?;
+    }
     Ok(())
 }
 
@@ -353,3 +445,7 @@ fn parse_binding(value: Value) -> Result<ChapterBinding, RepositoryError> {
 fn storage_error(error: rusqlite::Error) -> RepositoryError {
     RepositoryError::Storage(error.to_string())
 }
+
+#[cfg(test)]
+#[path = "chapters_tests.rs"]
+mod tests;

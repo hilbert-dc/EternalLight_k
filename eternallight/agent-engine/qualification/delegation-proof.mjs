@@ -8,5 +8,7 @@ export const evaluateDelegationCapability = (capability, observations = {}, trac
   freeze(nativeCall("delegation.evaluate", { capability, observations, traceRef }));
 export const observedTerminalChildWait = (events, childRequests, expectedText, responses = [], requests = []) =>
   nativeCall("delegation.terminalWait", { events, childRequests, expectedText, responses, requests });
+export const inspectTerminalChildWait = (events, childRequests, expectedText, responses = [], requests = []) =>
+  freeze(nativeCall("delegation.terminalWaitEvidence", { events, childRequests, expectedText, responses, requests }));
 export const summarizeCollaborationEvents = (events = [], responses = []) =>
   freeze(nativeCall("delegation.summary", { events, responses }));

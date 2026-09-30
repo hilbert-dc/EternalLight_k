@@ -1,0 +1,215 @@
+use axum::{
+    Json,
+    extract::{Extension, Path, State},
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+};
+use novel_codex_story_core::{
+    BranchId, CommitId, IdempotencyKey, ObjectId, ProjectId, RepositoryError, RevisionId,
+    RevisionOutcomeDecisionRequest, SaveCandidateRequest, SnapshotId, SqliteStoryRepository,
+    TaskOutputBinding,
+};
+use serde::Deserialize;
+use serde_json::json;
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
+
+use crate::server::{Actor, RuntimeState, bad_request, candidate_task, error, repository_error};
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SubmitRequest {
+    task_id: String,
+    thread_id: String,
+    expected_revision: i64,
+    expected_candidate_revision_id: Option<String>,
+    idempotency_key: String,
+    payload: serde_json::Value,
+}
+
+pub(crate) async fn get(
+    State(state): State<RuntimeState>,
+    Path((project_id, writer_task_id)): Path<(String, String)>,
+) -> Response {
+    let project_id = match ProjectId::parse(project_id) {
+        Ok(value) => value,
+        Err(source) => return bad_request("invalid_project_id", source),
+    };
+    let repository = match SqliteStoryRepository::open(&state.database_path) {
+        Ok(value) => value,
+        Err(source) => return repository_error(source),
+    };
+    let outcome = match repository.revision_outcome(&project_id, &writer_task_id) {
+        Ok(Some(value)) => value,
+        Ok(None) => return Json(serde_json::Value::Null).into_response(),
+        Err(source) => return repository_error(source),
+    };
+    Json(json!({
+        "revisionId": outcome.revision_id,
+        "authority": "candidateAnalysis",
+        "state": if outcome.current { "current" } else { "stale" },
+        "assessment": outcome.content,
+        "decisions": outcome.decisions
+    }))
+    .into_response()
+}
+
+pub(crate) async fn decide(
+    State(state): State<RuntimeState>,
+    Path((project_id, writer_task_id)): Path<(String, String)>,
+    Extension(actor): Extension<Actor>,
+    Json(request): Json<RevisionOutcomeDecisionRequest>,
+) -> Response {
+    if actor != Actor::Author {
+        return error(
+            StatusCode::FORBIDDEN,
+            "author_required",
+            "Only the author can decide a revision outcome",
+        );
+    }
+    let project_id = match ProjectId::parse(project_id) {
+        Ok(value) => value,
+        Err(source) => return bad_request("invalid_project_id", source),
+    };
+    let mut repository = match SqliteStoryRepository::open(&state.database_path) {
+        Ok(value) => value,
+        Err(source) => return repository_error(source),
+    };
+    match repository.decide_revision_outcome(&project_id, &writer_task_id, request) {
+        Ok(decision) => (StatusCode::CREATED, Json(json!(decision))).into_response(),
+        Err(source) => repository_error(source),
+    }
+}
+
+pub(crate) async fn submit(
+    State(state): State<RuntimeState>,
+    Path((project_id, writer_task_id)): Path<(String, String)>,
+    Extension(actor): Extension<Actor>,
+    headers: HeaderMap,
+    Json(request): Json<SubmitRequest>,
+) -> Response {
+    if actor != Actor::Candidate {
+        return error(
+            StatusCode::FORBIDDEN,
+            "candidate_task_required",
+            "A task-bound candidate is required for revision outcome assessment",
+        );
+    }
+    let project_id = match ProjectId::parse(project_id) {
+        Ok(value) => value,
+        Err(source) => return bad_request("invalid_project_id", source),
+    };
+    let object_id = match ObjectId::parse(format!("revision-outcome-{writer_task_id}")) {
+        Ok(value) => value,
+        Err(source) => return bad_request("invalid_writer_task_id", source),
+    };
+    let mut repository = match SqliteStoryRepository::open(&state.database_path) {
+        Ok(value) => value,
+        Err(source) => return repository_error(source),
+    };
+    let task = match candidate_task(
+        &repository,
+        actor,
+        &headers,
+        &project_id,
+        Some(&request.task_id),
+        Some(&request.thread_id),
+        Some(request.expected_revision),
+    ) {
+        Ok(Some(task)) if task.operation == "assessRevisionOutcome" => task,
+        Ok(_) => return bad_request("invalid_task_operation", "Expected assessRevisionOutcome"),
+        Err(response) => return *response,
+    };
+    let target: serde_json::Value = match serde_json::from_str(&task.target_json) {
+        Ok(value) => value,
+        Err(_) => return repository_error(RepositoryError::CorruptState),
+    };
+    if target["writerTaskId"] != writer_task_id || request.payload["writerTaskId"] != writer_task_id
+    {
+        return bad_request(
+            "invalid_writer_task_id",
+            "Payload and task writer must match route",
+        );
+    }
+    let expected_candidate_revision_id = match request
+        .expected_candidate_revision_id
+        .map(RevisionId::parse)
+        .transpose()
+    {
+        Ok(value) => value,
+        Err(source) => return bad_request("invalid_revision_id", source),
+    };
+    let idempotency_key = match IdempotencyKey::parse(request.idempotency_key) {
+        Ok(value) => value,
+        Err(source) => return bad_request("invalid_idempotency_key", source),
+    };
+    let content_json = request.payload.to_string();
+    if content_json.len() > 24_000 {
+        return error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "revision_outcome_too_large",
+            "Revision outcome exceeds 24,000 bytes",
+        );
+    }
+    if let Err(source) = crate::recovery_binding::bind(
+        &mut repository,
+        &headers,
+        Some(&task),
+        "submit_revision_outcome",
+        Some(idempotency_key.as_str()),
+    ) {
+        return repository_error(source);
+    }
+    let branch_id = BranchId::parse("main").expect("static branch id");
+    let head = match repository.branch_head(&project_id, &branch_id) {
+        Ok(Some(value)) => value,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "not_found", "Project not found"),
+        Err(source) => return repository_error(source),
+    };
+    let digest =
+        |value: &serde_json::Value| format!("{:x}", Sha256::digest(value.to_string().as_bytes()));
+    let request_digest = digest(&json!({
+        "payload": request.payload,
+        "expectedRevision": request.expected_revision,
+        "expectedCandidateRevisionId": expected_candidate_revision_id.as_ref().map(RevisionId::as_str)
+    }));
+    let suffix = Uuid::new_v4().simple().to_string();
+    let result = repository.save_candidate(SaveCandidateRequest {
+        project_id,
+        branch_id,
+        object_id,
+        object_kind: "revisionOutcome".into(),
+        revision_id: RevisionId::parse(format!("revision-outcome-{suffix}"))
+            .expect("generated revision id"),
+        commit_id: CommitId::parse(format!("candidate-{suffix}")).expect("generated commit id"),
+        idempotency_key,
+        request_digest,
+        expected_project_revision: request.expected_revision,
+        expected_snapshot_id: head.snapshot_id,
+        next_snapshot_id: SnapshotId::parse(format!("snapshot-{suffix}"))
+            .expect("generated snapshot id"),
+        expected_candidate_revision_id,
+        content_digest: digest(&request.payload),
+        content_json,
+        chapter_projection: None,
+        task_output: Some(TaskOutputBinding {
+            task_id: task.task_id,
+            thread_id: task.thread_id,
+            output_kind: "revisionOutcome".into(),
+            completeness: None,
+        }),
+        linked_impact_ids: Vec::new(),
+    });
+    match result {
+        Ok(receipt) => (
+            StatusCode::CREATED,
+            Json(json!({
+                "revisionId": receipt.revision_id.as_str(),
+                "writerTaskId": writer_task_id,
+                "status": "candidate"
+            })),
+        )
+            .into_response(),
+        Err(source) => repository_error(source),
+    }
+}

@@ -12,7 +12,7 @@ export function chapterGenerationTask(projectId, request) {
   return {
     prompt: `为当前选中的第 ${chapterNumber} 章生成完整候选草稿。\n\n作者意图：${intent.trim()}`,
     taskType: { operation: "generateChapter" },
-    target: { type: "chapter", chapterId, chapterNumber, readingChapter: chapterNumber, scope: { type: "wholeChapter" }, ...(povCharacterId ? { povCharacterId } : {}), ...(storyTime !== null ? { storyTime } : {}) },
+    target: { type: "chapter", chapterId, chapterNumber, readingChapter: chapterNumber, sceneOrder: 1, scope: { type: "wholeChapter" }, ...(povCharacterId ? { povCharacterId } : {}), ...(storyTime !== null ? { storyTime } : {}) },
   };
 }
 
@@ -20,7 +20,9 @@ export function planningGenerationTask(operation, intent) {
   if (!new Set(["generateBrief", "generateOutline", "generatePlan"]).has(operation)) throw new Error("规划生成 operation 无效");
   validateAuthorIntent(intent);
   return {
-    prompt: intent.trim(),
+    prompt: operation === "generatePlan"
+      ? `${intent.trim()}\n\n每个规划章节需要稳定 chapterPlanId；每个场景需要稳定 id、目标、节拍与非空 expectedEffects。每个预期效果包含稳定 id、dimension(world/knowledge/relationship/narrative) 和可在正文中核对的 description，以及 commitmentRefs 数组；未关联承诺时为空。引用独立承诺用 {type:commitment,commitmentId,revisionId}，引用提案用 {type:proposal,reportRevisionId,proposalId,sourceRevisionId}，身份从 Context Pack 原样复制。每项最多4条，整份计划最多64条，不引用未来、过期或已建立的旧提案。规划效果不是已发生事实。`
+      : intent.trim(),
     taskType: { operation },
     target: { type: "artifact" },
   };

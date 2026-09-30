@@ -51,6 +51,7 @@ fn first_commit() -> CommitRequest {
         revisions: vec![RevisionRecord {
             project_id: project(),
             object_id: id("chapter-1", ObjectId::parse),
+            object_kind: "draft".into(),
             revision_id: id("revision-1", RevisionId::parse),
             parent_revision_id: None,
             content_digest: "content-1".into(),
@@ -78,6 +79,32 @@ fn commit_advances_branch_and_replays_same_receipt() {
             id("chapter-1", ObjectId::parse),
             id("revision-1", RevisionId::parse),
         )]),
+    );
+}
+
+#[test]
+fn object_kind_cannot_change_between_revisions() {
+    let mut repository = repository();
+    repository.apply_commit(first_commit()).unwrap();
+    let mut next = first_commit();
+    next.commit_id = id("commit-kind-change", CommitId::parse);
+    next.idempotency_key = id("request-kind-change", IdempotencyKey::parse);
+    next.base_snapshot_id = snapshot("snapshot-1");
+    next.next_snapshot_id = snapshot("snapshot-kind-change");
+    next.revisions[0].revision_id = id("revision-kind-change", RevisionId::parse);
+    next.revisions[0].parent_revision_id = Some(id("revision-1", RevisionId::parse));
+    next.revisions[0].object_kind = "outline".into();
+
+    assert_eq!(
+        repository.apply_commit(next),
+        Err(RepositoryError::InvalidObjectKind)
+    );
+    assert_eq!(
+        repository
+            .branch_head(&project(), &branch())
+            .unwrap()
+            .snapshot_id,
+        snapshot("snapshot-1")
     );
 }
 
@@ -122,6 +149,7 @@ fn revision_parent_must_match_visible_object_revision() {
         revisions: vec![RevisionRecord {
             project_id: project(),
             object_id: id("chapter-1", ObjectId::parse),
+            object_kind: "draft".into(),
             revision_id: id("revision-2", RevisionId::parse),
             parent_revision_id: None,
             content_digest: "content-2".into(),

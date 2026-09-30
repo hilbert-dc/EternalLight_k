@@ -1,14 +1,14 @@
 ---
 name: story-tests
-description: Validate Novel Codex Canon, Narrative IR, anchors, and chapter edits with actionable continuity checks.
+description: Experimental evidence-based continuity and scene-outcome checks.
 ---
 
 # Story Tests
 
-Use this skill after a structural or chapter edit, or when the user asks whether the story is internally consistent.
+Candidate method: literary quality has not been evaluated.
 
-- Run the host's Story Tests before declaring a structural change complete.
-- Explain each failed rule with the affected entity or anchor and the smallest corrective action.
-- Treat missing Canon foundation, broken Beat order, invalid participant or rule references, missing Scene anchors, and invalid Passage Beat anchors as actionable failures.
-- Never hide a failed test behind a polished prose response. A draft may still be useful, but its structural status must remain visible.
-- When chapter text changes, report the Chapter Diff and connect the change to the relevant Scene/Beat or Canon constraint.
+- Use granted queries and source-bound evidence to examine continuity, commitments and character knowledge. An unavailable check is not a passed check.
+- Separate deterministic reference/permission failures from possible evidence conflicts and subjective literary recommendations.
+- Cite precise sources and coverage gaps; never diagnose contradiction solely from an incomplete search or unsupported intuition.
+- Submit only the report/assessment permitted by the task, preserving uncertainty and alternative interpretations. Never revise or confirm Canon from a review role.
+- A saved draft may remain useful when a check is unfinished; report partial delivery honestly. Single-Agent self-check does not establish independent validation.

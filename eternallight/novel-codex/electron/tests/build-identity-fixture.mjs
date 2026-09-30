@@ -28,7 +28,10 @@ export function writeFixtureBuildIdentity({
   sourceTreeDigest = repositoryRoot ? codexSourceTreeDigest(repositoryRoot) : "0".repeat(64),
 }) {
   const version = spawnSync(binaryPath, ["--version"], { encoding: "utf8", timeout: 15_000 });
-  if (version.status !== 0) throw new Error("fixture Codex binary did not report a version");
+  if (version.status !== 0) {
+    const reason = version.error?.code ?? version.signal ?? `exit=${version.status}`;
+    throw new Error(`fixture Codex binary did not report a version (${reason})`);
+  }
   const body = {
     version: 1,
     product: "codex-cli",

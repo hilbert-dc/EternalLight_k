@@ -97,7 +97,7 @@ async function verifyMcp(path, timeoutMs) {
 async function verifyRuntime(path, timeoutMs) {
   const temporary = mkdtempSync(join(tmpdir(), "novel-codex-release-smoke-"));
   const port = await availablePort();
-  const child = spawn(path, ["--host", "127.0.0.1", "--port", String(port), "--db", join(temporary, "runtime.sqlite3"), "--token-stdin"], {
+  const child = spawn(path, ["--host", "127.0.0.1", "--port", String(port), "--db", join(temporary, "runtime.sqlite3"), "--engine-budget-db", join(temporary, "engine-budget.sqlite3"), "--token-stdin"], {
     env: { PATH: process.env.PATH, TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR },
     stdio: ["pipe", "pipe", "pipe"],
   });
