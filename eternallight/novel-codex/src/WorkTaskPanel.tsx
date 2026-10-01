@@ -21,6 +21,7 @@ const deliveryLabels: Record<WorkTaskSummary["deliveryStatus"], string> = {
 };
 
 const resumeBlockLabels: Record<NonNullable<WorkTaskSummary["resumeBlockReason"]>, string> = {
+  pendingRecovery: "有尚未核对的写入结果，请先完成执行记录核对，避免重复写入。",
   partialOutput: "已有未确认的部分写入，请先核对产物后重新发起任务。",
   inputChanged: "作品版本已变化，请根据当前内容重新发起任务。",
   attemptBudget: "本次自动分析已用完三次尝试，请检查模型连接，取消此任务并调整正文后重新分析。",

@@ -342,12 +342,14 @@ impl SqliteStoryRepository {
     }
 }
 
-fn recoverable_output(
+pub(crate) fn recoverable_output(
     connection: &rusqlite::Connection,
     task: &TaskRecord,
 ) -> Result<bool, RepositoryError> {
-    if crate::task_input::assert_task_inputs_current(connection, task).is_err() {
-        return Ok(false);
+    match crate::task_input::assert_task_inputs_current(connection, task) {
+        Err(RepositoryError::TaskInputStale) => return Ok(false),
+        Err(error) => return Err(error),
+        Ok(()) => {}
     }
     if task.operation == "modelKnowledge" {
         let target: serde_json::Value =
@@ -356,7 +358,11 @@ fn recoverable_output(
             return Ok(false);
         };
         return connection.query_row(
-            "SELECT 1 FROM story_modeling_batches_v2 WHERE batch_id = ?1 AND project_id = ?2 AND publisher_task_id = ?3 AND input_project_revision = ?4 AND status = 'ready'",
+            "SELECT 1 FROM story_modeling_batches_v2 b \
+             JOIN story_knowledge_heads_v2 h ON h.project_id=b.project_id AND h.object_id=b.object_id AND h.batch_id=b.batch_id \
+             JOIN story_object_heads_v2 o ON o.project_id=b.project_id AND o.object_id=b.object_id \
+             WHERE b.batch_id=?1 AND b.project_id=?2 AND b.publisher_task_id=?3 AND b.input_project_revision=?4 \
+             AND b.status='ready' AND b.source_revision_id=COALESCE(o.candidate_revision_id,o.accepted_revision_id)",
             params![batch_id, task.project_id.as_str(), task.task_id, task.input_revision], |_| Ok(()),
         ).optional().map_err(storage_error).map(|row| row.is_some());
     }
@@ -607,6 +613,20 @@ pub(crate) fn validate_active_task(
         return Err(RepositoryError::TaskBindingInvalid);
     }
     if !ACTIVE_STATUSES.contains(&task.status.as_str()) {
+        return Err(RepositoryError::TaskNotWritable);
+    }
+    let fenced: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM story_work_attempts_v1 a
+         JOIN story_work_steps_v1 s ON s.id=a.step_id
+         JOIN story_work_tasks_v1 w ON w.id=s.work_task_id
+         WHERE a.attempt_id=?1 AND w.project_id=?2
+           AND w.status IN ('paused','blocked','cancelled','completed'))",
+            params![task.task_id, project_id.as_str()],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
+    if fenced {
         return Err(RepositoryError::TaskNotWritable);
     }
     let current = current_revision(connection, project_id)?;

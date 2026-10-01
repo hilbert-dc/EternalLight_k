@@ -549,6 +549,19 @@ impl SqliteStoryRepository {
         if let Some(prior) = &previous_state {
             let prior: Value =
                 serde_json::from_str(prior).map_err(|_| RepositoryError::CorruptState)?;
+            if prior["status"] == "cancelled" || stored_state["status"] == "cancelled" {
+                // Cancellation has its own transaction. A terminal run may only
+                // reconcile its already-authorized usage, never resume or edit.
+                let mut unchanged = stored_state.clone();
+                unchanged
+                    .as_object_mut()
+                    .ok_or(RepositoryError::CorruptState)?
+                    .remove("providerBudget");
+                unchanged["version"] = prior["version"].clone();
+                if prior["status"] != "cancelled" || unchanged != prior {
+                    return Err(RepositoryError::TaskBindingInvalid);
+                }
+            }
             crate::generation_delivery::prepare_transition(
                 self,
                 project_id,
@@ -595,9 +608,6 @@ impl SqliteStoryRepository {
             &budget,
         )?;
         let state = stored_state;
-        if state["status"] == "cancelled" {
-            return Err(RepositoryError::TaskBindingInvalid);
-        }
         if state["status"] == "running"
             && state["retryAttempts"]
                 .as_i64()

@@ -143,7 +143,11 @@ pub(crate) async fn submit(
         Ok(value) => value,
         Err(source) => return bad_request("invalid_idempotency_key", source),
     };
-    let content_json = request.payload.to_string();
+    let payload = match repository.prepare_revision_outcome_payload(&task, &request.payload) {
+        Ok(value) => value,
+        Err(source) => return repository_error(source),
+    };
+    let content_json = payload.to_string();
     if content_json.len() > 24_000 {
         return error(
             StatusCode::PAYLOAD_TOO_LARGE,
@@ -189,7 +193,7 @@ pub(crate) async fn submit(
         next_snapshot_id: SnapshotId::parse(format!("snapshot-{suffix}"))
             .expect("generated snapshot id"),
         expected_candidate_revision_id,
-        content_digest: digest(&request.payload),
+        content_digest: digest(&payload),
         content_json,
         chapter_projection: None,
         task_output: Some(TaskOutputBinding {

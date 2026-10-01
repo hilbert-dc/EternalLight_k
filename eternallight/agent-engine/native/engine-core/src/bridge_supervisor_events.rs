@@ -76,7 +76,7 @@ impl BridgeSupervisor {
                 } else {
                     self.effect(
                         "completeBudget",
-                        json!({"budgetId":budget_id,"outcome":"recovered_unknown"}),
+                        json!({"budgetId":budget_id,"outcome":"outcome-unknown"}),
                         Callback::CompleteBudget(id, budget_id, false.into()),
                     )?;
                 }
@@ -265,15 +265,12 @@ impl BridgeSupervisor {
             }
             Request::Command(id, method) => match method.as_str() {
                 "budget:end" => {
-                    self.effect(
-                        "completeBudget",
-                        json!({"budgetId":self.budget["id"],"outcome":"terminal"}),
-                        Callback::CompleteBudget(
-                            id,
-                            self.budget["id"].clone(),
-                            result["ended"].clone(),
-                        ),
-                    )?;
+                    // Normal release belongs to the bridge; terminal status
+                    // belongs to the runtime that observed the turn outcome.
+                    self.budget = Value::Null;
+                    self.invalidated = false;
+                    self.recovery_error = Value::Null;
+                    self.resolve(id, result["ended"].clone());
                 }
                 "lease:end" => {
                     self.lease = Value::Null;

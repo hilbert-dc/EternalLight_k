@@ -516,7 +516,7 @@ export interface WorkTaskSummary {
       state: "pending" | "missing" | "recorded" | "superseded" }[];
     pendingActionIds: string[]; unsettledAttemptIds: string[];
   };
-  resumeBlockReason: "partialOutput" | "inputChanged" | "attemptBudget" | null;
+  resumeBlockReason: "partialOutput" | "inputChanged" | "attemptBudget" | "pendingRecovery" | null;
   steps: { id: string; operation: string; expectedOutputKind: string | null; instruction: string | null; sourceTaskId: string | null; target: ActionTarget;
     status: "queued" | "running" | "completed" | "blocked" | "cancelled" | "superseded"; inputRevision: number;
     dependsOnStepId: string | null; currentAttemptId: string | null;

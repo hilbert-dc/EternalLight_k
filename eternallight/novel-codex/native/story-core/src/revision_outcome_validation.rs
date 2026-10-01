@@ -5,7 +5,84 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::authoring_runs::storage_error;
-use crate::{ProjectId, RepositoryError, TaskRecord};
+use crate::{ProjectId, RepositoryError, SqliteStoryRepository, TaskRecord};
+
+impl SqliteStoryRepository {
+    /// Compile model-selected literal quotes against the frozen candidate scenes.
+    /// This cannot grant authority or change a verdict; normal task validation
+    /// still runs on the fully anchored report before it is persisted.
+    pub fn prepare_revision_outcome_payload(
+        &self,
+        task: &TaskRecord,
+        payload: &Value,
+    ) -> Result<Value, RepositoryError> {
+        if task.operation != "assessRevisionOutcome" || payload.to_string().len() > 24_000 {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
+        crate::task_input::assert_task_inputs_current(&self.connection, task)?;
+        let target: Value =
+            serde_json::from_str(&task.target_json).map_err(|_| RepositoryError::CorruptState)?;
+        crate::revision_outcome::validate_target(&self.connection, &task.project_id, &target)?;
+        let source = draft(
+            &self.connection,
+            &task.project_id,
+            target["chapterId"]
+                .as_str()
+                .ok_or(RepositoryError::TaskBindingInvalid)?,
+            target["draftRevisionId"]
+                .as_str()
+                .ok_or(RepositoryError::TaskBindingInvalid)?,
+        )?;
+        let groups = source["sceneGroups"]
+            .as_array()
+            .ok_or(RepositoryError::CorruptState)?;
+        let mut resolved = payload.clone();
+        let judgments = resolved["outcomes"]
+            .as_array_mut()
+            .filter(|items| items.len() <= 4)
+            .ok_or(RepositoryError::TaskOutputForbidden)?;
+        for judgment in judgments {
+            let evidence = judgment["evidence"]
+                .as_array_mut()
+                .filter(|items| items.len() <= 4)
+                .ok_or(RepositoryError::TaskOutputForbidden)?;
+            for item in evidence {
+                let fields = item
+                    .as_object()
+                    .ok_or(RepositoryError::TaskOutputForbidden)?;
+                if fields
+                    .keys()
+                    .any(|key| !matches!(key.as_str(), "groupId" | "quote" | "start" | "end"))
+                {
+                    return Err(RepositoryError::TaskOutputForbidden);
+                }
+                let group_id = item["groupId"]
+                    .as_str()
+                    .ok_or(RepositoryError::TaskOutputForbidden)?
+                    .to_owned();
+                let body = groups
+                    .iter()
+                    .find(|group| group["id"] == group_id)
+                    .and_then(|group| group["body"].as_str())
+                    .ok_or(RepositoryError::TaskOutputForbidden)?;
+                let mut quote = item.clone();
+                quote
+                    .as_object_mut()
+                    .ok_or(RepositoryError::TaskOutputForbidden)?
+                    .remove("groupId");
+                *item = crate::source_evidence::resolve(&quote, body)?;
+                item["groupId"] = group_id.into();
+            }
+        }
+        validate_report(
+            &self.connection,
+            &task.project_id,
+            &target,
+            &resolved.to_string(),
+        )?;
+        Ok(resolved)
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

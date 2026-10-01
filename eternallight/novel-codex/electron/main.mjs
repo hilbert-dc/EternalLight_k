@@ -12,6 +12,8 @@ import { fileURLToPath } from "node:url";
 
 import { AgentEngineHost, CodexSessionRuntime, HostRecoveryJournal, ModelBridgeProcess, PersistentTaskBudget, RecoveryIndex, TaskBudget, assertTaskCompletable, bindExecutionTask, createTaskExecution, requestTaskCancellation, shouldMarkTaskFailed } from "@eternallight/agent-engine";
 import { CodexAppServerAdapter } from "./codex-adapter.mjs";
+import { terminateEngineProcess } from "./engine-process-lifecycle.mjs";
+import { waitForRuntimeReady } from "./runtime-readiness.mjs";
 import { CodexConformanceRunner } from "./codex-conformance-runner.mjs";
 import { CodexCoreIntegrationRunner } from "./codex-core-integration-runner.mjs";
 import { applyAgentConfiguration } from "./agent-configuration.mjs";
@@ -138,7 +140,8 @@ function createWindow() {
     },
   });
 
-  rendererWebContents = window.webContents;
+  const webContents = window.webContents;
+  rendererWebContents = webContents;
   window.on("closed", () => {
     if (!quitRequested) allowWindowClose = false;
   });
@@ -147,8 +150,8 @@ function createWindow() {
     event.preventDefault();
     safeSendToWebContents(window.webContents, "app:close-requested", {});
   });
-  window.webContents.once("destroyed", () => {
-    if (rendererWebContents === window.webContents) { rendererWebContents = null; modelingConsumer.select(null); }
+  webContents.once("destroyed", () => {
+    if (rendererWebContents === webContents) { rendererWebContents = null; modelingConsumer.select(null); }
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
@@ -192,21 +195,6 @@ function findFreeLoopbackPort() {
   });
 }
 
-async function waitForRuntimeReady(child, url) {
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Creative Runtime exited (${child.exitCode})`);
-    try {
-      const response = await fetch(`${url}/health`);
-      if (response.ok) return;
-    } catch {
-      // Runtime has not opened its loopback listener yet.
-    }
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 80));
-  }
-  throw new Error("Creative Runtime 启动超时");
-}
-
 async function startRuntime(runtimeDb, budgetDb) {
   const attempts = configuredRuntimePort === null ? 3 : 1;
   let lastError;
@@ -237,7 +225,7 @@ async function startRuntime(runtimeDb, budgetDb) {
       return;
     } catch (error) {
       lastError = error;
-      if (!child.killed) child.kill();
+      await terminateEngineProcess(child);
     }
   }
   throw lastError ?? new Error("Creative Runtime 无法启动");
@@ -1617,6 +1605,7 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
           cwd: agentStorage.workspaceHome,
           env: createCodexEnvironment(process.env, { ...agentStorage, credentialRef: transport.bridge ? null : next.credentialRef, bridgeCredential: transport.bridgeCredential, runtimeUrl, candidateToken: runtimeCandidateToken }),
           model: next.model,
+          modelRoute: next.id,
           provider: next.provider,
         },
         persist: () => ensureCodexConfig(agentStorage.codexHome, next, transport.bridge),
@@ -1976,6 +1965,7 @@ app.whenReady().then(async () => {
     cwd: storage.workspaceHome,
     env: createCodexEnvironment(process.env, { ...storage, credentialRef: modelTransport.bridge ? null : selectedConnection.credentialRef, bridgeCredential: modelTransport.bridgeCredential, runtimeUrl, candidateToken: runtimeCandidateToken }),
     model: selectedConnection.model,
+    modelRoute: selectedConnection.id,
     provider: selectedConnection.provider,
   });
   if (!codexCli.path) console.warn(`[novel-codex] ${codexCli.reason}`);

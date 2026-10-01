@@ -36,6 +36,9 @@ test("assessment handoff preserves sources and the existing frozen author prompt
   assert.match(instructions, /supported、unmet 或 insufficientEvidence/);
   assert.match(instructions, /supported\/unmet 必须有证据/);
   assert.match(instructions, /Unicode 字符偏移/);
+  assert.match(instructions, /evidence:\[\{groupId,quote\}\]/);
+  assert.match(instructions, /唯一连续摘录由 Runtime 生成偏移/);
+  assert.match(instructions, /start\/end 可选且必须成对/);
   assert.match(instructions, /实际改动的新场景/);
   assert.match(instructions, /同一逻辑写入重试保持 payload 和 idempotencyKey 不变/);
   assert.match(instructions, /保存后 complete_task/);

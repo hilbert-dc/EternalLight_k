@@ -208,11 +208,9 @@ async fn modeling_reports_evidence_shape_and_allows_corrected_submission() {
         "assertions":[]});
     let (status, error) = call(&fixture.app, "POST", &uri, CANDIDATE, Some(payload.clone())).await;
     assert!(status.is_client_error());
-    assert!(
-        error["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("allows only quote, start and end")
+    assert_eq!(
+        error["error"],
+        json!({"code":"invalid_request", "message":"InvalidContent(\"evidence_shape_invalid\")", "details":{}, "recovery":null})
     );
     payload["entities"][0]["evidence"]
         .as_object_mut()
@@ -255,7 +253,18 @@ async fn modeling_reports_evidence_shape_and_allows_corrected_submission() {
         call(&fixture.app, "POST", &uri, CANDIDATE, Some(payload.clone())).await;
     assert_eq!(status, StatusCode::OK, "{published}");
     assert_eq!(published["status"], "ready");
-    assert_eq!(published["entities"], payload["entities"]);
+    assert_eq!(published["publicationState"], "committed");
+    assert_eq!(published["nextAction"], "complete_task");
+    let (status, knowledge) = call(
+        &fixture.app,
+        "GET",
+        &format!("{}/knowledge", fixture.root),
+        AUTHOR,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(knowledge["sources"][0]["entities"], payload["entities"]);
 }
 
 #[tokio::test]

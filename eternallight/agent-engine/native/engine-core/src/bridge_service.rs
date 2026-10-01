@@ -13,6 +13,8 @@ use std::{
 
 #[path = "bridge_exchange.rs"]
 mod exchange;
+#[path = "bridge_failure.rs"]
+mod failure;
 #[path = "bridge_observation.rs"]
 mod observation;
 

@@ -1,4 +1,5 @@
 use eternallight_engine_core::SseDecoder;
+use pretty_assertions::assert_eq;
 use serde_json::json;
 
 #[test]
@@ -20,11 +21,7 @@ fn byte_boundaries_preserve_unicode_crlf_and_multiline_data() {
 
 #[test]
 fn overflow_invalid_frames_and_close_are_terminal() {
-    for input in [
-        b"data: nope\n\n".as_slice(),
-        b"data: \xff\n\n",
-        b"data: {\"error\":{\"secret\":\"private\"}}\n\n",
-    ] {
+    for input in [b"data: nope\n\n".as_slice(), b"data: \xff\n\n"] {
         let mut decoder = SseDecoder::new(4096).unwrap();
         let error = decoder.push(input).unwrap_err();
         assert!(!error.contains("private"));
@@ -36,4 +33,16 @@ fn overflow_invalid_frames_and_close_are_terminal() {
         "streaming response exceeds codec limit"
     );
     assert_eq!(decoder.push(b"").unwrap_err(), "SSE decoder closed");
+}
+
+#[test]
+fn framing_preserves_error_metadata_for_semantic_terminal_handling() {
+    let mut decoder = SseDecoder::new(4096).unwrap();
+    let event = json!({"type":"error","error":{"code":"server_error"}});
+    assert_eq!(
+        decoder
+            .push(format!("data: {event}\n\n").as_bytes())
+            .unwrap(),
+        vec![json!({"data":event})]
+    );
 }

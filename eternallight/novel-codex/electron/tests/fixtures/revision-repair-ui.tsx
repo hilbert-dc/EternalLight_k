@@ -157,13 +157,19 @@ void (async () => {
   // Final preflight rejects stale decisions, assessment, draft and published batch.
   for (const change of ["state", "decision", "revisionId", "draftRevisionId", "knowledgeBatchId"] as const) {
     currentReport = report(); await prepare(); currentReport = report();
+    const authorPrompt = `作者保留的讨论问题：核对 ${change} 后再决定改哪一段。`;
+    await input("创作指令", authorPrompt);
     if (change === "state") currentReport.state = "stale";
     else if (change === "decision") currentReport.decisions = [decision("defer", "new-decision"), decision()];
     else if (change === "revisionId") currentReport.revisionId = "new-assessment";
     else { currentReport.assessment[change] = "changed"; currentReport.decisions[0][change] = "changed"; }
     await click("发送创作指令"); equal(sends.length, 1, `Final ${change} check failed`);
     check(prepared()!.querySelector('[role="alert"]'), "Source rejection not visible");
+    equal({ composer: composer().value, disabled: composer().disabled, busy: prepared()!.getAttribute("aria-busy"), steers: steers.length },
+      { composer: authorPrompt, disabled: false, busy: "false", steers: 0 }, `Final ${change} rejection lost editable author input`);
+    if (change === "state") snapshots.stale = { text: prepared()!.textContent, composer: composer().value, disabled: composer().disabled };
     await click("取消改稿讨论来源");
+    equal(composer().value, authorPrompt, `Cancelling rejected ${change} source erased author edits`);
   }
   currentReport = report(); await prepare();
   const beforeRead = reportReads;
@@ -172,6 +178,20 @@ void (async () => {
   check(composer().disabled && button("发送创作指令")!.disabled, "Preflight left send editable/enabled");
   await click("取消改稿讨论来源"); delayedRead.resolve(report()); delayedRead = null; await tick();
   equal(sends.length, 1, "Cancelled late preflight sent a prompt");
+  check(!prepared() && !document.querySelector('[aria-label="本轮改稿讨论来源"]') && !composer().disabled,
+    "Cancelled late preflight revived or blocked source");
+  equal(composer().value, "作者保留的讨论问题：核对 knowledgeBatchId 后再决定改哪一段。", "Cancelled late read erased author edits");
+
+  // A rejected old read must not overwrite a newly prepared discussion.
+  await prepare(); delayedRead = deferred(); await click("发送创作指令");
+  const cancelledRead = delayedRead; delayedRead = null;
+  await click("取消改稿讨论来源"); await input("创作指令", "取消核对后重新准备的作者问题。"); await prepare();
+  cancelledRead.reject(new Error("LATE_CANCELLED_REPAIR_READ")); await tick();
+  equal({ composer: composer().value, disabled: composer().disabled, busy: prepared()!.getAttribute("aria-busy"), error: prepared()!.querySelector('[role="alert"]')?.textContent ?? null,
+    sends: sends.length, steers: steers.length },
+    { composer: "取消核对后重新准备的作者问题。", disabled: false, busy: "false", error: null, sends: 1, steers: 0 },
+    "Cancelled read failure contaminated the replacement preparation");
+  await click("取消改稿讨论来源");
 
   // A running task cannot consume this prepared source, even through Enter/steer.
   await prepare(); agentEvent?.({ method: "turn/started", params: { turn: { id: "other-turn" } } }); await tick();
@@ -202,6 +222,14 @@ void (async () => {
   document.querySelector<HTMLElement>(".revision-outcome-details summary")!.click();
   await wait(() => button("讨论下一次改稿"), "Remount repair missing");
   await prepare(); await input("创作指令", "只讨论守卫动机，先问我需要改哪一段。");
+  delayedRead = deferred(); await click("发送创作指令");
+  delayedRead.reject(new Error("REPAIR_SOURCE_READ_FAILURE")); delayedRead = null;
+  await wait(() => prepared()?.querySelector('[role="alert"]'), "Preflight read failure not visible");
+  equal({ composer: composer().value, disabled: composer().disabled, sendDisabled: button("发送创作指令")!.disabled,
+    busy: prepared()!.getAttribute("aria-busy"), error: prepared()!.querySelector('[role="alert"]')!.textContent, sends: sends.length, steers: steers.length },
+    { composer: "只讨论守卫动机，先问我需要改哪一段。", disabled: false, sendDisabled: false, busy: "false", error: "REPAIR_SOURCE_READ_FAILURE", sends: 1, steers: 0 },
+    "Failed source read lost preparation, edits or retry availability");
+  snapshots.readFailed = { text: prepared()!.textContent, composer: composer().value, disabled: composer().disabled };
   const expectedSource = { writerTaskId: writer, assessmentRevisionId: "assessment-2", decisionId: "repair-1" };
   composer().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   await wait(() => sends.length === 2, "Editable Enter did not send");
@@ -214,11 +242,15 @@ void (async () => {
   equal(sends[3], [project.id, "发送失败也必须保留来源。", expectedSource], "Failed attempt lost repair identity");
   sendReply!.reject(new Error("HOST_REPAIR_FAILURE"));
   await wait(() => document.querySelector('[aria-label="本轮改稿讨论来源"]'), "Failed repair source missing");
+  check(document.body.textContent!.includes("HOST_REPAIR_FAILURE") && button("取消改稿来源，开始普通讨论") && !button("取消改稿来源，开始普通讨论")!.disabled,
+    "Host failure did not expose recovery with its source");
   await click("重试"); equal(sends.length, 4, "Failure Retry silently sent with null source");
+  check(document.querySelector('[aria-label="本轮改稿讨论来源"]'), "Blocked Retry discarded failed source");
   check(document.body.textContent!.includes("本轮改稿讨论不能作为普通聊天重试"), "Retry did not explain recovery");
   agentEvent?.({ method: "agent/connection", params: { state: "ready" } }); await tick();
   await input("创作指令", "作者明确选择的普通讨论。"); await click("发送创作指令");
   equal(sends.length, 4, "Failure implicitly switched to an ordinary discussion");
+  equal(composer().value, "作者明确选择的普通讨论。", "Blocked ordinary send erased author edits");
   snapshots.failed = { text: document.querySelector('[aria-label="本轮改稿讨论来源"]')!.textContent };
   await click("取消改稿来源，开始普通讨论"); await click("发送创作指令");
   equal(sends[4], [project.id, "作者明确选择的普通讨论。", null], "Explicit ordinary discussion retained failed source"); await complete();
@@ -231,7 +263,7 @@ void (async () => {
   check(projectButton && !projectButton.disabled, "Other project menu entry missing"); projectButton!.click(); await tick();
   await wait(() => !prepared(), "Project switch retained preparation");
   delayedRead.resolve(report()); delayedRead = null; await tick(); equal(sends.length, 5, "Prior-project late send escaped");
-  check(!composer().value, "Project switch retained prepared prompt");
+  check(!composer().value && !prepared() && !document.querySelector('[aria-label="本轮改稿讨论来源"]'), "Prior-project late read revived source or prompt");
 
   // Project switching also clears an already sent repair identity and ignores its late Host failure.
   await click("编辑"); await wait(() => document.querySelector(".revision-outcome-details"), "Other project report missing");
@@ -247,7 +279,8 @@ void (async () => {
   [...document.querySelectorAll<HTMLButtonElement>(".project-menu button")].find(node => node.querySelector("strong")?.textContent === project.title)!.click();
   await wait(() => !document.querySelector('[aria-label="本轮改稿讨论来源"]'), "Project switch retained sent identity");
   oldSend.reject(new Error("LATE_OLD_PROJECT_REPAIR_FAILURE")); await tick();
-  check(!document.body.textContent!.includes("LATE_OLD_PROJECT_REPAIR_FAILURE"), "Late failure contaminated another project");
+  check(!document.body.textContent!.includes("LATE_OLD_PROJECT_REPAIR_FAILURE") && !prepared()
+    && !document.querySelector('[aria-label="本轮改稿讨论来源"]'), "Late failure revived source in another project");
   await input("创作指令", "切换后的普通聊天。"); await click("发送创作指令");
   equal(sends[6], [project.id, "切换后的普通聊天。", null], "Project switch leaked sent identity into retry guard"); await complete();
   await click("编辑"); await wait(() => document.querySelector(".revision-outcome-details"), "Final report missing");

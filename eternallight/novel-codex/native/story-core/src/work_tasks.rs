@@ -208,8 +208,6 @@ impl SqliteStoryRepository {
                 if resume_block_reason(&tx, project_id, id)?.is_some() {
                     return Err(RepositoryError::TaskInputStale);
                 }
-                tx.execute("UPDATE story_task_action_requests_v1 SET status = 'queued', result_task_id = NULL, error = NULL WHERE action_id IN (SELECT id FROM story_work_steps_v1 WHERE work_task_id = ?1 AND status = 'blocked')", [id]).map_err(storage_error)?;
-                tx.execute("UPDATE story_work_steps_v1 SET status = 'queued', current_attempt_id = NULL WHERE work_task_id = ?1 AND status = 'blocked'", [id]).map_err(storage_error)?;
                 "running"
             }
             ("cancel", "running" | "paused" | "blocked") => {
@@ -233,6 +231,9 @@ impl SqliteStoryRepository {
             return Err(RepositoryError::WorkTaskStale);
         }
         if command == "resume" {
+            crate::work_modeling_recovery::recover_published_steps(&tx, project_id, id, now)?;
+            tx.execute("UPDATE story_task_action_requests_v1 SET status = 'queued', result_task_id = NULL, error = NULL WHERE action_id IN (SELECT id FROM story_work_steps_v1 WHERE work_task_id = ?1 AND status = 'blocked')", [id]).map_err(storage_error)?;
+            tx.execute("UPDATE story_work_steps_v1 SET status = 'queued', current_attempt_id = NULL WHERE work_task_id = ?1 AND status = 'blocked'", [id]).map_err(storage_error)?;
             refresh_work_task(&tx, id)?;
         }
         let task = load_work_task(self, &tx, project_id, id)?;
@@ -412,6 +413,14 @@ fn resume_block_reason(
     project_id: &ProjectId,
     id: &str,
 ) -> Result<Option<String>, RepositoryError> {
+    let unknown: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM story_work_steps_v1 s JOIN story_tool_operations_v1 o \
+         ON o.task_id=s.current_attempt_id WHERE s.work_task_id=?1 AND s.status IN ('queued','running','blocked') AND o.state='accepted')",
+        [id],|row|row.get(0),
+    ).map_err(storage_error)?;
+    if unknown {
+        return Ok(Some("pendingRecovery".into()));
+    }
     // Aggregating frozen terminal reports does not read a new creative input.
     // No new Attempt can be claimed: all persisted review steps are completed.
     let reports_ready: bool = db.query_row(
@@ -429,11 +438,15 @@ fn resume_block_reason(
     if pending_intent {
         return Ok(Some("inputChanged".into()));
     }
-    let budget_exhausted: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM story_modeling_dispatch_v1 d JOIN story_work_steps_v1 s ON s.id=d.step_id WHERE s.work_task_id=?1 AND (SELECT COUNT(*) FROM story_work_attempts_v1 a WHERE a.step_id=s.id)>=3)", [id], |row| row.get(0)).map_err(storage_error)?;
+    let recovered = serde_json::to_string(&crate::work_modeling_recovery::eligible_attempts(
+        db, project_id, id,
+    )?)
+    .map_err(|_| RepositoryError::CorruptState)?;
+    let budget_exhausted: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM story_modeling_dispatch_v1 d JOIN story_work_steps_v1 s ON s.id=d.step_id WHERE s.work_task_id=?1 AND s.status IN ('queued','blocked') AND COALESCE(s.current_attempt_id,'') NOT IN (SELECT value FROM json_each(?2)) AND (SELECT COUNT(*) FROM story_work_attempts_v1 a WHERE a.step_id=s.id)>=3)", params![id,recovered], |row| row.get(0)).map_err(storage_error)?;
     if budget_exhausted {
         return Ok(Some("attemptBudget".into()));
     }
-    let stale_modeling: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_steps_v1 s LEFT JOIN story_modeling_dispatch_v1 d ON d.step_id=s.id LEFT JOIN story_modeling_outbox_v1 q ON q.project_id=d.project_id AND q.object_id=d.object_id WHERE s.work_task_id=?1 AND s.status IN ('queued','blocked') AND json_extract(s.target_json,'$.modelingIntent')=1 AND (q.status IS NULL OR q.status!='pending' OR d.intent_generation!=q.generation))",[id],|row|row.get(0)).map_err(storage_error)?;
+    let stale_modeling: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_steps_v1 s LEFT JOIN story_modeling_dispatch_v1 d ON d.step_id=s.id LEFT JOIN story_modeling_outbox_v1 q ON q.project_id=d.project_id AND q.object_id=d.object_id WHERE s.work_task_id=?1 AND s.status IN ('queued','blocked') AND COALESCE(s.current_attempt_id,'') NOT IN (SELECT value FROM json_each(?2)) AND json_extract(s.target_json,'$.modelingIntent')=1 AND (q.status IS NULL OR q.status!='pending' OR d.intent_generation!=q.generation))",params![id,recovered],|row|row.get(0)).map_err(storage_error)?;
     if stale_modeling {
         return Ok(Some("inputChanged".into()));
     }

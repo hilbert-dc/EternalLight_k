@@ -12,6 +12,7 @@ fn revision_outcome_submission_preserves_candidate_cas_and_root_recovery_identit
     for expected in [json!(null), json!("outcome-checkpoint")] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = RuntimeClient {
+            publication_gate: super::publication_gate::PublicationGate::default(),
             host: "127.0.0.1".into(),
             port: listener.local_addr().unwrap().port(),
             candidate_token: "candidate".into(),
@@ -141,6 +142,7 @@ fn rule_input_pages_are_root_owned_and_preserve_the_frozen_cursor() {
     for cursor in [json!(null), json!(format!("{}:2800", "a".repeat(64)))] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let mut client = RuntimeClient {
+            publication_gate: super::publication_gate::PublicationGate::default(),
             host: "127.0.0.1".into(),
             port: listener.local_addr().unwrap().port(),
             candidate_token: "candidate".into(),
@@ -199,6 +201,7 @@ fn rule_input_pages_are_root_owned_and_preserve_the_frozen_cursor() {
 #[test]
 fn model_supplied_call_ids_cannot_inject_http_headers() {
     let client = RuntimeClient {
+        publication_gate: super::publication_gate::PublicationGate::default(),
         host: "127.0.0.1".into(),
         port: 1,
         candidate_token: "candidate".into(),
@@ -216,6 +219,7 @@ fn model_supplied_call_ids_cannot_inject_http_headers() {
 #[test]
 fn reading_progress_is_root_owned_and_cannot_be_forged_by_a_child() {
     let client = RuntimeClient {
+        publication_gate: super::publication_gate::PublicationGate::default(),
         host: "127.0.0.1".into(),
         port: 1,
         candidate_token: "token".into(),
@@ -286,6 +290,7 @@ fn context_query_plan_is_encoded_as_a_read_only_task_request() {
                 String::from_utf8(request).unwrap()
             });
             let client = RuntimeClient {
+                publication_gate: super::publication_gate::PublicationGate::default(),
                 host: "127.0.0.1".into(),
                 port,
                 candidate_token: "candidate-token".into(),
@@ -344,6 +349,7 @@ fn context_query_plan_is_encoded_as_a_read_only_task_request() {
 #[test]
 fn commitment_submission_is_root_only_and_never_granted_to_other_operations() {
     let mut client = RuntimeClient {
+        publication_gate: super::publication_gate::PublicationGate::default(),
         host: "127.0.0.1".into(),
         port: 1,
         candidate_token: "candidate".into(),
@@ -373,6 +379,7 @@ fn property_rule_submission_uses_the_artifact_route_and_blocks_children_and_othe
     use std::net::TcpListener;
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let mut client = RuntimeClient {
+        publication_gate: super::publication_gate::PublicationGate::default(),
         host: "127.0.0.1".into(),
         port: listener.local_addr().unwrap().port(),
         candidate_token: "candidate".into(),
@@ -454,6 +461,7 @@ fn property_rule_submission_uses_the_artifact_route_and_blocks_children_and_othe
 #[test]
 fn commitment_revision_write_is_root_only_and_reads_do_not_expand_writer_permissions() {
     let mut client = RuntimeClient {
+        publication_gate: super::publication_gate::PublicationGate::default(),
         host: "127.0.0.1".into(),
         port: 1,
         candidate_token: "candidate".into(),
@@ -510,6 +518,7 @@ fn commitment_input_transport_preserves_task_identity_and_percent_encodes_the_ta
             String::from_utf8(request).unwrap()
         });
         let client = RuntimeClient {
+            publication_gate: super::publication_gate::PublicationGate::default(),
             host: "127.0.0.1".into(),
             port,
             candidate_token: "candidate-token".into(),
@@ -586,6 +595,7 @@ fn scoped_query_plan_is_forwarded_read_only_for_a_trusted_child() {
                 (header, body)
             });
             let client = RuntimeClient {
+                publication_gate: super::publication_gate::PublicationGate::default(),
                 host: "127.0.0.1".into(),
                 port,
                 candidate_token: "candidate-token".into(),
@@ -620,6 +630,7 @@ fn scoped_query_plan_is_forwarded_read_only_for_a_trusted_child() {
 #[test]
 fn writer_relation_search_is_read_only_and_not_exposed_to_other_operations() {
     let client = RuntimeClient {
+        publication_gate: super::publication_gate::PublicationGate::default(),
         host: "127.0.0.1".into(),
         port: 1,
         candidate_token: "token".into(),

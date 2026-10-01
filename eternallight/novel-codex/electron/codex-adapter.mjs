@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { selectFinalReply } from "./agent-final-reply.mjs";
+import { terminateEngineProcess } from "./engine-process-lifecycle.mjs";
 
 const MAX_EVENT_BYTES = 64 * 1024;
 const MAX_AGENT_MESSAGE_TEXT = 64 * 1024;
@@ -13,15 +14,6 @@ const MAX_USER_INPUT_OPTIONS = 6;
 const MAX_USER_INPUT_TEXT = 240;
 const PINNED_THREAD_SECTION_ID = "01984de2-8f74-7c91-a3b2-5c5e937cf318";
 const MODEL_PROTOCOL_ERROR = "模型未按结构化工具协议返回，已阻止内部协议文本进入对话。请重试；若持续发生，请检查模型工具模式。";
-
-function waitForChildClose(child, timeoutMs) {
-  if (child.exitCode !== null) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    const onClose = () => { clearTimeout(timer); resolve(true); };
-    const timer = setTimeout(() => { child.removeListener("close", onClose); resolve(false); }, timeoutMs);
-    child.once("close", onClose);
-  });
-}
 
 function splitCommand(command) {
   return command.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((part) => part.replace(/^"|"$/g, "")) ?? [];
@@ -200,7 +192,10 @@ function threadTurnSummary(turn, index) {
 }
 
 export class CodexAppServerAdapter {
-  constructor({ apiKey = null, command = null, commandSource = null, configurationError = null, cwd = process.cwd(), env = process.env, model = "deepseek-flash", provider = "deepseek" }) {
+  constructor({ apiKey = null, command = null, commandSource = null, configurationError = null, cwd = process.cwd(), env = process.env, model = "deepseek-flash", modelRoute = model, provider = "deepseek", timeouts = {} }) {
+    this.timeouts = { startupMs: 90_000, requestMs: 30_000, ...timeouts };
+    if (Object.values(this.timeouts).some(value => !Number.isSafeInteger(value) || value < 1 || value > 120_000)
+      || Object.keys(this.timeouts).some(key => !["startupMs", "requestMs"].includes(key))) throw new Error("引擎超时配置无效");
     this.apiKey = apiKey;
     this.command = command;
     this.commandSource = commandSource;
@@ -208,6 +203,7 @@ export class CodexAppServerAdapter {
     this.cwd = cwd;
     this.env = { ...env };
     this.model = model;
+    this.modelRoute = modelRoute;
     this.provider = provider;
     this.process = null;
     this.reader = null;
@@ -240,7 +236,7 @@ export class CodexAppServerAdapter {
   status() {
     return {
       configured: this.enabled,
-      state: this.lastError || this.configurationError ? "error" : this.turnWaiter ? "running" : this.process ? "ready" : "idle",
+      state: this.lastError || this.configurationError ? "error" : this.initializing ? "starting" : this.turnWaiter ? "running" : this.initialized ? "ready" : "idle",
       mode: this.enabled ? "novel-agent-engine" : this.localEnabled ? "local-history" : "local",
       error: this.lastError ?? this.configurationError ?? (this.enabled ? null : "未找到 Novel Agent Engine 内核"),
       provider: this.provider,
@@ -251,7 +247,7 @@ export class CodexAppServerAdapter {
     };
   }
 
-  configure({ apiKey = null, command, commandSource = null, configurationError = null, cwd = this.cwd, env = process.env, model = this.model, provider = this.provider }) {
+  configure({ apiKey = null, command, commandSource = null, configurationError = null, cwd = this.cwd, env = process.env, model = this.model, modelRoute = this.modelRoute, provider = this.provider }) {
     this.assertConfigurable();
     if (this.process) {
       this.reader?.close();
@@ -264,6 +260,7 @@ export class CodexAppServerAdapter {
     this.cwd = cwd;
     this.env = { ...env };
     this.model = model;
+    this.modelRoute = modelRoute;
     this.provider = provider;
     this.process = null;
     this.reader = null;
@@ -292,21 +289,41 @@ export class CodexAppServerAdapter {
     if (!this.localEnabled || (!localOnly && !this.enabled)) throw new Error(localOnly ? "Novel Agent Engine 本地历史不可用" : "Novel Agent Engine 未配置");
     if (this.initialized) return true;
     if (this.initializing) return this.initializing;
-    this.initializing = this.initialize().finally(() => { this.initializing = null; });
+    const initialization = this.initialize().finally(() => {
+      if (this.initializing === initialization) this.initializing = null;
+    });
+    this.initializing = initialization;
     return this.initializing;
   }
 
   async initialize() {
-    this.startProcess();
-    await this.request("initialize", {
-      clientInfo: { name: "novel_codex", title: "Novel Codex", version: "0.1.0" },
-      capabilities: { experimentalApi: true },
-    });
-    this.notify("initialized", {});
-    this.initialized = true;
-    this.lastError = null;
-    this.protocolFailure = false;
-    return true;
+    let child;
+    try {
+      this.startProcess();
+      child = this.process;
+      this.lastError = null;
+      this.emit({ method: "agent/starting", params: { message: "正在启动独立创作引擎" } });
+      await this.request("initialize", {
+        clientInfo: { name: "novel_codex", title: "Novel Codex", version: "0.1.0" },
+        capabilities: { experimentalApi: true },
+      });
+      if (this.process !== child) throw new Error("创作引擎任务会话已重新绑定");
+      this.notify("initialized", {});
+      this.initialized = true;
+      this.lastError = null;
+      this.protocolFailure = false;
+      return true;
+    } catch (error) {
+      if (this.process === child) {
+        this.reader?.close();
+        this.process = null;
+        this.reader = null;
+        this.threadId = null;
+        this.fail(error);
+        await terminateEngineProcess(child);
+      }
+      throw error;
+    }
   }
 
   async ensureSession() {
@@ -318,7 +335,7 @@ export class CodexAppServerAdapter {
   }
 
   async startThread() {
-    const result = await this.request("thread/start", { model: this.model, cwd: this.cwd, serviceName: "novel_codex" });
+    const result = await this.request("thread/start", { model: this.modelRoute, cwd: this.cwd, serviceName: "novel_codex" });
     this.threadId = result?.thread?.id;
     if (!this.threadId) throw new Error("Novel Agent Engine 未返回 thread id");
     this.turnId = null;
@@ -351,6 +368,10 @@ export class CodexAppServerAdapter {
     }
     this.process = null;
     this.reader = null;
+    for (const request of this.pending.values()) {
+      clearTimeout(request.timer);
+      request.reject(new Error("创作引擎任务会话已重新绑定"));
+    }
     this.pending.clear();
     this.userInputs.clear();
     this.threadId = null;
@@ -398,14 +419,7 @@ export class CodexAppServerAdapter {
     delete environment.NOVEL_CODEX_OPERATION;
     delete environment.NOVEL_CODEX_TASK_CAPABILITY;
     this.env = environment;
-    if (child && child.exitCode === null) {
-      if (!child.killed) child.kill();
-      const stopped = await waitForChildClose(child, 1_500);
-      if (!stopped && child.exitCode === null) {
-        child.kill("SIGKILL");
-        await waitForChildClose(child, 500);
-      }
-    }
+    await terminateEngineProcess(child);
   }
 
   async listThreads({ archived = false, cursor = null } = {}) {
@@ -551,8 +565,8 @@ export class CodexAppServerAdapter {
     const child = spawn(executable, args, { cwd: this.cwd, env: this.env, stdio: ["pipe", "pipe", "pipe"] });
     this.process = child;
     this.reader = readline.createInterface({ input: child.stdout });
-    this.reader.on("line", (line) => this.handleLine(line));
-    child.stderr.on("data", (chunk) => this.emit({ method: "agent/stderr", params: { text: chunk.toString().slice(0, 4096) } }));
+    this.reader.on("line", (line) => { if (this.process === child) this.handleLine(line); });
+    child.stderr.on("data", (chunk) => { if (this.process === child) this.emit({ method: "agent/stderr", params: { text: chunk.toString().slice(0, 4096) } }); });
     child.on("error", (error) => { if (this.process === child) this.fail(error); });
     child.on("exit", (code, signal) => {
       if (this.process !== child) return;
@@ -697,7 +711,7 @@ export class CodexAppServerAdapter {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Novel Agent Engine 请求超时：${method}`));
-      }, 30_000);
+      }, method === "initialize" ? this.timeouts.startupMs : this.timeouts.requestMs);
       this.pending.set(id, { method, resolve, reject, timer });
       try {
         this.write({ id, method, params });

@@ -225,7 +225,25 @@ pub(crate) async fn publish_batch(
         assertions: &request.assertions,
         now: unix_now(),
     }) {
-        Ok(batch) => Json(batch.as_json()).into_response(),
+        Ok(batch) => Json(json!({
+            "batchId": batch.id,
+            "status": "ready",
+            "publicationState": "committed",
+            "receiptRef": format!("runtime:knowledge:{}", batch.id),
+            "entityCount": batch.entities.len(),
+            "assertionCount": batch.assertions.len(),
+            "nextAction": "complete_task",
+            "instruction": "Publication is durable and immutable. Do not publish again or change this batch. Complete the bound task now; candidate knowledge is not confirmed Canon."
+        })).into_response(),
+        Err(novel_codex_story_core::RepositoryError::IdempotencyConflict) => (
+            StatusCode::CONFLICT,
+            Json(json!({"error": {
+                "code": "conflict",
+                "message": "This batch was already published. Its persisted content cannot be changed by retrying publication.",
+                "details": {"batchId": batch_id, "publicationState": "committed"},
+                "recovery": {"nextAction": "complete_task", "retryPublication": false}
+            }})),
+        ).into_response(),
         Err(source) => repository_error(source),
     }
 }

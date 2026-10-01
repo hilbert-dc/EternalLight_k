@@ -9,6 +9,7 @@ use serde_json::Value;
 use serde_json::json;
 mod knowledge_schema;
 mod operation_digest;
+mod publication_gate;
 
 mod query_plan_schema;
 mod reading_checkpoint_tools;
@@ -18,6 +19,7 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
 struct RuntimeClient {
+    publication_gate: publication_gate::PublicationGate,
     host: String,
     port: u16,
     candidate_token: String,
@@ -42,6 +44,7 @@ impl RuntimeClient {
             return Err("Runtime URL must use a loopback host".into());
         }
         Ok(Self {
+            publication_gate: publication_gate::PublicationGate::default(),
             host: host.trim_matches(['[', ']']).to_owned(),
             port: port.parse().map_err(|_| "Runtime port is invalid")?,
             candidate_token: required_environment("NOVEL_CODEX_CANDIDATE_TOKEN")?,
@@ -53,6 +56,7 @@ impl RuntimeClient {
     fn exposed_tools(&self) -> Vec<Value> {
         tool_specs()
             .into_iter()
+            .filter(|tool| tool["name"].as_str().is_some_and(|name| self.publication_gate.allows_tool(name)))
             .filter(|tool| {
                 tool.get("name")
                     .and_then(Value::as_str)
@@ -116,6 +120,8 @@ impl RuntimeClient {
             .filter(|revision| *revision >= 0)
             .ok_or_else(|| "expectedRevision must be a non-negative integer".to_owned())?;
         validate_execution_identity(meta, thread_id, name)?;
+        self.publication_gate
+            .check(name, project_id, task_id, thread_id)?;
 
         let (method, path, body) = match name {
             "read_property_rules" => {
@@ -439,7 +445,10 @@ impl RuntimeClient {
             _ => return Err(format!("unknown tool: {name}")),
         };
         let hash = operation_digest::operation_digest(name, &Value::Object(arguments.clone()))?;
-        self.request(method, &path, body.as_ref(), meta, name, &hash)
+        let response = self.request(method, &path, body.as_ref(), meta, name, &hash)?;
+        self.publication_gate
+            .observe(name, &normalized_arguments, &response);
+        Ok(response)
     }
 
     fn request(
@@ -685,11 +694,11 @@ fn tool_specs() -> Vec<Value> {
         ("save_chapter_plans", "Save reviewable ChapterPlan candidates."),
         ("save_draft_checkpoint", "Save an immutable DraftRevision checkpoint."),
         ("submit_scene_assessment", "Save a source-bound, reviewable scene outcome assessment; this does not change Canon."),
-        ("submit_revision_outcome", "Save the revisionOutcome candidate for exactly the frozen writerTaskId. Compare approved desiredOutcomes with bound original and changed new scenes; evidence uses exact new scene body quotes and Unicode offsets. Every criterion exactly once; supported/unmet require evidence. This does not change Canon."),
+        ("submit_revision_outcome", "Save the revisionOutcome candidate for exactly the frozen writerTaskId. Compare approved desiredOutcomes with bound original and changed new scenes. Evidence needs groupId and an exact new scene body quote; Runtime anchors unique quotes. Optional Unicode start/end must both be correct; repeated quotes require explicit anchors or a longer unique quote. Every criterion exactly once; supported/unmet require evidence. This does not change Canon."),
         ("submit_commitment_extraction", "Save up to sixteen open narrative commitment proposals bound to the task source and Unicode examined ranges. Proposals are not established commitments or facts; empty candidates do not certify absence."),
         ("submit_commitment_candidate", "Save a source-validated candidate revision of exactly the bound existing commitment. Keep payload.id unchanged; origin is derived by Runtime. Does not create a commitment, confirm it or change Canon. Fulfillment requires exact current body evidence."),
         ("submit_planning_review_report", "Submit an evidence-based planning review report."),
-        ("publish_knowledge_batch", "Publish source-anchored candidate knowledge from a modeling task. Each relation requires a same-batch propositionId; character epistemic claims must reference that proposition explicitly."),
+        ("publish_knowledge_batch", "Atomically publish source-anchored candidate knowledge once. Each relation requires a same-batch propositionId; character epistemic claims must reference that proposition explicitly. A committed receipt means publication is durable and immutable: immediately call complete_task, never revise or republish the batch."),
         ("complete_task", "Complete the bound task after persisted output validation."),
     ]
     .into_iter()
@@ -955,3 +964,7 @@ fn rpc_error(id: Value, code: i64, message: &str) -> Value {
 #[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "publication_gate_tests.rs"]
+mod publication_gate_tests;

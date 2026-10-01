@@ -92,7 +92,7 @@ impl SqliteStoryRepository {
         Ok(batch)
     }
 
-    pub fn publish_modeling_batch(
+    pub(super) fn publish_modeling_batch_transaction(
         &mut self,
         request: PublishModelingBatch<'_>,
     ) -> Result<ModelingBatch, RepositoryError> {
@@ -106,10 +106,6 @@ impl SqliteStoryRepository {
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(storage_error)?;
         let batch = load_batch(&transaction, request.project_id, request.batch_id)?;
-        let assertions_json = serde_json::to_string(request.assertions)
-            .map_err(|error| RepositoryError::InvalidContent(error.to_string()))?;
-        let entities_json = serde_json::to_string(request.entities)
-            .map_err(|error| RepositoryError::InvalidContent(error.to_string()))?;
         if batch.status != "queued" && batch.status != "ready" {
             return Err(RepositoryError::ReviewChecksFailed);
         }
@@ -154,6 +150,49 @@ impl SqliteStoryRepository {
             let task = crate::tasks::load_task(&transaction, request.task_id)?;
             crate::task_input::assert_task_inputs_current(&transaction, &task)?;
         }
+        let content = transaction.query_row(
+            "SELECT content_json FROM story_revisions_v2 WHERE project_id = ?1 AND object_id = ?2 AND revision_id = ?3",
+            params![request.project_id.as_str(), batch.object_id, batch.source_revision_id],
+            |row| row.get::<_, String>(0),
+        ).map_err(storage_error)?;
+        let draft: Value =
+            serde_json::from_str(&content).map_err(|_| RepositoryError::CorruptState)?;
+        let body = draft["body"]
+            .as_str()
+            .ok_or(RepositoryError::CorruptState)?;
+        let mut entities = request.entities.to_vec();
+        let mut assertions = request.assertions.to_vec();
+        let normalized = (|| {
+            for entity in &mut entities {
+                if let Some(fields) = entity.as_object_mut() {
+                    fields.entry("aliases").or_insert_with(|| json!([]));
+                }
+            }
+            for item in entities.iter_mut().chain(&mut assertions) {
+                for key in ["evidence", "validUntilEvidence", "epistemicUntilEvidence"] {
+                    if let Some(evidence) = item.get_mut(key) {
+                        *evidence = crate::source_evidence::resolve(evidence, body)?;
+                    }
+                }
+            }
+            Ok::<_, RepositoryError>(())
+        })();
+        if let Err(error) = normalized {
+            crate::recovery_operations::reject_operation(
+                &transaction,
+                self.recovery_operation.as_ref(),
+                request.project_id,
+                request.task_id,
+                "publish_knowledge_batch",
+            )?;
+            transaction.commit().map_err(storage_error)?;
+            return Err(error);
+        }
+        let request = PublishModelingBatch {
+            entities: &entities,
+            assertions: &assertions,
+            ..request
+        };
         if batch.status == "ready" {
             let publisher: Option<String> = transaction
                 .query_row(
@@ -177,18 +216,16 @@ impl SqliteStoryRepository {
                 transaction.commit().map_err(storage_error)?;
                 return Ok(batch);
             }
+            crate::recovery_operations::reject_operation(
+                &transaction,
+                self.recovery_operation.as_ref(),
+                request.project_id,
+                request.task_id,
+                "publish_knowledge_batch",
+            )?;
+            transaction.commit().map_err(storage_error)?;
             return Err(RepositoryError::IdempotencyConflict);
         }
-        let content = transaction.query_row(
-            "SELECT content_json FROM story_revisions_v2 WHERE project_id = ?1 AND object_id = ?2 AND revision_id = ?3",
-            params![request.project_id.as_str(), batch.object_id, batch.source_revision_id],
-            |row| row.get::<_, String>(0),
-        ).map_err(storage_error)?;
-        let draft: Value =
-            serde_json::from_str(&content).map_err(|_| RepositoryError::CorruptState)?;
-        let body = draft["body"]
-            .as_str()
-            .ok_or(RepositoryError::CorruptState)?;
         let chars = body.chars().collect::<Vec<_>>();
         if let Err(error) = validate_payload(request.entities, request.assertions, &chars) {
             if matches!(error, RepositoryError::InvalidContent(_)) {
@@ -211,6 +248,10 @@ impl SqliteStoryRepository {
             request.assertions,
             request.entities,
         )?;
+        let assertions_json = serde_json::to_string(request.assertions)
+            .map_err(|error| RepositoryError::InvalidContent(error.to_string()))?;
+        let entities_json = serde_json::to_string(request.entities)
+            .map_err(|error| RepositoryError::InvalidContent(error.to_string()))?;
         for entity in request.entities {
             let id = entity["id"].as_str().ok_or(RepositoryError::CorruptState)?;
             let kind = entity["kind"]

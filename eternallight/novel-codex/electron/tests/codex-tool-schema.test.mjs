@@ -111,7 +111,7 @@ test("Codex forwards the novel knowledge schema without dropping source evidence
   const schema = result.tool.parameters ?? result.tool.function?.parameters;
   assert.ok(schema, "published tool has no parameters");
   assert.ok(Buffer.byteLength(JSON.stringify(schema)) <= 5000, "Codex forwarded an oversized knowledge schema");
-  assert.deepEqual(schema.$defs.E.required, ["quote", "start", "end"]);
+  assert.deepEqual(schema.$defs.E.required, ["quote"]);
   assert.ok(schema.required.includes("entities") && schema.required.includes("assertions"));
   const event = schema.properties.assertions.items.anyOf.find(item => item.properties.kind.enum?.includes("event"));
   assert.deepEqual(event.properties.value.required, ["participants", "preconditions", "effects", "untilExclusive"]);

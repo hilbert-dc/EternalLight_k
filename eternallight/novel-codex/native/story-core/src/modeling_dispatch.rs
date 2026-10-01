@@ -103,4 +103,4 @@ fn storage_error(error: rusqlite::Error) -> RepositoryError {
 
 #[cfg(test)]
 #[path = "modeling_dispatch_tests.rs"]
-mod tests;
+pub(crate) mod tests;

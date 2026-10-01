@@ -7,7 +7,7 @@ fn evidence() -> Value {
 pub(super) fn definitions() -> Value {
     json!({
         "E":{"type":"object","additionalProperties":false,
-            "required":["quote","start","end"],"properties":{
+            "required":["quote"],"description":"Copy an exact source quote. Runtime resolves unique quotes to Unicode offsets. For repeated quotes supply both exact start and end; never guess offsets.","properties":{
                 "quote":{"type":"string","minLength":1,"maxLength":2000},
                 "start":{"type":"integer","minimum":0},"end":{"type":"integer","minimum":1}}},
         "I":{"type":"string","minLength":1,"maxLength":160},

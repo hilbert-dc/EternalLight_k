@@ -343,7 +343,7 @@ test("chat streaming rejects provider errors after an apparent tool finish", asy
   const context = chatCompletionsCodec.createRequest(request, connection("chat-completions"), "secret").context;
   await assert.rejects(async () => {
     for await (const _event of chatCompletionsCodec.parseStream(new Response(stream).body, context)) { /* consume */ }
-  }, /provider disconnected/);
+  }, /chat-completions provider returned an error frame/);
 });
 
 test("protocol usage and output limits remain conservative and explicit", () => {

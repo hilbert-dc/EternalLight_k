@@ -17,7 +17,8 @@ import { CodexAppServerAdapter } from "../codex-adapter.mjs";
 import { persistTaskFinalReply } from "../agent-final-reply.mjs";
 import { taskProviderBudgetOptions } from "../task-provider-budget.mjs";
 import { taskAuthorPrompt } from "../workflow-handoff.mjs";
-import { advisoryTaskTarget, preflightRevisionRepair } from "../revision-repair-handlers.mjs";
+import { advisoryTaskTarget, preflightRevisionRepair, REVISION_REPAIR_INSTRUCTIONS } from "../revision-repair-handlers.mjs";
+import { createMcpStartupWaiter } from "./helpers/mcp-startup.mjs";
 
 const suffix = process.platform === "win32" ? ".exe" : "";
 const nativeBinary = (name) => fileURLToPath(new URL(`../../native/target/debug/${name}${suffix}`, import.meta.url));
@@ -71,14 +72,15 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
     runtime.once("exit", () => reject(new Error("Story Runtime exited before listening")));
     runtime.stdin.end(`${JSON.stringify({ authorToken, candidateToken })}\n`);
   });
-  const request = async (method, path, payload, actor = authorToken) => {
+  const request = async (method, path, payload, actor = authorToken, expectedStatus = null) => {
     enterStage(`${method} ${path}`);
     const response = await fetch(`${origin}${path}`, { method, headers: {
       authorization: `Bearer ${actor}`, "content-type": "application/json",
       ...(actor === candidateToken ? { "x-novel-task-capability": capability } : {}),
     }, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) });
     const value = await response.json();
-    assert.ok(response.ok, `${method} ${path}: ${response.status} ${JSON.stringify(value)}`);
+    if (expectedStatus === null) assert.ok(response.ok, `${method} ${path}: ${response.status} ${JSON.stringify(value)}`);
+    else assert.equal(response.status, expectedStatus, JSON.stringify(value));
     return value;
   };
   const authorRuntimeRequest = (path, options = {}) => request(options.method ?? "GET", path,
@@ -102,9 +104,17 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
   const revisedPayload = { ...originalPayload,
     body: "林夕走进港口。\n\n---\n\n她将密函藏进衣襟。\n\n---\n\n白塔熄灭。",
     sceneGroups: originalPayload.sceneGroups.map((group) => group.id === "letter" ? { ...group, body: "她将密函藏进衣襟。" } : group) };
+  const repairedScene = "她将密函藏进衣襟，决定亲自留下证词。";
+  const repairedPayload = { ...revisedPayload,
+    body: "林夕走进港口。\n\n---\n\n" + repairedScene + "\n\n---\n\n白塔熄灭。",
+    sceneGroups: revisedPayload.sceneGroups.map(group => group.id === "letter" ? { ...group, body: repairedScene } : group) };
+  const repairGoals = [{ id: "testify-motive", criterion: "藏信场景明确林夕主动留下证词的动机", groupIds: ["letter"] }];
+  let repairTarget;
+  let repairAction;
+  let frozenRepairInput;
   const nextPayload = { chapterNumber: 2, title: "未寄出的信",
-    body: "林夕摸到衣襟里的密函，决定继续藏着它。",
-    sceneGroups: [{ id: "opening-two", sceneId: "scene-two", body: "林夕摸到衣襟里的密函，决定继续藏着它。", locked: false }] };
+    body: "林夕摸到衣襟里的密函，决定亲自为未来留下证词。",
+    sceneGroups: [{ id: "opening-two", sceneId: "scene-two", body: "林夕摸到衣襟里的密函，决定亲自为未来留下证词。", locked: false }] };
   const grants = new Map();
   const taskRequest = async (operation, threadId, taskTarget, authorIntent = "只把密函场景的烧信改成藏信，保留其他场景和锁定正文", inputRevision = 0) => {
     const workspace = await request("GET", `${base}/creative-workspace`);
@@ -180,18 +190,24 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
         const value = JSON.parse(output.slice(output.indexOf("Output:") + 7).trim());
         if (active.stage === 1) {
           const context = JSON.stringify(value);
-          assert.ok(context.includes(["writer", "discussion"].includes(active.kind) ? "她烧掉密函。"
-            : active.kind === "model-next" ? nextPayload.body : "她将密函藏进衣襟。"));
+          const expectedBody = ["writer", "discussion"].includes(active.kind) ? "她烧掉密函。"
+            : active.kind === "model-next" ? nextPayload.body
+              : ["repair-model", "repair-outcome", "planner", "continuation", "assessment", "extraction"].includes(active.kind)
+                ? repairedScene : "她将密函藏进衣襟。";
+          assert.ok(context.includes(expectedBody), active.kind + " must receive its actual source body");
           if (active.kind === "planner") {
             assert.ok(context.includes(active.sourceRevisionId), "the rolling planner must read the revised source");
             assert.ok(context.includes('"hidden"'), "the rolling planner must read remodeled knowledge");
             assert.ok(!context.includes('"burned"'), "the rolling planner must not use stale knowledge");
+            assert.ok(context.includes('"testify"'), "the rolling planner must use the second revision's motive knowledge");
           }
           if (active.kind === "continuation") {
             assert.ok(context.includes(active.sourceRevisionId), "the next writer must read the revised source");
             assert.ok(context.includes('"hidden"'), "the next writer must receive remodeled knowledge");
             assert.ok(!context.includes('"burned"'), "stale knowledge cannot be treated as current context");
             assert.ok(!context.includes("她烧掉密函。"), "the replaced draft must not reenter the writer context");
+            assert.ok(!context.includes("她将密函藏进衣襟。"), "the first revision must not replace the author's repaired source");
+            assert.ok(context.includes('"testify"'), "the next writer must receive the remodeled motive");
           }
           if (active.kind === "assessment") {
             assert.ok(context.includes(active.chapterId), "the assessment must read its bound chapter");
@@ -202,7 +218,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
             assert.ok(context.includes(target.desiredOutcomes[0].criterion), "assessment must receive approved goals");
             assert.ok(context.includes(active.target.writerTaskId), "assessment must bind the actual writer");
           }
-          if (active.kind === "repair-discussion") {
+          if (["repair-discussion", "repair-proposal"].includes(active.kind)) {
             const input = value.operationContext.revisionRepairInput;
             assert.equal(input.authority, "candidateAnalysis");
             assert.deepEqual(input.source, active.target.revisionRepairSource);
@@ -211,14 +227,47 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
             assert.equal(value.operationContext.inputManifest?.revisionRepairInput, undefined,
               "the mandatory pack must not be duplicated in the manifest");
           }
+          if (["repair-writer", "repair-model", "repair-outcome"].includes(active.kind)) {
+            assert.deepEqual(value.operationContext.revisionRepairInput, frozenRepairInput,
+              "own writes must preserve historical repair evidence without reactivating the old report");
+          }
+          if (active.kind === "repair-outcome") {
+            const input = value.operationContext.revisionOutcomeInput;
+            assert.deepEqual(input.desiredOutcomes, repairGoals, "evaluate the newly approved goals, not inherited old criteria");
+            assert.equal(input.beforeScenes[0].body, "她将密函藏进衣襟。");
+            assert.equal(input.afterScenes[0].body, repairedScene);
+          }
         } else if (active.stage === 2) {
-          assert.ok(value.revisionId || value.status === "ready", JSON.stringify(value));
+          if (active.kind === "repair-proposal") {
+            assert.equal(value.status, "proposed");
+            assert.deepEqual(value.target.scope, repairTarget.scope);
+            assert.deepEqual(value.target.desiredOutcomes, repairGoals);
+            repairAction = value;
+          } else assert.ok(value.revisionId || value.status === "ready", JSON.stringify(value));
         } else {
           assert.equal(value.deliveryStatus, "ready_for_review");
         }
       }
       const stages = ["advisory", "discussion", "repair-discussion"].includes(active.kind)
         ? [["read_context", { ...active.binding, purpose: "planner", budget: 24, byteBudget: 60000 }]]
+        : active.kind === "repair-proposal"
+        ? [
+            ["read_context", { ...active.binding, purpose: "planner", budget: 24, byteBudget: 60000 }],
+            ["request_candidate_task", { ...active.binding, expectedIntentRevision: 0, idempotencyKey: "repair-motive-proposal",
+              operation: "generateChapter", target: repairTarget, instruction: "只调整密函场景，让藏信与主动留下证词的动机相连" }],
+          ]
+        : active.kind === "repair-outcome"
+        ? [
+            ["read_context", { ...active.binding, purpose: "critic", budget: 24, byteBudget: 60000 }],
+            ["submit_revision_outcome", { ...active.binding, writerTaskId: active.target.writerTaskId,
+              expectedCandidateRevisionId: null, idempotencyKey: "chapter-one-repair-outcome",
+              payload: { writerTaskId: active.target.writerTaskId, chapterId: active.target.chapterId,
+                originalRevisionId: active.target.originalRevisionId, draftRevisionId: active.target.draftRevisionId,
+                knowledgeBatchId: active.target.knowledgeBatchId,
+                outcomes: [{ id: "testify-motive", status: "supported", reason: "新稿明确藏信是为了亲自留下证词",
+                  evidence: [{ groupId: "letter", quote: "决定亲自留下证词" }] }] } }],
+            ["complete_task", { ...active.binding, summary: "再次改稿的批准目标已提交候选评估" }],
+          ]
         : active.kind === "revision-outcome"
         ? [
             ["read_context", { ...active.binding, purpose: "critic", budget: 24, byteBudget: 60000 }],
@@ -228,7 +277,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
                 originalRevisionId: active.target.originalRevisionId, draftRevisionId: active.target.draftRevisionId,
                 knowledgeBatchId: active.target.knowledgeBatchId,
                 outcomes: [{ id: "retain-letter", status: "supported", reason: "新稿明确林夕主动藏信",
-                  evidence: [{ groupId: "letter", ...sourceEvidence("她将密函藏进衣襟。", "她将密函藏进衣襟。") }] }] } }],
+                  evidence: [{ groupId: "letter", quote: "她将密函藏进衣襟。" }] }] } }],
             ["complete_task", { ...active.binding, summary: "改稿预期已提交候选评估" }],
           ]
         : active.kind === "extraction"
@@ -264,10 +313,12 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
                   expectedEffects: [{ id: "effect-two", dimension: "knowledge", description: "密函仍由林夕保管", commitmentRefs: [] }] }] }] } }],
             ["complete_task", { ...active.binding, summary: "沿修订正文规划第二章" }],
           ]
-        : active.kind === "writer"
+        : ["writer", "repair-writer"].includes(active.kind)
         ? [
             ["read_context", { ...active.binding, purpose: "writer", readingChapter: 1, sceneOrder: 1, budget: 24, byteBudget: 60000 }],
-            ["save_draft_checkpoint", { ...active.binding, expectedCandidateRevisionId: original.revisionId, idempotencyKey: "scoped-revision", payload: revisedPayload }],
+            ["save_draft_checkpoint", { ...active.binding,
+              expectedCandidateRevisionId: active.kind === "writer" ? original.revisionId : repairTarget.scope.sourceRevisionId,
+              idempotencyKey: active.kind + "-revision", payload: active.kind === "writer" ? revisedPayload : repairedPayload }],
             ["complete_task", { ...active.binding, summary: "只修改密函场景" }],
           ]
         : active.kind === "continuation"
@@ -280,9 +331,8 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
           : [
             ["read_context", { ...active.binding, purpose: "critic", budget: 24, byteBudget: 60000 }],
             ["publish_knowledge_batch", { ...active.binding, batchId: active.batchId, entities: [
-              { id: "letter", kind: "item", displayName: "密函", aliases: [],
-                evidence: sourceEvidence(active.kind === "model-next" ? nextPayload.body : revisedPayload.body,
-                  active.kind === "model-next" ? "密函" : "她将密函藏进衣襟。") },
+              { id: "letter", kind: "item", displayName: "密函",
+                evidence: { quote: active.kind === "model-next" ? "密函" : active.kind === "repair-model" ? repairedScene : "她将密函藏进衣襟。" } },
               ...(active.kind === "model-next" ? [
                 { id: "linxi", kind: "character", displayName: "林夕", aliases: [], evidence: sourceEvidence(nextPayload.body, "林夕") },
                 { id: "keep-letter", kind: "event", displayName: "继续保管密函", aliases: [],
@@ -290,8 +340,12 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
               ] : []),
             ], assertions: [
               { kind: "assertion", subjectId: "letter", predicate: "action", value: "hidden",
-                evidence: sourceEvidence(active.kind === "model-next" ? nextPayload.body : revisedPayload.body,
-                  active.kind === "model-next" ? "决定继续藏着它" : "她将密函藏进衣襟。") },
+                evidence: sourceEvidence(active.kind === "model-next" ? nextPayload.body : active.kind === "repair-model" ? repairedPayload.body : revisedPayload.body,
+                  active.kind === "model-next" ? "决定亲自为未来留下证词" : active.kind === "repair-model" ? repairedScene : "她将密函藏进衣襟。") },
+              ...(active.kind === "repair-model" ? [
+                { kind: "assertion", subjectId: "letter", predicate: "motive", value: "testify",
+                  evidence: sourceEvidence(repairedPayload.body, "决定亲自留下证词") },
+              ] : []),
               ...(active.kind === "model-next" ? [
                 { kind: "event", subjectId: "keep-letter", predicate: "retainsLetter", storyTime: 2,
                   value: { participants: [{ role: "actor", entityId: "linxi" }], preconditions: [], effects: [], untilExclusive: null },
@@ -345,20 +399,25 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
         NOVEL_CODEX_CANDIDATE_TOKEN: candidateToken, NOVEL_CODEX_TASK_CAPABILITY: capability, NOVEL_CODEX_OPERATION: operation },
       model: connection.id, provider: connection.provider });
     adapters.push(adapter);
-    let ready; const started = new Promise((resolve) => { ready = resolve; });
+    let startup;
     const completedMessages = [];
     adapter.setCallbacks({ onEvent: (event) => {
+      startup?.onEvent(event);
       if (event.method === "item/completed" && event.params?.item?.type === "agentMessage") {
         completedMessages.push(event.params);
       }
       if (event.method === "mcpServer/startupStatus/updated" && event.params?.name === "novel_workspace") {
         const status = event.params?.status;
         if (["ready", "failed", "starting"].includes(status)) enterStage(`Codex ${kind}: MCP ${status}`);
-        if (status === "ready") ready();
       }
     } });
+    adapter.startProcess();
+    startup = createMcpStartupWaiter({ serverName: "novel_workspace", process: adapter.process, timeoutMs: 30_000 });
+    t.after(startup.dispose);
     enterStage(`Codex ${kind}: starting isolated session`);
     await adapter.ensureSession();
+    enterStage(`Codex ${kind}: waiting for MCP readiness`);
+    await startup.ready;
     const workspaceRevision = (await request("GET", `${base}/creative-workspace`)).revision;
     const task = await taskRequest(operation, adapter.threadId, taskTarget, authorIntent, workspaceRevision);
     if (kind === "discussion") {
@@ -389,11 +448,11 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
     active.stage = 0;
     active.calls = [];
     active.finalText = `## ${kind} 最终回复\n\n候选改稿和来源知识已处理。\n保留密函与锁定结尾🌙`;
-    enterStage(`Codex ${kind}: waiting for MCP readiness`);
-    await started;
     const instruction = kind === "discussion" ? "分析密函场景的局部修改，遵守作者追加要求。"
       : kind === "advisory" ? "分析改稿和当前来源知识。"
-      : kind === "writer" ? "只改密函场景，保留其余正文。"
+      : ["repair-discussion", "repair-proposal"].includes(kind) ? REVISION_REPAIR_INSTRUCTIONS
+      : operation === "generateChapter" && kind !== "continuation" ? "只改密函场景，保留其余正文；严格按新批准目标执行。"
+      : operation === "assessRevisionOutcome" ? "按本次批准目标比较限定场景原稿与新稿，提交有原文证据的候选判断。"
       : kind === "planner" ? "沿新稿与当前知识规划第二章。"
         : kind === "continuation" ? "沿新稿与当前知识续写第二章。" : "按当前稿建模。";
     let result;
@@ -412,11 +471,12 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
     assert.equal(publicMessage.item.text, active.finalText);
     assert.deepEqual(result.finalReply, { itemId: publicMessage.item.id, text: active.finalText,
       truncated: false, phase: publicMessage.item.phase ?? null });
-    const outputTool = kind.startsWith("model") ? "publish_knowledge_batch" : kind === "planner" ? "save_chapter_plans"
-      : kind === "revision-outcome" ? "submit_revision_outcome"
+    const outputTool = operation === "modelKnowledge" ? "publish_knowledge_batch" : kind === "planner" ? "save_chapter_plans"
+      : operation === "assessRevisionOutcome" ? "submit_revision_outcome"
       : kind === "extraction" ? "submit_commitment_extraction" : kind === "assessment" ? "submit_scene_assessment"
         : "save_draft_checkpoint";
-    assert.deepEqual(active.calls, operation === "advisory" ? ["read_context"] : ["read_context", outputTool, "complete_task"]);
+    assert.deepEqual(active.calls, kind === "repair-proposal" ? ["read_context", "request_candidate_task"]
+      : operation === "advisory" ? ["read_context"] : ["read_context", outputTool, "complete_task"]);
     if (kind === "discussion") {
       // Keep the journey's existing scoped-action fixture; the reply itself
       // must come from the real read-only advisory turn above.
@@ -546,19 +606,100 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
   assert.deepEqual(afterRepair.chapters, readyWorkspace.chapters, "repair discussion alone must not write fiction");
   assert.equal(afterRepair.sourceDigest, readyWorkspace.sourceDigest);
   assert.equal((await request("GET", `${base}/revision-outcomes/${writer.id}`)).state, "current");
-  const decisionRequest = { decisionId: `revision-decision-${randomUUID()}`, expectedAssessmentRevisionId: outcome.revisionId,
-    expectedDecisionId: repairDecision.id, choice: "acceptRevision", note: "以后继藏信稿为依据，不等于确认 Canon" };
-  const decision = await request("POST", `${base}/revision-outcomes/${writer.id}/decisions`, decisionRequest);
-  assert.deepEqual(await request("POST", `${base}/revision-outcomes/${writer.id}/decisions`, decisionRequest), decision);
-  assert.equal((await request("GET", `${base}/revision-outcomes/${writer.id}`)).decisions[0].id, decision.id);
-  const revisionPredecessor = { writerTaskId: writer.id, assessmentRevisionId: outcome.revisionId, decisionId: decision.id };
-  const run = await request("POST", `${base}/generation-runs`, {
-    expectedProjectRevision: readyWorkspace.revision, expectedBaseSnapshotId: readyWorkspace.headSnapshotId,
-    expectedSourceDigest: readyWorkspace.sourceDigest,
-    authorIntent: "沿藏信新稿继续写第二章，不恢复烧信设定",
+  repairTarget = { ...target, scope: { ...target.scope, sourceRevisionId: draft.id }, desiredOutcomes: repairGoals };
+  const proposal = await runTask("repair-proposal", "advisory", advisoryTaskTarget({ revisionRepairSource: repairSource }),
+    undefined, "先分析藏信的动机，并提出只修改密函场景的候选方案；未经批准不要改稿。");
+  frozenRepairInput = proposal.inputManifest.revisionRepairInput;
+  const repairWorkPath = `${base}/work-tasks/${grants.get(proposal.id).workTaskId}`;
+  assert.notEqual(grants.get(proposal.id).workTaskId, preview.workTaskId);
+  assert.notEqual(grants.get(proposal.id).workTaskId, grants.get(repair.id).workTaskId);
+  const proposalWork = await request("GET", repairWorkPath);
+  assert.deepEqual(proposalWork.deliveryReport.pendingActionIds, [repairAction.id]);
+  assert.deepEqual((await request("GET", `${base}/creative-workspace`)).chapters, readyWorkspace.chapters);
+  const repairActionPath = `${base}/tasks/${proposal.id}/actions/${repairAction.id}`;
+  assert.deepEqual(await request("GET", `${repairActionPath}/permission`), { permission: null });
+  await request("POST", `${repairActionPath}/approve`, { expectedIntentRevision: 0 }, candidateToken, 401);
+  const repairClaim = { ...repairAction.target, requestedByTaskId: proposal.id, requestedActionId: repairAction.id };
+  await request("POST", `${base}/tasks`, { operation: "generateChapter", target: repairClaim,
+    inputRevision: readyWorkspace.revision, threadId: "unauthorized-repair",
+    authorIntent: proposal.inputManifest.authorIntent,
+    capabilityHash: createHash("sha256").update(capability).digest("hex"),
+    capabilityExpiresAt: Math.floor(Date.now() / 1000) + 600 }, authorToken, 400);
+  assert.deepEqual(await request("GET", repairWorkPath), proposalWork, "rejected approval/claim cannot consume attempts or budget");
+  const approval = await request("POST", `${repairActionPath}/approve`, { expectedIntentRevision: 0 });
+  assert.equal(approval.status, "queued");
+  const repairPermission = await request("GET", `${repairActionPath}/permission`);
+  assert.equal(repairPermission.permission.kind, "exactAction");
+  assert.deepEqual(repairPermission.permission.evidence.target, repairAction.target);
+  const repairedWriter = await runTask("repair-writer", "generateChapter", repairClaim);
+  assert.equal(repairedWriter.inputManifest.authorIntent, proposal.inputManifest.authorIntent);
+  assert.equal(grants.get(repairedWriter.id).workTaskId, grants.get(proposal.id).workTaskId);
+  assert.ok(grants.get(repairedWriter.id).maxRequests < grants.get(proposal.id).maxRequests);
+  const repairedWorkspace = await request("GET", `${base}/creative-workspace`);
+  const repairedDraft = repairedWorkspace.chapters[0].candidate;
+  assert.notEqual(repairedDraft.id, draft.id);
+  assert.equal(repairedDraft.body, repairedPayload.body);
+  assert.deepEqual(repairedDraft.sceneGroups.filter(group => group.id !== "letter"),
+    originalPayload.sceneGroups.filter(group => group.id !== "letter"));
+  assert.equal(repairedWorkspace.chapters[0].accepted, null);
+  const staleOutcome = await request("GET", `${base}/revision-outcomes/${writer.id}`);
+  assert.equal(staleOutcome.state, "stale");
+  assert.deepEqual(staleOutcome.assessment, outcome.assessment, "historical report cannot be rewritten by later repair");
+  assert.deepEqual(staleOutcome.decisions, [repairDecision]);
+  await assert.rejects(preflightRevisionRepair({ runtimeRequest: authorRuntimeRequest, projectId: project.id, source: repairSource }));
+  const repairNext = await request("GET", `${base}/tasks/${repairedWriter.id}/next-step`);
+  assert.deepEqual(repairNext.action, { kind: "modelKnowledge", chapterId: "chapter-one",
+    sourceRevisionId: repairedDraft.id, sourceTaskId: repairedWriter.id });
+  const repairBatch = await request("POST", `${base}/modeling-batches`, {
+    objectId: "draft-chapter-one", sourceRevisionId: repairedDraft.id,
+    expectedRevision: repairedWorkspace.revision, extractorVersion: "scoped-repair-engine-test",
+  });
+  const repairModel = await runTask("repair-model", "modelKnowledge",
+    { batchId: repairBatch.id, sourceTaskId: repairedWriter.id }, repairBatch.id);
+  const repairOutcomeStep = (await request("GET", repairWorkPath)).steps
+    .find(step => step.operation === "assessRevisionOutcome" && step.status === "queued");
+  assert.ok(repairOutcomeStep, "own draft staleness must not block the repair's next assessment");
+  const repairAssessment = await runTask("repair-outcome", "assessRevisionOutcome",
+    { ...repairOutcomeStep.target, resumeStepId: repairOutcomeStep.id });
+  for (const task of [repairModel, repairAssessment]) {
+    assert.equal(grants.get(task.id).workTaskId, grants.get(proposal.id).workTaskId);
+    assert.equal(grants.get(task.id).deadlineAt, grants.get(proposal.id).deadlineAt);
+  }
+  const repairedOutcome = await request("GET", `${base}/revision-outcomes/${repairedWriter.id}`);
+  assert.equal(repairedOutcome.state, "current");
+  assert.equal(repairedOutcome.assessment.originalRevisionId, draft.id);
+  assert.equal(repairedOutcome.assessment.draftRevisionId, repairedDraft.id);
+  assert.equal(repairedOutcome.assessment.knowledgeBatchId, repairBatch.id);
+  assert.equal(repairedOutcome.assessment.outcomes[0].id, repairGoals[0].id);
+  const repairedWork = await request("GET", repairWorkPath);
+  assert.equal(repairedWork.deliveryStatus, "ready_for_review");
+  assert.deepEqual(repairedWork.deliveryReport.pendingActionIds, []);
+  assert.deepEqual(repairedWork.deliveryReport.unsettledAttemptIds, []);
+  assert.equal(providerRequests.filter(kind => ["repair-proposal", "repair-writer", "repair-model", "repair-outcome"].includes(kind)).length,
+    15, "the entire second repair must stay within its one 16-request root allowance");
+  await rereadFinalReplies();
+  const decisionRequest = { decisionId: `revision-decision-${randomUUID()}`, expectedAssessmentRevisionId: repairedOutcome.revisionId,
+    expectedDecisionId: null, choice: "acceptRevision", note: "沿明确证词动机的新稿继续，不等于确认 Canon" };
+  const decisionPath = `${base}/revision-outcomes/${repairedWriter.id}/decisions`;
+  const decision = await request("POST", decisionPath, decisionRequest);
+  assert.deepEqual(await request("POST", decisionPath, decisionRequest), decision);
+  const revisionPredecessor = { writerTaskId: repairedWriter.id, assessmentRevisionId: repairedOutcome.revisionId, decisionId: decision.id };
+  const runRequest = {
+    expectedProjectRevision: repairedWorkspace.revision, expectedBaseSnapshotId: repairedWorkspace.headSnapshotId,
+    expectedSourceDigest: repairedWorkspace.sourceDigest,
+    authorIntent: "沿藏信和主动留下证词的新稿继续写第二章，不恢复烧信设定",
     revisionPredecessor,
     targetChapters: 1, maxTaskAttempts: 8, maxProviderRequests: 24, maxProviderTokens: 1_000_000,
     deadlineAt: Math.floor(Date.now() / 1000) + 600,
+  };
+  await request("POST", `${base}/generation-runs`, runRequest, authorToken, 409);
+  const continuationSource = await request("GET", `${base}/creative-workspace`);
+  assert.equal(continuationSource.chapters[0].candidate.id, repairedDraft.id);
+  assert.notEqual(continuationSource.sourceDigest, repairedWorkspace.sourceDigest,
+    "knowledge publication must invalidate the pre-modeling continuation source");
+  const run = await request("POST", `${base}/generation-runs`, { ...runRequest,
+    expectedProjectRevision: continuationSource.revision, expectedBaseSnapshotId: continuationSource.headSnapshotId,
+    expectedSourceDigest: continuationSource.sourceDigest,
   });
   assert.equal(run.startChapterNumber, 2);
   assert.deepEqual(run.revisionPredecessor, revisionPredecessor);
@@ -569,7 +710,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
   const planning = await request("POST", `${runPath}/next`, {});
   assert.equal(planning.action.operation, "generatePlan");
   assert.equal(planning.action.target.planFromChapter, 2);
-  await runTask("planner", "generatePlan", planning.action.target, null, "客户端不可替换：恢复烧信设定", draft.id);
+  await runTask("planner", "generatePlan", planning.action.target, null, "客户端不可替换：恢复烧信设定", repairedDraft.id);
   const materialization = await request("POST", `${runPath}/next`, {});
   assert.equal(materialization.action.kind, "materializeChapter");
   await request("POST", `${runPath}/materialize`, { expectedVersion: materialization.run.version });
@@ -579,10 +720,10 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
   const beforeContinuation = await request("GET", `${base}/creative-workspace`);
   assert.equal(beforeContinuation.chapters[1].candidate, null, "materialization must not insert a placeholder draft");
   const next = await runTask("continuation", "generateChapter", writing.action.target,
-    null, writing.action.authorIntent, draft.id);
+    null, writing.action.authorIntent, repairedDraft.id);
   const workspace = await request("GET", `${base}/creative-workspace`);
-  assert.equal(workspace.chapters[0].candidate.id, draft.id);
-  assert.equal(workspace.chapters[0].candidate.body, revisedPayload.body);
+  assert.equal(workspace.chapters[0].candidate.id, repairedDraft.id);
+  assert.equal(workspace.chapters[0].candidate.body, repairedPayload.body);
   assert.equal(workspace.chapters[1].candidate.body, nextPayload.body);
   assert.equal(workspace.chapters[1].accepted, null);
   assert.equal((await request("GET", `${base}/tasks/${next.id}/next-step`)).action, null,
@@ -630,8 +771,9 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
   const generationWork = await request("GET", `${base}/work-tasks/work-${run.id}`);
   assert.equal(generationWork.deliveryStatus, "ready_for_review");
   assert.deepEqual(generationWork.deliveryReport.unsettledAttemptIds, []);
-  assert.deepEqual([...finalReplies.keys()], ["discussion", "writer", "model", "revision-outcome", "advisory", "repair-discussion", "planner",
+  assert.deepEqual([...finalReplies.keys()], ["discussion", "writer", "model", "revision-outcome", "advisory", "repair-discussion",
+    "repair-proposal", "repair-writer", "repair-model", "repair-outcome", "planner",
     "continuation", "model-next", "extraction", "assessment"]);
   await rereadFinalReplies();
-  assert.equal(providerRequests.length, 38, "historical receipt reads must not add provider usage");
+  assert.equal(providerRequests.length, 53, "historical receipt reads must not add provider usage");
 });

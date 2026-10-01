@@ -1,4 +1,8 @@
-use super::{Control, Shared, lock, observation};
+use super::{
+    Control, Shared,
+    failure::{Failure, Outcome, status},
+    lock, observation,
+};
 use crate::{
     ChatStream, HttpEvent, HttpOptions, HttpTransport, ResponsesStream, SseDecoder, canonical,
     local_http::LocalRequest, portable, responses, responses_request,
@@ -11,36 +15,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-struct Failure {
-    message: String,
-    status: u16,
-    auth: bool,
-    downstream: Value,
-}
-impl From<String> for Failure {
-    fn from(message: String) -> Self {
-        Self {
-            message,
-            status: 502,
-            auth: false,
-            downstream: Value::Null,
-        }
-    }
-}
-impl From<&str> for Failure {
-    fn from(message: &str) -> Self {
-        message.to_owned().into()
-    }
-}
-type Outcome<T> = std::result::Result<T, Failure>;
-fn status(error: impl Into<String>, status: u16) -> Failure {
-    Failure {
-        message: error.into(),
-        status,
-        auth: false,
-        downstream: Value::Null,
-    }
-}
 enum Decoder {
     Chat(ChatStream),
     Responses(ResponsesStream),
@@ -268,6 +242,10 @@ impl Exchange<'_> {
         };
         self.context = self.identity.clone();
         self.context.as_object_mut().ok_or("invalid route identity")?.extend(json!({"runId":self.lease["runId"],"requestId":prepared["context"]["requestId"],"connectionId":self.route["connectionId"],"logicalModel":self.route["logicalModel"]}).as_object().unwrap().clone());
+        if !self.context["requestId"].is_string() {
+            self.context["requestId"] =
+                format!("{}:{}", canonical::string(&self.lease["runId"]), self.id).into();
+        }
         self.observe(
             "request",
             observation::request(&self.context, &body, &prepared),
@@ -298,7 +276,7 @@ impl Exchange<'_> {
         }
         // Reservation completion cannot be abandoned on cancellation: its id is
         // needed to refund a request that never reached the provider.
-        self.reservation=self.shared.call("reserve",json!({"budgetId":self.budget["id"],"estimatedInputTokens":estimated,"maxOutputTokens":body["max_output_tokens"]}),None)?;
+        self.reservation=self.shared.call("reserve",json!({"budgetId":self.budget["id"],"estimatedInputTokens":estimated,"maxOutputTokens":body["max_output_tokens"]}),None).map_err(Failure::reservation)?;
         self.check()?;
         self.shared
             .validate(&lock(&self.shared.execution))
@@ -392,6 +370,14 @@ impl Exchange<'_> {
                     }
                     if let Some(decoder) = &mut decoder {
                         for frame in sse.push(&chunk)? {
+                            if let Some(failure) = Failure::stream(&frame["data"]) {
+                                let data = &frame["data"];
+                                let usage = data.get("response").unwrap_or(data).get("usage");
+                                if let Some(usage) = usage.filter(|usage| !usage.is_null()) {
+                                    self.settle(usage)?;
+                                }
+                                return Err(failure);
+                            }
                             for event in decoder.push(frame)? {
                                 if buffered {
                                     frames.push(event);
@@ -413,6 +399,14 @@ impl Exchange<'_> {
         }
         if let Some(decoder) = &mut decoder {
             for frame in sse.finish()? {
+                if let Some(failure) = Failure::stream(&frame["data"]) {
+                    let data = &frame["data"];
+                    let usage = data.get("response").unwrap_or(data).get("usage");
+                    if let Some(usage) = usage.filter(|usage| !usage.is_null()) {
+                        self.settle(usage)?;
+                    }
+                    return Err(failure);
+                }
                 frames.extend(decoder.push(frame)?);
             }
             frames.extend(decoder.finish()?);
@@ -473,7 +467,16 @@ impl Exchange<'_> {
                             .iter()
                             .any(|word| marker.contains(word)),
                     downstream: payload,
+                    budget_code: None,
+                    stream_code: None,
+                    retryable: true,
                 });
+            }
+            if let Some(failure) = Failure::stream(&payload) {
+                if !payload["usage"].is_null() {
+                    self.settle(&payload["usage"])?;
+                }
+                return Err(failure);
             }
             let canonical = if protocol == "responses" {
                 responses::decode(&payload, &prepared["context"])?
@@ -518,6 +521,15 @@ impl Exchange<'_> {
         if !self.context.is_null() {
             let mut observation = self.context.clone();
             observation.as_object_mut().unwrap().extend(json!({"status":"failed","errorCategory":if error.auth{"authentication"}else if timed_out{"timeout"}else if cancelled{"cancelled"}else{"bridge"},"errorMessage":error.message.chars().take(500).collect::<String>(),"errorStatusCode":error.status,"outputTypes":[],"toolNames":[],"toolCalls":[],"textCharacters":0,"textLooksLikeToolCall":false}).as_object().unwrap().clone());
+            observation["errorCode"] = error.diagnostic_code().into();
+            if error.stream_code.is_some() {
+                observation["errorCategory"] = "provider".into();
+                observation["retryable"] = error.retryable.into();
+            }
+            if let Some(code) = error.budget_code {
+                observation["errorCategory"] = "budget".into();
+                observation["errorCode"] = code.into();
+            }
             let _ = self.shared.call("response", observation, None);
         }
         if error.auth {
@@ -532,6 +544,16 @@ impl Exchange<'_> {
             let _=self.shared.call("qualification",json!({"connectionId":self.route["connectionId"],"credentialRef":self.route["credentialRef"],"environmentDigest":self.route["environmentDigest"],"protocol":self.route["protocol"],"statusCode":error.status}),None);
         }
         if self.headers_sent {
+            if let Some(code) = error.stream_code {
+                // The upstream core understands invalid_prompt as terminal, and
+                // server_error as retryable. Do not turn output limits into a
+                // disconnected stream that blindly replays the same request.
+                let event = json!({"type":"response.failed","response":{"status":"failed","error":{"code":if error.retryable {"server_error"} else {"invalid_prompt"},"message":code},"output":[]}});
+                if self.event(&event).is_ok() {
+                    lock(&self.shared.server).end(self.id);
+                    return;
+                }
+            }
             lock(&self.shared.server).abort(self.id);
             return;
         }
@@ -539,10 +561,21 @@ impl Exchange<'_> {
             (504, "downstream request timed out", "timeout")
         } else if cancelled {
             (499, "request cancelled", "cancelled")
+        } else if error.budget_code.is_some() {
+            (error.status, error.message.as_str(), "budget_exhausted")
         } else {
             (error.status, error.message.as_str(), "bridge_error")
         };
         let mut payload = json!({"error":{"message":message,"type":kind}});
+        if let Some(code) = error.budget_code {
+            payload["error"]["code"] = code.into();
+            payload["error"]["retryable"] = false.into();
+        }
+        if let Some(code) = error.stream_code {
+            payload["error"]["type"] = "provider_stream_error".into();
+            payload["error"]["code"] = code.into();
+            payload["error"]["retryable"] = error.retryable.into();
+        }
         if !error.downstream.is_null() {
             payload["error"]["downstream"] = error.downstream;
         }

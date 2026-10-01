@@ -102,13 +102,5 @@ fn parse_block(bytes: &[u8]) -> Result<Option<Value>> {
     }
     let payload: Value =
         serde_json::from_str(&data).map_err(|_| "invalid JSON in provider stream")?;
-    if !payload["error"].is_null() {
-        return Err(payload["error"]["message"]
-            .as_str()
-            .unwrap_or("provider stream returned an error frame")
-            .chars()
-            .take(512)
-            .collect());
-    }
     Ok(Some(json!({"data":payload})))
 }

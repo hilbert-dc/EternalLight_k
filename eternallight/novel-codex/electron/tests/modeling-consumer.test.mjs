@@ -50,6 +50,7 @@ test("production automatic dispatch reuses the bound task runner and completion 
   const command=`${process.execPath} ${fileURLToPath(new URL("./fixture-app-server.mjs",import.meta.url))}`;
   const {handlers,adapter,modelingConsumer}=await mainHandlers(async(path,body)=>{
     requests.push({path,body});
+    if(path.endsWith("/final-reply"))return {taskId:"task-auto",projectId:"project",binding:body};
     if(path.endsWith("/dispatch"))return {action:{workTaskId:work.id}};
     if(path.endsWith("/budget-authorization"))return {authorization:{deadlineAt}};
     if(path.endsWith("/provider-budget"))return {taskId:"task-auto",workTaskId:work.id,budgetId:"budget-task-auto",maxRequests:3,maxTokens:700,deadlineAt};
@@ -103,6 +104,7 @@ test("unfunded automatic work pauses, then author confirms and executes the same
   const state = { confirmations: [], budgets: [] };
   const command = `${process.execPath} ${fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url))}`;
   const { handlers, adapter, modelingConsumer } = await mainHandlers(async (path, body) => {
+    if (path.endsWith("/final-reply")) return { taskId: "task-auto", projectId: "project", binding: body };
     if (path.endsWith("/dispatch")) return { action: { workTaskId: work.id } };
     if (path.endsWith("/budget-authorization")) {
       if (body) { assert.equal(body.expectedVersion, work.version); authorization = body; work.version++; return {}; }

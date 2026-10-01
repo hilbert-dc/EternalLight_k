@@ -8,6 +8,24 @@ import { CodexAppServerAdapter } from "../codex-adapter.mjs";
 const fixture = fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url));
 const command = `${process.execPath} ${join("", fixture)}`;
 
+test("logical model routes are independent of supplier model labels and update on configuration", async () => {
+  const adapter = new CodexAppServerAdapter({ command, model: "supplier-model", modelRoute: "connection-one", provider: "fixture" });
+  const requested = [];
+  const request = adapter.request.bind(adapter);
+  adapter.request = (method, params) => { if (method === "thread/start") requested.push(params.model); return request(method, params); };
+  try {
+    await adapter.ensureSession();
+    assert.equal(adapter.status().model, "supplier-model");
+    adapter.configure({ command, cwd: adapter.cwd });
+    await adapter.ensureSession();
+    assert.equal(adapter.status().model, "supplier-model");
+    adapter.configure({ command, model: "supplier-model-two", modelRoute: "connection-two", provider: "fixture" });
+    await adapter.ensureSession();
+    assert.equal(adapter.status().model, "supplier-model-two");
+    assert.deepEqual(requested, ["connection-one", "connection-one", "connection-two"]);
+  } finally { await adapter.close(); }
+});
+
 test("starts a fresh DeepSeek App Server without desktop authentication", async () => {
   const adapter = new CodexAppServerAdapter({ command, model: "deepseek-flash", provider: "deepseek", env: { PATH: process.env.PATH } });
   await adapter.ensureInitialized();

@@ -40,6 +40,10 @@ test("native MCP knowledge contract preserves structured candidates through the 
       value: { participants: [{ role: "item", entityId: "letter" }], preconditions: [], effects: [], untilExclusive: null } }] };
   const response = value => ({ id: "response", status: "completed", output: [{ type: "function_call", call_id: "call", name: tool.name, arguments: JSON.stringify(value) }] });
   assert.deepEqual(codec.parseResponse(response(args), prepared.context), response(args));
+  const quotes = structuredClone(args);
+  for (const item of [...quotes.entities, ...quotes.assertions]) item.evidence = { quote: evidence.quote };
+  delete quotes.entities[0].aliases;
+  assert.deepEqual(codec.parseResponse(response(quotes), prepared.context), response(quotes));
   for (const assertion of [
     { kind: "assertion", subjectId: "letter", predicate: "action", value: "hidden", evidence },
     { kind: "state", subjectId: "letter", predicate: "hidden", value: true, evidence,

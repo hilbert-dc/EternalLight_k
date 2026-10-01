@@ -126,15 +126,6 @@ pub async fn submit(step: Step<'_>) -> bool {
     if matches!(step.recovery, Recovery::Normal) {
         return false;
     }
-    let (status, paused) = call(
-        step.path,
-        "POST",
-        &format!("{}/control", step.run_uri),
-        Some(json!({"expectedVersion":step.version,"command":"pause"})),
-        /*candidate*/ false,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{paused}");
     let (status, completed) = call(
         step.path,
         "POST",
@@ -144,6 +135,15 @@ pub async fn submit(step: Step<'_>) -> bool {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{completed}");
+    let (status, paused) = call(
+        step.path,
+        "POST",
+        &format!("{}/control", step.run_uri),
+        Some(json!({"expectedVersion":step.version,"command":"pause"})),
+        /*candidate*/ false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{paused}");
     let charged = super::charge_budget(step.path, step.run_uri, step.task_id).await;
     // Every call constructs a fresh Router/repository; no in-memory completion is reused.
     let (status, resumed) = call(

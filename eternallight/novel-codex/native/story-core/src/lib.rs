@@ -78,6 +78,10 @@ mod model_dependencies;
 mod model_sources;
 mod modeling;
 mod modeling_dispatch;
+#[cfg(test)]
+#[path = "modeling_input_tests.rs"]
+mod modeling_input_tests;
+mod modeling_operation;
 mod modeling_outbox;
 mod modeling_outbox_schema;
 mod modeling_review;
@@ -128,6 +132,7 @@ mod snapshot_knowledge;
 mod snapshot_knowledge_audit_jobs;
 mod snapshot_knowledge_integrity;
 mod snapshot_state;
+mod source_evidence;
 mod source_payload_audit_schema;
 mod sqlite_repository;
 mod state_properties;
@@ -141,6 +146,10 @@ mod task_attempts;
 mod task_author_intent;
 mod task_domain_source;
 mod task_final_reply;
+mod work_modeling_recovery;
+#[cfg(test)]
+#[path = "work_modeling_recovery_tests.rs"]
+mod work_modeling_recovery_tests;
 pub use revision_continuation::RevisionPredecessor;
 pub use revision_outcome::{DesiredOutcome, StoredRevisionOutcome};
 pub use revision_outcome_decision::{

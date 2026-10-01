@@ -421,7 +421,7 @@ test("bridge task budgets are isolated between sequential task trees", async (t)
   const first = new TaskBudget({ maxRequests: 1, maxTokens: 10_000 });
   const firstActive = activateBridge(bridge, sessionPlan, first);
   assert.equal((await request()).status, 200);
-  assert.equal((await request()).status, 502);
+  assert.equal((await request()).status, 400);
   assert.equal(await bridge.endExecutionLease(firstActive.lease), true);
   assert.equal(bridge.endTaskBudget(first), true);
   assert.deepEqual({ ...first.snapshot(), id: "[BOUND]", startedAt: "[BOUND]" }, { id: "[BOUND]", requests: 1, tokens: 3, unknownTokens: 0, reservedTokens: 0, maxRequests: 1, maxTokens: 10_000, maxDurationMs: 1_800_000, startedAt: "[BOUND]", overrun: false });
@@ -459,7 +459,7 @@ test("bridge process isolates transport and preserves cancellation-safe task bud
   const lease = createExecutionLease({ sessionPlan, runId: "process-test", budgetId: budget.id });
   await bridge.beginExecutionLease(lease);
   assert.equal((await request()).status, 200);
-  assert.equal((await request()).status, 502);
+  assert.equal((await request()).status, 400);
   assert.equal(await bridge.endExecutionLease(lease), true);
   assert.equal(await bridge.endTaskBudget(budget), true);
   assert.deepEqual({ ...budget.snapshot(), id: "[BOUND]", startedAt: "[BOUND]" }, { id: "[BOUND]", requests: 1, tokens: 3, unknownTokens: 0, reservedTokens: 0, maxRequests: 1, maxTokens: 10_000, maxDurationMs: 1_800_000, startedAt: "[BOUND]", overrun: false });

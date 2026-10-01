@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { build } from "esbuild";
 import electron from "electron";
 
-test("real React repair discussion entry and App composer reject stale, dirty, running and late sources", async () => {
+test("real React repair discussion preserves author edits and recoverable sources across stale, failed and late requests", async () => {
   const directory = await mkdtemp(join(tmpdir(), "novel-revision-repair-ui-"));
   try {
     await build({ entryPoints: [fileURLToPath(new URL("./fixtures/revision-repair-ui.tsx", import.meta.url))],

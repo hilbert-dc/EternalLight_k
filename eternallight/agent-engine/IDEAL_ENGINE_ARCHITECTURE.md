@@ -178,6 +178,17 @@ ExecutionLease 绑定 run、plan、epoch、有效期及权限引用。取消先�
 
 预算以整个任务树为单位，原子预留请求数、并发、时间和 token。缺少 usage 时记录估算来源与保守值；没有可靠 tokenizer 时使用经过验证的上界。金额硬上限还依赖价格版本和供应商可核验计费，不能把本地估算当成账单保证。
 
+预算拒绝是宿主约束的终态，不是供应商临时不可用。独立 Rust Bridge 将
+token/request/duration 拒绝编码为 HTTP 400、`budget_exhausted`、固定原因码
+和 `retryable=false`，使当前 Codex 的 InvalidRequest 路径终止任务；不能仅
+依赖 retryable 字段或采用仍被 sampling 层重试的未知 HTTP 状态。验证必须
+覆盖真实 CLI 仅一次拒绝、供应商请求前拦截、预算不变，以及未知 host/供应商
+失败不被误分类。该边界修复不修改上游内核，便于继续同步官方主分支。
+
+正常回合的预算终态只有一个写入者：执行 Runtime 在获知 completed/failed/cancelled 后持久化；Bridge 的 `budget:end` 只释放绑定，不先写另一个 terminal 终态。Bridge worker 崩溃时可保守回收未结算预留并记录 `outcome-unknown`，不能抹掉未知用量或记作成功。真实进程/持久账本回归覆盖正常成功、失败和 worker 丢失，避免重复结算掩盖执行结果。
+
+内核的逻辑模型路由使用连接 ID，供应商请求编码使用供应商模型名；两者不能假设相同。产品 Adapter 保持公开模型标签与 `modelRoute` 分离，启动与切换均传连接 ID。同名 DeepSeek 配置不是通用路由正确性的证据。
+
 恢复区分只读、可幂等重试和未知写入。写入意图在调用前持久化，结果通过领域回执核对；未知写入保持待核对状态。恢复路径使用重建后的预算和新租约，历史未结算请求仍占用保守预留。
 
 ## 10. 事件与故障定位
@@ -269,6 +280,17 @@ eternallight/novel-codex/          首个产品消费者与领域 Runtime
 当前本地代码闭环已覆盖阶段 A、B、D 和 E 的主要退出条件；阶段 C 尚缺 failure/idle/recovery 的独立认证，阶段 F 尚缺候选晋升自动化与真实 macOS/Windows 发布报告。外部端点和平台报告必须真实运行，不能由本地 fixture 代替。
 
 ## 15. 对应源码与历史依据
+
+### 流式失败的确定性边界（2026-10-01）
+
+SSE decoder 只负责有界字节与 JSON 帧解析，不丢弃供应商的终止元数据。
+Bridge 在语义解码前识别 failed/incomplete/error：已报告用量先结算；
+未知用量继续保守处理，不能凭失败推断零成本。失败流中的工具项永不执行。
+诊断使用固定原因码（输出上限、过滤、上下文上限、额度、限流、服务端错误、
+未知），不记录原始错误消息或工具参数。非重试错误映射到上游已存在的终止
+路径；明确暂时性故障保留内核有界重试，不增加自主重放或模型专用内核补丁。
+这属于模型协议/执行基础层；小说发布与完成规则仍由产品 Runtime 和 MCP
+负责，不能进入通用 Bridge。
 
 - [能力契约](src/contracts/capabilities.mjs)、[解析器](src/session/resolver.mjs)、[扩展编译边界](src/session/extension-registry.mjs)
 - [连接与当前依赖摘要](src/connections/connection-spec.mjs)、[证据存储](src/capabilities/evidence-store.mjs)

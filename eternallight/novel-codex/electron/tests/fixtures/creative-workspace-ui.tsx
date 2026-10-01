@@ -247,6 +247,9 @@ async function run() {
   check(!document.querySelector(".work-reading-progress"), "Absent checkpoint invented reading progress");
   const reading = { status: "current", version: 2, pages: 2, acknowledgedCharacters: 240, traversal: "reading" };
   const readingTask = workTasks[0];
+  workTasks = [{ ...readingTask, resumeBlockReason: "pendingRecovery" }];
+  await render({ refreshToken: "pending-recovery" });
+  check(button("继续任务")?.disabled && document.body.textContent.includes("尚未核对的写入结果"), "Unknown write offered a duplicate execution or hid reconciliation guidance");
   for (const status of ["paused", "blocked", "completed", "cancelled"]) {
     workTasks = [{ ...readingTask, status, steps: [{ ...readingTask.steps[0], readingProgress: reading }] }];
     await render({ refreshToken: `reading-${status}` });

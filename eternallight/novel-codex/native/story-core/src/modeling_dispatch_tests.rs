@@ -2,7 +2,7 @@ use crate::*;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-fn source_repository() -> (SqliteStoryRepository, ProjectId) {
+pub(crate) fn source_repository() -> (SqliteStoryRepository, ProjectId) {
     let mut repo = SqliteStoryRepository::in_memory().unwrap();
     let project = ProjectId::parse("dispatch-rollback").unwrap();
     repo.create_project(

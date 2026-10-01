@@ -124,6 +124,15 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
         call(&app, "GET", &uri, AUTHOR, /*body*/ None).await.1,
         paused_active
     );
+    let (status, resumed_active) = call(
+        &app,
+        "POST",
+        &format!("{uri}/control"),
+        AUTHOR,
+        Some(json!({"expectedVersion":paused_active["version"],"command":"resume"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resumed_active}");
     let (status,brief) = call(&app,"POST",&format!("{root}/artifacts/brief"),CANDIDATE,
         Some(json!({"payload":{"premise":"抄写员烧掉密函"},"expectedRevision":0,"expectedCandidateRevisionId":null,
             "idempotencyKey":"brief","taskId":task_id,"threadId":"brief"}))).await;
@@ -137,6 +146,16 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{completed}");
+    let (_, completed_run) = call(&app, "GET", &uri, AUTHOR, /*body*/ None).await;
+    let (status, paused_completed) = call(
+        &app,
+        "POST",
+        &format!("{uri}/control"),
+        AUTHOR,
+        Some(json!({"expectedVersion":completed_run["version"],"command":"pause"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{paused_completed}");
     let mut budget = PersistentBudget::new(
         &path.with_extension("budget.sqlite3"),
         task_id,

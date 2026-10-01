@@ -939,15 +939,6 @@ async fn paused_generation_reconciles_its_own_completed_output_on_resume() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{task}");
     let task_id = task["id"].as_str().unwrap();
-    let (status, paused) = call(
-        &path,
-        "POST",
-        &format!("{run_uri}/control"),
-        Some(json!({"expectedVersion": 1, "command": "pause"})),
-        false,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{paused}");
     let (status, draft) = call(
         &path,
         "POST",
@@ -970,6 +961,15 @@ async fn paused_generation_reconciles_its_own_completed_output_on_resume() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{completed}");
+    let (status, paused) = call(
+        &path,
+        "POST",
+        &format!("{run_uri}/control"),
+        Some(json!({"expectedVersion": 1, "command": "pause"})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{paused}");
     let charged = charge_budget(&path, &run_uri, task_id).await;
     let (status, resumed) = call(
         &path,

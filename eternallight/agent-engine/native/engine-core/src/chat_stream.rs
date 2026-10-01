@@ -56,6 +56,9 @@ impl ChatStream {
             return Err("chat-completions stream emitted data after [DONE]".into());
         }
         let payload = &frame["data"];
+        if !payload["error"].is_null() {
+            return Err("chat-completions provider returned an error frame".into());
+        }
         let mut events = Vec::new();
         if self.id.is_none() {
             self.id = Some(
