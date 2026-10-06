@@ -117,6 +117,19 @@ fn map_api_error_details(err: ApiError) -> CodexErr {
                     }
                 }
 
+                // A controlled bridge rejects its conservative wire input
+                // before dispatch. Expose context semantics so compaction can
+                // reduce history; never turn this into a blind HTTP retry.
+                if status == http::StatusCode::BAD_REQUEST
+                    && let Ok(parsed) = serde_json::from_str::<Value>(&body_text)
+                    && let Some(error) = parsed.get("error")
+                    && error.get("code").and_then(Value::as_str)
+                        == Some("context_input_budget_exceeded")
+                    && error.get("retryable").and_then(Value::as_bool) == Some(false)
+                {
+                    return CodexErr::ContextWindowExceeded;
+                }
+
                 if (status == http::StatusCode::BAD_REQUEST
                     || status == http::StatusCode::FORBIDDEN)
                     && let Ok(parsed) = serde_json::from_str::<Value>(&body_text)

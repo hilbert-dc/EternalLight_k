@@ -500,6 +500,27 @@ fn map_api_error_keeps_other_400_errors_generic() {
 }
 
 #[test]
+fn bridge_wire_context_limit_enables_compaction_without_blind_retries() {
+    let body = serde_json::json!({"error": {
+        "message": "encoded request exceeds the route input budget",
+        "code": "context_input_budget_exceeded", "retryable": false
+    }})
+    .to_string();
+    let err = map_api_error(ApiError::Transport(TransportError::Http {
+        retry_after: None,
+        status: http::StatusCode::BAD_REQUEST,
+        url: Some("http://127.0.0.1:1234/responses".into()),
+        headers: None,
+        body: Some(body),
+    }));
+    assert!(matches!(
+        err.details(),
+        CodexErrorDetails::ContextWindowExceeded
+    ));
+    assert_eq!(err.retry_delay(1), None);
+}
+
+#[test]
 fn map_api_error_distinguishes_http_quota_errors_from_rate_limits() {
     for error in [
         serde_json::json!({"type": "insufficient_quota"}),
