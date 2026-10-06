@@ -16,6 +16,7 @@ enum Phase {
 enum Request {
     Start,
     Command(u64, String),
+    Renew(u64, Value),
     Heartbeat,
     Close,
 }
@@ -47,6 +48,7 @@ pub struct BridgeSupervisor {
     pid: Value,
     budget: Value,
     lease: Value,
+    revoked: bool,
     invalidated: bool,
     recovering: bool,
     recovery_error: Value,
@@ -87,6 +89,7 @@ impl BridgeSupervisor {
             pid: Value::Null,
             budget: Value::Null,
             lease: Value::Null,
+            revoked: false,
             invalidated: false,
             recovering: false,
             recovery_error: Value::Null,
@@ -166,6 +169,7 @@ impl BridgeSupervisor {
                 }
             }
             "cancel" => {
+                self.revoked = true;
                 if self.phase == Phase::Stopped {
                     self.resolve(id, 0.into());
                 } else {
@@ -188,7 +192,18 @@ impl BridgeSupervisor {
                     return Err("an execution lease is already active".into());
                 }
                 self.lease = params.clone();
+                self.revoked = false;
                 self.request(method, params.clone(), Request::Command(id, method.into()))?;
+            }
+            "lease:renew" => {
+                self.running()?;
+                if self.revoked || self.lease.is_null() {
+                    return Err("execution lease has been revoked".into());
+                }
+                crate::renewal::execution(
+                    &json!({"currentLease":self.lease,"previousPlan":self.options["sessionPlan"],"sessionPlan":params["sessionPlan"],"lease":params["lease"],"epoch":self.lease["epoch"],"now":crate::renewal::now_ms()?}),
+                )?;
+                self.request(method, params.clone(), Request::Renew(id, params.clone()))?;
             }
             "lease:end" => {
                 if self.lease.is_null() || self.lease["leaseId"] != params["leaseId"] {

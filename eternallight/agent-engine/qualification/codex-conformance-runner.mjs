@@ -40,10 +40,12 @@ function boundedFailure(error) {
 }
 
 export class CodexConformanceRunner {
-  constructor({ baseEnvironment = process.env, baseInstructions, command, cwd, nodeCommand = process.execPath, mcpPath = DEFAULT_MCP_PATH, timeoutMs = 90_000, runProbe = null }) {
+  constructor({ baseEnvironment = process.env, baseInstructions, developerInstructions, subagentDeveloperInstructions, command, cwd, nodeCommand = process.execPath, mcpPath = DEFAULT_MCP_PATH, timeoutMs = 90_000, runProbe = null }) {
     if (!Array.isArray(command) || command.length === 0) throw new Error("conformance runner requires the current Codex App Server command");
     if (typeof baseInstructions !== "string" || !baseInstructions.trim()) throw new Error("conformance runner requires upstream Codex instructions");
     this.baseInstructions = baseInstructions;
+    this.developerInstructions = developerInstructions;
+    this.subagentDeveloperInstructions = subagentDeveloperInstructions;
     this.baseEnvironment = isolatedEnvironment(baseEnvironment);
     this.command = command;
     this.cwd = cwd;

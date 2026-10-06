@@ -14,7 +14,7 @@ for (const Bridge of [ModelBridge, ModelBridgeProcess]) {
       const bridge = new Bridge({ sessionPlan, connections: [connection], credentialResolver: async () => "fixture",
         responseObserver: value => observations.push(value) });
       t.after(() => bridge.close());
-      const budget = new TaskBudget({ maxRequests: reason === "requests" ? 1 : 8, maxTokens: 170000 });
+      const budget = new TaskBudget({ maxRequests: reason === "requests" ? 1 : 8, maxTokens: 170000, maxDurationMs: 1000 });
       // Reproduce the real modeler's ledger, including non-refundable unknown usage.
       if (reason === "tokens") {
         budget.observeUsage({ total_tokens: 130979 });

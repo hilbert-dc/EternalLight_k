@@ -26,7 +26,7 @@ struct Turn {
     state: AppServerTurn,
     input: Value,
     options: Value,
-    deadline: u64,
+    deadline: Option<u64>,
     sent: bool,
     created_thread: bool,
 }
@@ -62,6 +62,9 @@ impl AppClient {
             return Err("App Server model is required".into());
         }
         for field in ["requestTimeoutMs", "turnTimeoutMs"] {
+            if field == "turnTimeoutMs" && options[field].is_null() {
+                continue;
+            }
             if options[field]
                 .as_u64()
                 .is_none_or(|v| v == 0 || v > 86_400_000)
@@ -190,9 +193,9 @@ impl AppClient {
                     state: AppServerTurn::default(),
                     input: params["input"].clone(),
                     options: params["options"].clone(),
-                    deadline: self
-                        .now
-                        .saturating_add(self.options["turnTimeoutMs"].as_u64().unwrap_or(600_000)),
+                    deadline: self.options["turnTimeoutMs"]
+                        .as_u64()
+                        .map(|duration| self.now.saturating_add(duration)),
                     sent: false,
                     created_thread: self.thread.is_none(),
                 });

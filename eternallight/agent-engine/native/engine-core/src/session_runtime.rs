@@ -120,6 +120,30 @@ impl SessionRuntime {
                 execution.revoked = true;
                 Ok(Value::Null)
             }
+            "renew" => {
+                self.assert_open()?;
+                let execution = self.execution(input)?;
+                if execution.revoked {
+                    return Err("TASK_CANCELLED:Codex runtime execution was revoked".into());
+                }
+                for field in [
+                    "runId",
+                    "leaseId",
+                    "budgetId",
+                    "epoch",
+                    "rootRoute",
+                    "routeGrants",
+                    "issuedAt",
+                    "mode",
+                    "deadlineCap",
+                ] {
+                    if execution.lease[field] != input["lease"][field] {
+                        return Err("runtime renewal changed execution identity".into());
+                    }
+                }
+                execution.lease = input["lease"].clone();
+                Ok(Value::Null)
+            }
             "close" => {
                 self.closed = true;
                 if let Some(execution) = &mut self.execution {

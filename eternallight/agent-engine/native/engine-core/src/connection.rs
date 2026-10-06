@@ -97,6 +97,14 @@ pub(crate) fn define(input: &Value) -> Result<Value> {
             return Err(format!("protocolOptions.{key} is invalid"));
         }
     }
+    if let Some(effort) = options.get("reasoningEffort") {
+        if protocol != "responses" {
+            return Err("protocolOptions.reasoningEffort requires the responses protocol".into());
+        }
+        if !matches!(effort.as_str(), Some("none" | "low" | "high" | "max")) {
+            return Err("protocolOptions.reasoningEffort is invalid".into());
+        }
+    }
     let support = input
         .get("capabilitySupport")
         .filter(|v| !v.is_null())
@@ -119,3 +127,7 @@ pub(crate) fn define(input: &Value) -> Result<Value> {
         json!({"id":id,"provider":provider,"model":model,"credentialRef":credential,"protocol":protocol,"endpoint":endpoint(&input["endpoint"])? ,"declaredLimits":limits,"protocolOptions":options,"capabilitySupport":support}),
     )
 }
+
+#[cfg(test)]
+#[path = "reasoning_effort_tests.rs"]
+mod tests;

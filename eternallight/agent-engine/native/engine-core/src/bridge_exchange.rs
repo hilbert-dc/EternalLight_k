@@ -1,7 +1,7 @@
 use super::{
     Control, Shared,
     failure::{Failure, Outcome, status},
-    lock, observation,
+    lock, observation, output_failure,
 };
 use crate::{
     ChatStream, HttpEvent, HttpOptions, HttpTransport, ResponsesStream, SseDecoder, canonical,
@@ -30,6 +30,12 @@ impl Decoder {
                     stream.push(frame["data"].clone())
                 }
             }
+        }
+    }
+    fn reported_usage(&self) -> Option<Value> {
+        match self {
+            Self::Chat(stream) => output_failure::chat_usage(stream.reported_usage()),
+            Self::Responses(_) => None,
         }
     }
     fn finish(&mut self) -> crate::Result<Vec<Value>> {
@@ -70,6 +76,7 @@ pub(super) fn run(shared: &Shared, request: LocalRequest, control: &Control) {
         downstream_started: false,
     };
     if let Err(error) = exchange.execute(&request) {
+        lock(&shared.scheduler).feedback(request.id, 500);
         exchange.failure(error);
     }
     if !exchange.reservation.is_null()&&!exchange.settled
@@ -77,6 +84,7 @@ pub(super) fn run(shared: &Shared, request: LocalRequest, control: &Control) {
         *lock(&shared.settlement_failure)=Some(error);shared.cancel();
     }
     let _ = shared.call("releaseFetch", json!({"requestId":request.id}), None);
+    lock(&shared.scheduler).release(request.id);
 }
 
 impl Exchange<'_> {
@@ -189,12 +197,10 @@ impl Exchange<'_> {
                 ));
             }
             self.shared.validate(&state).map_err(|e| status(e, 403))?;
+            let plan = state.plan.clone();
             self.route = state
                 .policy
-                .apply(
-                    "route",
-                    &json!({"body":body,"sessionPlan":self.shared.options["sessionPlan"]}),
-                )
+                .apply("route", &json!({"body":body,"sessionPlan":plan}))
                 .map_err(|e| status(e, 403))?;
             self.identity = state
                 .policy
@@ -235,11 +241,13 @@ impl Exchange<'_> {
         };
         body=lock(&self.shared.execution).policy.apply("prepare",&json!({"body":body,"outputBudget":self.route["outputBudget"],"identity":self.identity,"policy":policy,"childComplete":exists("childCompletionFile"),"childPhaseReached":exists("childPhaseFile")})).map_err(|e|status(e,403))?;
         let protocol = canonical::string(&self.route["protocol"]).to_owned();
-        let prepared = if protocol == "responses" {
+        let mut prepared = if protocol == "responses" {
             responses_request::encode(&body, connection, key)?
         } else {
             portable::encode(&protocol, &body, connection, key)?
         };
+        // Private host policy, never accepted from model output or request metadata.
+        prepared["context"]["executorValidatedTools"] = self.shared.options["executorValidatedTools"].clone();
         self.context = self.identity.clone();
         self.context.as_object_mut().ok_or("invalid route identity")?.extend(json!({"runId":self.lease["runId"],"requestId":prepared["context"]["requestId"],"connectionId":self.route["connectionId"],"logicalModel":self.route["logicalModel"]}).as_object().unwrap().clone());
         if !self.context["requestId"].is_string() {
@@ -271,12 +279,33 @@ impl Exchange<'_> {
         if estimated > self.route["inputBudget"].as_u64().unwrap_or(0) {
             return Err(status(
                 "encoded request exceeds the route input budget",
-                413,
+                400,
             ));
         }
         // Reservation completion cannot be abandoned on cancellation: its id is
         // needed to refund a request that never reached the provider.
-        self.reservation=self.shared.call("reserve",json!({"budgetId":self.budget["id"],"estimatedInputTokens":estimated,"maxOutputTokens":body["max_output_tokens"]}),None).map_err(Failure::reservation)?;
+        let group = format!("{}|{}", canonical::string(&connection["endpoint"]), canonical::string(&connection["credentialRef"]));
+        let limits = &self.shared.resource_policy;
+        let provider_limit = canonical::array(&self.shared.options["connections"]).iter()
+            .filter(|c| c["endpoint"] == connection["endpoint"] && c["credentialRef"] == connection["credentialRef"])
+            .map(|c| limits["connectionLimits"][canonical::string(&c["id"])].as_u64()
+                .unwrap_or(limits["maxRequestsPerProvider"].as_u64().unwrap()))
+            .min().unwrap_or(1) as usize;
+        lock(&self.shared.scheduler).enqueue(self.id, group, provider_limit).map_err(|e| status(e,429))?;
+        while !lock(&self.shared.scheduler).admit(self.id) {
+            self.check()?;
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        loop {
+            self.check()?;
+            let reservation = self.shared.call("reserve",json!({"budgetId":self.budget["id"],"estimatedInputTokens":estimated,"maxOutputTokens":body["max_output_tokens"],"deferIfBusy":true}),None).map_err(Failure::reservation)?;
+            if reservation["waiting"] == true {
+                std::thread::sleep(Duration::from_millis(20));
+                continue;
+            }
+            self.reservation = reservation;
+            break;
+        }
         self.check()?;
         self.shared
             .validate(&lock(&self.shared.execution))
@@ -318,6 +347,7 @@ impl Exchange<'_> {
         else {
             return Err("provider did not return response headers".into());
         };
+        if !(200..300).contains(&code) { lock(&self.shared.scheduler).feedback(self.id, code); }
         if headers
             .get("content-length")
             .and_then(|s| s.parse::<usize>().ok())
@@ -349,19 +379,7 @@ impl Exchange<'_> {
             self.head(200, "text/event-stream")?;
         }
         loop {
-            let event = if let Some(native) = &mut native {
-                self.next_native(native)?
-            } else {
-                let result = self.call("fetchRead", json!({"requestId":self.id}))?;
-                if result["done"] == true {
-                    HttpEvent::End
-                } else {
-                    HttpEvent::Chunk(
-                        serde_json::from_value(result["bytes"].clone())
-                            .map_err(|_| "invalid provider response bytes")?,
-                    )
-                }
-            };
+            let event = self.next_provider_event(&mut native)?;
             match event {
                 HttpEvent::Chunk(chunk) => {
                     received = received.saturating_add(chunk.len());
@@ -369,7 +387,11 @@ impl Exchange<'_> {
                         return Err("downstream response exceeds bridge limit".into());
                     }
                     if let Some(decoder) = &mut decoder {
-                        for frame in sse.push(&chunk)? {
+                        let mut pending = sse.push(&chunk)?.into_iter();
+                        while let Some(frame) = pending.next() {
+                            if let Some(usage) = output_failure::terminal_usage(&frame).flatten() {
+                                self.settle(&usage)?;
+                            }
                             if let Some(failure) = Failure::stream(&frame["data"]) {
                                 let data = &frame["data"];
                                 let usage = data.get("response").unwrap_or(data).get("usage");
@@ -378,7 +400,24 @@ impl Exchange<'_> {
                                 }
                                 return Err(failure);
                             }
-                            for event in decoder.push(frame)? {
+                            let events = match decoder.push(frame) {
+                                Ok(events) => events,
+                                Err(message) => {
+                                    let failure = Failure::codec(message);
+                                    if failure.validation_code.is_some()
+                                        && let Some(usage) = output_failure::drain_usage(
+                                            pending.collect(),
+                                            &mut sse,
+                                            || self.next_provider_event(&mut native),
+                                            max.saturating_sub(received),
+                                        )
+                                    {
+                                        self.settle(&usage)?;
+                                    }
+                                    return Err(failure);
+                                }
+                            };
+                            for event in events {
                                 if buffered {
                                     frames.push(event);
                                 } else {
@@ -399,6 +438,9 @@ impl Exchange<'_> {
         }
         if let Some(decoder) = &mut decoder {
             for frame in sse.finish()? {
+                if let Some(usage) = output_failure::terminal_usage(&frame).flatten() {
+                    self.settle(&usage)?;
+                }
                 if let Some(failure) = Failure::stream(&frame["data"]) {
                     let data = &frame["data"];
                     let usage = data.get("response").unwrap_or(data).get("usage");
@@ -407,9 +449,12 @@ impl Exchange<'_> {
                     }
                     return Err(failure);
                 }
-                frames.extend(decoder.push(frame)?);
+                frames.extend(decoder.push(frame).map_err(Failure::codec)?);
             }
-            frames.extend(decoder.finish()?);
+            if let Some(usage) = decoder.reported_usage() {
+                self.settle(&usage)?;
+            }
+            frames.extend(decoder.finish().map_err(Failure::codec)?);
             for event in &frames {
                 if matches!(
                     event["type"].as_str(),
@@ -469,6 +514,7 @@ impl Exchange<'_> {
                     downstream: payload,
                     budget_code: None,
                     stream_code: None,
+                    validation_code: None,
                     retryable: true,
                 });
             }
@@ -478,11 +524,15 @@ impl Exchange<'_> {
                 }
                 return Err(failure);
             }
+            if let Some(usage) = output_failure::payload_usage(&protocol, &payload) {
+                self.settle(&usage)?;
+            }
             let canonical = if protocol == "responses" {
-                responses::decode(&payload, &prepared["context"])?
+                responses::decode(&payload, &prepared["context"])
             } else {
-                portable::decode(&protocol, &payload, &prepared["context"])?
-            };
+                portable::decode(&protocol, &payload, &prepared["context"])
+            }
+            .map_err(Failure::codec)?;
             let observation = observation::response(&self.context, &canonical);
             self.barrier(&observation)?;
             self.observe("response", observation);
@@ -499,8 +549,23 @@ impl Exchange<'_> {
             }
         }
         lock(&self.shared.server).end(self.id);
+        lock(&self.shared.scheduler).feedback(self.id, 200);
         Ok(())
     }
+    fn next_provider_event(&self, native: &mut Option<HttpTransport>) -> Outcome<HttpEvent> {
+        if let Some(native) = native {
+            return self.next_native(native);
+        }
+        let result = self.call("fetchRead", json!({"requestId":self.id}))?;
+        if result["done"] == true {
+            return Ok(HttpEvent::End);
+        }
+        Ok(HttpEvent::Chunk(
+            serde_json::from_value(result["bytes"].clone())
+                .map_err(|_| "invalid provider response bytes")?,
+        ))
+    }
+
     fn next_native(&self, transport: &mut HttpTransport) -> Outcome<HttpEvent> {
         loop {
             self.check()?;
@@ -522,9 +587,16 @@ impl Exchange<'_> {
             let mut observation = self.context.clone();
             observation.as_object_mut().unwrap().extend(json!({"status":"failed","errorCategory":if error.auth{"authentication"}else if timed_out{"timeout"}else if cancelled{"cancelled"}else{"bridge"},"errorMessage":error.message.chars().take(500).collect::<String>(),"errorStatusCode":error.status,"outputTypes":[],"toolNames":[],"toolCalls":[],"textCharacters":0,"textLooksLikeToolCall":false}).as_object().unwrap().clone());
             observation["errorCode"] = error.diagnostic_code().into();
+            observation["retryable"] = error.retryable.into();
             if error.stream_code.is_some() {
                 observation["errorCategory"] = "provider".into();
                 observation["retryable"] = error.retryable.into();
+            }
+            if error.item_limit_code().is_some() || error.validation_code.is_some() {
+                observation["retryable"] = false.into();
+            }
+            if error.validation_code.is_some() {
+                observation["errorCategory"] = "bridge".into();
             }
             if let Some(code) = error.budget_code {
                 observation["errorCategory"] = "budget".into();
@@ -544,11 +616,33 @@ impl Exchange<'_> {
             let _=self.shared.call("qualification",json!({"connectionId":self.route["connectionId"],"credentialRef":self.route["credentialRef"],"environmentDigest":self.route["environmentDigest"],"protocol":self.route["protocol"],"statusCode":error.status}),None);
         }
         if self.headers_sent {
-            if let Some(code) = error.stream_code {
+            if error.validation_code.is_some() {
+                // Only this bounded local diagnostic may be written after a drain deadline/cancel.
+                // Provider content and executable frames retain every normal cancellation gate.
+                let event = json!({"type":"response.failed","response":{"status":"failed","error":{"code":"invalid_prompt","message":error.message},"output":[]}});
+                let bytes = format!("event: response.failed\ndata: {event}\n\n");
+                let mut server = lock(&self.shared.server);
+                if server.write(self.id, bytes.as_bytes()).unwrap_or(false) {
+                    server.end(self.id);
+                } else {
+                    server.abort(self.id);
+                }
+                return;
+            }
+            if let Some(code) = error.stream_code.or_else(|| error.item_limit_code()) {
                 // The upstream core understands invalid_prompt as terminal, and
                 // server_error as retryable. Do not turn output limits into a
                 // disconnected stream that blindly replays the same request.
-                let event = json!({"type":"response.failed","response":{"status":"failed","error":{"code":if error.retryable {"server_error"} else {"invalid_prompt"},"message":code},"output":[]}});
+                let message = if error.item_limit_code() == Some("provider_output_item_limit") {
+                    let (_, diagnostic) = error
+                        .message
+                        .split_once("; outputItem=")
+                        .expect("classified output item diagnostic");
+                    format!("{code}; outputItem={diagnostic}")
+                } else {
+                    code.into()
+                };
+                let event = json!({"type":"response.failed","response":{"status":"failed","error":{"code":if error.retryable {"server_error"} else {"invalid_prompt"},"message":message},"output":[]}});
                 if self.event(&event).is_ok() {
                     lock(&self.shared.server).end(self.id);
                     return;
@@ -557,7 +651,9 @@ impl Exchange<'_> {
             lock(&self.shared.server).abort(self.id);
             return;
         }
-        let (code, message, kind) = if timed_out {
+        let (code, message, kind) = if error.validation_code.is_some() {
+            (400, error.message.as_str(), "bridge_error")
+        } else if timed_out {
             (504, "downstream request timed out", "timeout")
         } else if cancelled {
             (499, "request cancelled", "cancelled")
@@ -575,6 +671,14 @@ impl Exchange<'_> {
             payload["error"]["type"] = "provider_stream_error".into();
             payload["error"]["code"] = code.into();
             payload["error"]["retryable"] = error.retryable.into();
+        }
+        if let Some(code) = error.item_limit_code().or(error.validation_code) {
+            payload["error"]["code"] = code.into();
+            payload["error"]["retryable"] = false.into();
+        }
+        if error.diagnostic_code() == "context_input_budget_exceeded" {
+            payload["error"]["code"] = "context_input_budget_exceeded".into();
+            payload["error"]["retryable"] = false.into();
         }
         if !error.downstream.is_null() {
             payload["error"]["downstream"] = error.downstream;

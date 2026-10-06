@@ -494,6 +494,7 @@ test("compiles Codex config and model catalog from the frozen plan", () => {
   }]);
   assert.equal(catalog.models[0].base_instructions, "Upstream Codex test instructions.");
   assert.equal(catalog.models[0].model_messages, null);
+  assert.equal(catalog.models[0].auto_compact_token_limit, Math.floor(plan.routes[0].inputBudget * 3 / 5));
   const restrictedPlan = planFor(connection(), { productExtensions: [] });
   const restrictedCatalog = compileCodexModelCatalog(restrictedPlan, { baseInstructions: "Upstream Codex test instructions." });
   assert.equal(restrictedCatalog.models[0].multi_agent_version, null);
@@ -528,6 +529,22 @@ test("compiles Codex config and model catalog from the frozen plan", () => {
     maxConcurrentChildren: 999,
   }), /cannot override/);
   assert.throws(() => planFor(connection(), { productExtensions: [CAPABILITIES.TOOL_SEARCH], requiredExtensions: [CAPABILITIES.TOOL_SEARCH] }), /not verified/);
+});
+
+test("MCP lifecycle policy compiles caller-selected readiness and validates bounded startup deadlines", () => {
+  const input = { sessionPlan: planFor(), modelCatalogPath: "/isolated/catalog.json",
+    bridge: { baseUrl: "http://127.0.0.1:45678", credentialRef: "BRIDGE_TOKEN" } };
+  for (const [required, startupTimeoutMs, seconds] of [[true, 1250, "1.250"], [false, 30000, "30.000"]]) {
+    const config = compileCodexConfig({ ...input, mcpServers: [{ id: "workspace", command: "mcp", required, startupTimeoutMs }] });
+    assert.match(config, new RegExp(`required = ${required}`));
+    assert.match(config, new RegExp(`startup_timeout_sec = ${seconds.replace(".", "\\.")}`));
+  }
+  for (const startupTimeoutMs of [0, -1, 0.5, 300001, "90000", null]) {
+    assert.throws(() => compileCodexConfig({ ...input, mcpServers: [{ id: "workspace", command: "mcp", startupTimeoutMs }] }), /startupTimeoutMs/);
+  }
+  for (const required of ["true", 1, null]) {
+    assert.throws(() => compileCodexConfig({ ...input, mcpServers: [{ id: "workspace", command: "mcp", required }] }), /required must be a boolean/);
+  }
 });
 
 test("engine contract is explicit and stable", () => {

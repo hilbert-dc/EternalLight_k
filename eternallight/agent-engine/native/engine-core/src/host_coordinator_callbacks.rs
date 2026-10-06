@@ -16,6 +16,13 @@ impl HostCoordinator {
         if matches!(p.purpose, Purpose::Turn) {
             return self.turn_result(p, result, error);
         }
+        if matches!(p.purpose, Purpose::Renew) {
+            return self.finish_renewal(
+                p.run.as_deref().ok_or("missing renewal run")?,
+                result,
+                error,
+            );
+        }
         if let Some(message) = error["message"].as_str() {
             return Err(if error["code"] == "TASK_CANCELLED" {
                 format!("TASK_CANCELLED:{message}")
@@ -188,7 +195,7 @@ impl HostCoordinator {
                     self.resolve(id, Value::Null);
                 }
             }
-            Purpose::Turn => unreachable!(),
+            Purpose::Turn | Purpose::Renew => unreachable!(),
         }
         Ok(())
     }

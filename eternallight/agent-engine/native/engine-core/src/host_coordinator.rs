@@ -3,6 +3,8 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 #[path = "host_coordinator_callbacks.rs"]
 mod callbacks;
+#[path = "host_coordinator_renewal.rs"]
+mod renewal;
 #[path = "host_coordinator_runs.rs"]
 mod runs;
 
@@ -31,6 +33,8 @@ struct Run {
     completion: Option<Value>,
     completion_error: Option<Value>,
     completion_delivered: bool,
+    renewal: Option<(u64, Value, Value)>,
+    renewal_failed: bool,
 }
 #[derive(Clone, Copy)]
 enum Purpose {
@@ -40,6 +44,7 @@ enum Purpose {
     Ensure,
     Resume,
     Bind,
+    Renew,
     Turn,
     Revoke,
     Interrupt,
@@ -149,6 +154,9 @@ impl HostCoordinator {
                 if run.state.apply("snapshot", &Value::Null)?["terminal"] != true {
                     return Err("cannot release a non-terminal run".into());
                 }
+                if run.renewal.is_some() {
+                    return Err("cannot release a run with pending execution renewal".into());
+                }
                 self.authority.apply("release", json!({"runId":id}))?;
                 self.runs.remove(id);
                 self.pending.retain(|_, p| p.run.as_deref() != Some(id));
@@ -216,6 +224,7 @@ impl HostCoordinator {
                 }
             }
             "startRun" => self.start_run(id, input)?,
+            "renewRun" => self.renew_run(id, input)?,
             "cancelRun" => self.cancel(
                 id,
                 string(&input["runId"]),

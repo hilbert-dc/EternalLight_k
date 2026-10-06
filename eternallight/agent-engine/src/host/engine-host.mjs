@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { nativeBinding } from "../native.mjs";
 import { defineConnection } from "../connections/connection-spec.mjs";
 import { isTrustedEvidenceSnapshot } from "../capabilities/evidence-repository.mjs";
-import { resolveSessionPlan } from "../session/resolver.mjs";
+import { resolveSessionPlan, assertTrustedSessionPlan } from "../session/resolver.mjs";
 
 function freeze(value) { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } return value; }
 function errorFrom(value) {
@@ -23,6 +23,7 @@ export class AgentEngineHost {
     Object.assign(this, { evidenceProvider, qualifier, runtimeFactory, now });
     this.native = new (nativeBinding().NativeHostCoordinator)(maxRetainedEvents);
     this.bindings = new Map(); this.runBindings = new Map(); this.pending = new Map(); this.completions = new Map(); this.subscribers = new Map(); this.nextId = 0;
+    this.renewalPlans = new Map();
   }
   async inspectConnection({ connectionId, policy = {}, now = this.now() }) {
     const connection = this.connectionsById.get(connectionId);
@@ -56,6 +57,13 @@ export class AgentEngineHost {
     catch (error) { if (inserted) this.runBindings.delete(runId); throw error; }
   }
   cancelRun(runId, reason = "cancelled-by-host") { return this.#command("cancelRun", { runId, reason }); }
+  async renewRun({ runId, sessionPlan }) {
+    assertTrustedSessionPlan(sessionPlan);
+    if (this.renewalPlans.has(runId)) throw new Error("execution lease renewal is already pending");
+    this.renewalPlans.set(runId, sessionPlan);
+    try { return await this.#command("renewRun", { runId, sessionPlan }); }
+    finally { this.renewalPlans.delete(runId); }
+  }
   closeSession(sessionId) { return this.#command("closeSession", { sessionId }); }
   closeRun(runId) {
     this.#apply("closeRun", { runId });
@@ -121,6 +129,11 @@ export class AgentEngineHost {
       case "ensureSession": return binding.runtime.ensureSession();
       case "resumeSession": return binding.runtime.resumeSession(params.threadId);
       case "bindExecution": return binding.runtime.bindExecution(params);
+      case "renewExecution": {
+        // Runtime handles need the genuine compiled object, not its wire clone.
+        const sessionPlan = this.renewalPlans.get(runId);
+        return binding.runtime.renewExecution({ ...params, sessionPlan });
+      }
       case "sendTurn": return binding.runtime.sendTurn(params.input, this.runBindings.get(runId)?.turnOptions);
       case "revokeExecution": return binding.runtime.revokeExecution(params);
       case "interruptTurn": return binding.runtime.interruptTurn(params);

@@ -79,17 +79,21 @@ mod portable;
 mod recovery;
 mod recovery_contract;
 mod recovery_journal;
+mod renewal;
 pub use recovery_journal::RecoveryJournal;
 mod storage;
 pub use persistent_budget::PersistentBudget;
 pub use recovery::execute as recovery_operation;
 pub use storage::durable_replace_json;
 mod responses;
+mod request_scheduler;
 mod responses_request;
 mod schema;
 mod sse;
 mod tokens;
 mod tool_registry;
+mod tool_validation;
+mod executor_validation;
 pub use authority::ExecutionAuthority;
 pub use budget::TaskBudget;
 pub use chat_stream::ChatStream;
@@ -142,6 +146,8 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
         "contracts.profile" => contracts::profile(canonical::string(&input)),
         "lease.create" => lease::create(&input),
         "lease.validate" => lease::validate(&input),
+        "session.renew" => renewal::dispatch(&input),
+        "lease.renew" => renewal::execution(&input),
         "responses.encode" => responses_request::encode(
             &input["request"],
             &input["connection"],

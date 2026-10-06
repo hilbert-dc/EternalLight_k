@@ -7,7 +7,7 @@ impl AppClient {
             self.response(response)?;
         }
         if let Some(turn) = &mut self.turn
-            && self.now >= turn.deadline
+            && turn.deadline.is_some_and(|deadline| self.now >= deadline)
             && self.callers.contains(&turn.id)
         {
             turn.state.cancel();

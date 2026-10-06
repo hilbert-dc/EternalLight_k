@@ -1,6 +1,14 @@
 # 工具参数失败与可恢复反馈
 
-状态：原因已验证；小说工具契约收紧已实施，引擎恢复路径尚未实施。
+状态：受信执行器的同轮纠错路径已实施，验收进行中。未委托的工具保留桥接层严格拒绝。
+
+## 当前实现（2026-10-06）
+
+嵌入方可在 ModelBridge / ModelBridgeProcess 指定 `executorValidatedTools`，每项必须包含精确 namespace（可为 null）与 name。BridgeService 校验配置，Exchange 仅从宿主选项注入 codec 私有 context，不从请求或供应商读取此授权。工具身份、tool_choice、JSON 对象、大小、调用 ID 与流提交校验仍在 bridge 完成；只有参数 schema 检查移到受信执行器，调用内容与 ID 均保持原样。
+
+小说工坊先仅对 `novel_workspace.publish_knowledge_batch` 启用。原生 MCP 在发出任何业务 HTTP 请求前按完整原始 schema 校验，返回真实 `isError` 和有界结构化诊断，进入 Codex 原调用历史。三次连续 schema 错误将执行器锁死，host 依据当前 thread/turn、server、tool 的结构化终止码结束原执行；不另开智能体循环，不重置预算。其他工具、权限和未知写入恢复边界未放宽。
+
+这是执行器接入契约；未实现完整校验的工具不能加入名单。下方早期探针记录保留为历史证据；其“待实施”表述不代表本节当前状态。协议回归、实际 Codex 集成和真实供应商验收分开记录，不相互替代。
 
 ## 真实证据
 

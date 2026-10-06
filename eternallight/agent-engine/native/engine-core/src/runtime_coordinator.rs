@@ -11,6 +11,7 @@ enum Effect {
     Interrupt,
     Cleanup,
     Close,
+    Renew,
 }
 struct Pending {
     effect: Effect,
@@ -52,6 +53,7 @@ pub struct RuntimeCoordinator {
     callers: BTreeSet<u64>,
     next: u64,
     effects: Vec<Value>,
+    renewal: Option<(u64, Value, Value)>,
 }
 
 impl RuntimeCoordinator {
@@ -132,6 +134,21 @@ impl RuntimeCoordinator {
                     self.cancelled = true;
                     self.effect(Effect::Cancel, "cancel", Value::Null);
                 }
+            }
+            "renew" => {
+                self.state
+                    .apply("current", &json!({"generation":self.generation}))?;
+                if self.bind.is_some() || self.cleanup_started || self.renewal.is_some() {
+                    return Err(
+                        "runtime renewal requires a bound live execution without pending renewal"
+                            .into(),
+                    );
+                }
+                crate::renewal::execution(
+                    &json!({"currentLease":self.lease,"previousPlan":self.plan,"sessionPlan":input["sessionPlan"],"lease":input["lease"],"epoch":self.lease["epoch"],"now":crate::renewal::now_ms()?}),
+                )?;
+                self.renewal = Some((id, input["sessionPlan"].clone(), input["lease"].clone()));
+                self.effect(Effect::Renew, "leaseRenewed", json!({"lease":input["lease"],"sessionPlan":input["sessionPlan"],"commandId":id}));
             }
             "close" => {
                 self.closes.push(id);
@@ -235,6 +252,41 @@ impl RuntimeCoordinator {
                     self.close_error = error;
                 }
             }
+            Effect::Renew => {
+                let (id, plan, lease) = self.renewal.clone().ok_or("missing runtime renewal")?;
+                let result = (|| -> Result<()> {
+                    if let Some(error) = error {
+                        return Err(error);
+                    }
+                    self.state
+                        .apply("current", &json!({"generation":self.generation}))?;
+                    if input["result"] != lease {
+                        return Err("bridge returned an invalid renewed lease".into());
+                    }
+                    crate::renewal::execution(
+                        &json!({"currentLease":self.lease,"previousPlan":self.plan,"sessionPlan":plan,"lease":lease,"epoch":self.lease["epoch"],"now":crate::renewal::now_ms()?}),
+                    )?;
+                    if p.step == "leaseRenewed" {
+                        self.effect(
+                            Effect::Renew,
+                            "appRenewed",
+                            json!({"lease":lease,"sessionPlan":plan,"commandId":id}),
+                        );
+                        return Ok(());
+                    }
+                    self.state.apply(
+                        "renew",
+                        &json!({"generation":self.generation,"lease":lease}),
+                    )?;
+                    self.plan = plan;
+                    self.lease = lease.clone();
+                    Ok(())
+                })();
+                if result.is_err() || p.step == "appRenewed" {
+                    self.renewal = None;
+                    self.reply(id, lease, result.err());
+                }
+            }
         }
         Ok(())
     }
@@ -277,7 +329,12 @@ impl RuntimeCoordinator {
                     .any(|p| matches!(p.effect, Effect::Turn));
             let settle =
                 self.binding_error.is_some() || turn_done || (self.closing && self.interrupt_done);
-            if settle && !acquiring && revoke_done && (!self.closing || self.interrupt_done) {
+            if settle
+                && !acquiring
+                && self.renewal.is_none()
+                && revoke_done
+                && (!self.closing || self.interrupt_done)
+            {
                 if !self.cleanup_started {
                     self.cleanup_started = true;
                     self.cleanup = self

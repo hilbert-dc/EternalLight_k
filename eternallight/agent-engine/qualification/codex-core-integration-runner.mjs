@@ -5,10 +5,10 @@ import { runNativeQualification } from "./native-run.mjs";
 const DEFAULT_MCP_PATH = fileURLToPath(new URL("./core-conformance-mcp.mjs", import.meta.url));
 
 export class CodexCoreIntegrationRunner {
-  constructor({ baseEnvironment = process.env, baseInstructions, command, cwd, nodeCommand = process.execPath, mcpPath = DEFAULT_MCP_PATH, timeoutMs = 60_000 }) {
+  constructor({ baseEnvironment = process.env, baseInstructions, developerInstructions, subagentDeveloperInstructions, command, cwd, nodeCommand = process.execPath, mcpPath = DEFAULT_MCP_PATH, timeoutMs = 60_000 }) {
     if (!Array.isArray(command) || command.length === 0) throw new Error("core integration runner requires the current Codex App Server command");
     if (typeof baseInstructions !== "string" || !baseInstructions.trim()) throw new Error("core integration runner requires upstream Codex instructions");
-    Object.assign(this, { baseEnvironment, baseInstructions, command, cwd, nodeCommand, mcpPath, timeoutMs });
+    Object.assign(this, { baseEnvironment, baseInstructions, developerInstructions, subagentDeveloperInstructions, command, cwd, nodeCommand, mcpPath, timeoutMs });
   }
   async verify({ apiKey, connection, credentialScope = connection.credentialRef, protocol, probeEvidence, qualificationContextDigest = "default", now = new Date() }) {
     const sessionPlan = resolveSessionPlan({

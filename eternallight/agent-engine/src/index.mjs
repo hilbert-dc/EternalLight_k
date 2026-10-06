@@ -8,7 +8,7 @@ export { QUALIFICATION_SUITE_KINDS, defineBehaviorTaskSet, defineQualificationSu
 export { CapabilityVerifier } from "./capabilities/verifier.mjs";
 export { CapabilityReportStore, defineCapabilityReport } from "./capabilities/report-store.mjs";
 export { defineBehaviorEvaluationReport, parseBehaviorEvaluationInput, runCommandBehaviorEvaluation } from "./evaluation/command-executor.mjs";
-export { isQualifiedEvidence, resolveProtocolSelections, resolveSessionPlan } from "./session/resolver.mjs";
+export { isQualifiedEvidence, resolveProtocolSelections, resolveSessionPlan, renewSessionPlan } from "./session/resolver.mjs";
 export { compileCodexConfig, compileCodexModelCatalog } from "./session/codex-config.mjs";
 export { EXTENSION_REGISTRY, resolveAuthorizedExtensions } from "./session/extension-registry.mjs";
 export { assertTaskCompletable, bindActiveTask, bindExecutionTask, createTaskExecution, requestTaskCancellation, shouldMarkTaskFailed } from "./host/task-execution.mjs";

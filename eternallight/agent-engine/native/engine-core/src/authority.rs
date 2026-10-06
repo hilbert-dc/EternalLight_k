@@ -88,7 +88,7 @@ impl ExecutionAuthority {
                 .get_mut(run)
                 .ok_or_else(|| format!("unknown execution authority run: {run}"))?;
             match method {
-                "validate" => {
+                "validate" | "renew" => {
                     if input["leaseId"] != record.lease_id
                         || input["epoch"].as_u64() != Some(record.epoch)
                         || record.state != State::Active
@@ -96,6 +96,9 @@ impl ExecutionAuthority {
                         return Err(
                             "EXECUTION_REVOKED:execution authority rejected the lease".into()
                         );
+                    }
+                    if method == "renew" {
+                        record.plan_id = input["planId"].clone();
                     }
                 }
                 "revoke" => {

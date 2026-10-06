@@ -5,6 +5,7 @@ export async function runNativeQualification({ credentials, connections, session
     const native = new (nativeBinding().NativeQualificationRun)(JSON.stringify({
       ...metadata, connections, sessionPlan, childModel, scenario, baseEnvironment: options.baseEnvironment,
       baseInstructions: options.baseInstructions, command: options.command, cwd: options.cwd,
+      developerInstructions: options.developerInstructions, subagentDeveloperInstructions: options.subagentDeveloperInstructions,
       nodeCommand: options.nodeCommand, mcpPath: options.mcpPath, timeoutMs: options.timeoutMs,
     }));
     let bridge, adapter, budget, resolve, reject, timer;

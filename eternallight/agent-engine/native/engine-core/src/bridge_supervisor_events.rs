@@ -218,6 +218,7 @@ impl BridgeSupervisor {
                     ));
                 }
                 Request::Heartbeat => return self.retire(error),
+                Request::Renew(id, _) => self.reject(id, error),
                 Request::Command(id, method) => {
                     if method == "budget:start" {
                         self.budget = Value::Null;
@@ -263,6 +264,17 @@ impl BridgeSupervisor {
                 self.next_heartbeat =
                     self.now + self.options["heartbeatIntervalMs"].as_u64().unwrap_or(5000);
             }
+            Request::Renew(id, params) => {
+                if self.revoked || self.lease.is_null() {
+                    self.reject(id, "execution lease has been revoked during renewal");
+                } else if result != &params["lease"] {
+                    self.reject(id, "bridge returned an invalid renewed execution lease");
+                } else {
+                    self.options["sessionPlan"] = params["sessionPlan"].clone();
+                    self.lease = result.clone();
+                    self.resolve(id, result.clone());
+                }
+            }
             Request::Command(id, method) => match method.as_str() {
                 "budget:end" => {
                     // Normal release belongs to the bridge; terminal status
@@ -303,8 +315,9 @@ impl BridgeSupervisor {
         }
         self.rpc.apply("clear", &json!({}))?;
         for (_, purpose) in std::mem::take(&mut self.requests) {
-            if let Request::Command(id, _) = purpose {
-                self.reject(id, error);
+            match purpose {
+                Request::Command(id, _) | Request::Renew(id, _) => self.reject(id, error),
+                Request::Start | Request::Heartbeat | Request::Close => {}
             }
         }
         self.effect("retire", json!({}), Callback::CloseTransport)

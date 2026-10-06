@@ -31,7 +31,7 @@ fn active_budget_is_not_recovered_and_orphan_reservations_are_charged_once() {
     assert_eq!(PersistentBudget::recover(&path).unwrap(), json!([]));
     assert_eq!(
         PersistentBudget::receipt(&path, "run").unwrap(),
-        json!({"runId":"run","budgetId":"budget","status":"recovered_unknown","usage":{"requests":1,"tokens":0.0,"unknownTokens":24.0,"overrun":false},"limits":{"maxRequests":64.0,"maxTokens":100.0,"maxDurationMs":1_800_000.0},"startedAt":0.0})
+        json!({"runId":"run","budgetId":"budget","status":"recovered_unknown","usage":{"requests":1,"tokens":0.0,"unknownTokens":24.0,"overrun":false},"limits":{"maxRequests":null,"maxTokens":100.0,"maxDurationMs":null},"startedAt":0.0})
     );
 }
 
@@ -65,7 +65,7 @@ fn terminal_budget_receipt_is_bounded_repeatable_and_rejects_missing_or_corrupt_
         .unwrap();
     assert!(PersistentBudget::receipt(&path, "run").is_err());
     budget.complete("failed").unwrap();
-    let expected = json!({"runId":"run","budgetId":"budget","status":"failed","usage":{"requests":2,"tokens":7.0,"unknownTokens":24.0,"overrun":false},"limits":{"maxRequests":4.0,"maxTokens":100.0,"maxDurationMs":1_800_000.0},"startedAt":1000.0});
+    let expected = json!({"runId":"run","budgetId":"budget","status":"failed","usage":{"requests":2,"tokens":7.0,"unknownTokens":24.0,"overrun":false},"limits":{"maxRequests":4.0,"maxTokens":100.0,"maxDurationMs":null},"startedAt":1000.0});
     assert_eq!(PersistentBudget::receipt(&path, "run").unwrap(), expected);
     assert_eq!(PersistentBudget::receipt(&path, "run").unwrap(), expected);
     assert!(PersistentBudget::receipt(&path, "absent").is_err());

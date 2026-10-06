@@ -1,4 +1,5 @@
 import { nativeBinding } from "../native.mjs";
+import { assertTrustedSessionPlan } from "../session/resolver.mjs";
 
 function requireMethod(value, method, label) {
   if (typeof value?.[method] !== "function") throw new Error(`${label} is missing ${method}`);
@@ -33,6 +34,11 @@ export class CodexSessionRuntime {
   ensureSession() { this.#read("open"); return this.appServer.ensureSession(); }
   resumeSession(threadId) { this.#read("open"); return this.appServer.resumeSession(threadId); }
   bindExecution(params) { return this.#command("bind", params); }
+  renewExecution(params) {
+    assertTrustedSessionPlan(params.sessionPlan);
+    requireMethod(this.bridge, "renewExecutionLease", "model bridge");
+    return this.#command("renew", params, { sessionPlan: params.sessionPlan });
+  }
   sendTurn(input, options) { return this.#command("turn", { input }, options); }
   revokeExecution(request) { return this.#command("revoke", request); }
   interruptTurn(request) { return this.appServer.interruptTurn(request); }
@@ -73,6 +79,8 @@ export class CodexSessionRuntime {
       case "budgetStarted": return Promise.resolve(this.bridge.beginTaskBudget(this.#budget)).then(() => null);
       case "leaseStarted": return Promise.resolve(this.bridge.beginExecutionLease(params.lease)).then(() => null);
       case "appBound": return Promise.resolve(this.appServer.bindExecution(params)).then(() => null);
+      case "leaseRenewed": return this.bridge.renewExecutionLease({ lease: params.lease, sessionPlan: this.#pending.get(params.commandId)?.options.sessionPlan });
+      case "appRenewed": return this.appServer.renewExecution?.({ lease: params.lease, sessionPlan: this.#pending.get(params.commandId)?.options.sessionPlan }) ?? params.lease;
       case "sendTurn": {
         const options = this.#pending.get(params.commandId)?.options;
         const dispatch = options?.dispatch;

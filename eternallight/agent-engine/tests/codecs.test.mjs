@@ -222,7 +222,7 @@ test("tool aliases stay within provider limits and restore exact names", () => {
 test("adapted codecs reject missing call ids and over-limit model items", () => {
   const outbound = chatCompletionsCodec.createRequest(request, connection("chat-completions"), "secret");
   assert.throws(() => chatCompletionsCodec.parseResponse({ id: "missing-id", choices: [{ finish_reason: "tool_calls", message: { role: "assistant", tool_calls: [{ type: "function", function: { name: "f__read_context", arguments: "{\"projectId\":\"p1\"}" } }] } }] }, outbound.context), /tool call id/);
-  assert.throws(() => chatCompletionsCodec.createRequest({ ...request, instructions: "x".repeat(40_001) }, connection("chat-completions"), "secret"), /10K-token/);
+  assert.throws(() => chatCompletionsCodec.createRequest({ ...request, instructions: "界".repeat(12_000) }, connection("chat-completions"), "secret"), /10K-token/);
   assert.throws(() => chatCompletionsCodec.createRequest({ ...request, instructions: "界".repeat(13_334) }, connection("chat-completions"), "secret"), /10K-token/);
 });
 
@@ -302,22 +302,22 @@ test("JSON Schema validation uses bounded standards semantics", () => {
       choices: [{ finish_reason: "tool_calls", message: { tool_calls: [{ id: "schema-call", type: "function", function: { name: "f__validate", arguments: JSON.stringify(value) } }] } }],
     }, outbound.context);
   };
-  assert.throws(parse({ type: "object", properties: { items: { type: "array", items: false } }, required: ["items"] }, { items: [1] }), /boolean schema is false|must NOT have/);
+  assert.throws(parse({ type: "object", properties: { items: { type: "array", items: false } }, required: ["items"] }, { items: [1] }), /"reason":"constraint".*"schemaPath":"\/properties\/items\/items"/);
   assert.throws(parse({ type: "object", properties: { constructor: { type: "string" } }, required: ["constructor"] }, {}), /required/);
-  assert.throws(parse({ type: "object", properties: { value: { type: "string", minLength: 2 } }, required: ["value"] }, { value: "🙂" }), /fewer than 2 characters/);
-  assert.throws(parse({ type: "object", properties: { value: { not: { const: { a: 1, b: 2 } } } } }, { value: { b: 2, a: 1 } }), /must NOT be valid/);
+  assert.throws(parse({ type: "object", properties: { value: { type: "string", minLength: 2 } }, required: ["value"] }, { value: "🙂" }), /"reason":"constraint".*"schemaPath":"\/properties\/value\/minLength"/);
+  assert.throws(parse({ type: "object", properties: { value: { not: { const: { a: 1, b: 2 } } } } }, { value: { b: 2, a: 1 } }), /"reason":"constraint".*"schemaPath":"\/properties\/value\/not"/);
   assert.throws(() => chatCompletionsCodec.createRequest({ ...request, tools: [{ ...request.tools[0], parameters: { type: "object", properties: { value: { type: "string", pattern: "^(a+)+$" } } } }] }, connection("chat-completions"), "secret"), /unbounded regular expressions/);
 });
 
 test("request limits include tools, merged items, and output schemas", () => {
-  assert.throws(() => chatCompletionsCodec.createRequest({ ...request, tools: [{ ...request.tools[0], description: "x".repeat(40_001) }] }, connection("chat-completions"), "secret"), /description.*10K-token/);
+  assert.throws(() => chatCompletionsCodec.createRequest({ ...request, tools: [{ ...request.tools[0], description: "界".repeat(12_000) }] }, connection("chat-completions"), "secret"), /description.*10K-token/);
   assert.throws(() => chatCompletionsCodec.createRequest({
     ...request,
-    text: { format: { type: "json_schema", name: "oversized", schema: { type: "object", description: "x".repeat(40_001) } } },
+    text: { format: { type: "json_schema", name: "oversized", schema: { type: "object", description: "界".repeat(12_000) } } },
   }, connection("chat-completions"), "secret"), /output schema.*10K-token/);
   const calls = [
     ...[0, 1, 2].map((index) => ({ type: "function_call", call_id: `merge-${index}`, name: "read_context", arguments: '{"projectId":"p1"}' })),
-    ...[0, 1, 2].map((index) => ({ type: "function_call_output", call_id: `merge-${index}`, output: "x".repeat(14_000) })),
+    ...[0, 1, 2].map((index) => ({ type: "function_call_output", call_id: `merge-${index}`, output: "界".repeat(4_000) })),
   ];
   assert.throws(() => messagesCodec.createRequest({ ...request, input: [request.input[0], ...calls] }, connection("messages"), "secret"), /encoded model item.*10K-token/);
 });

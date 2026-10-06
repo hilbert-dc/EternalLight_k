@@ -150,7 +150,7 @@ impl PersistentBudget {
         }
         input["state"] = self.state.clone();
         let candidate = budget::dispatch(method, input)?;
-        if !matches!(method, "budget.snapshot" | "budget.remaining") {
+        if !matches!(method, "budget.snapshot" | "budget.remaining") && candidate["state"] != self.state {
             if let Err(error) = self.persist(&candidate["state"], "active") {
                 self.poisoned = true;
                 return Err(error);

@@ -17,6 +17,8 @@ mod exchange;
 mod failure;
 #[path = "bridge_observation.rs"]
 mod observation;
+#[path = "bridge_output_failure.rs"]
+mod output_failure;
 
 fn clock() -> u64 {
     SystemTime::now()
@@ -29,6 +31,7 @@ fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 struct Execution {
+    plan: Value,
     budget: Value,
     lease: Value,
     epoch: u64,
@@ -46,6 +49,8 @@ struct Callbacks {
     pending: HashMap<u64, mpsc::SyncSender<Value>>,
 }
 struct Shared {
+    scheduler: Mutex<crate::request_scheduler::Scheduler>,
+    resource_policy: Value,
     options: Value,
     server: Mutex<LocalHttpServer>,
     execution: Mutex<Execution>,
@@ -65,7 +70,7 @@ pub struct BridgeService {
 
 impl Shared {
     fn validate(&self, execution: &Execution) -> Result<()> {
-        let plan = &self.options["sessionPlan"];
+        let plan = &execution.plan;
         let deadline = chrono::DateTime::parse_from_rfc3339(
             execution.lease["deadline"].as_str().unwrap_or(""),
         )
@@ -155,7 +160,12 @@ impl Shared {
 }
 
 impl BridgeService {
-    pub fn start(options: Value) -> Result<Self> {
+    pub fn start(mut options: Value) -> Result<Self> {
+        let resource_policy = crate::request_scheduler::policy(&options["sessionPlan"]["resourcePolicy"])?;
+        options["maxConcurrentRequests"] = json!(options["maxConcurrentRequests"].as_u64().unwrap_or(128).min(
+            resource_policy["maxConcurrentRequests"].as_u64().unwrap()
+            + resource_policy["maxQueuedRequests"].as_u64().unwrap()));
+        crate::executor_validation::check(&options["executorValidatedTools"])?;
         let http: LocalHttpOptions = serde_json::from_value(options.clone())
             .map_err(|_| "invalid bridge listener options")?;
         if options["maxDownstreamBytes"]
@@ -165,10 +175,14 @@ impl BridgeService {
             return Err("invalid bridge downstream limit".into());
         }
         let server = LocalHttpServer::start(http)?;
+        let plan = options["sessionPlan"].clone();
         let shared = Arc::new(Shared {
+            scheduler: Mutex::new(crate::request_scheduler::Scheduler::new(&resource_policy)),
+            resource_policy,
             options,
             server: Mutex::new(server),
             execution: Mutex::new(Execution {
+                plan,
                 budget: Value::Null,
                 lease: Value::Null,
                 epoch: 0,
@@ -249,7 +263,7 @@ impl BridgeService {
         }
         match method {
             "inspect" => Ok(
-                json!({"baseUrl":format!("http://127.0.0.1:{}",lock(&self.shared.server).port()),"active":lock(&self.shared.active).len(),"listening":!self.shared.stopping.load(Ordering::Acquire)}),
+                json!({"baseUrl":format!("http://127.0.0.1:{}",lock(&self.shared.server).port()),"active":lock(&self.shared.active).len(),"scheduling":lock(&self.shared.scheduler).snapshot(),"listening":!self.shared.stopping.load(Ordering::Acquire)}),
             ),
             "poll" => Ok(lock(&self.shared.callbacks).events.drain(..).collect()),
             "reply" => {
@@ -266,7 +280,8 @@ impl BridgeService {
                     return Err("a task budget is already active".into());
                 }
                 if input["id"].as_str().is_none_or(str::is_empty)
-                    || input["deadline"].as_u64().is_none()
+                    || (!input["deadline"].is_null() && input["deadline"].as_u64().is_none())
+                    || input.get("deadline").is_none()
                 {
                     return Err("invalid task budget".into());
                 }
@@ -289,6 +304,7 @@ impl BridgeService {
                 }
                 let epoch = input["epoch"].as_u64().ok_or("invalid execution epoch")?;
                 let candidate = Execution {
+                    plan: state.plan.clone(),
                     budget: state.budget.clone(),
                     lease: input.clone(),
                     epoch,
@@ -302,6 +318,16 @@ impl BridgeService {
                 state.lineage = Some(RouteLineage::new(input.clone()));
                 state.policy = BridgePolicy::default();
                 Ok(Value::Null)
+            }
+            "lease:renew" => {
+                let mut state = lock(&self.shared.execution);
+                self.shared.validate(&state)?;
+                let lease = crate::renewal::execution(
+                    &json!({"currentLease":state.lease,"previousPlan":state.plan,"sessionPlan":input["sessionPlan"],"lease":input["lease"],"epoch":state.epoch,"now":clock()}),
+                )?;
+                state.plan = input["sessionPlan"].clone();
+                state.lease = lease.clone();
+                Ok(lease)
             }
             "lease:matches" => {
                 let state = lock(&self.shared.execution);

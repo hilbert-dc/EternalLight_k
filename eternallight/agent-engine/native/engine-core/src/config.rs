@@ -1,7 +1,7 @@
 use crate::{
     Result,
     canonical::{array, string},
-    contracts,
+    contracts, tokens,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -52,7 +52,10 @@ pub(crate) fn catalog(input: &Value) -> Result<Value> {
             "multi_agent_version":if multi_agent(route) { Some("v2") } else { None },"use_responses_lite":false,
             "include_skills_usage_instructions":true,"include_apps_usage_instructions":false,"include_plugin_usage_instructions":false,
             "node_repl_auto_review_required":false,"node_repl_disabled":true,"auto_review_model_override":null,"model_specialty":null,
-            "context_window":context,"max_context_window":context,"auto_compact_token_limit":((input as f64 * 0.9).floor() as u64).max(1)
+            // Core's provider-token history is smaller than the conservative
+            // wire estimate. Reserve room for that difference, tool schemas
+            // and the next complete task prompt before the hard input guard.
+            "context_window":context,"max_context_window":context,"auto_compact_token_limit":(input / 5 * 3 + input % 5 * 3 / 5).max(1)
         });
         model.as_object_mut().unwrap().extend(json!({
             "comp_hash":null,"default_reasoning_summary":"none","supported_reasoning_levels":[],"shell_type":"unified_exec","visibility":"list","supported_in_api":true,
@@ -66,6 +69,23 @@ pub(crate) fn catalog(input: &Value) -> Result<Value> {
 }
 
 pub(crate) fn compile(input: &Value) -> Result<Value> {
+    let developer_instructions = match input.get("developerInstructions") {
+        None | Some(Value::Null) => None,
+        Some(value) => {
+            let instructions = value
+                .as_str()
+                .ok_or("Codex developerInstructions must be a string or null")?;
+            if instructions.len() > 4096 {
+                return Err("Codex developerInstructions exceeds the 4KiB byte limit".into());
+            }
+            if tokens::count(instructions) > 1000 {
+                return Err(
+                    "Codex developerInstructions exceeds the 1K-token conservative limit".into(),
+                );
+            }
+            Some(instructions)
+        }
+    };
     if string(&input["modelCatalogPath"]).trim().is_empty() {
         return Err("Codex config requires a generated model catalog path".into());
     }
@@ -131,11 +151,16 @@ pub(crate) fn compile(input: &Value) -> Result<Value> {
         "approval_policy = \"never\"".into(),
         "sandbox_mode = \"read-only\"".into(),
         "cli_auth_credentials_store = \"ephemeral\"".into(),
+    ];
+    if let Some(instructions) = developer_instructions {
+        lines.push(format!("developer_instructions = {}", json!(instructions)));
+    }
+    lines.extend([
         String::new(),
         "[features]".into(),
         format!("multi_agent = {enabled}"),
         format!("tool_search = {tool_search}"),
-    ];
+    ]);
     for feature in [
         "memories",
         "apps",
@@ -161,14 +186,20 @@ pub(crate) fn compile(input: &Value) -> Result<Value> {
             "expose_spawn_agent_model_overrides = {}",
             !children.is_empty()
         ),
-        format!("usage_hint_text = {}", json!(usage)),
+        format!("root_agent_usage_hint_text = {}", json!(usage)),
         format!("subagent_developer_instructions = {}", json!(instructions)),
+    ]);
+    // Mode and role guidance are separate settings in the current Codex core.
+    if let Some(mode) = input["multiAgentModeHintText"].as_str() {
+        lines.push(format!("multi_agent_mode_hint_text = {}", json!(mode)));
+    }
+    lines.extend([
         String::new(),
         "[agents]".into(),
         format!("enabled = {enabled}"),
         format!(
             "max_concurrent_threads_per_session = {}",
-            plan["maxActiveChildren"]
+            plan["maxActiveChildren"].as_u64().ok_or("invalid child capacity")?.saturating_add(1)
         ),
     ]);
     if children.len() == 1 {
@@ -188,6 +219,20 @@ pub(crate) fn compile(input: &Value) -> Result<Value> {
         format!("env_key = {}", input["bridge"]["credentialRef"]),
     ]);
     for server in servers {
+        let required = match server.get("required") {
+            None => false,
+            Some(Value::Bool(required)) => *required,
+            Some(_) => return Err("MCP required must be a boolean".into()),
+        };
+        let startup_timeout = match server.get("startupTimeoutMs") {
+            None => None,
+            Some(timeout) => Some(
+                timeout
+                    .as_u64()
+                    .filter(|ms| (1..=300_000).contains(ms))
+                    .ok_or("MCP startupTimeoutMs must be an integer between 1 and 300000")?,
+            ),
+        };
         let args = Value::Array(array(&server["args"]).to_vec());
         let vars = Value::Array(array(&server["envVars"]).to_vec());
         let approval = server["approvalMode"].as_str().unwrap_or("approve");
@@ -198,7 +243,17 @@ pub(crate) fn compile(input: &Value) -> Result<Value> {
             format!("args = {}", toml_array(&args)),
             format!("env_vars = {}", toml_array(&vars)),
             format!("default_tools_approval_mode = {}", json!(approval)),
+            format!("required = {required}"),
         ]);
+        if let Some(timeout) = startup_timeout {
+            let seconds = timeout / 1000;
+            let milliseconds = timeout % 1000;
+            lines.push(format!("startup_timeout_sec = {seconds}.{milliseconds:03}"));
+        }
     }
     Ok(format!("{}\n", lines.join("\n")).into())
 }
+
+#[cfg(test)]
+#[path = "config_developer_tests.rs"]
+mod tests;

@@ -138,6 +138,10 @@ impl ChatStream {
         Ok(events)
     }
 
+    pub(crate) fn reported_usage(&self) -> &Value {
+        &self.usage
+    }
+
     pub fn finish(&mut self) -> Result<Vec<Value>> {
         let result = self.commit();
         self.close();

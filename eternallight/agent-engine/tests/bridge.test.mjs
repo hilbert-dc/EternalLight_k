@@ -424,14 +424,14 @@ test("bridge task budgets are isolated between sequential task trees", async (t)
   assert.equal((await request()).status, 400);
   assert.equal(await bridge.endExecutionLease(firstActive.lease), true);
   assert.equal(bridge.endTaskBudget(first), true);
-  assert.deepEqual({ ...first.snapshot(), id: "[BOUND]", startedAt: "[BOUND]" }, { id: "[BOUND]", requests: 1, tokens: 3, unknownTokens: 0, reservedTokens: 0, maxRequests: 1, maxTokens: 10_000, maxDurationMs: 1_800_000, startedAt: "[BOUND]", overrun: false });
+  assert.deepEqual({ ...first.snapshot(), id: "[BOUND]", startedAt: "[BOUND]" }, { id: "[BOUND]", requests: 1, tokens: 3, unknownTokens: 0, reservedTokens: 0, maxRequests: 1, maxTokens: 10_000, maxDurationMs: null, startedAt: "[BOUND]", overrun: false });
 
   const second = new TaskBudget({ maxRequests: 1, maxTokens: 10_000 });
   const secondActive = activateBridge(bridge, sessionPlan, second);
   assert.equal((await request()).status, 200);
   assert.equal(await bridge.endExecutionLease(secondActive.lease), true);
   assert.equal(bridge.endTaskBudget(second), true);
-  assert.deepEqual({ ...second.snapshot(), id: "[BOUND]", startedAt: "[BOUND]" }, { id: "[BOUND]", requests: 1, tokens: 3, unknownTokens: 0, reservedTokens: 0, maxRequests: 1, maxTokens: 10_000, maxDurationMs: 1_800_000, startedAt: "[BOUND]", overrun: false });
+  assert.deepEqual({ ...second.snapshot(), id: "[BOUND]", startedAt: "[BOUND]" }, { id: "[BOUND]", requests: 1, tokens: 3, unknownTokens: 0, reservedTokens: 0, maxRequests: 1, maxTokens: 10_000, maxDurationMs: null, startedAt: "[BOUND]", overrun: false });
 });
 
 test("bridge process isolates transport and preserves cancellation-safe task budgets", async (t) => {
@@ -462,7 +462,7 @@ test("bridge process isolates transport and preserves cancellation-safe task bud
   assert.equal((await request()).status, 400);
   assert.equal(await bridge.endExecutionLease(lease), true);
   assert.equal(await bridge.endTaskBudget(budget), true);
-  assert.deepEqual({ ...budget.snapshot(), id: "[BOUND]", startedAt: "[BOUND]" }, { id: "[BOUND]", requests: 1, tokens: 3, unknownTokens: 0, reservedTokens: 0, maxRequests: 1, maxTokens: 10_000, maxDurationMs: 1_800_000, startedAt: "[BOUND]", overrun: false });
+  assert.deepEqual({ ...budget.snapshot(), id: "[BOUND]", startedAt: "[BOUND]" }, { id: "[BOUND]", requests: 1, tokens: 3, unknownTokens: 0, reservedTokens: 0, maxRequests: 1, maxTokens: 10_000, maxDurationMs: null, startedAt: "[BOUND]", overrun: false });
 
   const firstProcessId = bridge.processId;
   await new Promise((resolve) => setTimeout(resolve, 35));
@@ -562,4 +562,28 @@ test("worker exit rejects pending RPCs even when durable budget recovery throws"
   budget.markOutstandingUnknown = recover;
   assert.equal(await bridge.endTaskBudget(budget), false);
   await bridge.start();
+});
+
+test("wire input overflow is terminal before provider dispatch or budget reservation", async t => {
+  let dispatched = 0;
+  const downstream = createServer((_request, response) => { dispatched++; response.end("unexpected"); });
+  const endpoint = await listen(downstream);
+  t.after(() => new Promise(resolve => { downstream.closeAllConnections(); downstream.close(resolve); }));
+  const connection = defineConnection({ id: "writer", provider: "test", endpoint, model: "writer-v1",
+    credentialRef: "WRITER_API_KEY", protocol: "responses", declaredLimits: { contextTokens: 24_000, outputTokens: 4_000 } });
+  const sessionPlan = resolveSessionPlan({ connections: [connection], evidence: verifiedBaselineEvidence(connection), policy: {} });
+  const bridge = new ModelBridge({ sessionPlan, connections: [connection], credentialResolver: async () => "fixture-secret", token: "bridge-secret" });
+  const started = await bridge.start();
+  t.after(() => bridge.close());
+  const { budget } = activateBridge(bridge, sessionPlan);
+  const response = await fetch(`${started.baseUrl}/v1/responses`, { method: "POST", headers: codexHeaders(),
+    body: JSON.stringify({ model: "writer", stream: true,
+      input: Array.from({ length: 10 }, () => ({ type: "message", role: "user", content: [{ type: "input_text", text: "bounded source context ".repeat(500) }] })) }) });
+  const value = await response.json();
+  assert.equal(response.status, 400, JSON.stringify(value));
+  assert.equal(value.error.code, "context_input_budget_exceeded");
+  assert.equal(value.error.retryable, false);
+  assert.equal(dispatched, 0);
+  assert.equal(budget.snapshot().requests, 0);
+  assert.equal(budget.snapshot().reservedTokens, 0);
 });

@@ -20,17 +20,25 @@ pub fn create(input: &Value) -> Result<Value> {
         .as_u64()
         .filter(|v| *v > 0)
         .ok_or("execution lease epoch is invalid")?;
-    let duration = input["maxDurationMs"]
-        .as_f64()
-        .filter(|v| *v >= 1.0)
-        .ok_or("execution lease duration is invalid")?;
+    let duration = if input["maxDurationMs"].is_null() {
+        None
+    } else {
+        Some(
+            input["maxDurationMs"]
+                .as_f64()
+                .filter(|v| v.is_finite() && *v >= 1.0)
+                .ok_or("execution lease duration is invalid")?,
+        )
+    };
     let now = input["now"]
         .as_f64()
         .ok_or("execution lease issue time is invalid")?;
     let expiry = input["planExpiry"]
         .as_f64()
         .ok_or("session plan expiry is invalid")?;
-    let mut deadline = (now + duration).min(expiry);
+    // Certification expiry remains an authorization boundary, not a usage quota.
+    let mut deadline = duration.map_or(expiry, |duration| (now + duration).min(expiry));
+    let mut deadline_cap = duration.map(|duration| (now + duration) as i64);
     if let Some(cap) = input.get("deadlineAtMs").filter(|value| !value.is_null()) {
         let cap = cap
             .as_i64()
@@ -40,12 +48,13 @@ pub fn create(input: &Value) -> Result<Value> {
             return Err("execution lease deadline has expired".into());
         }
         deadline = deadline.min(cap);
+        deadline_cap = Some(deadline_cap.map_or(cap as i64, |previous| previous.min(cap as i64)));
     }
     if deadline <= now {
         return Err("session plan has expired".into());
     }
     Ok(
-        json!({"leaseId":uuid::Uuid::new_v4().to_string(),"runId":input["runId"],"planId":plan["id"],"mode":input["mode"],"rootRoute":plan["rootRoute"],"routeGrants":array(&plan["allowedChildEdges"]),"epoch":epoch,"budgetId":input["budgetId"],"issuedAt":now,"deadline":deadline}),
+        json!({"leaseId":uuid::Uuid::new_v4().to_string(),"runId":input["runId"],"planId":plan["id"],"mode":input["mode"],"rootRoute":plan["rootRoute"],"routeGrants":array(&plan["allowedChildEdges"]),"epoch":epoch,"budgetId":input["budgetId"],"issuedAt":now,"deadline":deadline,"deadlineCap":deadline_cap}),
     )
 }
 

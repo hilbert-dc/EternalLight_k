@@ -286,11 +286,9 @@ pub fn tool_call(call: &Value, validation: &mut Value) -> Result<Value> {
         return Err("provider returned another tool while a specific tool was required".into());
     }
     let parsed = arguments(&call["arguments"])?;
-    schema::validate(
-        &parsed,
-        &entry["schema"],
-        &format!("arguments for {}", string(&entry["name"])),
-    )?;
+    if !crate::executor_validation::delegated(&validation["context"], &entry["namespace"], &entry["name"]) {
+        crate::tool_validation::validate(&parsed, &entry["schema"], string(&entry["name"]))?;
+    }
     let serialized = parsed.to_string();
     tokens::bounded(&serialized.clone().into(), "tool arguments")?;
     validation["callIds"]

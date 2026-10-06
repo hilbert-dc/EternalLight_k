@@ -1,7 +1,7 @@
 use crate::{
     Result,
     canonical::{array, string},
-    schema, tokens, tool_registry,
+    tokens, tool_registry,
 };
 use eternallight_stream_guard::{Command, StreamGuard};
 use serde_json::{Value, json};
@@ -76,11 +76,10 @@ fn validate_call(item: &Value, context: &Value, ids: &mut HashSet<String>) -> Re
         ));
     }
     if kind == "function" {
-        schema::validate(
-            &crate::canonical::arguments(&item["arguments"])?,
-            &tool["schema"],
-            &format!("arguments for {name}"),
-        )?;
+        let parsed = crate::canonical::arguments(&item["arguments"])?;
+        if !crate::executor_validation::delegated(context, &item["namespace"], &item["name"]) {
+            crate::tool_validation::validate(&parsed, &tool["schema"], name)?;
+        }
     } else {
         tokens::bounded(&item["input"], &format!("input for {name}"))?;
     }
@@ -112,6 +111,7 @@ fn validate_output(payload: &Value, context: &Value) -> Result<()> {
         .ok_or("Responses output must be an array")?;
     let mut ids = HashSet::new();
     for item in output {
+        tokens::bounded_output_item(item)?;
         if matches!(
             item["type"].as_str(),
             Some("function_call" | "custom_tool_call")
@@ -178,6 +178,10 @@ impl ResponsesStream {
             "response.output_item.added" | "response.output_item.done"
         ) {
             let item = &event["item"];
+            // Only completed items enter Codex history. Deltas remain readable,
+            // but neither a full added item nor a completed item may bypass the
+            // same admission bound used for the next request's input.
+            tokens::bounded_output_item(item)?;
             if matches!(
                 item["type"].as_str(),
                 Some("function_call" | "custom_tool_call")

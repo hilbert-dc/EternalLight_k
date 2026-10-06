@@ -81,9 +81,13 @@ impl Workspace {
                 "ENGINE_CONFORMANCE_RELEASE_PATH",
             ]
         };
-        let content = config::compile(
-            &json!({"sessionPlan":input["sessionPlan"],"modelCatalogPath":catalog,"bridge":{"baseUrl":address["baseUrl"],"credentialRef":"AGENT_ENGINE_BRIDGE_TOKEN"},"mcpServers":[{"id":if core{"engine_core"}else{"engine_conformance"},"command":input["nodeCommand"],"args":[input["mcpPath"]],"envVars":env_keys,"approvalMode":"approve"}]}),
-        )?;
+        let mut config_input = json!({"sessionPlan":input["sessionPlan"],"modelCatalogPath":catalog,"bridge":{"baseUrl":address["baseUrl"],"credentialRef":"AGENT_ENGINE_BRIDGE_TOKEN"},"mcpServers":[{"id":if core{"engine_core"}else{"engine_conformance"},"command":input["nodeCommand"],"args":[input["mcpPath"]],"envVars":env_keys,"approvalMode":"approve"}]});
+        for key in ["developerInstructions", "subagentDeveloperInstructions"] {
+            if let Some(value) = input.get(key) {
+                config_input[key] = value.clone();
+            }
+        }
+        let content = config::compile(&config_input)?;
         write_private(&root.join("config.toml"), string(&content))?;
         fs::create_dir(&sqlite).map_err(|e| e.to_string())?;
         let mut env = json!({});

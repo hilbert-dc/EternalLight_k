@@ -70,6 +70,18 @@ pub fn encode(request: &Value, connection: &Value, key: &str) -> Result<Value> {
     if !body.is_object() {
         return Err("Responses request must be an object".into());
     }
+    if let Some(effort) = connection["protocolOptions"].get("reasoningEffort") {
+        if body["reasoning"].is_null() {
+            body["reasoning"] = json!({"effort":effort});
+        } else {
+            let reasoning = body["reasoning"]
+                .as_object_mut()
+                .ok_or("Responses reasoning must be an object")?;
+            if !reasoning.contains_key("effort") {
+                reasoning.insert("effort".into(), effort.clone());
+            }
+        }
+    }
     body["model"] = connection["model"].clone();
     body["max_output_tokens"] = (maximum as u64).into();
     body["tools"] = if registry.is_null() {

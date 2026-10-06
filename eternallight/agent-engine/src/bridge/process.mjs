@@ -2,6 +2,7 @@ import { nativeBinding } from "../native.mjs";
 import { existsSync } from "node:fs";
 import { sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertTrustedSessionPlan } from "../session/resolver.mjs";
 
 function bridgeWorkerPath() {
   const source = fileURLToPath(new URL("./worker.mjs", import.meta.url));
@@ -11,8 +12,8 @@ function bridgeWorkerPath() {
 
 /** Promise and host-object adapter for the native isolated bridge supervisor. */
 export class ModelBridgeProcess {
-  constructor({ sessionPlan, connections, credentialResolver, qualificationObserver = null, requestObserver = null, responseObserver = null, token = null, toolPolicy = null, responseBarrier = null, heartbeatIntervalMs = 5_000, heartbeatTimeoutMs = 2_000, lifecycleTimeoutMs = 10_000, workerPath = bridgeWorkerPath() }) {
-    this.native = new (nativeBinding().NativeBridgeSupervisor)(JSON.stringify({ sessionPlan, connections, token, toolPolicy, responseBarrier, heartbeatIntervalMs, heartbeatTimeoutMs, lifecycleTimeoutMs }));
+  constructor({ sessionPlan, connections, credentialResolver, qualificationObserver = null, requestObserver = null, responseObserver = null, token = null, toolPolicy = null, executorValidatedTools = null, responseBarrier = null, heartbeatIntervalMs = 5_000, heartbeatTimeoutMs = 2_000, lifecycleTimeoutMs = 10_000, workerPath = bridgeWorkerPath() }) {
+    this.native = new (nativeBinding().NativeBridgeSupervisor)(JSON.stringify({ sessionPlan, connections, token, toolPolicy, executorValidatedTools, responseBarrier, heartbeatIntervalMs, heartbeatTimeoutMs, lifecycleTimeoutMs }));
     this.credentialResolver = credentialResolver;
     this.observers = { qualification: qualificationObserver, request: requestObserver, response: responseObserver };
     const allowed = ["PATH", "SystemRoot", "WINDIR", "TMP", "TEMP", "TMPDIR", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"];
@@ -42,6 +43,7 @@ export class ModelBridgeProcess {
     await this.#command("budget:start", { ...budget.snapshot(), startedAt: budget.startedAt }); return budget;
   }
   beginExecutionLease(lease) { return this.#command("lease:start", lease); }
+  renewExecutionLease(params) { assertTrustedSessionPlan(params.sessionPlan); return this.#command("lease:renew", params); }
   endExecutionLease(lease) { return this.#command("lease:end", lease ?? {}); }
   async endTaskBudget(budget) { const result = await this.#command("budget:end", { id: budget?.id }); this.budgets.delete(budget?.id); return result; }
   #command(method, params = {}) {

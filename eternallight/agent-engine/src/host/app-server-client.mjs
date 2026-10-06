@@ -2,7 +2,7 @@ import { nativeBinding } from "../native.mjs";
 
 /** Promise/callback binding for the native App Server lifecycle owner. */
 export class CodexAppServerClient {
-  constructor({ command, cwd = process.cwd(), env = process.env, model, requestTimeoutMs = 30_000, turnTimeoutMs = 600_000, serverRequestHandler = null, clientInfo = { name: "eternallight_agent_engine", title: "Eternal Light Agent Engine", version: "0.1.0" } }) {
+  constructor({ command, cwd = process.cwd(), env = process.env, model, requestTimeoutMs = 30_000, turnTimeoutMs = null, serverRequestHandler = null, clientInfo = { name: "eternallight_agent_engine", title: "Eternal Light Agent Engine", version: "0.1.0" } }) {
     if (!Array.isArray(command) || !command.length || command.some(part => typeof part !== "string" || !part)) throw new Error("App Server command is required");
     if (serverRequestHandler !== null && typeof serverRequestHandler !== "function") throw new Error("serverRequestHandler must be a function");
     this.transportOptions = { command: [...command], cwd, env: { ...env } };

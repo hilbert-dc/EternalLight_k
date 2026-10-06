@@ -2,6 +2,18 @@ import { ENGINE_CONTRACT } from "../contracts/capabilities.mjs";
 import { ensureTrustedEvidenceSnapshot, compileEvidenceSession } from "../capabilities/evidence-repository.mjs";
 import { scopeCovers } from "../capabilities/evidence-store.mjs";
 import { evaluateCapabilityProof } from "../capabilities/proof-contract.mjs";
+import { nativeCall } from "../native.mjs";
+
+const COMPILED_PLANS = new WeakSet();
+export function assertTrustedSessionPlan(plan) {
+  if (!COMPILED_PLANS.has(plan)) throw new Error("renewal requires a trusted evidence compiled session plan");
+  return plan;
+}
+export function renewSessionPlan(previousPlan, sessionPlan, { now = new Date() } = {}) {
+  assertTrustedSessionPlan(sessionPlan);
+  nativeCall("session.renew", { previousPlan, sessionPlan, now: now.getTime() });
+  return sessionPlan;
+}
 
 export function isQualifiedEvidence(record, requiredScope = null, expectedDependencies = {}) {
   return Boolean(record && evaluateCapabilityProof(record, { expectedDependencies }).status === "qualified"
@@ -25,5 +37,7 @@ export function resolveProtocolSelections(connections, evidence, options = {}) {
 }
 export function resolveSessionPlan({ connections, evidence, evidenceSnapshot, policy, engineContract = ENGINE_CONTRACT, now = new Date() }) {
   const snapshot = ensureTrustedEvidenceSnapshot(evidenceSnapshot ?? evidence, { now });
-  return deepFreeze(compileEvidenceSession(snapshot, "session", { connections, policy, engineContract, now: now.getTime() }));
+  const plan = deepFreeze(compileEvidenceSession(snapshot, "session", { connections, policy, engineContract, now: now.getTime() }));
+  COMPILED_PLANS.add(plan);
+  return plan;
 }

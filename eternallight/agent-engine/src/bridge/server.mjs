@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { nativeBinding } from "../native.mjs";
 import { nativeFetch } from "../http-transport.mjs";
+import { assertTrustedSessionPlan } from "../session/resolver.mjs";
 
 /** Host callbacks and injectable transport binding; the bridge runs in Rust. */
 export class ModelBridge {
-  constructor({ sessionPlan, connections, credentialResolver, fetchImpl = nativeFetch, maxBodyBytes = 2 * 1024 * 1024, maxDownstreamBytes = 32 * 1024 * 1024, maxConcurrentRequests = 8, requestTimeoutMs = 120_000, token = randomBytes(32).toString("base64url"), port = 0, budget = null, requestObserver = null, responseObserver = null, qualificationObserver = null, toolPolicy = null, responseBarrier = null }) {
-    this.options = { sessionPlan, connections, maxBodyBytes, maxDownstreamBytes, maxConcurrentRequests, requestTimeoutMs, token, port, toolPolicy, responseBarrier, customFetch: fetchImpl !== nativeFetch };
+  constructor({ sessionPlan, connections, credentialResolver, fetchImpl = nativeFetch, maxBodyBytes = 2 * 1024 * 1024, maxDownstreamBytes = 32 * 1024 * 1024, maxConcurrentRequests = 128, requestTimeoutMs = 120_000, token = randomBytes(32).toString("base64url"), port = 0, budget = null, requestObserver = null, responseObserver = null, qualificationObserver = null, toolPolicy = null, executorValidatedTools = null, responseBarrier = null }) {
+    this.options = { sessionPlan, connections, maxBodyBytes, maxDownstreamBytes, maxConcurrentRequests, requestTimeoutMs, token, port, toolPolicy, executorValidatedTools, responseBarrier, customFetch: fetchImpl !== nativeFetch };
     this.token = token;
     this.credentialResolver = credentialResolver;
     this.fetchImpl = fetchImpl;
@@ -42,7 +43,8 @@ export class ModelBridge {
   beginTaskBudget(budget) {
     if (!budget || typeof budget.reserveRequest !== "function" || typeof budget.observeUsage !== "function") throw new Error("invalid task budget");
     this.#ensureNative();
-    this.#apply("budget:start", { id: budget.id, deadline: Date.now() + budget.remainingDurationMs() });
+    const remaining = budget.remainingDurationMs();
+    this.#apply("budget:start", { id: budget.id, deadline: remaining === null ? null : Date.now() + remaining });
     this.budgets.set(budget.id, budget); this.budget = budget;
     return budget;
   }
@@ -53,6 +55,11 @@ export class ModelBridge {
     return ended;
   }
   beginExecutionLease(lease) { this.#ensureNative(); this.#apply("lease:start", lease); return lease; }
+  renewExecutionLease(params) {
+    assertTrustedSessionPlan(params.sessionPlan);
+    if (!this.native) throw new Error("bridge has no active execution");
+    return this.#apply("lease:renew", params);
+  }
   async endExecutionLease(lease) {
     if (!this.native || !this.#apply("lease:matches", lease ?? {})) return false;
     await this.cancelActiveRequests(); this.#apply("lease:clear"); return true;
@@ -81,7 +88,7 @@ export class ModelBridge {
   async #callback(method, params) {
     switch (method) {
       case "credential": return this.credentialResolver(params);
-      case "reserve": return this.budgets.get(params.budgetId).reserveRequest({ estimatedInputTokens: params.estimatedInputTokens, maxOutputTokens: params.maxOutputTokens });
+      case "reserve": return this.budgets.get(params.budgetId).reserveRequest(params);
       case "settle": return this.budgets.get(params.budgetId).settleReservation(params.id, params.usage, params.options);
       case "request": case "response": case "qualification": return this.observers[method]?.(params);
       case "fetch": {

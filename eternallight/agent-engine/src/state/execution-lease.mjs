@@ -1,6 +1,6 @@
 import { nativeBinding, nativeCall } from "../native.mjs";
 
-export function createExecutionLease({ sessionPlan, runId, budgetId, epoch = 1, mode = "interactive", now = new Date(), maxDurationMs = 30 * 60 * 1000, deadlineAtMs }) {
+export function createExecutionLease({ sessionPlan, runId, budgetId, epoch = 1, mode = "interactive", now = new Date(), maxDurationMs = null, deadlineAtMs }) {
   const lease = nativeCall("lease.create", { sessionPlan, runId, budgetId, epoch, mode, now: now instanceof Date ? now.getTime() : Date.parse(now), planExpiry: Date.parse(sessionPlan?.expiresAt), maxDurationMs, deadlineAtMs });
   return Object.freeze({ ...lease, issuedAt: new Date(lease.issuedAt).toISOString(), deadline: new Date(lease.deadline).toISOString(), routeGrants: Object.freeze(lease.routeGrants.map(Object.freeze)) });
 }

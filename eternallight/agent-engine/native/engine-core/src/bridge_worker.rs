@@ -54,7 +54,7 @@ impl Worker {
                         uuid::Uuid::new_v4().simple()
                     )
                 });
-            let options = json!({"sessionPlan":params["sessionPlan"],"connections":params["connections"],"toolPolicy":params["toolPolicy"],"responseBarrier":params["responseBarrier"],"token":token,"port":params["port"].as_u64().unwrap_or(0),"maxBodyBytes":2*1024*1024,"maxDownstreamBytes":32*1024*1024,"maxConcurrentRequests":8,"requestTimeoutMs":120_000,"customFetch":false});
+            let options = json!({"sessionPlan":params["sessionPlan"],"connections":params["connections"],"toolPolicy":params["toolPolicy"],"executorValidatedTools":params["executorValidatedTools"],"responseBarrier":params["responseBarrier"],"token":token,"port":params["port"].as_u64().unwrap_or(0),"maxBodyBytes":2*1024*1024,"maxDownstreamBytes":32*1024*1024,"maxConcurrentRequests":128,"requestTimeoutMs":120_000,"customFetch":false});
             let bridge = BridgeService::start(options)?;
             let info = bridge.apply("inspect", &json!({}))?;
             self.bridge = Some(bridge);
@@ -68,11 +68,17 @@ impl Worker {
                     .duration_since(UNIX_EPOCH)
                     .map_err(|_| "invalid system time")?
                     .as_millis() as u64;
-                let deadline = params["startedAt"].as_u64().unwrap_or(now).saturating_add(
-                    params["maxDurationMs"]
-                        .as_u64()
-                        .ok_or("invalid budget duration")?,
-                );
+                let deadline = if params["maxDurationMs"].is_null() {
+                    None
+                } else {
+                    Some(
+                        params["startedAt"].as_u64().unwrap_or(now).saturating_add(
+                            params["maxDurationMs"]
+                                .as_u64()
+                                .ok_or("invalid budget duration")?,
+                        ),
+                    )
+                };
                 bridge.apply(
                     "budget:start",
                     &json!({"id":params["id"],"deadline":deadline}),
@@ -84,6 +90,11 @@ impl Worker {
                 bridge.apply("lease:start", params)?;
                 self.lease = params.clone();
                 Ok(Some(params.clone()))
+            }
+            "lease:renew" => {
+                let lease = bridge.apply("lease:renew", params)?;
+                self.lease = lease.clone();
+                Ok(Some(lease))
             }
             "budget:end" => {
                 let ended = bridge.apply("budget:end", &self.budget)?;

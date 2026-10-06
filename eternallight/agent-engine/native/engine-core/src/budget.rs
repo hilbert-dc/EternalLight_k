@@ -8,9 +8,9 @@ use uuid::Uuid;
 #[serde(rename_all = "camelCase")]
 struct Budget {
     id: String,
-    max_requests: f64,
-    max_tokens: f64,
-    max_duration_ms: f64,
+    max_requests: Option<f64>,
+    max_tokens: Option<f64>,
+    max_duration_ms: Option<f64>,
     started_at: f64,
     requests: u64,
     tokens: f64,
@@ -70,7 +70,9 @@ impl Budget {
         } else {
             self.unknown_tokens += reserved;
         }
-        self.overrun |= self.tokens + self.unknown_tokens + self.reserved_tokens > self.max_tokens;
+        self.overrun |= self
+            .max_tokens
+            .is_some_and(|limit| self.tokens + self.unknown_tokens + self.reserved_tokens > limit);
         let result = json!({"status":if self.overrun {"overrun"} else {"settled"},"reservationId":id,"overrun":self.overrun});
         self.settlements.insert(id.into(), result.clone());
         result
@@ -80,16 +82,18 @@ impl Budget {
 pub fn dispatch(method: &str, input: Value) -> Result<Value> {
     if method == "budget.create" {
         let options = &input["options"];
-        let limit = |key: &str, fallback: f64| -> Result<f64> {
-            let value = if options.get(key).is_none() {
-                fallback
-            } else {
-                options[key].as_f64().unwrap_or(0.0)
+        let limit = |key: &str| -> Result<Option<f64>> {
+            let Some(raw) = options.get(key) else {
+                return Ok(None);
             };
+            if raw.is_null() {
+                return Ok(None);
+            }
+            let value = raw.as_f64().unwrap_or(0.0);
             if !value.is_finite() || value < 1.0 {
                 return Err(format!("{key} must be positive"));
             }
-            Ok(value)
+            Ok(Some(value))
         };
         let id = match options.get("id") {
             None => Uuid::new_v4().to_string(),
@@ -101,9 +105,9 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
         };
         return serde_json::to_value(Budget {
             id,
-            max_requests: limit("maxRequests", 64.0)?,
-            max_tokens: limit("maxTokens", 1_000_000.0)?,
-            max_duration_ms: limit("maxDurationMs", 1_800_000.0)?,
+            max_requests: limit("maxRequests")?,
+            max_tokens: limit("maxTokens")?,
+            max_duration_ms: limit("maxDurationMs")?,
             started_at: options["startedAt"]
                 .as_f64()
                 .or(input["now"].as_f64())
@@ -117,6 +121,12 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
             overrun: false,
         })
         .map_err(|e| e.to_string());
+    }
+    if ["maxRequests", "maxTokens", "maxDurationMs"]
+        .iter()
+        .any(|key| input["state"].get(key).is_none())
+    {
+        return Err("invalid budget state".into());
     }
     let mut state: Budget =
         serde_json::from_value(input["state"].clone()).map_err(|_| "invalid budget state")?;
@@ -136,20 +146,34 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
                 }
             };
             let tokens = integer("estimatedInputTokens")? + integer("maxOutputTokens")?;
-            if input["now"].as_f64().ok_or("budget timestamp required")? - state.started_at
-                >= state.max_duration_ms
+            let now = input["now"].as_f64().ok_or("budget timestamp required")?;
+            if state
+                .max_duration_ms
+                .is_some_and(|limit| now - state.started_at >= limit)
             {
                 return Err("task duration budget exhausted".into());
             }
             if state.overrun {
                 return Err("task token budget exhausted".into());
             }
-            if state.requests as f64 >= state.max_requests {
+            if state
+                .max_requests
+                .is_some_and(|limit| state.requests as f64 >= limit)
+            {
+                if parameters["deferIfBusy"] == true && !state.reservations.is_empty()
+                    && state.max_requests.is_some_and(|limit| (state.requests as f64 - state.reservations.len() as f64) < limit)
+                    && state.max_tokens.is_none_or(|limit| state.tokens + state.unknown_tokens + tokens <= limit) {
+                    return Ok(json!({"state":state,"result":{"waiting":true}}));
+                }
                 return Err("task request budget exhausted".into());
             }
-            if state.tokens + state.unknown_tokens + state.reserved_tokens + tokens
-                > state.max_tokens
-            {
+            if state.max_tokens.is_some_and(|limit| {
+                state.tokens + state.unknown_tokens + state.reserved_tokens + tokens > limit
+            }) {
+                if parameters["deferIfBusy"] == true && state.reserved_tokens > 0.0
+                    && state.max_tokens.is_some_and(|limit| state.tokens + state.unknown_tokens + tokens <= limit) {
+                    return Ok(json!({"state":state,"result":{"waiting":true}}));
+                }
                 return Err("task token budget exhausted".into());
             }
             let id = Uuid::new_v4().to_string();
@@ -169,8 +193,9 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
                 .filter(|n| n.is_finite() && *n >= 0.0)
             {
                 state.tokens += tokens;
-                state.overrun |=
-                    state.tokens + state.unknown_tokens + state.reserved_tokens > state.max_tokens;
+                state.overrun |= state.max_tokens.is_some_and(|limit| {
+                    state.tokens + state.unknown_tokens + state.reserved_tokens > limit
+                });
                 json!({"status":if state.overrun {"overrun"} else {"observed"},"overrun":state.overrun})
             } else {
                 Value::Null
@@ -182,10 +207,13 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
             }
             state.snapshot()
         }
-        "budget.remaining" => (state.started_at + state.max_duration_ms
-            - input["now"].as_f64().ok_or("budget timestamp required")?)
-        .max(0.0)
-        .into(),
+        "budget.remaining" => {
+            let now = input["now"].as_f64().ok_or("budget timestamp required")?;
+            state
+                .max_duration_ms
+                .map(|limit| (state.started_at + limit - now).max(0.0))
+                .map_or(Value::Null, Value::from)
+        }
         "budget.snapshot" => state.snapshot(),
         _ => return Err("unknown budget operation".into()),
     };

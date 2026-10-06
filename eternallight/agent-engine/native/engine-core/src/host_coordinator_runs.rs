@@ -26,7 +26,7 @@ impl HostCoordinator {
             .map_err(|_| "invalid plan expiry")?
             .timestamp_millis();
         let mut lease = lease::create(
-            &json!({"sessionPlan":session.plan,"runId":rid,"budgetId":input["budgetId"],"epoch":1,"mode":input["mode"].as_str().unwrap_or("interactive"),"now":now,"planExpiry":expiry,"maxDurationMs":input["maxDurationMs"].as_u64().unwrap_or(1_800_000),"deadlineAtMs":input["deadlineAtMs"]}),
+            &json!({"sessionPlan":session.plan,"runId":rid,"budgetId":input["budgetId"],"epoch":1,"mode":input["mode"].as_str().unwrap_or("interactive"),"now":now,"planExpiry":expiry,"maxDurationMs":input["maxDurationMs"],"deadlineAtMs":input["deadlineAtMs"]}),
         )?;
         for field in ["issuedAt", "deadline"] {
             let millis = lease[field].as_f64().ok_or("invalid lease timestamp")? as i64;
@@ -51,6 +51,8 @@ impl HostCoordinator {
             completion: None,
             completion_error: None,
             completion_delivered: false,
+            renewal: None,
+            renewal_failed: false,
         };
         session.state.apply("attach", &rid.into())?;
         let plan = session.plan.clone();
@@ -109,6 +111,9 @@ impl HostCoordinator {
         session
             .state
             .apply("finish", &json!({"runId":rid,"state":state}))?;
+        if run.renewal_failed {
+            session.state.apply("block", &Value::Null)?;
+        }
         let snapshot = session.state.apply("snapshot", &Value::Null)?;
         let mut params = json!({"threadId":snapshot["threadId"],"turnId":turn["id"]});
         if let Some(error) = error {
@@ -127,7 +132,7 @@ impl HostCoordinator {
     pub(super) fn deliver_completion(&mut self, rid: &str) -> Result<()> {
         let run = self.runs.get_mut(rid).ok_or("unknown run")?;
         let snapshot = run.state.apply("snapshot", &Value::Null)?;
-        if snapshot["terminal"] != true || run.completion_delivered {
+        if snapshot["terminal"] != true || run.completion_delivered || run.renewal.is_some() {
             return Ok(());
         }
         if run.completion.is_none() && run.completion_error.is_none() {
