@@ -1,5 +1,3 @@
-const MAX_TASK_DURATION_MS = 30 * 60 * 1000;
-
 export function remainingGenerationDurationMs(deadlineAt, nowMs = Date.now()) {
   const deadlineMs = deadlineAt * 1000;
   if (!Number.isSafeInteger(deadlineAt) || !Number.isSafeInteger(deadlineMs) || !Number.isFinite(nowMs)) {
@@ -9,5 +7,5 @@ export function remainingGenerationDurationMs(deadlineAt, nowMs = Date.now()) {
   if (remaining < 1) {
     throw Object.assign(new Error("自动创作许可已过期，不能继续请求模型"), { code: "GENERATION_DEADLINE_EXPIRED" });
   }
-  return Math.min(MAX_TASK_DURATION_MS, remaining);
+  return remaining;
 }

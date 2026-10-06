@@ -65,8 +65,10 @@ async function main() {
       if (!chargedTaskIds.has(taskId)) {
         const task = await request(`/api/projects/${projectId}/tasks/${taskId}`);
         assert.ok(["completed", "failed", "cancelled"].includes(task.status));
+        const grant = await request(`/api/projects/${projectId}/tasks/${taskId}/provider-budget`);
         const budget = new PersistentTaskBudget({ databasePath: join(directory, "engine-budget.sqlite3"), runId: taskId,
-          id: `budget-${taskId}`, maxRequests: 64, maxTokens: 1_000_000 });
+          id: grant.budgetId, maxRequests: grant.maxRequests, maxTokens: grant.maxTokens,
+          deadlineAt: grant.deadlineAt });
         budget.complete(task.status);
         chargedTaskIds.add(taskId);
       }
@@ -180,16 +182,12 @@ async function main() {
     await waitFor(() => contains("继续创作"), "reopened parent reads running state");
     assert.equal(await evaluate(`document.querySelector('.generation-replan') === null`), true);
     assert.deepEqual(await request(fixture.uri), renewed);
-    const task = await fixture.createTask(await request(`${fixture.uri}/next`, null), "renewed", workspace.revision);
+    const task = await fixture.choose("generateChapter","renewed");
     assert.equal(task.inputManifest.expectedCandidateRevisionId, fixture.draft.revisionId);
     assert.equal(task.target.intentGeneration, 1);
-    const contextQuery = new URLSearchParams({ purpose: "writer", projectRevision: String(workspace.revision), readingChapter: "1",
-      sceneOrder: String(task.target.sceneOrder), taskId: task.id, threadId: "renewed", budget: "24", byteBudget: "60000" });
-    assert.equal(task.target.povCharacterId, "zhangheng");
-    assert.equal(task.target.storyTime, 20);
-    contextQuery.set("povCharacterId", task.target.povCharacterId);
-    contextQuery.set("storyTime", String(task.target.storyTime));
-    const context = await request(`${fixture.base}/context?${contextQuery}`, undefined, candidate);
+    assert.equal(task.target.povCharacterId,"zhangheng");
+    assert.equal(task.target.storyTime,20);
+    const context = await fixture.readContext(task,"writer");
     assert.equal(context.plannedEffects[0].value.planRevisionId, fixture.newPlan.revisionId);
     assert.equal(context.plannedEffects[0].value.chapters[0].publicTitle, "藏信");
     const late = { expectedRevision: workspace.revision, expectedCandidateRevisionId: fixture.draft.revisionId,
@@ -213,12 +211,12 @@ async function main() {
     assert.deepEqual(await request(`${fixture.base}/creative-workspace`), beforeWorkspace);
     assert.equal((await request(`${fixture.base}/work-tasks/work-${fixture.runId}`)).status, "completed");
     await click("简报页");
-    await waitFor(() => contains("规划后续章节"), "next run restored in parent workspace");
+    await waitFor(() => contains("继续创作"), "next run restored in parent workspace");
     assert.equal(await evaluate(`document.querySelector('.generation-replan') === null`), true);
     const waiting = await request(`${nextUri}/next`, null);
     assert.equal(waiting.action.kind, "awaitTask");
     assert.equal(waiting.action.taskId, beforeRestart.activeTaskId);
-    assert.deepEqual(waiting.run, beforeRestart);
+    assert.deepEqual(await request(nextUri),beforeRestart);
     assert.deepEqual(await evaluate(`window.fixtureErrors`), []);
     console.log(JSON.stringify({ passed: true, blockedSnapshot, refreshSnapshot, previewSnapshot, reboundPreviewSnapshot }));
   } catch (error) {

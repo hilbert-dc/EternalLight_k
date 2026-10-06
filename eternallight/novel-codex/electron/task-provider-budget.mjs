@@ -1,14 +1,14 @@
 export function taskProviderBudgetOptions(grant, { taskId, workTaskId, deadlineAt, now = Date.now() }) {
   if (!grant || grant.taskId !== taskId || grant.workTaskId !== workTaskId
     || grant.budgetId !== `budget-${taskId}` || grant.deadlineAt !== deadlineAt
-    || !Number.isSafeInteger(grant.maxRequests) || grant.maxRequests < 1 || grant.maxRequests > 64
-    || !Number.isSafeInteger(grant.maxTokens) || grant.maxTokens < 1 || grant.maxTokens > 1_000_000
-    || !Number.isSafeInteger(grant.deadlineAt) || !Number.isSafeInteger(grant.deadlineAt * 1000)
-    || !Number.isSafeInteger(now) || grant.deadlineAt * 1000 <= now) {
+    || !(grant.maxRequests === null || (Number.isSafeInteger(grant.maxRequests) && grant.maxRequests >= 1))
+    || !(grant.maxTokens === null || (Number.isSafeInteger(grant.maxTokens) && grant.maxTokens >= 1))
+    || !Number.isSafeInteger(now)
+    || !(grant.deadlineAt === null || (Number.isSafeInteger(grant.deadlineAt) && Number.isSafeInteger(grant.deadlineAt * 1000) && grant.deadlineAt * 1000 > now))) {
     throw new Error("任务执行预算无效、已过期或与当前任务不匹配");
   }
   return { id: grant.budgetId, maxRequests: grant.maxRequests, maxTokens: grant.maxTokens,
-    maxDurationMs: grant.deadlineAt * 1000 - now };
+    maxDurationMs: grant.deadlineAt === null ? null : grant.deadlineAt * 1000 - now };
 }
 
 export async function resolveTaskBudgetAuthority({ runtimeRequest, projectId, taskId, generationRun = null, now }) {

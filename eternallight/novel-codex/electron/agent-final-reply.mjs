@@ -15,7 +15,7 @@ export function selectFinalReply(previous, item) {
     bytes += size;
     bounded += character;
   }
-  return { itemId: item.id, text: bounded, truncated: bounded.length !== text.length,
+  return { itemId: item.id, text: bounded, truncated: item.displayTruncated === true || bounded.length !== text.length,
     phase: item.phase ?? null };
 }
 

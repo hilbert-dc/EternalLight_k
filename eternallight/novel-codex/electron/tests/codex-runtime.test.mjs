@@ -1,19 +1,65 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createInterface } from "node:readline";
-import { test } from "node:test";
+import { after, before, mock, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { CAPABILITIES, defineQualificationSuiteResult } from "@eternallight/agent-engine";
+import { CAPABILITIES, DELEGATION_EXECUTION_CAPABILITIES, defineQualificationSuiteResult } from "@eternallight/agent-engine";
+import { NOVEL_COLLABORATION_INSTRUCTIONS, NOVEL_COLLABORATION_MODE, readCollaborationPolicy, collaborationAvailability } from "../novel-collaboration.mjs";
 import { verifiedBaselineEvidence } from "@eternallight/agent-engine/test-support";
 
 import { assertProviderOperation, buildCodexConfig, buildCodexModelCatalog, checkCodexConnectionAccess, composeNovelCodexPrompt, createCodexEnvironment, createQualificationContextDigest, createRuntimeEnvironment, createTaskCapability, credentialScopesFromEnvironment, inspectCodexConnection, installManagedAgentRoles, listCodexConnections, loadCodexEvidence, prepareIsolatedStorage, providerConfigurationError, resolveCodexCli, resolveCodexProvider, verifyCodexConnection } from "../codex-runtime.mjs";
-import { initializeFixtureCodexRepository, writeFixtureBuildIdentity } from "./build-identity-fixture.mjs";
+import { NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS } from "../codex-runtime.mjs";
+import { LANGUAGE_CONSISTENCY_INSTRUCTIONS } from "../author-language.mjs";
+import { NOVEL_ROOT_DEVELOPER_INSTRUCTIONS, NOVEL_CREATIVE_MISSION } from "../creative-mission.mjs";
+import { modelInputTokenBudget } from "../../shared/author-input-budget.mjs";
+import { initializeFixtureCodexRepository, installFixtureExecutableInterpreter, writeFixtureBuildIdentity, writeFixtureCodexExecutable, writeFixtureNodeExecutable } from "./build-identity-fixture.mjs";
 import { certificationPath } from "../../scripts/certification-publication.mjs";
+import { NOVEL_AGENT_ROLES, NOVEL_ROLE_READ_TOOLS, renderNovelAgentRole } from "../novel-agent-roles.mjs";
+import { CREATIVE_STRATEGY_INSTRUCTIONS } from "../creative-strategy-policy.mjs";
+
+test("creative methods reach the root policy and every role retains bounded read-only tools", () => {
+  const catalog = JSON.parse(readFileSync(new URL("../../shared/creative-strategies.json", import.meta.url), "utf8"));
+  assert.equal(catalog.status, "unvalidated");
+  assert.equal(catalog.authority, "advisoryMethodOnly");
+  assert.equal(new Set(catalog.strategies.map(item => item.id)).size, 7);
+  assert.ok(NOVEL_COLLABORATION_INSTRUCTIONS.includes(CREATIVE_STRATEGY_INSTRUCTIONS));
+  for (const strategy of catalog.strategies) {
+    assert.ok(CREATIVE_STRATEGY_INSTRUCTIONS.includes(strategy.id));
+    for (const field of ["when", "skip", "deliverable", "stop"]) assert.ok(strategy[field].trim());
+    assert.ok(strategy.inputs.length && strategy.steps.length);
+  }
+  assert.match(CREATIVE_STRATEGY_INSTRUCTIONS, /not guaranteed blind/);
+  assert.match(CREATIVE_STRATEGY_INSTRUCTIONS, /Stop repeated revision/);
+  assert.deepEqual(NOVEL_ROLE_READ_TOOLS, ["read_context", "search_story", "search_relations", "query_story", "read_creative_strategy"]);
+  for (const role of NOVEL_AGENT_ROLES) {
+    assert.equal(readFileSync(new URL(`../../codex-runtime/agents/${role.id}.toml`, import.meta.url), "utf8"), renderNovelAgentRole(role));
+  }
+});
+
+test("invalid role packages fail before replacing installed roles", () => {
+  const root = temporaryDirectory();
+  try {
+    const home = join(root, "home");
+    const source = join(root, "source");
+    mkdirSync(source);
+    mkdirSync(join(home, "agents"), { recursive: true });
+    const preserved = join(home, "agents", "current.toml");
+    writeFileSync(preserved, "current");
+    for (const role of NOVEL_AGENT_ROLES) writeFileSync(join(source, `${role.id}.toml`), renderNovelAgentRole(role));
+    const file = join(source, "character_analyst.toml");
+    writeFileSync(file, renderNovelAgentRole(NOVEL_AGENT_ROLES.find(role => role.id === "character_analyst")).replace('sandbox_mode = "read-only"', 'sandbox_mode = "danger-full-access"'));
+    assert.throws(() => installManagedAgentRoles(home, source), /角色配置不一致/);
+    assert.equal(readFileSync(preserved, "utf8"), "current");
+    rmSync(file);
+    assert.throws(() => installManagedAgentRoles(home, source), /角色集合/);
+    assert.equal(readFileSync(preserved, "utf8"), "current");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 function temporaryDirectory() {
   return mkdtempSync(join(tmpdir(), "novel-codex-runtime-"));
@@ -26,6 +72,10 @@ const modelCertificationsSha256 = createHash("sha256").update(readFileSync(activ
 const TEST_NOW = new Date("2026-09-19T01:00:00Z");
 const TEST_BRIDGE = { baseUrl: "http://127.0.0.1:43123", credentialRef: "AGENT_ENGINE_BRIDGE_TOKEN" };
 
+let restoreFixtureInterpreter;
+before(() => { restoreFixtureInterpreter = installFixtureExecutableInterpreter(mock); });
+after(() => restoreFixtureInterpreter());
+
 function verifiedProvider(capabilities = [CAPABILITIES.TEXT, CAPABILITIES.STRUCTURED_TOOL_CALLS, CAPABILITIES.TOOL_LOOP]) {
   const inspected = inspectCodexConnection({ provider: "deepseek", model: "deepseek-flash" });
   const evidence = verifiedBaselineEvidence(inspected.connection, {
@@ -35,12 +85,6 @@ function verifiedProvider(capabilities = [CAPABILITIES.TEXT, CAPABILITIES.STRUCT
     expiresAt: "2026-09-20T00:00:00Z",
   });
   return resolveCodexProvider({ evidence, now: TEST_NOW, provider: inspected.provider, model: inspected.model });
-}
-
-function fakeExecutable(path) {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, "#!/usr/bin/env node\nprocess.stdout.write('codex-cli 0.0.0\\n');\n");
-  chmodSync(path, 0o755);
 }
 
 function executableChecksum(path) {
@@ -58,10 +102,52 @@ function writeCliPolicy(root, digests = {}, buildIdentities = {}) {
   writeFileSync(join(root, "release-manifest.json"), JSON.stringify({ version: 1, target: { platform: "darwin", architecture: "arm64" }, codex: { binarySha256: digests.bundled?.["darwin-arm64"] ?? null, unsignedBinarySha256: bundledIdentity?.unsignedBinarySha256 ?? null, buildIdentityId: bundledIdentity?.identityId ?? null, buildIdentitySha256: bundledIdentity?.sha256 ?? null }, resources: {} }));
 }
 
+test("fixture executables preserve argv and stdin without resolving Node through PATH", () => {
+  const root = temporaryDirectory();
+  try {
+    const directory = join(root, "an author's fixtures");
+    const cli = join(directory, "codex");
+    const protocol = join(directory, "protocol-worker");
+    const env = { PATH: join(root, "no-interpreters-on-path"), ELECTRON_RUN_AS_NODE: "1" };
+    writeFixtureCodexExecutable(cli);
+    const version = spawnSync(cli, ["--version"], { env, encoding: "utf8", timeout: 15_000 });
+    assert.deepEqual([version.error?.code ?? null, version.status, version.stdout, version.stderr], [null, 0, "codex-cli 0.0.0\n", ""]);
+    const unsupported = spawnSync(cli, ["app-server"], { env, encoding: "utf8", timeout: 15_000 });
+    assert.deepEqual([unsupported.status, unsupported.stdout, unsupported.stderr], [64, "", "fixture Codex supports only --version\n"]);
+
+    writeFixtureNodeExecutable(protocol, `process.stdout.write(JSON.stringify({
+  executable: process.execPath, args: process.argv.slice(2), input: require("node:fs").readFileSync(0, "utf8")
+}));\n`);
+    const args = ["--port", "43123", "an argument's spaces"];
+    const input = '{"jsonrpc":"2.0","id":1,"method":"initialize"}\n';
+    const response = spawnSync(protocol, args, { env, input, encoding: "utf8", timeout: 15_000 });
+    assert.deepEqual([response.error?.code ?? null, response.status, response.stderr], [null, 0, ""]);
+    assert.deepEqual(JSON.parse(response.stdout), { executable: process.execPath, args, input });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("fixture build identity reports interpreter and child exit diagnostics", () => {
+  const root = temporaryDirectory();
+  try {
+    const binaryPath = join(root, "broken-cli");
+    writeFixtureNodeExecutable(binaryPath, "process.stderr.write('fixture refused version'); process.exit(7);\n");
+    assert.throws(() => writeFixtureBuildIdentity({ binaryPath, identityPath: join(root, "build-identity.json") }), error => {
+      assert.match(error.message, /exit=7; elapsed=\d+ms/);
+      assert.ok(error.message.includes(`path=${binaryPath}; interpreter=#!/usr/bin/env -S`));
+      assert.match(error.message, /stderr=fixture refused version/);
+      return true;
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("resolves the packaged CLI instead of PATH", () => {
   const resourcesPath = temporaryDirectory();
   const cliPath = join(resourcesPath, "codex-runtime", "bin", "codex");
-  fakeExecutable(cliPath);
+  writeFixtureCodexExecutable(cliPath);
   const identityPath = join(resourcesPath, "codex-runtime", "build-identity.json");
   const { identity, sha256 } = writeFixtureBuildIdentity({ architecture: "arm64", binaryPath: cliPath, identityPath, platform: "darwin" });
   writeCliPolicy(resourcesPath, { bundled: { "darwin-arm64": executableChecksum(cliPath) } }, { bundled: { "darwin-arm64": { identityId: identity.identityId, sha256, unsignedBinarySha256: identity.binary.sha256 } } });
@@ -79,7 +165,7 @@ test("resolves the packaged CLI instead of PATH", () => {
 test("requires packaged BuildIdentity provenance while allowing signed executable bytes", () => {
   const resourcesPath = temporaryDirectory();
   const cliPath = join(resourcesPath, "codex-runtime", "bin", "codex");
-  fakeExecutable(cliPath);
+  writeFixtureCodexExecutable(cliPath);
   writeCliPolicy(resourcesPath);
   try {
     const missing = resolveCodexCli({ architecture: "arm64", isPackaged: true, platform: "darwin", projectRoot: "/unused", resourcesPath });
@@ -87,7 +173,7 @@ test("requires packaged BuildIdentity provenance while allowing signed executabl
     assert.match(missing.reason, /BuildIdentity/);
     const identityPath = join(resourcesPath, "codex-runtime", "build-identity.json");
     const recorded = writeFixtureBuildIdentity({ architecture: "arm64", binaryPath: cliPath, identityPath, platform: "darwin" });
-    writeFileSync(cliPath, "#!/usr/bin/env node\nprocess.stdout.write('codex-cli 0.0.0\\n');\n// changed after build\n");
+    appendFileSync(cliPath, "\n// changed after build\n");
     writeCliPolicy(resourcesPath, { bundled: { "darwin-arm64": executableChecksum(cliPath) } }, { bundled: { "darwin-arm64": { identityId: recorded.identity.identityId, sha256: recorded.sha256, unsignedBinarySha256: recorded.identity.binary.sha256 } } });
     const signed = resolveCodexCli({ architecture: "arm64", isPackaged: true, platform: "darwin", projectRoot: "/unused", resourcesPath });
     assert.equal(signed.path, realpathSync(cliPath));
@@ -107,8 +193,8 @@ test("requires a SHA manifest for a project runtime and permits only the develop
   const projectCli = join(projectRoot, "codex-runtime", "bin", "codex");
   const workspaceCli = join(projectRoot, "..", "..", "codex-rs", "target", "debug", "codex");
   const sourceTreeDigest = initializeFixtureCodexRepository(root);
-  fakeExecutable(projectCli);
-  fakeExecutable(workspaceCli);
+  writeFixtureCodexExecutable(projectCli);
+  writeFixtureCodexExecutable(workspaceCli);
   const identityPath = join(projectRoot, "codex-runtime", "build-identities", "darwin-arm64.json");
   const workspaceIdentity = writeFixtureBuildIdentity({ architecture: "arm64", binaryPath: workspaceCli, identityPath, platform: "darwin", repositoryRoot: root, sourceTreeDigest });
   writeCliPolicy(projectRoot, { "workspace-build": { "darwin-arm64": executableChecksum(workspaceCli) } }, { "workspace-build": { "darwin-arm64": { identityId: workspaceIdentity.identity.identityId, sha256: workspaceIdentity.sha256 } } });
@@ -129,13 +215,13 @@ test("requires a SHA manifest for a project runtime and permits only the develop
 test("rejects an explicit CLI in a packaged build", () => {
   const root = temporaryDirectory();
   const bundledCli = join(root, "codex-runtime", "bin", "codex");
-  fakeExecutable(bundledCli);
+  writeFixtureCodexExecutable(bundledCli);
   const identityPath = join(root, "codex-runtime", "build-identity.json");
   const bundledIdentity = writeFixtureBuildIdentity({ architecture: "arm64", binaryPath: bundledCli, identityPath, platform: "darwin" });
   writeCliPolicy(root, { bundled: { "darwin-arm64": executableChecksum(bundledCli) } }, { bundled: { "darwin-arm64": { identityId: bundledIdentity.identity.identityId, sha256: bundledIdentity.sha256, unsignedBinarySha256: bundledIdentity.identity.binary.sha256 } } });
   rmSync(bundledCli);
   const desktopCli = join(root, "Applications", "ChatGPT.app", "Contents", "Resources", "codex");
-  fakeExecutable(desktopCli);
+  writeFixtureCodexExecutable(desktopCli);
   try {
     const result = resolveCodexCli({ architecture: "arm64", explicitPath: desktopCli, isPackaged: true, platform: "darwin", projectRoot: "/unused", resourcesPath: root });
     assert.equal(result.path, null);
@@ -149,9 +235,7 @@ test("rejects an explicit CLI in a packaged build", () => {
 test("rejects a digest-pinned CLI whose reported version is not supported", () => {
   const resourcesPath = temporaryDirectory();
   const cliPath = join(resourcesPath, "codex-runtime", "bin", "codex");
-  mkdirSync(dirname(cliPath), { recursive: true });
-  writeFileSync(cliPath, "#!/usr/bin/env node\nprocess.stdout.write('codex-cli 99.0.0\\n');\n");
-  chmodSync(cliPath, 0o755);
+  writeFixtureCodexExecutable(cliPath, "codex-cli 99.0.0");
   const identityPath = join(resourcesPath, "codex-runtime", "build-identity.json");
   const wrongVersionIdentity = writeFixtureBuildIdentity({ architecture: "arm64", binaryPath: cliPath, identityPath, platform: "darwin" });
   writeCliPolicy(resourcesPath, { bundled: { "darwin-arm64": executableChecksum(cliPath) } }, { bundled: { "darwin-arm64": { identityId: wrongVersionIdentity.identity.identityId, sha256: wrongVersionIdentity.sha256, unsignedBinarySha256: wrongVersionIdentity.identity.binary.sha256 } } });
@@ -182,13 +266,16 @@ test("qualification context binds the current CLI and upstream instructions", ()
   const root = temporaryDirectory();
   try {
     const cliPath = join(root, "codex");
-    fakeExecutable(cliPath);
+    writeFixtureCodexExecutable(cliPath);
     const first = createQualificationContextDigest({ baseInstructions: "instruction-v1", cliPath });
     const second = createQualificationContextDigest({ baseInstructions: "instruction-v2", cliPath });
     assert.match(first, /^[a-f0-9]{64}$/);
     assert.notEqual(first, second);
-    writeFileSync(cliPath, "#!/usr/bin/env node\nprocess.stdout.write('codex-cli 0.0.1\\n');\n");
-    chmodSync(cliPath, 0o755);
+    assert.notEqual(second, createQualificationContextDigest({ baseInstructions: "instruction-v2", cliPath,
+      developerInstructions: `${NOVEL_ROOT_DEVELOPER_INSTRUCTIONS}\nChanged root policy.` }));
+    assert.notEqual(second, createQualificationContextDigest({ baseInstructions: "instruction-v2", cliPath,
+      subagentDeveloperInstructions: `${NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS}\nChanged child policy.` }));
+    writeFixtureCodexExecutable(cliPath, "codex-cli 0.0.1");
     assert.notEqual(second, createQualificationContextDigest({ baseInstructions: "instruction-v2", cliPath }));
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -518,12 +605,12 @@ test("installs only managed read-only Agent roles into the isolated Codex home",
     mkdirSync(join(codexHome, "agents"), { recursive: true });
     writeFileSync(join(codexHome, "agents", "stale.toml"), "stale = true\n");
     const roles = installManagedAgentRoles(codexHome, join(runtimeRoot, "agents"));
-    assert.deepEqual(roles, ["continuity_critic.toml", "default.toml", "explorer.toml", "story_architect.toml", "worker.toml"]);
+    assert.deepEqual(roles, ["character_analyst.toml", "continuity_critic.toml", "default.toml", "explorer.toml", "reader_experience.toml", "story_architect.toml", "style_reviewer.toml", "worker.toml"]);
     assert.equal(existsSync(join(codexHome, "agents", "stale.toml")), false);
     for (const role of roles) {
       const contents = readFileSync(join(codexHome, "agents", role), "utf8");
       assert.match(contents, /sandbox_mode = "read-only"/);
-      assert.match(contents, /enabled_tools = \["read_context", "search_story", "search_relations", "query_story"\]/);
+      assert.match(contents, /enabled_tools = \["read_context","search_story","search_relations","query_story","read_creative_strategy"\]/);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -534,6 +621,9 @@ test("builds an isolated Agent Engine provider without persisting the downstream
   const config = buildCodexConfig({ sessionPlan: verifiedProvider().sessionPlan, bridge: TEST_BRIDGE, modelCatalogPath: "/runtime/model-catalog.json", mcpServerCommand: "/runtime/novel-workspace-mcp" });
   assert.match(config, /model_provider = "agent_engine"/);
   assert.match(config, /model_catalog_json = /);
+  const rootConfig = config.slice(0, config.indexOf("[features]"));
+  assert.equal(JSON.parse(rootConfig.match(/^developer_instructions = (.+)$/m)[1]), NOVEL_ROOT_DEVELOPER_INSTRUCTIONS);
+  assert.equal(JSON.parse(config.match(/^subagent_developer_instructions = (.+)$/m)[1]), NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS);
   assert.match(config, /base_url = "http:\/\/127\.0\.0\.1:43123"/);
   assert.match(config, /env_key = "AGENT_ENGINE_BRIDGE_TOKEN"/);
   assert.doesNotMatch(config, /sk-/);
@@ -554,7 +644,54 @@ test("builds an isolated Agent Engine provider without persisting the downstream
   assert.match(config, /non_code_mode_only = false/);
   assert.match(config, /expose_spawn_agent_model_overrides = false/);
   assert.match(config, /\[agents\]/);
-  assert.match(config, /max_concurrent_threads_per_session = 3/);
+  assert.match(config, /max_concurrent_threads_per_session = 17/);
+});
+
+test("creative responsibility is persistent with or without delegation and within existing instruction caps", () => {
+  assert.ok(Buffer.byteLength(NOVEL_ROOT_DEVELOPER_INSTRUCTIONS) <= 4096);
+  assert.ok(modelInputTokenBudget(NOVEL_ROOT_DEVELOPER_INSTRUCTIONS) <= 1000);
+  for (const delegation of [false, true]) {
+    const capabilities = [CAPABILITIES.TEXT, CAPABILITIES.STRUCTURED_TOOL_CALLS, CAPABILITIES.TOOL_LOOP,
+      ...(delegation ? DELEGATION_EXECUTION_CAPABILITIES : [])];
+    const { sessionPlan } = verifiedProvider(capabilities);
+    const before = structuredClone(sessionPlan);
+    const config = buildCodexConfig({ sessionPlan, bridge: TEST_BRIDGE, modelCatalogPath: "/runtime/catalog.json", mcpServerCommand: "/runtime/mcp" });
+    const instructions = JSON.parse(config.match(/^developer_instructions = (.+)$/m)[1]);
+    assert.equal(instructions, NOVEL_ROOT_DEVELOPER_INSTRUCTIONS);
+    assert.equal(instructions.split(NOVEL_CREATIVE_MISSION).length - 1, 1);
+    assert.equal(instructions.split(LANGUAGE_CONSISTENCY_INSTRUCTIONS).length - 1, 1);
+    assert.ok(config.includes(`multi_agent = ${delegation}`));
+    assert.deepEqual(sessionPlan, before, "creative responsibility cannot expand the frozen authority or budget");
+  }
+  for (const rule of ["authorized scope and budget", "Do not impose growth arcs", "A one-sentence edit stays local",
+    "Discussion and factual extraction do not authorize rewriting", "without new evidence",
+    "not literary success", "not perfection", "Never invent review"]) assert.ok(NOVEL_CREATIVE_MISSION.includes(rule));
+});
+
+test("verified delegation is enabled by default with autonomous story policy and bounded concurrency", () => {
+  assert.deepEqual(readCollaborationPolicy({}), { maxActiveChildren: 16, resourcePolicy: {} });
+  assert.deepEqual(readCollaborationPolicy({ NOVEL_CODEX_RESOURCE_POLICY: '{"maxActiveChildren":24,"maxConcurrentRequests":6}' }),
+    { maxActiveChildren: 24, resourcePolicy: { maxConcurrentRequests: 6 } });
+  for (const value of ["not-json", "null", "[]", '{"maxActiveChildren":0}', '{"maxActiveChildren":65}']) {
+    assert.throws(() => readCollaborationPolicy({ NOVEL_CODEX_RESOURCE_POLICY: value }));
+  }
+  const { sessionPlan } = verifiedProvider([CAPABILITIES.TEXT, CAPABILITIES.STRUCTURED_TOOL_CALLS, CAPABILITIES.TOOL_LOOP, ...DELEGATION_EXECUTION_CAPABILITIES]);
+  const config = buildCodexConfig({ sessionPlan, bridge: TEST_BRIDGE, modelCatalogPath: "/runtime/model-catalog.json", mcpServerCommand: "/runtime/novel-workspace-mcp" });
+  assert.match(config, /multi_agent = true/);
+  assert.match(config, /\[features\.multi_agent_v2\]\nenabled = true/);
+  assert.match(config, /\[agents\]\nenabled = true\nmax_concurrent_threads_per_session = 17/);
+  const instructions = JSON.parse(config.match(/^root_agent_usage_hint_text = (.+)$/m)[1]);
+  assert.ok(instructions.startsWith(NOVEL_COLLABORATION_INSTRUCTIONS));
+  assert.match(instructions, /16 resident children/);
+  assert.match(instructions, /4 model requests globally/);
+  const feature = config.slice(config.indexOf("[features.multi_agent_v2]"), config.indexOf("[agents]"));
+  assert.equal(JSON.parse(feature.match(/^multi_agent_mode_hint_text = (.+)$/m)[1]), NOVEL_COLLABORATION_MODE);
+  assert.equal(collaborationAvailability(DELEGATION_EXECUTION_CAPABILITIES, []), "ready");
+  for (const missing of DELEGATION_EXECUTION_CAPABILITIES) {
+    const partial = DELEGATION_EXECUTION_CAPABILITIES.filter(capability => capability !== missing);
+    assert.equal(collaborationAvailability(partial, []), "unverified");
+    assert.equal(collaborationAvailability(partial, [missing]), "failed");
+  }
 });
 
 test("places the selected provider at the TOML root without a Python parser", () => {
@@ -565,7 +702,7 @@ test("places the selected provider at the TOML root without a Python parser", ()
   assert.match(config, /\[model_providers\.agent_engine\][\s\S]*name = "Eternal Light Agent Engine"/);
   assert.match(config, /\[features\][\s\S]*multi_agent = false/);
   assert.match(config, /\[features\.multi_agent_v2\][\s\S]*enabled = false/);
-  assert.match(config, /\[agents\][\s\S]*enabled = false[\s\S]*max_concurrent_threads_per_session = 3/);
+  assert.match(config, /\[agents\][\s\S]*enabled = false[\s\S]*max_concurrent_threads_per_session = 17/);
 });
 
 test("builds a cross-platform candidate-only MCP sidecar config", () => {
@@ -605,6 +742,7 @@ test("lists declared connections as unverified until endpoint evidence exists", 
   const inspected = inspectCodexConnection({ provider: "deepseek", model: "deepseek-flash" });
   const [unverified] = listCodexConnections({ now: TEST_NOW });
   assert.equal(unverified.status, "unverified");
+  assert.equal(unverified.collaborationStatus, "unverified");
   assert.deepEqual(unverified.verifiedCapabilities, []);
   const evidence = verifiedBaselineEvidence(inspected.connection, {
     protocol: "responses",
@@ -613,6 +751,7 @@ test("lists declared connections as unverified until endpoint evidence exists", 
   });
   const [verified] = listCodexConnections({ evidence, now: TEST_NOW });
   assert.equal(verified.status, "verified");
+  assert.equal(verified.collaborationStatus, "ready");
   assert.deepEqual(verified.verifiedCapabilities, [CAPABILITIES.CHILD_DIRECTED_ROUTE, CAPABILITIES.CHILD_MESSAGE_RUNNING, CAPABILITIES.CHILD_SPAWN, CAPABILITIES.CHILD_WAIT, CAPABILITIES.STREAMING, CAPABILITIES.STRUCTURED_TOOL_CALLS, CAPABILITIES.TEXT, CAPABILITIES.TOOL_LOOP, CAPABILITIES.USAGE]);
 });
 
@@ -795,9 +934,18 @@ test("MCP sidecar lists only candidate tools and forwards bearer-authenticated c
 test("composes a bounded prompt from frozen task methods", () => {
   const skills = "已冻结的任务方法";
   const prompt = composeNovelCodexPrompt(skills, "检查这一章的 Scene Anchor").map((item) => item.text).join("");
-  assert.match(prompt, /Novel Codex 专用工作约束/);
+  assert.match(prompt, /小说工坊专用工作约束/);
   assert.match(prompt, /用户当前指令：\n检查这一章的 Scene Anchor/);
   assert.throws(() => composeNovelCodexPrompt(skills, "x".repeat(60_000)), /超过安全上限/);
   assert.throws(() => composeNovelCodexPrompt("", "🌙 ".repeat(5_000)), /超过安全上限/);
   assert.throws(() => composeNovelCodexPrompt("🌙 ".repeat(5_000), "小输入"), /超过安全上限/);
+  const author = "请展示保存后的完整全文，并解释技术详情；保持场景ID moon-1。";
+  const binding = '冻结任务身份：{"taskId":"task-one","expectedRevision":7}';
+  const explicit = composeNovelCodexPrompt(skills, author, binding).map(item => item.text).join("");
+  assert.ok(explicit.startsWith(`小说工坊专用工作约束（只对当前应用生效）：\n${skills}\n\n${binding}`));
+  assert.ok(explicit.endsWith(`用户当前指令：\n${author}`));
+  assert.match(explicit, /作者明确要求详细分析、全文或技术细节时按权限充分回答/);
+  assert.match(explicit, /有成功保存回执才说明实际保存了什么/);
+  assert.match(explicit, /不以简短回复代替产物或正式决定/);
+  assert.throws(() => composeNovelCodexPrompt(skills, author, "绑定身份".repeat(5_000)), /超过安全上限/);
 });

@@ -8,6 +8,7 @@ const BASE_OPERATION = Object.freeze({
 
 export const OPERATION_REQUIREMENTS = Object.freeze({
   advisory: BASE_OPERATION,
+  reviewQuality: BASE_OPERATION,
   generateBrief: BASE_OPERATION,
   generatePropertyRules: BASE_OPERATION,
   generateOutline: BASE_OPERATION,
@@ -16,6 +17,7 @@ export const OPERATION_REQUIREMENTS = Object.freeze({
   modelKnowledge: BASE_OPERATION,
   assessSceneOutcome: BASE_OPERATION,
   assessRevisionOutcome: BASE_OPERATION,
+  assessChapterStructure: BASE_OPERATION,
   extractCommitments: BASE_OPERATION,
   reviseCommitment: BASE_OPERATION,
   // Planning review is an application-orchestrated fixed panel. Each seat is
@@ -30,6 +32,7 @@ export const OPERATION_REQUIREMENTS = Object.freeze({
 
 export const PRODUCT_OPERATION_IDS = Object.freeze([
   "advisory",
+  "reviewQuality",
   "generateBrief",
   "generatePropertyRules",
   "generateOutline",
@@ -38,6 +41,7 @@ export const PRODUCT_OPERATION_IDS = Object.freeze([
   "modelKnowledge",
   "assessSceneOutcome",
   "assessRevisionOutcome",
+  "assessChapterStructure",
   "extractCommitments",
   "reviseCommitment",
   "reviewPlanningSeat",

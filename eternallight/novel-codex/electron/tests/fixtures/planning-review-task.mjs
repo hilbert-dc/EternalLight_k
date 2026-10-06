@@ -6,6 +6,6 @@ export function reviewTask(run, role, body, id) {
     purpose: "critic", operation: "reviewPlanningSeat",
     target: { type: "artifact", artifactKind: run.artifactKind, revisionId: run.revisionId, reviewRunId: run.id, role, resumeStepId: stepId },
     inputManifest: { authorIntent: run.authorIntent, authorMessageId: run.authorMessageId, sourcePacketHash: run.sourcePacketHash,
-      planningReviewAuthorIntentBinding: { runId: run.id, authorMessageId: run.authorMessageId, role, stepId, sourcePacketHash: run.sourcePacketHash } },
+      planningReviewAuthorIntentBinding: { sourceTaskId: run.sourceTaskId, sourceIntentRevision: run.sourceIntentRevision, runId: run.id, authorMessageId: run.authorMessageId, role, stepId, sourcePacketHash: run.sourcePacketHash } },
   }, run.projectId);
 }

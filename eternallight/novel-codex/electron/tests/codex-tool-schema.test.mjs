@@ -25,9 +25,10 @@ function within(promise, milliseconds, label) {
 }
 
 test("Codex forwards the novel knowledge schema without dropping source evidence", { timeout: 45_000 }, async (t) => {
-  const cli = resolveCodexCli({ explicitPath: process.env.NOVEL_CODEX_CLI, isPackaged: false, projectRoot, resourcesPath: projectRoot });
+  const packagedResources = process.env.NOVEL_CODEX_TEST_RESOURCES;
+  const cli = resolveCodexCli({ explicitPath: process.env.NOVEL_CODEX_CLI, isPackaged: Boolean(packagedResources), projectRoot, resourcesPath: packagedResources ?? projectRoot });
   if (!cli.path) {
-    if (process.env.NOVEL_CODEX_CLI) assert.fail(`Configured Codex CLI is unavailable: ${cli.reason}`);
+    if (process.env.NOVEL_CODEX_CLI || packagedResources) assert.fail(`Configured Codex CLI is unavailable: ${cli.reason}`);
     return t.skip(`Codex CLI is unavailable: ${cli.reason}`);
   }
   const mcpCommand = join(projectRoot, "native", "target", "debug", `novel-workspace-mcp${executableSuffix}`);
@@ -113,6 +114,11 @@ test("Codex forwards the novel knowledge schema without dropping source evidence
   assert.ok(Buffer.byteLength(JSON.stringify(schema)) <= 5000, "Codex forwarded an oversized knowledge schema");
   assert.deepEqual(schema.$defs.E.required, ["quote"]);
   assert.ok(schema.required.includes("entities") && schema.required.includes("assertions"));
+  for (const branch of schema.properties.assertions.items.anyOf) {
+    for (const field of ["kind", "subjectId", "predicate", "value", "evidence"]) {
+      assert.ok(branch.required.includes(field), `assertion branch lost required ${field}`);
+    }
+  }
   const event = schema.properties.assertions.items.anyOf.find(item => item.properties.kind.enum?.includes("event"));
   assert.deepEqual(event.properties.value.required, ["participants", "preconditions", "effects", "untilExclusive"]);
 });

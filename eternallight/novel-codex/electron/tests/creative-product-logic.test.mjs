@@ -19,10 +19,11 @@ test("returns the first accessible outline field error", () => {
 });
 
 test("zero-output terminal generation is failure and partial requires output", () => {
-  assert.deepEqual(generationStatusLabel({ status: "failed", delivery_status: "pending", outputRefs: [] }), { label: "生成失败", failed: true });
-  assert.deepEqual(generationStatusLabel({ status: "failed", delivery_status: "incomplete", outputRefs: [{ revisionId: "draft-1" }] }), { label: "生成部分完成", failed: false });
-  assert.deepEqual(generationStatusLabel({ status: "cancelled", delivery_status: "pending", outputRefs: [] }), { label: "生成已停止", failed: false });
-  assert.deepEqual(generationStatusLabel({ status: "cancelled", delivery_status: "incomplete", outputRefs: [{ revisionId: "draft-1" }] }), { label: "已停止，部分稿已保存", failed: false });
+  assert.deepEqual(generationStatusLabel({ status: "completed", deliveryStatus: "ready_for_review", outputRefs: [{ kind: "draft", objectId: "draft-chapter-a", revisionId: "draft-1" }] }), { label: "内容已保存", failed: false });
+  assert.deepEqual(generationStatusLabel({ status: "failed", deliveryStatus: "pending", outputRefs: [] }), { label: "生成失败", failed: true });
+  assert.deepEqual(generationStatusLabel({ status: "failed", deliveryStatus: "incomplete", outputRefs: [{ kind: "draft", objectId: "draft-chapter-a", revisionId: "draft-1" }] }), { label: "生成部分完成", failed: false });
+  assert.deepEqual(generationStatusLabel({ status: "cancelled", deliveryStatus: "pending", outputRefs: [] }), { label: "生成已停止", failed: false });
+  assert.deepEqual(generationStatusLabel({ status: "cancelled", deliveryStatus: "incomplete", outputRefs: [{ kind: "draft", objectId: "draft-chapter-a", revisionId: "draft-1" }] }), { label: "已停止，部分稿已保存", failed: false });
 });
 
 test("writer preview is visible only for the chapter request that produced it", () => {

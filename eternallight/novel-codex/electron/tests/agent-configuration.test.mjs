@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { applyAgentConfiguration } from "../agent-configuration.mjs";
+import { composeAdvisoryPrompt } from "../advisory-prompt.mjs";
+import { createTaskBoundHandoff, taskExecutionPrompt } from "../workflow-handoff.mjs";
 import { CodexAppServerAdapter } from "../codex-adapter.mjs";
 import { modelInputTokenBudget } from "../../shared/author-input-budget.mjs";
 
@@ -13,7 +15,7 @@ const command = `${process.execPath} ${join("", fixture)}`;
 test("recovery quietly closes finished reads but preserves writes, mixed requests and active reads", async () => {
   const request = (operation) => ({operation,recovery:"manual-reconciliation"});
   const reports = [
-    {runId:"reads",runtimeStatus:"completed",requests:[request("read_commitment"),request("read_property_rules"),request("search_story"),request("query_story"),request("search_relations")]},
+    {runId:"reads",runtimeStatus:"completed",requests:[request("read_commitment"),request("read_task_source"),request("read_work_status"),request("search_story"),request("query_story"),request("search_relations")]},
     {runId:"write",runtimeStatus:"completed",requests:[request("submit_commitment_candidate")]},
     {runId:"mixed",runtimeStatus:"failed",requests:[request("read_commitment"),request("submit_commitment_candidate")]},
     {runId:"active",runtimeStatus:"running",requests:[request("read_commitment")]},
@@ -21,7 +23,7 @@ test("recovery quietly closes finished reads but preserves writes, mixed request
   ];
   const resolved=[];
   const {handlers,adapter}=await mainHandlers(async()=>{throw new Error("Recovery report must not call Runtime");},command,
-    {recoveryIndex:{recoveryReport:async()=>reports,resolveRun:async(...args)=>resolved.push(args)}});
+    {recoveryIndex:{unfinishedRuns:async()=>[],recoveryReport:async()=>reports,resolveRun:async(...args)=>resolved.push(args)}});
   try {
     const result=await handlers.get("agent:recovery-report")(rendererEvent());
     assert.deepEqual(resolved,[["reads","manual-reviewed"]]);
@@ -305,7 +307,7 @@ test("main rejects model changes throughout Runtime preparation", async () => {
     const turn = handlers.get('agent:send-prompt')(rendererEvent(),'project','hello');
     await preparing;
     assert.equal(adapter.turnWaiter,null);
-    await assert.rejects(handlers.get('agent:configure')({},'deepseek','deepseek-flash'),/已有创作引擎任务正在运行/);
+    await assert.rejects(handlers.get('agent:configure')({},'deepseek','deepseek-flash'),/已有创作任务正在执行/);
     assert.equal(adapter.provider,'deepseek');
     release();
     await turn;
@@ -322,7 +324,7 @@ test("main persists a bounded Unicode summary and returns the complete discussio
   } finally {adapter.close();}
 });
 
-for (const operation of ["generateBrief", "generatePropertyRules"]) test(`a conversation proposes ${operation} and only executes after author approval`, async () => {
+for (const operation of ["generateBrief", "generatePropertyRules"]) test(`an explicit conversation executes ${operation} in the same send without duplicate approval`, async () => {
   const runtime = runtimeFixture();
   const calls = [];
   const actionId = `action-${"1".repeat(32)}`;
@@ -332,18 +334,17 @@ for (const operation of ["generateBrief", "generatePropertyRules"]) test(`a conv
   const { handlers, adapter } = await mainHandlers(async (path, body, options = {}) => {
     calls.push({ path, body, method: options.method ?? "GET" });
     if (path.endsWith("/actions")) return { actions: [proposal] };
-    if (path.endsWith(`/${actionId}/approve`)) return { ...proposal, status: "queued" };
-    if (path.endsWith(`/${actionId}/finish`)) return { status: "completed" };
+    if (path.endsWith(`/${actionId}/approve`)) { proposal.status = "queued"; return { ...proposal }; }
+    if (path.endsWith(`/${actionId}/finish`)) { proposal.status = "completed"; return { status: "completed" }; }
     return runtime.request(path, body);
   }, command);
   try {
     const discussion = await handlers.get("agent:send-prompt")(
       rendererEvent(), "project", "请修改故事简介，突出主角为何不再信预言",
     );
-    assert.deepEqual(discussion.proposedActions, [proposal]);
-    assert.equal(calls.filter((call) => call.path.endsWith("/tasks") && call.method === "POST").length, 1);
-    assert.equal(calls.filter((call) => call.path.endsWith(`/${actionId}/approve`)).length, 0);
-    const result = await handlers.get("agent:approve-action")(rendererEvent(), "project", sourceTaskId, actionId);
+    assert.deepEqual(discussion.proposedActions, []);
+    assert.equal(calls.filter((call) => call.path.endsWith(`/${actionId}/approve`)).length, 1);
+    const result = discussion.candidateResults[0];
     assert.equal(result.action.operation, operation);
     assert.ok(result.taskId);
     assert.equal(calls.filter((call) => call.path.endsWith("/tasks") && call.method === "POST").length, 2);
@@ -412,7 +413,7 @@ test("stopping after a discussion cannot turn a proposal into a candidate step",
     if (path.endsWith("/actions") && (options.method ?? "GET") === "GET") {
       announceActions();
       await actionsGate;
-      return { actions: [{ id: "action-late", status: "proposed", inputRevision: 0, intentRevision: 0,
+      return { actions: [{ id: `action-${"a".repeat(32)}`, sourceTaskId: `task-${"0".repeat(32)}`, status: "proposed", inputRevision: 0, intentRevision: 0,
         operation: "generateBrief", target: { type: "artifact" }, instruction: "生成简报" }] };
     }
     return runtime.request(path, body);
@@ -423,8 +424,7 @@ test("stopping after a discussion cannot turn a proposal into a candidate step",
     const stopped = await handlers.get("agent:interrupt")();
     assert.equal(stopped.interrupted, true);
     releaseActions();
-    const discussion = await pending;
-    assert.equal(discussion.proposedActions.length, 1);
+    await assert.rejects(pending, error => error.code === "TASK_CANCELLED");
     assert.equal([...runtime.tasks.values()].filter((task) => task.operation === "generateBrief").length, 0);
     assert.equal([...runtime.workTasks.values()][0].status, "cancelled");
   } finally { releaseActions(); adapter.close(); }
@@ -484,7 +484,7 @@ test("cancelling the active work task stops only its bound execution", async () 
 });
 
 for (const entry of ["button", "conversation", "localRevision"]) {
-  test(`${entry} chapter generation follows the Runtime knowledge step`, async () => {
+  test(`${entry} chapter generation executes the admitted same-Work knowledge step`, async () => {
     const runtime = runtimeFixture();
     const calls = [];
     const { handlers, adapter } = await mainHandlers(async (path, body, options = {}) => {
@@ -495,10 +495,6 @@ for (const entry of ["button", "conversation", "localRevision"]) {
           ...(entry === "localRevision" ? { scope: { type: "selectedScenes", sourceRevisionId: "original", groupIds: ["letter"] } } : {}) },
         instruction: "修改白塔章节",
       }] };
-      if (path.endsWith("/next-step")) return { action: {
-        kind: "modelKnowledge", chapterId: "chapter-one", sourceRevisionId: "revision-one",
-        sourceTaskId: [...runtime.tasks.values()].find((task) => task.operation === "generateChapter")?.id,
-      } };
       if (path.endsWith("/creative-workspace")) return {
         revision: 0, headSnapshotId: "snapshot-fixture", sourceDigest: "source-fixture",
         modeling: [{ objectId: "draft-chapter-one", sourceRevisionId: "revision-one", status: "model_pending" }],
@@ -509,20 +505,31 @@ for (const entry of ["button", "conversation", "localRevision"]) {
           ...(entry === "localRevision" ? { scope: { type: "selectedScenes", sourceRevisionId: "original", groupIds: ["letter"] } } : {}) },
         instruction: "修改白塔章节" };
       if (path.endsWith("/finish")) return { status: "completed" };
-      return runtime.request(path, body);
+      const result = await runtime.request(path, body);
+      if (path.endsWith("/complete")) {
+        const writer = [...runtime.tasks.values()].find(task => task.operation === "generateChapter" && path.includes(task.id));
+        if (writer) {
+          const work = await runtime.request(`/api/projects/project/tasks/${writer.id}/work-task`);
+          work.steps.push({ id: "admitted-knowledge", operation: "modelKnowledge", status: "queued", instruction: "分析本章已保存的正文",
+            dependsOnStepId: work.steps[0].id, target: { type: "knowledge", chapterId: "chapter-one", batchId: "batch-one", sourceRevisionId: "revision-one" } });
+        }
+      }
+      return result;
     }, command);
     try {
       const discussion = entry === "button" ? null : await handlers.get("agent:send-prompt")(rendererEvent(), "project", "请修改白塔章节");
-      if (discussion) assert.equal(calls.filter((call) => call.path.endsWith("/modeling-batches")).length, 0);
+      if (discussion) assert.equal(discussion.executionFailure, undefined);
       const result = entry === "button"
         ? await handlers.get("agent:generate-chapter")(rendererEvent(), "project", {
           chapterId: "chapter-one", chapterNumber: 1, intent: "修改白塔章节",
         })
-        : await handlers.get("agent:approve-action")(rendererEvent(), "project", `task-${"0".repeat(32)}`, `action-${"c".repeat(32)}`);
-      assert.equal(result.modeling.status, "ready");
+        : discussion.candidateResults[0];
+      assert.ok(result);
       assert.equal(calls.filter((call) => call.path.endsWith("/tasks") && call.body?.operation === "modelKnowledge").length, 1);
-      assert.equal(calls.filter((call) => call.path.endsWith("/modeling-batches")).length, 1);
-      assert.equal(calls.filter((call) => call.path.endsWith("/next-step")).length, 1);
+      const knowledge = calls.find(call => call.path.endsWith("/tasks") && call.body?.operation === "modelKnowledge");
+      assert.equal(knowledge.body.target.resumeStepId, "admitted-knowledge");
+      assert.equal(knowledge.body.target.sourceRevisionId, "revision-one");
+      assert.equal(runtime.workTasks.size, 1);
       if (entry === "localRevision") {
         const candidate = calls.find((call) => call.path.endsWith("/tasks") && call.body?.operation === "generateChapter");
         assert.deepEqual(candidate.body.target.scope, { type: "selectedScenes", sourceRevisionId: "original", groupIds: ["letter"] });
@@ -552,14 +559,15 @@ test("author starts pending knowledge without a source task or regenerating the 
     assert.equal(result.status, "ready");
     assert.equal(calls.filter((call) => call.path.endsWith("/tasks") && call.method === "POST").length, 1);
     assert.equal(calls.find((call) => call.path.endsWith("/tasks") && call.method === "POST").body.operation, "modelKnowledge");
-    assert.equal(calls.find((call) => call.path.endsWith("/tasks") && call.method === "POST").body.initialBudget.maxRequests, 16);
+    const grant = calls.find((call) => call.path.endsWith("/tasks") && call.method === "POST").body.initialBudget;
+    assert.deepEqual([grant.maxRequests, grant.maxTokens, grant.deadlineAt], [null, null, null]);
   } finally { adapter.close(); }
 });
 
 test("main hands a long Chinese discussion to planning in one bounded turn without losing text", async () => {
   const runtime = runtimeFixture();
   const { handlers, adapter } = await mainHandlers(runtime.request.bind(runtime), command);
-  const intent = "作者原始意图：" + "父女在饭桌上互相试探，最后一起看月亮。".repeat(220) + "🌙终点";
+  const intent = "作者原始意图：" + "父女在饭桌上互相试探，最后一起看月亮。".repeat(180) + "🌙终点";
   try {
     for (const [name, args] of [
       ["agent:send-prompt", ["project", intent]],
@@ -574,6 +582,7 @@ test("main hands a long Chinese discussion to planning in one bounded turn witho
       const full = input.map((item) => item.text).join("");
       if (name === "agent:send-prompt") assert.match(full, /operation=extractCommitments/);
       assert.ok(full.endsWith(intent));
+      assert.equal(full.split("作者可见表达：").length - 1, 1);
       assert.match(full, /novel-workflow/);
       assert.match(full, /taskId/);
       assert.ok(modelInputTokenBudget(full) <= 9000);
@@ -667,7 +676,7 @@ test("damaged author message receipts cancel steering rather than creating anony
 test("resuming a candidate sends the Runtime frozen author history instead of the old work goal", async () => {
   const runtime = runtimeFixture();
   const deadlineAt = Math.floor(Date.now() / 1000) + 120;
-  const work = { id: "work-source", projectId: "project", kind: "conversation", status: "running", version: 1,
+  const work = { id: "work-source", projectId: "project", threadId: "thr-test", kind: "conversation", status: "running", version: 1,
     goal: "过期工作目标", steps: [{ id: "action", operation: "generateBrief", status: "queued",
       sourceTaskId: "source", instruction: "模型建议", target: { type: "artifact" }, dependsOnStepId: null }] };
   const { handlers, adapter } = await mainHandlers(async (path, body) => {
@@ -675,6 +684,7 @@ test("resuming a candidate sends the Runtime frozen author history instead of th
     if (path.endsWith("/provider-budget")) return { taskId: "child", workTaskId: work.id,
       budgetId: "budget-child", maxRequests: 3, maxTokens: 700, deadlineAt };
     if (path.endsWith("/provider-usage") && !body) return { pending: null };
+    if (path.endsWith("/decision")) return { workTaskId: work.id, threadId: work.threadId, step: null, stopReason: "completed" };
     if (path.includes("/work-tasks/") || path.endsWith("/work-task")) return work;
     if (path.endsWith("/tasks")) {
       work.steps[0].currentAttemptId = "child";
@@ -706,7 +716,7 @@ for (const restore of ['agent:resume-thread','agent:reconnect-thread']) {
     const {handlers,adapter} = await mainHandlers(runtime.request.bind(runtime),command);
     try {
       await handlers.get('agent:send-prompt')(rendererEvent(),'project','first discussion');
-      await handlers.get(restore)({},'project','thr-history');
+      await handlers.get(restore)({},'project','thr-history',null);
       const result = await handlers.get('agent:send-prompt')(rendererEvent(),'project','continue selected');
       assert.equal(result.workflow.task.threadId,'thr-history');
       assert.equal(result.message,'hello');
@@ -737,4 +747,44 @@ test("main returns an empty thread page without an invalid ownership lookup", as
     assert.equal(page.threads.length,0);
     assert.equal(runtime.lookup.length,0);
   } finally {adapter.close();}
+});
+
+
+test("production advisory sends the shared builder output with exact author, source and task binding", async () => {
+  const runtime = runtimeFixture();
+  const workspace = { project: { id: "project" }, revision: 0, headSnapshotId: "snapshot-fixture", sourceDigest: "source-fixture",
+    chapters: [{ id: "chapter-one", number: 1, candidate: { id: "draft-one", sceneGroups: [{ id: "scene-one", body: "门后传来钟声。" }] }, accepted: null }] };
+  const reference = { kind: "scene", projectId: "project", snapshotId: workspace.headSnapshotId,
+    objectId: "draft-chapter-one", revisionId: "draft-one", sceneGroupId: "scene-one" };
+  const requests = [], sent = [];
+  const { handlers, adapter } = await mainHandlers(async (path, body, options) => {
+    requests.push({ path, body });
+    if (path.endsWith("/creative-workspace")) return structuredClone(workspace);
+    return runtime.request(path, body, options);
+  }, command);
+  const send = adapter.sendTurn.bind(adapter);
+  adapter.sendTurn = async (input, options) => { sent.push({ input, options }); return send(input, options); };
+  try {
+    for (const focus of [null, { view: "chapters", chapterId: "chapter-one", chapterNumber: 1, reference }]) {
+      const author = "请讨论这个场景的悬念节奏，保留原文，不生成或确认任何内容。";
+      const result = await handlers.get("agent:send-prompt")(rendererEvent(), "project", author, null, focus);
+      const task = result.workflow.task;
+      const expected = composeAdvisoryPrompt(task, taskExecutionPrompt(task), createTaskBoundHandoff("project", workspace, task), focus);
+      assert.deepEqual(sent.at(-1).input, expected);
+      assert.equal(sent.at(-1).options.disableEnvironment, true);
+      const text = expected.map(item => item.text).join("");
+      assert.ok(text.includes(author) && text.includes(task.id) && text.includes(task.threadId));
+      assert.equal(text.split("作者可见表达：").length - 1, 1);
+      assert.match(text, /query_story/);
+      assert.match(text, /selectedScenes/);
+      assert.match(text, /request_candidate_task/);
+      assert.match(text, /无需重复询问启动/);
+      assert.match(text, /有成功保存回执/);
+      assert.match(text, /保存|保存了什么/);
+      if (focus) assert.ok(text.includes(JSON.stringify(focus)));
+      assert.ok(modelInputTokenBudget(text) <= 9000);
+    }
+    assert.equal(sent.length, 2);
+    assert.ok(!requests.some(request => /accept|establish|save-candidate/.test(request.path)));
+  } finally { adapter.close(); }
 });

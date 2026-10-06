@@ -14,7 +14,7 @@ test("generation start requires an explicit author-selected chapter scope", asyn
     `${process.execPath} ${fixture}`,
   );
   try {
-    for (const invalid of [undefined, 0, 4, 1.5]) {
+    for (const invalid of [undefined, 0, 101, 1.5, Number.MAX_SAFE_INTEGER]) {
       await assert.rejects(
         handlers.get("agent:generate-work")(rendererEvent(), "project", "继续调查白塔", invalid, 4),
         /自动创作章节范围无效/,
@@ -62,13 +62,9 @@ test("generation start rejects candidate or knowledge changes without a formal r
   } finally { adapter.close(); }
 });
 
-test("generation start uses the Rust-selected stage for its provider preflight", async () => {
+test("generation start preflights the decision agent without requiring a fixed planning stage", async () => {
   const fixture = fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url));
-  const operations = {
-    brief: "generateBrief",
-    outline: "generateOutline",
-    rollingPlan: "generatePlan",
-  };
+  const operations = { decision: "advisory" };
   const runId = `generation-${"a".repeat(32)}`;
   for (const [firstStage, operation] of Object.entries(operations)) {
     for (const revisionPredecessor of [null, { writerTaskId: `task-${"b".repeat(32)}`,
@@ -77,7 +73,6 @@ test("generation start uses the Rust-selected stage for its provider preflight",
     const { handlers, adapter, providerConfig } = await mainHandlers(async (path, body) => {
       requests.push({ path, body });
       if (path.endsWith("/creative-workspace")) return { revision: 4, headSnapshotId: "snapshot-reviewed", sourceDigest: "c".repeat(64) };
-      if (path.endsWith("/generation-start-position")) return { completedChapters: 0, firstStage };
       if (path.endsWith("/generation-runs")) return { id: runId, version: 1 };
       if (path.endsWith(`/work-tasks/work-${runId}`)) return { status: "running" };
       if (path.endsWith("/next")) return { run: { id: runId, status: "completed" }, action: null };
@@ -90,18 +85,17 @@ test("generation start uses the Rust-selected stage for its provider preflight",
         revisionPredecessor,
       );
       assert.equal(result.status, "completed");
-      assert.deepEqual(requests.slice(0, 3).map(({ path }) => path), [
+      assert.deepEqual(requests.slice(0, 2).map(({ path }) => path), [
         "/api/projects/project/creative-workspace",
-        "/api/projects/project/generation-start-position",
         "/api/projects/project/generation-runs",
       ]);
-      assert.equal(requests[2].body.targetChapters, 1);
-      assert.equal(requests[2].body.expectedProjectRevision, 4);
-      assert.equal(requests[2].body.expectedBaseSnapshotId, "snapshot-reviewed");
-      assert.equal(requests[2].body.expectedSourceDigest, "c".repeat(64));
-      assert.deepEqual(JSON.parse(JSON.stringify(requests[2].body.revisionPredecessor)), revisionPredecessor);
-      assert.equal(requests[2].body.authorIntent, "按照当前作品状态继续");
-      assert.equal(requests[2].body.maxTaskAttempts, generationPermitForChapters(1).maxTaskAttempts, "linking provenance cannot inherit the old task budget");
+      assert.equal(requests[1].body.targetChapters, 1);
+      assert.equal(requests[1].body.expectedProjectRevision, 4);
+      assert.equal(requests[1].body.expectedBaseSnapshotId, "snapshot-reviewed");
+      assert.equal(requests[1].body.expectedSourceDigest, "c".repeat(64));
+      assert.deepEqual(JSON.parse(JSON.stringify(requests[1].body.revisionPredecessor)), revisionPredecessor);
+      assert.equal(requests[1].body.authorIntent, "按照当前作品状态继续");
+      assert.equal(requests[1].body.maxTaskAttempts, generationPermitForChapters(1).maxTaskAttempts, "linking provenance cannot inherit the old task budget");
     } finally { adapter.close(); }
     }
   }
@@ -117,9 +111,9 @@ test("generation execution keeps the original permit deadline across task starts
   });
 });
 
-test("generation execution cannot exceed the per-task ceiling or accept damaged deadlines", () => {
+test("explicit generation deadlines retain their full duration and reject invalid values", () => {
   const now = 1_800_000_000_000;
-  assert.equal(remainingGenerationDurationMs(now / 1000 + 3_600, now), 1_800_000);
+  assert.equal(remainingGenerationDurationMs(now / 1000 + 3_600, now), 3_600_000);
   for (const invalid of [null, NaN, Infinity, 1.5, Number.MAX_SAFE_INTEGER]) {
     assert.throws(() => remainingGenerationDurationMs(invalid, now));
   }
@@ -209,4 +203,14 @@ test("production ordinary turn binds the supplied budget without creating a new 
     assert.equal(state.leases[0].runId, "ordinary-task");
     assert.equal(state.leases[0].budgetId, taskBudget.id);
   } finally { adapter.close(); }
+});
+
+
+test("author chapter scope is independent of a three-chapter execution batch", () => {
+  for (const count of [1, 3, 4, 10, 100]) {
+    assert.equal(generationPermitForChapters(count).targetChapters, count);
+  }
+  for (const invalid of [0, 101, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER]) {
+    assert.throws(() => generationPermitForChapters(invalid));
+  }
 });

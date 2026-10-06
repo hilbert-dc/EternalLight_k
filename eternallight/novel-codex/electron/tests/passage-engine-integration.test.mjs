@@ -5,7 +5,6 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
@@ -15,6 +14,8 @@ import { verifiedBaselineEvidence } from "@eternallight/agent-engine/test-suppor
 import { CodexAppServerAdapter } from "../codex-adapter.mjs";
 import { STORY_QUERY_INSTRUCTIONS } from "../workflow-handoff.mjs";
 import { taskProviderBudgetOptions } from "../task-provider-budget.mjs";
+import { waitForRuntimeReady } from "../runtime-readiness.mjs";
+import { createMcpStartupWaiter } from "./helpers/mcp-startup.mjs";
 
 function unwrapTool(message) {
   assert.equal(message?.role,"tool");
@@ -25,7 +26,9 @@ function unwrapTool(message) {
   return JSON.parse(message.content.slice(offset+marker.length).trim());
 }
 
-test("real Codex and native Runtime read unmatched passages, continue and rerank through the existing engine",{timeout:45_000},async(t)=>{
+// Runtime and required MCP each have the production 90s startup window;
+// the outer harness must not cancel setup before those windows elapse.
+test("real Codex and native Runtime read unmatched passages, continue and rerank through the existing engine",{timeout:240_000},async(t)=>{
   const stages = [];
   const began = performance.now();
   const mark = phase => stages.push({ phase, elapsedMs: Math.round(performance.now() - began) });
@@ -49,14 +52,16 @@ test("real Codex and native Runtime read unmatched passages, continue and rerank
     if (downstream?.listening) await new Promise((resolve)=>{downstream.closeAllConnections();downstream.close(resolve);});
     await rm(root,{recursive:true,force:true});
   });
-  runtime = spawn(binary("novel-codex-story-runtime"),["--port","0","--db",join(root,"story.sqlite3"),"--engine-budget-db",join(root,"engine-budget.sqlite3"),"--token-stdin"],{stdio:["pipe","pipe","pipe"]});
-  const origin = await new Promise((resolve,reject)=>{
-    const lines = createInterface({input:runtime.stdout});
-    lines.on("line",(line)=>{if(line.startsWith("Story Runtime listening on ")) resolve(line.slice("Story Runtime listening on ".length));});
-    runtime.once("error",reject);
-    runtime.once("exit",()=>reject(new Error("Runtime exited before listening")));
-    runtime.stdin.end(`${JSON.stringify({authorToken:author,candidateToken:candidate})}\n`);
-  });
+  const probe = createServer();
+  await new Promise((resolve,reject)=>{probe.once("error",reject);probe.listen(0,"127.0.0.1",resolve);});
+  const port = probe.address().port;
+  await new Promise((resolve,reject)=>probe.close(error=>error?reject(error):resolve()));
+  const origin = `http://127.0.0.1:${port}`;
+  runtime = spawn(binary("novel-codex-story-runtime"),["--port",String(port),"--db",join(root,"story.sqlite3"),"--engine-budget-db",join(root,"engine-budget.sqlite3"),"--token-stdin"],{stdio:["pipe","pipe","pipe"]});
+  runtime.stdin.end(`${JSON.stringify({authorToken:author,candidateToken:candidate})}\n`);
+  runtime.stdout.resume();
+  runtime.stderr.resume();
+  await Promise.race([waitForRuntimeReady(runtime,origin),new Promise((_resolve,reject)=>runtime.once("error",reject))]);
   mark("runtimeReady");
   const authorRequest = async(path,payload)=>{
     const response = await fetch(`${origin}${path}`,{method:"POST",headers:{authorization:`Bearer ${author}`,"content-type":"application/json"},body:JSON.stringify(payload)});
@@ -143,14 +148,16 @@ test("real Codex and native Runtime read unmatched passages, continue and rerank
   await writeFile(catalog,JSON.stringify(compileCodexModelCatalog(sessionPlan,{baseInstructions:STORY_QUERY_INSTRUCTIONS})),{mode:0o600});
   await writeFile(join(home,"config.toml"),compileCodexConfig({sessionPlan,modelCatalogPath:catalog,
     bridge:{baseUrl:address.baseUrl,credentialRef:"AGENT_ENGINE_BRIDGE_TOKEN"},mcpServers:[{id:"novel_workspace",command:binary("novel-workspace-mcp"),args:[],
-      envVars:["NOVEL_CODEX_RUNTIME_URL","NOVEL_CODEX_CANDIDATE_TOKEN","NOVEL_CODEX_TASK_CAPABILITY","NOVEL_CODEX_OPERATION"],approvalMode:"approve"}]}),{mode:0o600});
+      envVars:["NOVEL_CODEX_RUNTIME_URL","NOVEL_CODEX_CANDIDATE_TOKEN","NOVEL_CODEX_TASK_CAPABILITY","NOVEL_CODEX_OPERATION"],approvalMode:"approve",required:true,startupTimeoutMs:90_000}]}),{mode:0o600});
   const codex=fileURLToPath(new URL(`../../../../codex-rs/target/debug/codex${suffix}`,import.meta.url));
   adapter=new CodexAppServerAdapter({command:[codex,"app-server"],cwd:root,env:{PATH:process.env.PATH,CODEX_HOME:home,CODEX_SQLITE_HOME:join(home,"sqlite"),
     AGENT_ENGINE_BRIDGE_TOKEN:address.token,NOVEL_CODEX_RUNTIME_URL:origin,NOVEL_CODEX_CANDIDATE_TOKEN:candidate,
     NOVEL_CODEX_TASK_CAPABILITY:capability,NOVEL_CODEX_OPERATION:"advisory"},model:connection.id,provider:connection.provider});
-  let ready;
-  const started=new Promise((resolve)=>{ready=resolve;});
-  adapter.setCallbacks({onEvent:(event)=>{if(event.method === "mcpServer/startupStatus/updated" && event.params?.name === "novel_workspace" && event.params?.status === "ready")ready();}});
+  adapter.startProcess();
+  const startup=createMcpStartupWaiter({serverName:"novel_workspace",process:adapter.process,timeoutMs:adapter.timeouts.startupMs});
+  t.after(()=>startup.dispose());
+  const started=startup.ready;
+  adapter.setCallbacks({onEvent:startup.onEvent});
   await adapter.ensureSession();
   mark("codexSessionReady");
   const workspaceResponse = await fetch(`${origin}${path}/creative-workspace`, { headers: { authorization: `Bearer ${author}` } });

@@ -1,15 +1,17 @@
 {
   "name": "novel-codex",
-  "productName": "Novel Codex",
+  "productName": "小说工坊",
   "version": "0.1.0",
   "private": true,
   "author": "Eternal Light",
-  "description": "A Codex-inspired creative workspace for long-form fiction.",
+  "description": "对话驱动的长篇小说创作工作台。",
   "type": "module",
-  "main": "electron/main.mjs",
+  "main": "electron/bootstrap.mjs",
   "scripts": {
+    "test:author-session": "node --test --test-concurrency=1 electron/tests/author-session-store.test.mjs electron/tests/author-session-desktop.test.mjs electron/tests/author-session-ui.test.mjs",
     "build:native-engine": "npm --prefix ../agent-engine run build:native",
     "build:story-runtime": "cargo build --manifest-path native/Cargo.toml --bins",
+    "test:engine-terminal": "node --test electron/tests/engine-budget-terminal.integration.test.mjs electron/tests/query-correction-engine.integration.test.mjs electron/tests/draft-correction-engine.integration.test.mjs electron/tests/knowledge-correction-engine.integration.test.mjs",
     "test:codex-tool-schema": "node --test electron/tests/codex-tool-schema.test.mjs",
     "test:story-core": "cargo test --manifest-path native/Cargo.toml",
     "bench:long-work": "cargo run --release --manifest-path native/Cargo.toml -p novel-codex-story-core --example long_work_benchmark",
@@ -36,31 +38,35 @@
     "qualify:model": "node scripts/qualify-model.mjs",
     "probe:live-story": "node scripts/probe-live-story.mjs",
     "probe:live-revision": "node scripts/probe-live-revision.mjs",
+    "probe:live-chapter-structure": "node scripts/probe-live-chapter-structure.mjs",
     "certify:model": "node scripts/certify-model.mjs",
     "evaluate:model": "node scripts/evaluate-model.mjs",
     "package:dir": "node scripts/package-release.mjs dir",
     "package:mac": "node scripts/package-release.mjs mac",
     "package:win": "node scripts/package-release.mjs win",
-    "verify": "npm run repo:check && npm run build && npm run test:story-core && npm run test:runtime && npm run test:domain-task && npm run test:engine && npm --prefix ../agent-engine run test:delegation-integration && npm run test:release-gate && npm run test:live-probes && npm run test:agent && npm run test:creative-journey && npm run test:desktop-journey && npm run test:condition-evaluation && npm run test:chapter-rebind && npm run test:ui && npm run test:action-permission && npm run test:execution-scope && npm run test:revision-outcome",
-    "test:revision-outcome": "node --test --test-concurrency=1 electron/tests/revision-outcome-followup.test.mjs electron/tests/revision-outcome-handoff.test.mjs electron/tests/revision-outcome-approval.test.mjs electron/tests/revision-outcome-ui.test.mjs electron/tests/revision-decision-handlers.test.mjs electron/tests/revision-decision-ui.test.mjs electron/tests/revision-repair-handlers.test.mjs electron/tests/revision-repair-ui.test.mjs",
+    "verify": "npm run repo:check && npm run build && npm run test:author-session && npm run test:story-core && npm run test:runtime && npm run test:engine && npm --prefix ../agent-engine run test:delegation-integration && npm run test:release-gate && npm run test:live-probes && npm run test:agent && npm run test:creative-journey && npm run test:desktop-journey && npm run test:condition-evaluation && npm run test:chapter-rebind && npm run test:ui && npm run test:action-permission && npm run test:execution-scope && npm run test:revision-outcome && npm run test:creative-quality && npm run test:quality-reader-integration",
+    "test:revision-outcome": "node --test --test-concurrency=1 electron/tests/revision-outcome-handoff.test.mjs electron/tests/revision-outcome-approval.test.mjs electron/tests/revision-outcome-ui.test.mjs electron/tests/revision-decision-handlers.test.mjs electron/tests/revision-decision-ui.test.mjs electron/tests/revision-repair-handlers.test.mjs electron/tests/revision-repair-ui.test.mjs",
     "test:execution-scope": "node --test --test-concurrency=1 electron/tests/execution-scope.test.mjs electron/tests/execution-scope-ui.test.mjs",
-    "test:action-permission": "node --test --test-concurrency=1 electron/tests/action-permission.test.mjs electron/tests/action-permission-ui.test.mjs electron/tests/task-provider-budget.test.mjs electron/tests/initial-budget-confirmation.test.mjs electron/tests/work-budget-confirmation.test.mjs electron/tests/planning-review-budget.test.mjs electron/tests/planning-review-resumption.test.mjs",
+    "test:action-permission": "node --test --test-concurrency=1 electron/tests/action-permission.test.mjs electron/tests/action-permission-ui.test.mjs electron/tests/task-provider-budget.test.mjs electron/tests/task-budget-grant.test.mjs electron/tests/work-budget-authorization.test.mjs electron/tests/planning-review-budget.test.mjs electron/tests/planning-review-resumption.test.mjs",
     "pretest:condition-evaluation": "npm run build:story-runtime",
     "test:condition-evaluation": "node --test --test-concurrency=1 electron/tests/condition-evaluation.test.mjs electron/tests/condition-evaluation-ui.test.mjs electron/tests/condition-runtime-integration.test.mjs",
     "test:generation-replan": "node --test --test-concurrency=1 electron/tests/generation-replan.test.mjs electron/tests/generation-replan-ui.test.mjs",
-    "test:creative-journey": "node --test --test-concurrency=1 electron/tests/engine-startup.test.mjs electron/tests/runtime-readiness.test.mjs electron/tests/mcp-startup.test.mjs electron/tests/scoped-revision-engine-integration.test.mjs electron/tests/engine-budget-terminal.integration.test.mjs",
+    "test:creative-journey": "node --test --test-concurrency=1 electron/tests/engine-startup.test.mjs electron/tests/turn-lifecycle.test.mjs electron/tests/runtime-readiness.test.mjs electron/tests/mcp-startup.test.mjs electron/tests/scoped-revision-engine-integration.test.mjs electron/tests/engine-budget-terminal.integration.test.mjs electron/tests/query-correction-engine.integration.test.mjs electron/tests/draft-correction-engine.integration.test.mjs electron/tests/work-decision-driver.test.mjs electron/tests/work-decision-runtime.test.mjs electron/tests/work-delivery-protocol.test.mjs electron/tests/work-task-resumption.test.mjs electron/tests/knowledge-resumption.test.mjs",
     "pretest:desktop-journey": "npm run build",
     "test:desktop-journey": "node --test electron/tests/production-desktop-integration.test.mjs",
-    "test:live-probes": "node --test --test-concurrency=1 scripts/tests/probe-live-revision.test.mjs scripts/tests/probe-revision-scope.integration.test.mjs",
+    "test:live-probes": "node --test --test-concurrency=1 scripts/tests/probe-live-revision.test.mjs scripts/tests/probe-revision-scope.integration.test.mjs scripts/tests/probe-live-extraction.test.mjs scripts/tests/probe-extraction-lifecycle.integration.test.mjs",
     "pretest:chapter-rebind": "npm run build:story-runtime",
     "test:chapter-rebind": "node --test --test-concurrency=1 electron/tests/chapter-rebind.test.mjs electron/tests/chapter-rebind-ui.test.mjs electron/tests/rebind-runtime-integration.test.mjs",
     "start": "electron electron/main.mjs",
     "test:runtime": "cargo test --manifest-path native/Cargo.toml",
-    "test:domain-task": "node --test electron/tests/domain-task-prompt.test.mjs",
     "test:engine": "npm --prefix ../agent-engine test",
     "test:release-gate": "node --test scripts/tests/upstream-candidate-release.test.mjs scripts/tests/model-cli-options.test.mjs scripts/tests/certification-publication.test.mjs",
-    "test:ui": "node --test --test-concurrency=1 electron/tests/action-proposal-ui.test.mjs electron/tests/agent-events.test.mjs electron/tests/chapter-rebind-ui.test.mjs electron/tests/commitment-ui.test.mjs electron/tests/creative-workspace-ui.test.mjs electron/tests/export-dialog.test.mjs electron/tests/identity-decision-ui.test.mjs electron/tests/impact-analysis-ui.test.mjs electron/tests/local-metrics-ui.test.mjs electron/tests/markdown-content.test.mjs electron/tests/modeling-context-ui.test.mjs electron/tests/property-rules-ui.test.mjs electron/tests/proposal-set-ui.test.mjs electron/tests/task-final-reply-ui.test.mjs electron/tests/workspace-diagnostics-ui.test.mjs electron/tests/revision-repair-ui.test.mjs",
-    "test:agent": "node --test --test-concurrency=1 electron/tests/knowledge-schema-integration.test.mjs electron/tests/codex-tool-schema.test.mjs electron/tests/advisory-sessions.test.mjs electron/tests/agent-configuration.test.mjs electron/tests/agent-final-reply.test.mjs electron/tests/chapter-rebind.test.mjs electron/tests/codex-adapter.test.mjs electron/tests/codex-engine-integration.test.mjs electron/tests/codex-protocol-integration.test.mjs electron/tests/codex-runtime.test.mjs electron/tests/conformance-mcp.test.mjs electron/tests/creative-product-logic.test.mjs electron/tests/creative-task-contract.test.mjs electron/tests/development-credentials.test.mjs electron/tests/fork-boundary.test.mjs electron/tests/generation-duration.test.mjs electron/tests/generation-feedback.test.mjs electron/tests/hypothesis.test.mjs electron/tests/impact-analysis.test.mjs electron/tests/model-certification.test.mjs electron/tests/modeling-consumer.test.mjs electron/tests/navigation-policy.test.mjs electron/tests/passage-engine-integration.test.mjs electron/tests/property-rule-input-engine.test.mjs electron/tests/proposal-set.test.mjs electron/tests/recovery-reconciliation.test.mjs electron/tests/release-runtime.test.mjs electron/tests/scoped-revision-engine-integration.test.mjs electron/tests/task-lifecycle.test.mjs electron/tests/webcontents-safety.test.mjs electron/tests/workflow-handoff.test.mjs"
+    "test:ui": "node --test --test-concurrency=1 electron/tests/multi-conversation-ui.test.mjs electron/tests/selection-discussion-ui.test.mjs electron/tests/collaboration-progress-ui.test.mjs electron/tests/conversation-reply-actions-ui.test.mjs electron/tests/chapter-deletion-ui.test.mjs electron/tests/chapter-title-sync-ui.test.mjs electron/tests/work-directory-ui.test.mjs electron/tests/delegated-conversation-ui.test.mjs electron/tests/app-agent-availability-ui.test.mjs electron/tests/planning-submission-ui.test.mjs electron/tests/planning-workspace-experience-ui.test.mjs electron/tests/planning-versions-ui.test.mjs electron/tests/planning-character-ui.test.mjs electron/tests/chapter-scene-discussion-ui.test.mjs electron/tests/discussion-source-ui.test.mjs electron/tests/saved-analysis-ui.test.mjs electron/tests/app-task-controls-ui.test.mjs electron/tests/task-results-ui.test.mjs electron/tests/story-reference-ui.test.mjs electron/tests/analysis-conversation-entry-ui.test.mjs electron/tests/project-entry-ui.test.mjs electron/tests/project-information-ui.test.mjs electron/tests/character-catalog-ui.test.mjs electron/tests/author-session-ui.test.mjs electron/tests/action-proposal-ui.test.mjs electron/tests/agent-events.test.mjs electron/tests/chapter-rebind-ui.test.mjs electron/tests/commitment-ui.test.mjs electron/tests/creative-workspace-ui.test.mjs electron/tests/export-dialog.test.mjs electron/tests/identity-decision-ui.test.mjs electron/tests/impact-analysis-ui.test.mjs electron/tests/local-metrics-ui.test.mjs electron/tests/markdown-content.test.mjs electron/tests/workspace-context-ui.test.mjs electron/tests/property-rules-ui.test.mjs electron/tests/property-rules-task-result-ui.test.mjs electron/tests/proposal-set-ui.test.mjs electron/tests/task-final-reply-ui.test.mjs electron/tests/workspace-diagnostics-ui.test.mjs electron/tests/revision-repair-ui.test.mjs electron/tests/agent-events-ui.test.mjs electron/tests/app-recovery-ui.test.mjs electron/tests/chapter-document-experience-ui.test.mjs electron/tests/search-experience-ui.test.mjs electron/tests/manual-author-journey-ui.test.mjs electron/tests/app-author-input-ui.test.mjs electron/tests/chapter-first-write-ui.test.mjs electron/tests/model-connection-ui.test.mjs electron/tests/chapter-publication-ui.test.mjs electron/tests/workspace-viewport-ui.test.mjs electron/tests/conversation-presentation-ui.test.mjs electron/tests/conversation-title-ui.test.mjs electron/tests/thread-history-view-ui.test.mjs electron/tests/conversation-generation-handoff-ui.test.mjs",
+    "test:agent": "node --test --test-concurrency=1 electron/tests/conversation-handlers.test.mjs electron/tests/discussion-excerpts.test.mjs electron/tests/work-resume-not-started.test.mjs electron/tests/initial-candidate-failure-handler.test.mjs electron/tests/initial-candidate-failure.test.mjs electron/tests/chapter-deletion.test.mjs electron/tests/chapter-structure-analysis.test.mjs electron/tests/chapter-structure-engine.test.mjs electron/tests/chapter-structure-prompt.test.mjs electron/tests/structure-discussion.test.mjs electron/tests/character-story-handlers.test.mjs electron/tests/work-catalog.test.mjs electron/tests/work-overview.test.mjs electron/tests/agent-availability.test.mjs electron/tests/planning-submission.test.mjs electron/tests/commitment-navigation.test.mjs electron/tests/discussion-reference.test.mjs electron/tests/task-results.test.mjs electron/tests/task-result-navigation.test.mjs electron/tests/author-session-store.test.mjs electron/tests/knowledge-schema-integration.test.mjs electron/tests/codex-tool-schema.test.mjs electron/tests/advisory-sessions.test.mjs electron/tests/agent-configuration.test.mjs electron/tests/agent-final-reply.test.mjs electron/tests/chapter-rebind.test.mjs electron/tests/codex-adapter.test.mjs electron/tests/codex-engine-integration.test.mjs electron/tests/codex-protocol-integration.test.mjs electron/tests/codex-runtime.test.mjs electron/tests/conformance-mcp.test.mjs electron/tests/creative-product-logic.test.mjs electron/tests/creative-task-contract.test.mjs electron/tests/development-credentials.test.mjs electron/tests/development-server.test.mjs electron/tests/model-evidence-cache.test.mjs electron/tests/fork-boundary.test.mjs electron/tests/generation-duration.test.mjs electron/tests/generation-feedback.test.mjs electron/tests/hypothesis.test.mjs electron/tests/impact-analysis.test.mjs electron/tests/model-certification.test.mjs electron/tests/navigation-policy.test.mjs electron/tests/passage-engine-integration.test.mjs electron/tests/property-rule-input-engine.test.mjs electron/tests/proposal-set.test.mjs electron/tests/recovery-reconciliation.test.mjs electron/tests/recovery-report.test.mjs electron/tests/release-runtime.test.mjs electron/tests/scoped-revision-engine-integration.test.mjs electron/tests/task-lifecycle.test.mjs electron/tests/webcontents-safety.test.mjs electron/tests/workflow-handoff.test.mjs electron/tests/execution-authority-renewal.test.mjs electron/tests/provider-renewal.test.mjs electron/tests/thread-history-presentation.test.mjs electron/tests/thread-history-host.test.mjs electron/tests/model-connection-reliability.test.mjs electron/tests/active-turn-recovery.test.mjs electron/tests/work-conversation.test.mjs electron/tests/author-language.test.mjs electron/tests/chapter-writing-policy.test.mjs electron/tests/conversation-analysis.test.mjs electron/tests/conversation-planning-reviews.test.mjs electron/tests/conversation-execution-events.test.mjs",
+    "test:author-language-integration": "node --test electron/tests/author-language.integration.mjs",
+    "test:creative-quality": "node --test electron/tests/quality-notebook.test.mjs electron/tests/quality-notebook-ui.test.mjs electron/tests/work-decision-driver.test.mjs && cargo test --manifest-path native/Cargo.toml -p novel-codex-story-core quality_notebook --lib && cargo test --manifest-path native/Cargo.toml -p novel-codex-story-runtime --test quality_notebook_http_tests && cargo test --manifest-path native/Cargo.toml -p novel-codex-story-mcp quality_tools",
+    "pretest:quality-reader-integration": "npm run build:native-engine && npm run build:story-runtime",
+    "test:quality-reader-integration": "node --test electron/tests/quality-reader.integration.mjs"
   },
   "dependencies": {
     "@eternallight/agent-engine": "file:../agent-engine",
@@ -86,9 +92,9 @@
     "electron@38.8.6": true
   },
   "build": {
-    "appId": "com.eternallight.novelcodex",
-    "productName": "Novel Codex",
-    "artifactName": "Novel-Codex-${version}-${os}-${arch}.${ext}",
+    "appId": "com.eternallight.novelstudio",
+    "productName": "小说工坊",
+    "artifactName": "Novel-Workshop-${version}-${os}-${arch}.${ext}",
     "asar": true,
     "directories": {
       "output": "release"
@@ -98,9 +104,11 @@
       "electron/**/*",
       "codex-runtime/model-catalog.json",
       "codex-runtime/model-certifications.json",
+      "codex-runtime/model-certifications-*.json",
       "codex-runtime/supported-cli.json",
       "shared/**/*",
       "scripts/build-provenance.mjs",
+      "scripts/certification-publication.mjs",
       "node_modules/@eternallight/agent-engine/**/*",
       "!node_modules/@eternallight/agent-engine/target/**/*",
       "package.json",
@@ -114,17 +122,25 @@
       {
         "from": ".release/resources",
         "to": ".",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "assets/icon.png",
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
       "icon": "assets/icon.png",
-      "target": ["nsis", "zip"]
+      "target": [
+        "nsis",
+        "zip"
+      ]
     },
     "nsis": {
       "oneClick": false,

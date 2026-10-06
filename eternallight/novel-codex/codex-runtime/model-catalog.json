@@ -12,6 +12,7 @@
       "protocolOptions": {
         "toolChoiceMode": "auto-only",
         "reasoningState": "native",
+        "reasoningEffort": "none",
         "namespaceToolsMode": "flatten",
         "agentMessageMode": "message"
       },

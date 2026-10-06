@@ -29,20 +29,17 @@ test("assessment handoff preserves sources and the existing frozen author prompt
   assert.equal(handoff.task.inputManifest.authorIntent, undefined);
   assert.equal(handoff.task.inputManifest.expectedCandidateRevisionId, null);
   const instructions = taskBoundInstructions(handoff);
-  assert.match(instructions, /read_context\(purpose=critic,budget=24,byteBudget=60000\)/);
-  assert.match(instructions, /operationContext\.revisionOutcomeInput/);
-  assert.match(instructions, /desiredOutcomes、beforeScenes、afterScenes 和 coverage/);
-  assert.match(instructions, /每个目标 id 恰好一次/);
-  assert.match(instructions, /supported、unmet 或 insufficientEvidence/);
-  assert.match(instructions, /supported\/unmet 必须有证据/);
-  assert.match(instructions, /Unicode 字符偏移/);
-  assert.match(instructions, /evidence:\[\{groupId,quote\}\]/);
-  assert.match(instructions, /唯一连续摘录由 Runtime 生成偏移/);
-  assert.match(instructions, /start\/end 可选且必须成对/);
-  assert.match(instructions, /实际改动的新场景/);
-  assert.match(instructions, /同一逻辑写入重试保持 payload 和 idempotencyKey 不变/);
-  assert.match(instructions, /保存后 complete_task/);
-  assert.match(instructions, /不修改正文、规划、承诺或 Canon/);
+  assert.match(instructions, /read_context核对冻结target、coverage和taskSources/);
+  assert.match(instructions, /可信operation选择purpose与有界默认预算/);
+  assert.match(instructions, /read_task_source/);
+  assert.match(instructions, /revisionOutcomeInput的desiredOutcomes、beforeScenes、afterScenes和coverage/);
+  assert.match(instructions, /每个目标id恰好一次supported、unmet或insufficientEvidence/);
+  assert.match(instructions, /supported\/unmet须有精确原文依据/);
+  assert.match(instructions, /仅用after证据评估/);
+  assert.match(instructions, /不能改目标或以旧稿充当修改结果/);
+  assert.match(instructions, /同一次逻辑写重试复用idempotencyKey/);
+  assert.match(instructions, /最后complete_task核对真实产物/);
+  assert.match(instructions, /不修改正文、规划、承诺或Canon/);
   assert.doesNotMatch(instructions, /save_draft_checkpoint|submit_scene_assessment|publish_knowledge_batch|request_candidate_task|read_reading_progress|checkpoint_reading/);
   assert.ok(modelInputTokenBudget(instructions) < 10_000);
   assert.deepEqual(task, before);
@@ -53,14 +50,16 @@ test("queued assessment executes once through the production creative task runne
   const target = assessmentTarget();
   const step = { id: "outcome-step", operation: "assessRevisionOutcome", status: "queued",
     dependsOnStepId: "model-step", target };
-  const work = { id: "work-one", status: "running", goal: "让指控有依据", steps: [
+  const work = { id: "work-one", projectId: "project-one", threadId: "thread-root", status: "running", goal: "让指控有依据", steps: [
     { id: "writer-step", operation: "generateChapter", status: "completed" },
     { id: "model-step", operation: "modelKnowledge", status: "completed" }, step,
   ] };
   const calls = [];
   const requests = [];
   const result = await advanceWorkSteps(event, "project-one", work.id, {
-    runtimeRequest: async (path, options) => { requests.push({ path, options }); return work; },
+    runtimeRequest: async (path, options) => { requests.push({ path, options });
+      if (path.endsWith("/decision")) return { workTaskId: work.id, threadId: work.threadId, step: null, stopReason: "completed" };
+      return work; },
     currentWorkFlowState: async () => "running",
     runCreativeAgentTask: async (...args) => { calls.push(args); step.status = "completed"; },
     runAdvisoryAgentTask: async () => assert.fail("assessment must run as a creative task"),
@@ -71,11 +70,11 @@ test("queued assessment executes once through the production creative task runne
   assert.deepEqual(calls, [[event, "project-one", work.goal, { operation: "assessRevisionOutcome" },
     { ...target, resumeStepId: "outcome-step" }]]);
   assert.deepEqual(step.target, target);
-  assert.ok(requests.every(({ path, options }) => path === "/api/projects/project-one/work-tasks/work-one" && options === undefined));
+  assert.equal(requests.filter(({ path }) => path.endsWith("/decision")).length, 1);
 });
 
 test("assessment waits for knowledge completion and respects a paused work flow", async () => {
-  const work = { id: "work-one", status: "running", goal: "检查结果", steps: [
+  const work = { id: "work-one", projectId: "project-one", threadId: "thread-root", status: "running", goal: "检查结果", steps: [
     { id: "model-step", operation: "modelKnowledge", status: "running" },
     { id: "outcome-step", operation: "assessRevisionOutcome", status: "queued",
       dependsOnStepId: "model-step", target: assessmentTarget() },
@@ -91,19 +90,6 @@ test("assessment waits for knowledge completion and respects a paused work flow"
     { ...deps, currentWorkFlowState: async () => "paused" }), work);
 });
 
-test("host does not create an assessment when Core has queued none", async () => {
-  const work = { id: "work-one", status: "running", goal: "普通局部改稿", steps: [
-    { id: "writer-step", operation: "generateChapter", status: "completed" },
-    { id: "model-step", operation: "modelKnowledge", status: "completed" },
-  ] };
-  const requests = [];
-  assert.equal(await advanceWorkSteps({}, "project-one", work.id, {
-    runtimeRequest: async (...args) => { requests.push(args); return work; },
-    currentWorkFlowState: async () => "running",
-    runCreativeAgentTask: async () => assert.fail("Core did not queue assessment"),
-  }), work);
-  assert.deepEqual(requests, [["/api/projects/project-one/work-tasks/work-one"]]);
-});
 
 test("adapter prepares a revision assessment with the ordinary tool-loop capability profile", () => {
   const adapter = new CodexAppServerAdapter({ env: {} });

@@ -1,14 +1,65 @@
 import readline from "node:readline";
+import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 
-const output = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
+const history = [{ id: "turn-history", status: "completed", items: [{ id: "item-user", type: "userMessage", text: "整理第一章", status: "completed" }, { id: "item-agent", type: "agentMessage", text: "我会先检查白塔灯光的伏笔。", status: "completed" }, { id: "item-tool", type: "commandExecution", command: "echo test", status: "completed" }] }];
+const threads = new Map(["thr-test", "thr-history", "thr-history-2", "thr-archived"].map(id => [id, {
+  id, name: "整理第一章", preview: "继续完善灯塔场景", status: { type: "notLoaded" }, createdAt: 1730831111, updatedAt: 1730832111, modelProvider: "deepseek", isPinned: false, ephemeral: false,
+  turns: id === "thr-test" ? [] : structuredClone(history),
+}]));
+let threadSequence = 0;
+let currentTurnThreadId = null;
+const threadStatePath = process.env.NOVEL_CODEX_TEST_THREAD_STATE;
+if (threadStatePath && existsSync(threadStatePath)) {
+  const state = JSON.parse(readFileSync(threadStatePath, "utf8"));
+  threadSequence = state.threadSequence;
+  threads.clear();
+  for (const [id, thread] of state.threads) threads.set(id, thread);
+}
+const persistThreads = () => {
+  if (!threadStatePath) return;
+  const temporary = `${threadStatePath}.tmp-${process.pid}`;
+  writeFileSync(temporary, JSON.stringify({ threadSequence, threads: [...threads] }));
+  renameSync(temporary, threadStatePath);
+};
+const nextThread = () => {
+  const id = ++threadSequence === 1 ? "thr-test" : `thr-test-${threadSequence}`;
+  const thread = { id, name: null, preview: "", status: { type: "idle" }, createdAt: 1730833111 + threadSequence, updatedAt: 1730833111 + threadSequence, modelProvider: "deepseek", isPinned: false, ephemeral: false, turns: [] };
+  threads.set(id, thread);
+  return thread;
+};
+const output = (message) => {
+  const params = message.params;
+  const thread = threads.get(params?.threadId ?? currentTurnThreadId);
+  if (thread && message.method === "item/completed" && params?.item) {
+    const turn = thread.turns.find(item => item.id === (params.turnId ?? "turn-test"));
+    if (turn) turn.items.push(structuredClone(params.item));
+  }
+  if (thread && message.method === "turn/completed") {
+    const turn = thread.turns.find(item => item.id === params.turn.id);
+    if (turn) Object.assign(turn, { status: params.turn.status });
+  }
+  persistThreads();
+  process.stdout.write(`${JSON.stringify(message)}\n`);
+};
 const input = readline.createInterface({ input: process.stdin });
 
 input.on("line", (line) => {
   const message = JSON.parse(line);
   if (message.method === "initialize") output({ id: message.id, result: { platformFamily: "test" } });
   if (message.method === "thread/start") {
-    output({ id: message.id, result: { thread: { id: "thr-test" } } });
-    output({ method: "thread/started", params: { thread: { id: "thr-test" } } });
+    const thread = nextThread();
+    output({ id: message.id, result: { thread } });
+    output({ method: "thread/started", params: { thread } });
+  }
+  if (message.method === "thread/fork") {
+    const source = threads.get(message.params.threadId);
+    const index = source?.turns.findIndex(turn => turn.id === message.params.lastTurnId) ?? -1;
+    if (!source || index < 0) output({ id: message.id, error: { message: "fork source turn missing" } });
+    else {
+      const thread = nextThread();
+      thread.turns = structuredClone(source.turns.slice(0, index + 1));
+      output({ id: message.id, result: { thread } });
+    }
   }
   if (message.method === "thread/list") {
     if (message.params?.cursor === "empty-page") {
@@ -23,12 +74,15 @@ input.on("line", (line) => {
     output({ id: message.id, result: { data: [thread], nextCursor: message.params?.archived === true || message.params?.cursor ? null : "cursor-page-2" } });
   }
   if (message.method === "thread/resume") {
-    output({ id: message.id, result: { thread: { id: message.params.threadId, name: "整理第一章", status: { type: "idle" }, ephemeral: false } } });
+    const thread = threads.get(message.params.threadId);
+    output(thread ? { id: message.id, result: { thread: { ...thread, status: { type: "idle" } } } } : { id: message.id, error: { message: "thread missing" } });
   }
   if (message.method === "thread/read") {
-    output({ id: message.id, result: { thread: { id: message.params.threadId, name: "整理第一章", preview: "继续完善灯塔场景", status: { type: "notLoaded" }, createdAt: 1730831111, updatedAt: 1730832111, modelProvider: "deepseek", isPinned: false, ephemeral: false, turns: [{ id: "turn-history", status: "completed", items: [{ id: "item-user", type: "userMessage", text: "整理第一章", status: "completed" }, { id: "item-agent", type: "agentMessage", text: "我会先检查白塔灯光的伏笔。", status: "completed" }, { id: "item-tool", type: "commandExecution", command: "echo test", status: "completed" }] }] } } });
+    const thread = threads.get(message.params.threadId);
+    output(thread ? { id: message.id, result: { thread } } : { id: message.id, error: { message: "thread missing" } });
   }
   if (message.method === "thread/name/set") {
+    if (threads.has(message.params.threadId)) threads.get(message.params.threadId).name = message.params.name;
     output({ id: message.id, result: { thread: { id: message.params.threadId, name: message.params.name } } });
     output({ method: "thread/name/updated", params: { threadId: message.params.threadId, name: message.params.name } });
   }
@@ -65,6 +119,9 @@ input.on("line", (line) => {
     output({ id: message.id, result: {} });
   }
   if (message.method === "turn/start") {
+    currentTurnThreadId = message.params.threadId;
+    const thread = threads.get(currentTurnThreadId);
+    if (thread) thread.turns.push({ id: "turn-test", status: "inProgress", items: [{ id: "input-test", type: "userMessage", text: message.params.input.map(item => item.text ?? "").join("\n"), status: "completed" }] });
     output({ id: message.id, result: { turn: { id: "turn-test", status: "inProgress" } } });
       output({ method: "turn/started", params: { threadId: message.params?.threadId ?? "thr-test", turn: { id: "turn-test", status: "inProgress" } } });
     output({ method: "thread/status/changed", params: { threadId: message.params?.threadId ?? "thr-test", status: { type: "active" } } });
@@ -136,9 +193,12 @@ input.on("line", (line) => {
     output({ method: "turn/completed", params: { threadId: message.params?.threadId ?? "thr-test", turn: { id: "turn-test", status: "completed" } } });
   }
   if (message.id === 100) {
-    if (message.result?.answers?.direction?.answers?.[0] !== "白塔谜团") {
+    const answer = message.result?.answers?.direction?.answers?.[0];
+    const multiline = "节奏\t克制\r\n推进白塔\n保留悬念".padEnd(240, "月");
+    if (answer !== "白塔谜团" && answer !== multiline) {
       output({ id: message.id, error: { message: "direction answer is required" } });
     } else {
+      if (answer === multiline) output({ method: "item/completed", params: { threadId: "thr-test", turnId: "turn-test", item: { id: "multiline-answer", type: "agentMessage", text: answer, phase: "final_answer", status: "completed" } } });
       output({ method: "serverRequest/resolved", params: { threadId: message.params?.threadId ?? "thr-test", requestId: 100 } });
       output({ id: 101, method: "item/tool/requestUserInput", params: { threadId: message.params?.threadId ?? "thr-test", turnId: "turn-test", questions: [{ id: "tone", header: "叙事语气", question: "这一段要保持什么语气？", options: [{ label: "克制", description: "保持冷静、留白的叙述" }, { label: "明快", description: "提升推进感和节奏" }] }] } });
       output({ method: "thread/status/changed", params: { threadId: message.params?.threadId ?? "thr-test", status: { type: "active", activeFlags: ["waitingOnUserInput"] } } });

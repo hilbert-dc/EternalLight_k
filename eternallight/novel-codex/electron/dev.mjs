@@ -1,29 +1,17 @@
 import { spawn } from "node:child_process";
-import { createServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import electronPath from "electron";
 
 import { loadProjectDevelopmentEnvironment, resolveDevelopmentEnvironment, withoutProviderCredentials } from "./development-credentials.mjs";
+import { availableDevelopmentPort } from "./development-server.mjs";
 
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const host = "127.0.0.1";
 const projectEnvironment = loadProjectDevelopmentEnvironment(projectRoot, process.env);
 const electronEnvironment = resolveDevelopmentEnvironment(projectEnvironment);
 const rendererEnvironment = withoutProviderCredentials(projectEnvironment);
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, host, () => {
-      const address = server.address();
-      const port = typeof address === "object" && address ? address.port : null;
-      server.close((error) => error ? reject(error) : resolve(port));
-    });
-  });
-}
 
 async function waitUntilReady(url) {
   const deadline = Date.now() + 20_000;
@@ -39,7 +27,7 @@ async function waitUntilReady(url) {
   throw new Error(`Vite did not become ready: ${url}`);
 }
 
-const port = await freePort();
+const port = await availableDevelopmentPort(projectEnvironment.NOVEL_CODEX_DEV_PORT);
 const rendererUrl = `http://${host}:${port}`;
 const vite = spawn(process.execPath, [join(projectRoot, "node_modules", "vite", "bin", "vite.js"), "--host", host, "--port", String(port), "--strictPort"], {
   cwd: projectRoot,

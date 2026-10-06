@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
-import { advisoryTaskTarget, assertAdvisoryPromptRoute, preflightRevisionRepair,
+import { advisoryTaskTarget, assertAdvisoryPromptRoute, assertRevisionRepairTaskTarget, preflightRevisionRepair,
   validateRevisionRepairSource } from "../revision-repair-handlers.mjs";
 import { mainHandlers, rendererEvent, runtimeFixture } from "./main-handler-harness.mjs";
 
@@ -53,6 +53,18 @@ test("source accepts exactly the RevisionPredecessor shape and bounded identifie
   assert.throws(() => validateRevisionRepairSource(Object.create(source)), /三字段来源/);
 });
 
+test("repair navigation context survives the Runtime JSON boundary without granting another chapter", () => {
+  const target = { type: "project", revisionRepairSource: source, conversationFocus: { view: "chapters", chapterId: "chapter-one", chapterNumber: 1 } };
+  const task = { projectId: "project", operation: "advisory", target: structuredClone(target) };
+  assert.doesNotThrow(() => assertRevisionRepairTaskTarget(task, "project", target));
+  assert.throws(() => assertRevisionRepairTaskTarget({ ...task, target: { ...task.target, conversationFocus: { ...target.conversationFocus, view: "diffs" } } }, "project", target), /精确的修复/);
+  assert.throws(() => assertRevisionRepairTaskTarget({ ...task, target: { ...task.target, conversationFocus: null } }, "project", target), /精确的修复/);
+  const unfocused = { ...target, conversationFocus: null };
+  assert.throws(() => assertRevisionRepairTaskTarget({ ...task, target: { ...unfocused, conversationFocus: { view: "world" } } }, "project", unfocused), /精确的修复/);
+  assert.throws(() => assertRevisionRepairTaskTarget({ ...task, target: { ...task.target, conversationFocus: { view: "chapters", chapterId: "other", chapterNumber: 2 } } }, "project", target), /精确的修复/);
+  assert.deepEqual(advisoryTaskTarget({ resumeStep: { id: "step", target } }), { ...target, resumeStepId: "step" });
+});
+
 test("repair cannot be routed as steer, resumed step, or a concurrent root", () => {
   assert.throws(() => assertAdvisoryPromptRoute({ steer: true, revisionRepairSource: source }), /steer 或 resumeStep/);
   assert.throws(() => advisoryTaskTarget({ resumeStep: { id: "step-one", target: {} }, revisionRepairSource: source }), /steer 或 resumeStep/);
@@ -79,8 +91,8 @@ test("preload supplies explicit null by default and forwards the exact repair so
       ipcRenderer: { invoke: (...args) => { calls.push(args); return Promise.resolve({}); } } }),
   });
   await api.agent.sendPrompt("project", "讨论");
-  await api.agent.sendPrompt("project", "修复", source);
-  assert.deepEqual(plain(calls), [["agent:send-prompt", "project", "讨论", null], ["agent:send-prompt", "project", "修复", source]]);
+  await api.agent.sendPrompt("project", "修复", source, null, "selected-conversation");
+  assert.deepEqual(plain(calls), [["agent:send-prompt", "project", "讨论", null, null, null], ["agent:send-prompt", "project", "修复", source, null, "selected-conversation"]]);
 });
 
 test("production preflight rejects invalid/latest/foreign/stale sources before any model or task", async () => {
@@ -131,7 +143,7 @@ test("production preflight rejects invalid/latest/foreign/stale sources before a
   } finally { adapter.close(); }
 });
 
-test("production ordinary and repair advisories both confirm independent funded roots", async () => {
+test("production ordinary and repair submissions both grant independent funded roots", async () => {
   const runtime = runtimeFixture();
   runtime.workTasks.set("old-writer-work", { id: "old-writer-work", projectId: "project", status: "completed", steps: [],
     initialBudget: { authorizationId: "old-authorization", maxRequests: 1, maxTokens: 2, deadlineAt: 3 } });
@@ -163,21 +175,26 @@ test("production ordinary and repair advisories both confirm independent funded 
     assert.deepEqual(plain(repair.proposedActions), []);
     assert.deepEqual(created.map(task => plain(task.target)), [{ type: "project" }, { type: "project", revisionRepairSource: source }]);
     assert.deepEqual(created.map(task => task.operation), ["advisory", "advisory"]);
-    assert.equal(state.confirmations.length, 2);
+    assert.deepEqual(state.confirmations, []);
     assert.equal(runtime.workTasks.size, 3);
     assert.notEqual(created[0].initialBudget.authorizationId, created[1].initialBudget.authorizationId);
     assert.deepEqual(state.budgets.map(budget => ({ id: budget.id, maxRequests: budget.maxRequests, maxTokens: budget.maxTokens })),
-      created.map(task => ({ id: `budget-${task.id}`, maxRequests: 16, maxTokens: 200000 })));
+      created.map(task => ({ id: `budget-${task.id}`, maxRequests: null, maxTokens: null })));
     assert.ok(created.every(task => task.initialBudget.expectedBaseSnapshotId === "snapshot-fixture"
       && task.initialBudget.expectedSourceDigest === "source-fixture"));
     assert.equal(turns.length, 2);
+    assert.deepEqual(turns.map(text => text.split("作者可见表达：").length - 1), [1, 1]);
     assert.doesNotMatch(turns[0], /本次是修改结果的修复讨论/);
-    assert.match(turns[1], /operationContext\.revisionRepairInput 仅是候选分析来源，不是已确认事实或写权限/);
+    assert.match(turns[1], /repairInput 仅是候选分析来源，不是已确认事实或写权限/);
+    assert.match(turns[1], /read_task_source 连续分页读取/);
+    assert.match(turns[1], /拼接 payloadPart 并解析 JSON 得到 repairInput/);
     assert.match(turns[1], /request_candidate_task\(operation=generateChapter\)/);
-    assert.match(turns[1], /sourceRevisionId:operationContext\.revisionRepairInput.authorDecision.draftRevisionId/);
+    assert.match(turns[1], /sourceRevisionId:repairInput.authorDecision.draftRevisionId/);
     assert.match(turns[1], /selectedGroupIds 的非空子集/);
     assert.match(turns[1], /非空的新 desiredOutcomes/);
     assert.match(turns[1], /独立人工审批/);
+    assert.match(turns[0], /无需重复询问启动/);
+    assert.doesNotMatch(turns[1], /无需重复询问启动/);
     assert.match(turns[1], /此入口不支持其他章节或 planning task/);
     assert.deepEqual(plain(repair.workflow.task.inputManifest.revisionRepairInput), frozenInput());
     assert.doesNotMatch(turns[1], /request_candidate_task 指定规划或已有章节/);
@@ -188,10 +205,10 @@ test("production ordinary and repair advisories both confirm independent funded 
   } finally { adapter.close(); }
 });
 
-for (const failure of ["cancel", "core-stale", "core-size", "lost-source", "changed-source", "missing-budget"]) {
+for (const failure of ["core-stale", "core-size", "lost-source", "changed-source", "missing-budget"]) {
   test(`production ${failure} cannot send a repair model turn`, async () => {
     const runtime = runtimeFixture();
-    const state = { confirmations: [], confirmationResponse: failure === "cancel" ? 0 : 1 };
+    const state = { confirmations: [] };
     const { handlers, adapter } = await mainHandlers(async (path, body) => {
       if (path.includes("/revision-outcomes/")) return outcome();
       if (path.endsWith("/tasks") && body) {
@@ -210,11 +227,11 @@ for (const failure of ["cancel", "core-stale", "core-size", "lost-source", "chan
     adapter.sendTurn = async () => { turns++; assert.fail("failed repair must not send"); };
     try {
       await assert.rejects(handlers.get("agent:send-prompt")(rendererEvent(), "project", "修复", source),
-        failure === "cancel" ? { code: "TASK_CANCELLED" } : failure === "core-stale" ? /stale repair source/
+        failure === "core-stale" ? /stale repair source/
           : failure === "core-size" ? /8000 bytes/ : failure === "missing-budget" ? /尚未获执行额度/ : /精确的修复讨论 target/);
       assert.equal(turns, 0);
-      assert.equal(state.confirmations.length, 1);
-      if (["cancel", "core-stale", "core-size"].includes(failure)) assert.equal(runtime.tasks.size, 0);
+      assert.deepEqual(state.confirmations, []);
+      if (["core-stale", "core-size"].includes(failure)) assert.equal(runtime.tasks.size, 0);
     } finally { adapter.close(); }
   });
 }
@@ -227,7 +244,7 @@ test("production running-task guards and steer reject repair source without losi
       for (const revisionRepairSource of [null, source]) {
         await assert.rejects(handlers.get("agent:send-prompt")(rendererEvent(), "project", "讨论", revisionRepairSource), /已有创作任务/);
       }
-      await assert.rejects(handlers.get("agent:steer")(rendererEvent(), "project", "追加", source), /steer 或 resumeStep/);
+      await assert.rejects(handlers.get("agent:steer")(rendererEvent(), "project", "追加", source), /对话 ID 无效/);
       assert.equal(runtime.tasks.size, 0);
     } finally { adapter.close(); }
   }
@@ -336,3 +353,15 @@ for (const stale of [false, true]) {
     } finally { adapter.close(); }
   });
 }
+
+
+test("direct-text revision assessment remains repairable without a knowledge batch", async () => {
+  const receipt = outcome();
+  receipt.assessment.knowledgeBatchId = null;
+  receipt.decisions[0].knowledgeBatchId = null;
+  await preflightRevisionRepair({ projectId: "project", source,
+    runtimeRequest: async () => receipt });
+  receipt.decisions[0].knowledgeBatchId = "unrelated-batch";
+  await assert.rejects(preflightRevisionRepair({ projectId: "project", source,
+    runtimeRequest: async () => receipt }), /最新 repairDraft/);
+});

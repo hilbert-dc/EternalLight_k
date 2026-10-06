@@ -24,8 +24,8 @@ test("host consumes exact domain limits without recomputing or increasing allowa
 test("foreign, malformed and expired grants never create budget options", () => {
   for (const patch of [
     { taskId: "other" }, { workTaskId: "other" }, { budgetId: "other" },
-    { deadlineAt: 21 }, { maxRequests: 0 }, { maxRequests: 65 },
-    { maxTokens: -1 }, { maxTokens: 1000001 }, { maxTokens: 1.5 },
+    { deadlineAt: 21 }, { maxRequests: 0 }, { maxRequests: 1.5 },
+    { maxTokens: -1 }, { maxTokens: Number.MAX_SAFE_INTEGER + 1 }, { maxTokens: 1.5 },
   ]) assert.throws(() => taskProviderBudgetOptions({ ...grant, ...patch }, context));
   assert.throws(() => taskProviderBudgetOptions(grant, { ...context, now: 20000 }));
 });

@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
-import { appendFileSync, chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after, before, mock } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { resolveCodexCli, resolveRuntimeBinaries } from "../codex-runtime.mjs";
 import { stageReleaseRuntime } from "../../scripts/stage-release-runtime.mjs";
 import { verifyReleaseRuntime } from "../../scripts/verify-release-runtime.mjs";
-import { writeFixtureBuildIdentity } from "./build-identity-fixture.mjs";
+import { installFixtureExecutableInterpreter, registerFixtureExecutable, writeFixtureBuildIdentity, writeFixtureCodexExecutable, writeFixtureNodeExecutable } from "./build-identity-fixture.mjs";
+
+let restoreFixtureInterpreter;
+before(() => { restoreFixtureInterpreter = installFixtureExecutableInterpreter(mock); });
+after(() => restoreFixtureInterpreter());
 
 test("packaging includes the independent bridge worker outside ASAR", () => {
   const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
@@ -26,8 +30,8 @@ test("stages and executes the pinned release runtime", async () => {
     const source = join(sourceDirectory, "codex");
     const runtimeServer = join(sourceDirectory, "creative-runtime");
     const mcpServer = join(sourceDirectory, "novel-workspace-mcp");
-    writeFileSync(source, "#!/usr/bin/env node\nprocess.stdout.write('codex-cli 0.0.0\\n');\n");
-    writeFileSync(runtimeServer, `#!/usr/bin/env node
+    writeFixtureCodexExecutable(source);
+    writeFixtureNodeExecutable(runtimeServer, `
 const http = require("node:http");
 const index = process.argv.indexOf("--port");
 process.stdin.once("data", () => http.createServer((_request, response) => {
@@ -35,16 +39,13 @@ process.stdin.once("data", () => http.createServer((_request, response) => {
   response.end(JSON.stringify({ ok: true, service: "creative-runtime" }));
 }).listen(Number(process.argv[index + 1]), "127.0.0.1"));
 `);
-    writeFileSync(mcpServer, `#!/usr/bin/env node
+    writeFixtureNodeExecutable(mcpServer, `
 const readline = require("node:readline");
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "novel-codex-workspace", version: "1" } } }) + "\\n");
 });
 `);
-    chmodSync(source, 0o755);
-    chmodSync(runtimeServer, 0o755);
-    chmodSync(mcpServer, 0o755);
     const provenanceSource = join(directory, "build-identity.json");
     const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
     writeFixtureBuildIdentity({ binaryPath: source, identityPath: provenanceSource, repositoryRoot });
@@ -56,6 +57,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       destination: resourcesPath,
       nestedSigner: (path) => appendFileSync(path, "\n// nested-signature\n"),
     });
+    for (const path of [staged.executablePath, staged.runtimeExecutablePath, staged.mcpExecutablePath]) registerFixtureExecutable(path);
     const resolved = resolveCodexCli({
       isPackaged: true,
       projectRoot: directory,
@@ -66,6 +68,9 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     assert.equal(resolved.reason, null);
     assert.equal(existsSync(join(resourcesPath, "codex-runtime", "agents", "story_architect.toml")), true);
     assert.equal(existsSync(join(resourcesPath, "codex-runtime", "agents", "continuity_critic.toml")), true);
+    for (const role of ["character_analyst", "style_reviewer", "reader_experience"]) {
+      assert.equal(existsSync(join(resourcesPath, "codex-runtime", "agents", `${role}.toml`)), true);
+    }
     assert.equal(existsSync(join(resourcesPath, "codex-runtime", "skills", "novel-workflow", "SKILL.md")), true);
     assert.equal(existsSync(join(resourcesPath, "codex-runtime", "engine-prompt.md")), true);
     assert.deepEqual(resolveRuntimeBinaries({ resourcesPath }), {

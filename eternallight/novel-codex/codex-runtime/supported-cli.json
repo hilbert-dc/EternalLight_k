@@ -3,7 +3,7 @@
   "modelCertificationsFile": "model-certifications-1b4ad50a470afc06b239c401402a85244ba7e7a4dab65a153bbba67a8c3f74cc.json",
   "appServerProtocol": "v2",
   "mcpProtocol": "2025-06-18",
-  "modelCatalogSha256": "36dc40dcc139575a710c29ae4bf4c1336ab9f0c2d6eb5ed3c0e95aea8a2a7213",
+  "modelCatalogSha256": "8b4ced095740c68d3b0590f4b442ae8697068dd32494e3ba3a4e04ac0d314a91",
   "modelCertificationsSha256": "1b4ad50a470afc06b239c401402a85244ba7e7a4dab65a153bbba67a8c3f74cc",
   "sources": {
     "bundled": {
@@ -27,12 +27,12 @@
         "codex-cli 0.0.0"
       ],
       "digests": {
-        "darwin-arm64": "8e517cdca83cd505e2213c86d2f258f69dfd3e7570501e176221ee7bcb000605"
+        "darwin-arm64": "31514a5685220cf5a5677a63bf35e4ed4b0564988f21fe118d6369f5770b6906"
       },
       "buildIdentities": {
         "darwin-arm64": {
-          "identityId": "c9a2dac507f99ab945bff9bf7b075edeaf4750a14c0ebd442876da5ce3d98c4b",
-          "sha256": "0750cc177db86224b7d3efdc7537f7c97cdaae12107db472cb184c435410f20e"
+          "identityId": "bc2356d6b85de1101d6ae83cbb5077ea4e3ccc3f8e558fa824d553b752e53266",
+          "sha256": "c04e6ae6bbd585ef1b2245ddd21c6338adf776d95fe0d146f1651d695c16f9cd"
         }
       }
     },

@@ -1,12 +1,65 @@
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import childProcess, { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { dirname, join, relative } from "node:path";
 
 import { codexSourceTreeDigest } from "../../scripts/build-provenance.mjs";
 
+const fixtureExecutables = new Set();
+
+export function registerFixtureExecutable(path) {
+  fixtureExecutables.add(realpathSync(path));
+}
+
+// JavaScript stand-ins are not native images. Run their actual bytes through
+// the current Node interpreter so a new temporary shebang path cannot stall
+// in macOS dyld before main. Only explicitly registered fixtures are routed;
+// real CLI/Rust binaries, git, exit codes, pipes and deadlines stay untouched.
+// Install once per isolated test-file process and restore its ESM bindings.
+export function installFixtureExecutableInterpreter(mock) {
+  const nativeSpawn = childProcess.spawn;
+  const nativeSpawnSync = childProcess.spawnSync;
+  const isFixture = command => {
+    try { return fixtureExecutables.has(realpathSync(command)); } catch { return false; }
+  };
+  const asyncLauncher = mock.method(childProcess, "spawn", (command, args = [], options) => isFixture(command)
+    ? nativeSpawn(process.execPath, [command, ...args], options)
+    : nativeSpawn(command, args, options));
+  const syncLauncher = mock.method(childProcess, "spawnSync", (command, args = [], options) => isFixture(command)
+    ? nativeSpawnSync(process.execPath, [command, ...args], options)
+    : nativeSpawnSync(command, args, options));
+  syncBuiltinESMExports();
+  return () => {
+    asyncLauncher.mock.restore();
+    syncLauncher.mock.restore();
+    syncBuiltinESMExports();
+    fixtureExecutables.clear();
+  };
+}
+
 function sha256(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+// Keep version stand-ins executable: production provenance and resolution
+// must still probe actual bytes rather than trusting fixture metadata.
+export function writeFixtureCodexExecutable(path, version = "codex-cli 0.0.0") {
+  writeFixtureNodeExecutable(path, `if (process.argv.length !== 3 || process.argv[2] !== "--version") {
+  process.stderr.write("fixture Codex supports only --version\\n");
+  process.exit(64);
+}
+process.stdout.write(${JSON.stringify(`${version}\n`)});\n`);
+}
+
+// env -S quotes the absolute interpreter, not a PATH-resolved "node". Do not
+// use a shell trampoline: direct shebang /bin/sh execution on the affected
+// macOS host can stall at _dyld_start before any fixture code runs.
+export function writeFixtureNodeExecutable(path, body) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `#!/usr/bin/env -S ${JSON.stringify(process.execPath)}\n${body}`);
+  chmodSync(path, 0o755);
+  registerFixtureExecutable(path);
 }
 
 export function initializeFixtureCodexRepository(repositoryRoot) {
@@ -27,10 +80,12 @@ export function writeFixtureBuildIdentity({
   repositoryRoot = null,
   sourceTreeDigest = repositoryRoot ? codexSourceTreeDigest(repositoryRoot) : "0".repeat(64),
 }) {
+  const started = performance.now();
   const version = spawnSync(binaryPath, ["--version"], { encoding: "utf8", timeout: 15_000 });
-  if (version.status !== 0) {
+  if (version.error || version.status !== 0) {
     const reason = version.error?.code ?? version.signal ?? `exit=${version.status}`;
-    throw new Error(`fixture Codex binary did not report a version (${reason})`);
+    const interpreter = readFileSync(binaryPath, "utf8").split("\n", 1)[0];
+    throw new Error(`fixture Codex binary did not report a version (${reason}; elapsed=${Math.round(performance.now() - started)}ms; path=${binaryPath}; interpreter=${interpreter}; stderr=${(version.stderr ?? "").slice(-1000)})`);
   }
   const body = {
     version: 1,

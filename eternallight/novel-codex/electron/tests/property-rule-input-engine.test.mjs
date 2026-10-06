@@ -66,16 +66,14 @@ test("real Codex reconstructs frozen rule pages and saves a candidate without au
       const previous = body.messages.findLast((message) => message.role === "tool");
       const readResult = () => JSON.parse(previous.content.slice(previous.content.indexOf("\nOutput:") + 8).trim());
       if (phase === "context") {
-        name = "read_context"; args = { ...binding, purpose: "planner", budget: 24, byteBudget: 60000 }; phase = "first";
+        name = "read_context"; args = { ...binding }; phase = "first";
       } else if (phase === "first") {
-        descriptor = readResult().operationContext.propertyRulesBase;
-        assert.equal(descriptor.id, saved.revisionId); assert.equal(descriptor.payload, undefined);
-        assert.equal(descriptor.eventRuleCount, 1);
-        name = "read_property_rules"; args = { ...binding, cursor: null }; phase = "pages";
+        descriptor = readResult().taskSources.entries.find(entry => entry.sectionPath === "/operationContext/propertyRulesBase");
+        assert.ok(descriptor?.sourceId, "the task must expose its frozen rule source");
+        name = "read_task_source"; args = { ...binding, sourceId: descriptor.sourceId, cursor: null }; phase = "pages";
       } else if (phase === "pages") {
         const page = readResult(); firstPage ??= page; pageCount += 1;
-        assert.equal(page.eventRuleCount, 1);
-        assert.ok(Buffer.byteLength(JSON.stringify(page)) <= 7000);
+        assert.ok(Buffer.byteLength(JSON.stringify(page)) <= 6500);
         maxTextBytes = Math.max(maxTextBytes, Buffer.byteLength(previous.content));
         for (const [index, encoding] of encodings.entries()) {
           const tokens = encoding.encode(previous.content).length;
@@ -85,16 +83,17 @@ test("real Codex reconstructs frozen rule pages and saves a candidate without au
         assert.equal(page.contentHash, descriptor.contentHash);
         assert.deepEqual(page.byteRange, { start: Buffer.byteLength(combined), end: Buffer.byteLength(combined + page.payloadPart), total: descriptor.payloadBytes });
         combined += page.payloadPart;
-        if (page.nextCursor) { name = "read_property_rules"; args = { ...binding, cursor: page.nextCursor }; }
+        if (page.nextCursor) { name = "read_task_source"; args = { ...binding, sourceId: descriptor.sourceId, cursor: page.nextCursor }; }
         else {
-          assert.deepEqual(JSON.parse(combined), payload);
+          assert.equal(JSON.parse(combined).id, saved.revisionId);
+          assert.deepEqual(JSON.parse(combined).payload, payload);
           assert.equal(createHash("sha256").update(combined).digest("hex"), descriptor.contentHash);
-          const proposed = JSON.parse(combined); proposed.definitions[0].description = "读回完整基线后提出的修改";
+          const proposed = JSON.parse(combined).payload; proposed.definitions[0].description = "读回完整基线后提出的修改";
           name = "save_property_rules"; args = { ...binding, payload: proposed, expectedCandidateRevisionId: saved.revisionId, idempotencyKey: "model-candidate" }; phase = "saved";
         }
       } else if (phase === "saved") {
         candidateReceipt = readResult(); assert.ok(candidateReceipt.revisionId);
-        name = "read_property_rules"; args = { ...binding, cursor: null }; phase = "frozen";
+        name = "read_task_source"; args = { ...binding, sourceId: descriptor.sourceId, cursor: null }; phase = "frozen";
       } else if (phase === "frozen") {
         assert.deepEqual(readResult(), firstPage);
         name = "complete_task"; args = { ...binding, summary: "规则候选已形成，等待作者采用" }; phase = "done";
@@ -146,7 +145,7 @@ test("real Codex reconstructs frozen rule pages and saves a candidate without au
   const result = await adapter.sendTurn([{ type: "text", text: "完整读取规则并形成候选，不采用。" }], { disableEnvironment: true }).catch((error) => { assert.ifError(failure); throw error; });
   assert.ifError(failure); assert.ok(pageCount > 1); assert.match(result.message, /尚未正式采用/);
   const recovery = await authorRequest(`${path}/tasks/recovery-snapshot`, { taskIds: [task.id] });
-  assert.equal(recovery.operations.some((entry) => entry.tool_name === "read_property_rules"), false);
+  assert.equal(recovery.operations.some((entry) => entry.tool_name === "read_task_source"), false);
   assert.equal(recovery.operations.find((entry) => entry.tool_name === "save_property_rules").state, "committed");
   const response = await fetch(`${origin}${path}/creative-workspace`, { headers: { authorization: `Bearer ${author}` } });
   const workspace = await response.json(); assert.ok(response.ok);
@@ -157,5 +156,5 @@ test("real Codex reconstructs frozen rule pages and saves a candidate without au
   budget.complete();
   const usage = await authorRequest(`${path}/work-tasks/work-${task.id}/provider-usage`, { taskId: task.id });
   assert.ok(usage.usedRequests > pageCount);
-  t.diagnostic(`rule-input fixture v1: ${pageCount} pages, max tool text ${maxTextBytes} bytes; cl100k_base/o200k_base token maxima ${tokenMaxima.join("/")}`);
+  t.diagnostic(`frozen rule source: ${pageCount} pages, max tool text ${maxTextBytes} bytes; cl100k_base/o200k_base token maxima ${tokenMaxima.join("/")}`);
 });

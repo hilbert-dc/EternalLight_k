@@ -30,7 +30,9 @@ function activateBridge(bridge, sessionPlan, label) {
 }
 import { CodexAppServerAdapter } from "../codex-adapter.mjs";
 import { CodexConformanceRunner } from "../codex-conformance-runner.mjs";
+import { createMcpStartupWaiter } from "./helpers/mcp-startup.mjs";
 import { CodexCoreIntegrationRunner } from "../codex-core-integration-runner.mjs";
+import { NOVEL_COLLABORATION_INSTRUCTIONS, NOVEL_COLLABORATION_MODE } from "../novel-collaboration.mjs";
 
 const codex = fileURLToPath(new URL("../../../../codex-rs/target/debug/codex", import.meta.url));
 const mcpServer = fileURLToPath(new URL("./fixture-mcp-server.mjs", import.meta.url));
@@ -225,7 +227,7 @@ test("core integration runner proves a root Codex model and MCP result loop", { 
   assert.equal(execFileSync(process.execPath, [child, persisted], { encoding: "utf8", timeout: 10000 }), "reloaded execution succeeded");
 });
 
-test("real Codex completes source-bound commitment extraction through native Novel MCP", { timeout: 30_000 }, async (t) => {
+test("real Codex completes source-bound commitment extraction through native Novel MCP", { timeout: 140_000 }, async (t) => {
   let binding;
   let downstreamFailure = null;
   const requests = [];
@@ -239,7 +241,7 @@ test("real Codex completes source-bound commitment extraction through native Nov
         assert.equal(url.searchParams.get("threadId"), binding.threadId);
         assert.equal(url.searchParams.get("purpose"), "critic");
         requests.push({ method: "GET", path: url.pathname });
-        response.end(JSON.stringify({ extractionFixtureContext: true, relevantText: [{ sourceRevisionId: "source-1", content: { body: "白塔将亮起。" } }] }));
+        response.end(JSON.stringify({ extractionFixtureContext: true, relevantText: [{ sourceRevisionId: "source-1", textRepresentation: "body", content: { body: "白塔将亮起。" } }] }));
         return;
       }
       const body = await readRequest(request);
@@ -310,7 +312,7 @@ test("real Codex completes source-bound commitment extraction through native Nov
   writeFileSync(catalogPath, JSON.stringify(compileCodexModelCatalog(sessionPlan, { baseInstructions: "Extract candidate narrative commitments with the bound tools only." })), { mode: 0o600 });
   writeFileSync(join(root, "config.toml"), compileCodexConfig({ sessionPlan, modelCatalogPath: catalogPath,
     bridge: { baseUrl: address.baseUrl, credentialRef: "AGENT_ENGINE_BRIDGE_TOKEN" },
-    mcpServers: [{ id: "novel_workspace", command: novelMcpServer, args: [],
+    mcpServers: [{ id: "novel_workspace", command: novelMcpServer, args: [], required: true, startupTimeoutMs: 90_000,
       envVars: ["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"], approvalMode: "approve" }] }), { mode: 0o600 });
   mkdirSync(join(root, "sqlite"));
   chmodSync(root, 0o700);
@@ -319,14 +321,22 @@ test("real Codex completes source-bound commitment extraction through native Nov
       NOVEL_CODEX_RUNTIME_URL: runtimeEndpoint, NOVEL_CODEX_CANDIDATE_TOKEN: "fixture-candidate-token",
       NOVEL_CODEX_TASK_CAPABILITY: "fixture-extraction-capability", NOVEL_CODEX_OPERATION: "extractCommitments" }, model: connection.id, provider: connection.provider });
   t.after(() => adapter.close());
-  let markReady;
-  const ready = new Promise((resolve) => { markReady = resolve; });
-  adapter.setCallbacks({ onEvent: (event) => {
-    if (event.method === "mcpServer/startupStatus/updated" && event.params?.name === "novel_workspace" && event.params?.status === "ready") markReady();
+  // Use the same separate startup allowance as production, with explicit failure
+  // and process-exit handling; cold loader time is not model execution time.
+  adapter.startProcess();
+  const startup = createMcpStartupWaiter({ serverName: "novel_workspace", process: adapter.process, timeoutMs: adapter.timeouts.startupMs });
+  t.after(() => startup.dispose());
+  const stages = [];
+  const began = performance.now();
+  adapter.setCallbacks({ onEvent: event => {
+    startup.onEvent(event);
+    stages.push({ method: event.method, elapsedMs: Math.round(performance.now() - began) });
+    if (stages.length > 80) stages.shift();
   } });
+  t.after(() => t.diagnostic(JSON.stringify({ stages, runtimeRequests: requests.map(({ method, path }) => ({ method, path })) })));
   await adapter.ensureSession();
   binding = { taskId: "task", projectId: "project", threadId: adapter.threadId, expectedRevision: 0 };
-  await within(ready, 10_000, "native extraction MCP did not start");
+  await startup.ready;
   const result = await adapter.sendTurn([{ type: "text", text: "Read the frozen source and save an extraction proposal report, then complete the task." }], { disableEnvironment: true });
   assert.ifError(downstreamFailure);
   assert.equal(result.message, "Extraction proposal batch saved; no commitments confirmed.");
@@ -419,7 +429,7 @@ test("real Codex App Server completes a model -> MCP -> model loop through Agent
   assert.ok(events.some((event) => event.method === "item/completed" && event.params?.item?.type === "mcpToolCall"));
 });
 
-test("real Codex App Server delegates to a model on another endpoint and preserves trusted child identity", { timeout: 45_000 }, async (t) => {
+for (const childCount of [1, 5]) test(`real Codex App Server delegates to a model on another endpoint with ${childCount} children and preserves trusted child identity`, { timeout: 45_000 }, async (t) => {
   const rootRequests = [];
   const childRequests = [];
   let downstreamFailure = null;
@@ -429,11 +439,12 @@ test("real Codex App Server delegates to a model on another endpoint and preserv
       rootRequests.push(body);
       const transcript = JSON.stringify(body.messages);
       const toolName = (name) => body.tools?.find((tool) => tool.function?.name === name || tool.function?.name?.endsWith(`__${name}`))?.function?.name;
-      if (!transcript.includes("call_spawn")) {
+      const nextChild = Array.from({ length: childCount }, (_, index) => index).find(index => !transcript.includes(`call_spawn_${index}`));
+      if (nextChild !== undefined) {
         const spawnAgent = toolName("spawn_agent");
         assert.ok(spawnAgent, "root must receive spawn_agent");
         stream(response, [
-          { id: "root-spawn", choices: [{ delta: { tool_calls: [{ index: 0, id: "call_spawn", function: { name: spawnAgent, arguments: JSON.stringify({ task_name: "inspect_context", message: "Read context and return CHILD_EVIDENCE with the lighthouse fact.", fork_turns: "none" }) } }] } }] },
+          { id: `root-spawn-${nextChild}`, choices: [{ delta: { tool_calls: [{ index: 0, id: `call_spawn_${nextChild}`, function: { name: spawnAgent, arguments: JSON.stringify({ task_name: `inspect_context_${nextChild}`, message: "Read context and return CHILD_EVIDENCE with the lighthouse fact.", fork_turns: "none" }) } }] } }] },
         ]);
         return;
       }
@@ -453,7 +464,7 @@ test("real Codex App Server delegates to a model on another endpoint and preserv
         ]);
         return;
       }
-      if (!/fixture context identifies a white lighthouse/.test(transcript)) {
+      if (!/fixture context identifies a white lighthouse/.test(transcript) || childRequests.length < childCount * 2) {
         const waitAgent = toolName("wait_agent");
         assert.ok(waitAgent, "root must retain wait_agent while the child is running");
         stream(response, [
@@ -530,6 +541,8 @@ test("real Codex App Server delegates to a model on another endpoint and preserv
   writeFileSync(catalogPath, `${JSON.stringify(compileCodexModelCatalog(sessionPlan, { baseInstructions: "Upstream Codex integration test instructions." }), null, 2)}\n`, { mode: 0o600 });
   writeFileSync(join(root, "config.toml"), compileCodexConfig({
     sessionPlan,
+    usageHintText: NOVEL_COLLABORATION_INSTRUCTIONS,
+    multiAgentModeHintText: NOVEL_COLLABORATION_MODE,
     modelCatalogPath: catalogPath,
     bridge: { baseUrl: bridgeAddress.baseUrl, credentialRef: "AGENT_ENGINE_BRIDGE_TOKEN" },
     mcpServers: [{ id: "novel_workspace", command: process.execPath, args: [mcpServer], envVars: ["FIXTURE_MCP_AUDIT_PATH"], approvalMode: "approve" }],
@@ -569,11 +582,15 @@ test("real Codex App Server delegates to a model on another endpoint and preserv
 
   assert.ifError(downstreamFailure);
   assert.ok(rootRequests.length >= 4, "root model must spawn, wait, inspect child status, and synthesize");
-  assert.equal(childRequests.length, 2, "child model must call MCP and finish");
+  const rootInstructions = rootRequests[0].messages.filter(message => message.role === "developer").map(message => message.content).join("\n");
+  assert.ok(rootInstructions.includes(NOVEL_COLLABORATION_INSTRUCTIONS), "current Codex must deliver the product role policy to the root model");
+  assert.ok(rootInstructions.includes(NOVEL_COLLABORATION_MODE), "current Codex must enable proactive delegation independently of reasoning effort");
+  assert.equal(childRequests.length, childCount * 2, "every child model must call MCP and finish");
   assert.equal(result.message, "Parent synthesis: CHILD_EVIDENCE confirms the white lighthouse.");
   assert.ok(events.some((event) => event.method === "item/completed" && event.params?.item?.type === "collabAgentToolCall"));
   const auditRecords = readFileSync(auditPath, "utf8").trim().split("\n").map(JSON.parse);
-  assert.equal(auditRecords.length, 1);
+  assert.equal(auditRecords.length, childCount);
+  assert.equal(new Set(auditRecords.map(record => record._meta.threadId)).size, childCount);
   const trustedMeta = auditRecords[0]._meta;
   assert.equal(trustedMeta.agentDepth, 1);
   assert.match(trustedMeta.sessionSource, /subagent/i);
@@ -581,7 +598,7 @@ test("real Codex App Server delegates to a model on another endpoint and preserv
   assert.notEqual(trustedMeta.threadId, trustedMeta.parentThreadId);
 });
 
-test("real Novel MCP denies child writes and cross-task reads in a delegated Codex turn", { timeout: 45_000 }, async (t) => {
+test("real Novel MCP denies child writes and cross-task reads in a delegated Codex turn", { timeout: 140_000 }, async (t) => {
   const rootRequests = [];
   const childRequests = [];
   let downstreamFailure = null;
@@ -701,6 +718,8 @@ test("real Novel MCP denies child writes and cross-task reads in a delegated Cod
       id: "novel_workspace",
       command: novelMcpServer,
       args: [],
+      required: true,
+      startupTimeoutMs: 90_000,
       envVars: ["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"],
       approvalMode: "approve",
     }],
@@ -726,14 +745,15 @@ test("real Novel MCP denies child writes and cross-task reads in a delegated Cod
   });
   t.after(() => adapter.close());
   const policyEvents = [];
-  let markMcpReady;
-  const mcpReady = new Promise((resolve) => { markMcpReady = resolve; });
+  adapter.startProcess();
+  const startup = createMcpStartupWaiter({ serverName: "novel_workspace", process: adapter.process, timeoutMs: adapter.timeouts.startupMs });
+  t.after(() => startup.dispose());
   adapter.setCallbacks({ onEvent: (event) => {
     policyEvents.push(event);
-    if (event.method === "mcpServer/startupStatus/updated" && event.params?.name === "novel_workspace" && event.params?.status === "ready") markMcpReady();
+    startup.onEvent(event);
   } });
   await adapter.ensureSession();
-  await mcpReady;
+  await startup.ready;
   let result;
   try {
     result = await within(adapter.sendTurn([{ type: "text", text: "Delegate a Novel MCP isolation probe to the policy-child model and report the evidence." }], { disableEnvironment: true }), 20_000, "policy delegation did not finish");

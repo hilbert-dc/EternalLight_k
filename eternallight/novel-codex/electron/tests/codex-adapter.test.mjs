@@ -8,6 +8,51 @@ import { CodexAppServerAdapter } from "../codex-adapter.mjs";
 const fixture = fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url));
 const command = `${process.execPath} ${join("", fixture)}`;
 
+test("supplier diagnostics retain their original protocol and model identity", () => {
+  const adapter = new CodexAppServerAdapter({ command: null, provider: "openai", model: "gpt-5.3-codex" });
+  const events = [];
+  adapter.setCallbacks({ onEvent: event => events.push(event) });
+  const diagnostic = "Codex app-server v2: gpt-5.3-codex upstream request failed (429)";
+  adapter.fail(new Error(diagnostic));
+  assert.equal(adapter.status().error, diagnostic);
+  assert.equal(adapter.status().model, "gpt-5.3-codex");
+  assert.equal(events.at(-1).params.message, diagnostic);
+  adapter.close();
+});
+
+test("bounded recent history retains final phase and real timing after many tool steps", async () => {
+  const adapter = new CodexAppServerAdapter({ command });
+  adapter.ensureInitialized = async () => {};
+  adapter.request = async () => ({ thread: { id: "recent-thread", turns: Array.from({ length: 20 }, (_, index) => ({
+    id: `turn-${index}`, status: "completed", startedAt: 100 + index, completedAt: 110 + index,
+    items: [{ id: "user", type: "userMessage", text: "作者指令" },
+      ...Array.from({ length: 30 }, (_, i) => ({ id: `tool-${i}`, type: "mcpToolCall", text: "读取" })),
+      { id: "final", type: "agentMessage", phase: "final_answer", text: "长回复".repeat(4000) },
+      { id: "process", type: "agentMessage", phase: "commentary", text: "后续过程" }],
+  })) } });
+  const detail = await adapter.readThread("recent-thread");
+  assert.deepEqual(detail.turns.map(turn => turn.id), Array.from({ length: 12 }, (_, index) => `turn-${index + 8}`));
+  assert.equal(detail.turns.at(-1).startedAt, 119);
+  assert.equal(detail.turns.at(-1).completedAt, 129);
+  assert.equal(detail.turns.at(-1).items.length, 8);
+  assert.equal(detail.turns.at(-1).items[0].type, "userMessage");
+  const final = detail.turns.at(-1).items.find(item => item.phase === "final_answer");
+  assert.ok(final.text.length <= 8001);
+  assert.equal(detail.turns.at(-1).items.at(-1).phase, "commentary");
+});
+
+test("adapter audit lease renews only the live same execution and cannot revive cancellation", async () => {
+  const adapter = new CodexAppServerAdapter({ command });
+  const lease = { runId: "run", leaseId: "lease", epoch: 1, revoked: false, planId: "old", threadId: "thread",
+    deadline: new Date(Date.now() + 60_000).toISOString() };
+  await adapter.bindExecution({ lease });
+  const next = { ...lease, planId: "fresh", deadline: new Date(Date.now() + 120_000).toISOString() };
+  await assert.rejects(adapter.renewExecution({ lease: { ...next, threadId: "other" }, sessionPlan: { id: "fresh" } }), /改变了执行身份/);
+  assert.deepEqual(await adapter.renewExecution({ lease: next, sessionPlan: { id: "fresh" } }), next);
+  await adapter.revokeExecution({ runId: "run", leaseId: "lease", expectedEpoch: 1, revokedEpoch: 2 });
+  await assert.rejects(adapter.renewExecution({ lease: { ...next, deadline: new Date(Date.now() + 180_000).toISOString() }, sessionPlan: { id: "fresh" } }), /无法续期/);
+});
+
 test("logical model routes are independent of supplier model labels and update on configuration", async () => {
   const adapter = new CodexAppServerAdapter({ command, model: "supplier-model", modelRoute: "connection-one", provider: "fixture" });
   const requested = [];
@@ -35,6 +80,12 @@ test("starts a fresh DeepSeek App Server without desktop authentication", async 
 
 test("performs app-server handshake and streams a completed turn", async () => {
   const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
+  const initialization = [];
+  const request = adapter.request;
+  adapter.request = function(method, params) {
+    if (method === "initialize") initialization.push(params.clientInfo);
+    return request.call(this, method, params);
+  };
   const events = [];
   adapter.setCallbacks({ onEvent: (event) => events.push(event) });
   const result = await adapter.sendTurn([{ type: "text", text: "hello" }]);
@@ -42,6 +93,7 @@ test("performs app-server handshake and streams a completed turn", async () => {
   assert.equal(result.message, "hello");
   assert.equal(result.turn.id, "turn-test");
   assert.equal(adapter.threadId, "thr-test");
+  assert.deepEqual(initialization, [{ name: "novel_codex", title: "小说工坊", version: "0.1.0" }]);
   assert.ok(events.some((event) => event.method === "item/agentMessage/delta"));
   assert.ok(events.some((event) => event.method === "item/commandExecution/outputDelta"));
   assert.ok(events.some((event) => event.method === "turn/plan/updated"));
@@ -202,6 +254,31 @@ test("collects structured user input and resumes the turn", async () => {
   adapter.close();
 });
 
+test("preserves bounded multiline author answers and keeps invalid requests available", { timeout: 5000 }, async t => {
+  const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
+  t.after(() => adapter.close());
+  let resolveFirst, resolveSecond;
+  const first = new Promise(resolve => { resolveFirst = resolve; });
+  const second = new Promise(resolve => { resolveSecond = resolve; });
+  adapter.setCallbacks({ onUserInputRequest: request => {
+    if (request.params.questions[0].id === "direction") resolveFirst(request);
+    else resolveSecond(request);
+  } });
+  const turn = adapter.sendTurn([{ type: "text", text: "user-input" }]);
+  const request = await first;
+  const pendingRequest = adapter.userInputs.get(request.requestId);
+  const answer = "节奏\t克制\r\n推进白塔\n保留悬念".padEnd(240, "月");
+  for (const invalid of [answer + "月", "\t\r\n", "内容\0", "内容\u0007", "内容\u001b", "内容\u007f", "内容\u0085"]) {
+    assert.throws(() => adapter.resolveUserInput(request.requestId, { answers: { direction: invalid } }), /用户回答内容无效或过长/);
+    assert.equal(adapter.userInputs.get(request.requestId), pendingRequest);
+  }
+  assert.deepEqual(adapter.resolveUserInput(request.requestId, { answers: { direction: answer } }), { resolved: true });
+  const next = await second;
+  assert.deepEqual(adapter.resolveUserInput(next.requestId, { answers: { tone: "克制" } }), { resolved: true });
+  const result = await turn;
+  assert.equal(result.message, answer);
+});
+
 test("steers an active turn without creating a new turn", async () => {
   const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   let started;
@@ -240,10 +317,12 @@ test("lists, pins, archives, restores and resumes an isolated app-server thread"
   assert.deepEqual(detail.turns[0], {
     id: "turn-history",
     status: "completed",
+    startedAt: null,
+    completedAt: null,
     items: [
-      { id: "item-user", type: "userMessage", status: "completed", text: "整理第一章" },
-      { id: "item-agent", type: "agentMessage", status: "completed", text: "我会先检查白塔灯光的伏笔。" },
-      { id: "item-tool", type: "commandExecution", status: "completed", text: "echo test" },
+      { id: "item-user", type: "userMessage", status: "completed", text: "整理第一章", phase: null },
+      { id: "item-agent", type: "agentMessage", status: "completed", text: "我会先检查白塔灯光的伏笔。", phase: null },
+      { id: "item-tool", type: "commandExecution", status: "completed", text: "echo test", phase: null },
     ],
   });
   assert.equal(adapter.threadId, null);

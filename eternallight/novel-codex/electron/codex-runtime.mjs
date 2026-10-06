@@ -36,10 +36,16 @@ import { modelInputTokenBudget } from "../shared/author-input-budget.mjs";
 import { readBuildIdentity, sha256File, verifyBuildIdentity } from "../scripts/build-provenance.mjs";
 import { OPERATION_REQUIREMENTS, PRODUCT_OPERATION_IDS, operationRequirement } from "./operation-requirements.mjs";
 import { certificationPath } from "../scripts/certification-publication.mjs";
+import { LANGUAGE_CONSISTENCY_INSTRUCTIONS } from "./author-language.mjs";
+import { NOVEL_ROOT_DEVELOPER_INSTRUCTIONS } from "./creative-mission.mjs";
+import { NOVEL_COLLABORATION_INSTRUCTIONS, NOVEL_COLLABORATION_MODE, readCollaborationPolicy, collaborationAvailability, collaborationInstructions } from "./novel-collaboration.mjs";
+import { NOVEL_AGENT_ROLES, renderNovelAgentRole } from "./novel-agent-roles.mjs";
+
+export const NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS = `You are a read-only subagent for 小说工坊. Analyze only the assigned scope, ground findings in frozen story context, separate facts from inference, and return concise evidence to the parent. Never write or adopt story data.\n\n${LANGUAGE_CONSISTENCY_INSTRUCTIONS}`;
 
 const MODEL_CATALOG_PATH = fileURLToPath(new URL("../codex-runtime/model-catalog.json", import.meta.url));
 const CLI_POLICY_PATH = fileURLToPath(new URL("../codex-runtime/supported-cli.json", import.meta.url));
-// Reserve space below the engine's 40 KB item cap for Codex message framing.
+// Product framing budget, separate from the engine's token and byte admission caps.
 const MAX_MODEL_MESSAGE_BYTES = 38_000;
 const MAX_MODEL_MESSAGE_TOKENS = 9_000;
 const MAX_MODEL_INPUT_BYTES = 9_500;
@@ -142,15 +148,23 @@ function sourceTreeDigest(directory) {
   return createHash("sha256").update(files.join("\n"), "utf8").digest("hex");
 }
 
-export function createQualificationContextDigest({ baseInstructions, cliPath }) {
-  if (typeof baseInstructions !== "string" || !baseInstructions.trim()) throw new Error("资格上下文缺少 Codex 基础指令");
-  if (!isExecutableFile(cliPath)) throw new Error("资格上下文缺少可验证的 Codex CLI");
+export function createQualificationContextDigest({ baseInstructions, cliPath,
+  developerInstructions = NOVEL_ROOT_DEVELOPER_INSTRUCTIONS,
+  subagentDeveloperInstructions = NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS }) {
+  if (typeof baseInstructions !== "string" || !baseInstructions.trim()) throw new Error("资格上下文缺少创作引擎基础指令");
+  if (typeof developerInstructions !== "string" || !developerInstructions.trim()
+    || typeof subagentDeveloperInstructions !== "string" || !subagentDeveloperInstructions.trim()) throw new Error("资格上下文缺少当前产品开发者指令");
+  if (!isExecutableFile(cliPath)) throw new Error("资格上下文缺少可验证的内置创作引擎");
   const agentEngineEntry = fileURLToPath(import.meta.resolve("@eternallight/agent-engine"));
   return digest({
     agentEngineSource: sourceTreeDigest(dirname(agentEngineEntry)),
     agentEngineQualification: sourceTreeDigest(join(dirname(agentEngineEntry), "..", "qualification")),
     nativeEngine: sha256File(nativeEnginePath),
     baseInstructions: createHash("sha256").update(baseInstructions, "utf8").digest("hex"),
+    developerInstructions: createHash("sha256").update(developerInstructions, "utf8").digest("hex"),
+    subagentDeveloperInstructions: createHash("sha256").update(subagentDeveloperInstructions, "utf8").digest("hex"),
+    creativeStrategies: sha256(fileURLToPath(new URL("../shared/creative-strategies.json", import.meta.url))),
+    collaborationInstructions: digest({ implementation: sha256(fileURLToPath(new URL("./novel-collaboration.mjs", import.meta.url))), roles: sha256(fileURLToPath(new URL("./novel-agent-roles.mjs", import.meta.url))), instructions: NOVEL_COLLABORATION_INSTRUCTIONS, mode: NOVEL_COLLABORATION_MODE, resources: readCollaborationPolicy() }),
     cli: sha256File(cliPath),
     conformanceMcp: sha256(fileURLToPath(new URL("./conformance-mcp.mjs", import.meta.url))),
     conformanceRunner: sha256(fileURLToPath(new URL("./codex-conformance-runner.mjs", import.meta.url))),
@@ -293,10 +307,12 @@ export function providerConfigurationError(providerConfig, baseEnvironment) {
     : `缺少 ${providerConfig.credentialRef}，${providerConfig.provider} 请求将无法认证`;
 }
 
-export function resolveCodexProvider({ credentialScopes = {}, evidence = [], model, now = new Date(), operation = null, provider, qualificationContextDigest = "default" }) {
+export function resolveCodexProvider({ credentialScopes = {}, evidence = [], model, now = new Date(), operation = null, provider, qualificationContextDigest = "default", minimumEvidenceValidityMs = 0 }) {
+  if (!Number.isSafeInteger(minimumEvidenceValidityMs) || minimumEvidenceValidityMs < 0) throw new Error("模型证据有效期要求无效");
   const inspected = inspectCodexConnection({ model, provider });
   const entry = findConnectionEntry({ model, provider });
-  const qualifiedEvidence = combinedRuntimeEvidence({ credentialScopes, evidence, now, qualificationContextDigest });
+  const qualifiedEvidence = combinedRuntimeEvidence({ credentialScopes, evidence, now, qualificationContextDigest })
+    .filter(record => record.status !== "verified" || Date.parse(record.expiresAt) > now.getTime() + minimumEvidenceValidityMs);
   if (operation !== null && !inspected.operations.includes(operation)) {
     throw new Error(`${inspected.id} 未获准执行 ${operation}`);
   }
@@ -327,7 +343,7 @@ export function resolveCodexProvider({ credentialScopes = {}, evidence = [], mod
       defaultConnectionId: inspected.id,
       allowedChildConnectionIds: connections.map((connection) => connection.id),
       forceBridge: true,
-      maxActiveChildren: 3,
+      ...readCollaborationPolicy(),
       qualificationContextDigest,
       requiredCapabilities: [],
       productExtensions: DELEGATION_EXECUTION_CAPABILITIES,
@@ -359,7 +375,7 @@ export function listCodexConnections({ credentialScopes = {}, evidence = [], now
     }
     const verifiedCapabilities = [...summary].filter(([, record]) => isQualifiedEvidence(record)).map(([capability]) => capability).sort();
     const failedCapabilities = [...summary].filter(([, record]) => record.status === "failed").map(([capability]) => capability).sort();
-    const required = [CAPABILITIES.TEXT, CAPABILITIES.STRUCTURED_TOOL_CALLS];
+    const required = operationRequirement(null).requiredCapabilities;
     const status = required.some((capability) => failedCapabilities.includes(capability))
       ? "failed"
       : required.every((capability) => verifiedCapabilities.includes(capability)) ? "verified" : "unverified";
@@ -378,6 +394,7 @@ export function listCodexConnections({ credentialScopes = {}, evidence = [], now
       capabilitySupport: { ...connection.capabilitySupport },
       verifiedCapabilities,
       failedCapabilities,
+      collaborationStatus: collaborationAvailability(verifiedCapabilities, failedCapabilities),
       operations: [...PRODUCT_OPERATION_IDS],
       operationRequirements: Object.fromEntries(PRODUCT_OPERATION_IDS.map((operation) => [operation, OPERATION_REQUIREMENTS[operation]])),
       verifiedProfiles,
@@ -400,7 +417,7 @@ export function buildCodexConfig({
   provider,
   sessionPlan = null,
 }) {
-  if (!sessionPlan) throw new Error("生成 Codex 配置前必须提供已验证的 SessionPlan");
+  if (!sessionPlan) throw new Error("生成创作引擎配置前必须提供已验证的 SessionPlan");
   const resolvedPlan = sessionPlan;
   const mcpCommand = mcpServerCommand?.trim();
   if (!mcpCommand) throw new Error("Novel Workspace MCP Rust 可执行文件未配置");
@@ -408,8 +425,10 @@ export function buildCodexConfig({
     sessionPlan: resolvedPlan,
     modelCatalogPath,
     bridge,
-    usageHintText: "Delegate bounded independent story analysis when it materially improves the answer. Prefer story_architect and continuity_critic. Wait for their evidence and synthesize the final result.",
-    subagentDeveloperInstructions: "You are a read-only Novel Codex subagent. Analyze only the assigned scope, ground findings in frozen story context, separate facts from inference, and return concise evidence to the parent. Never write or adopt story data.",
+    developerInstructions: NOVEL_ROOT_DEVELOPER_INSTRUCTIONS,
+    usageHintText: collaborationInstructions(resolvedPlan),
+    multiAgentModeHintText: NOVEL_COLLABORATION_MODE,
+    subagentDeveloperInstructions: NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS,
     sensitiveEnvironmentPatterns: ["NOVEL_CODEX_*", "*_API_KEY", "*_ACCESS_TOKEN", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"],
     mcpServers: [{
       id: "novel_workspace",
@@ -417,6 +436,8 @@ export function buildCodexConfig({
       args: mcpServerArgs ?? (mcpServerPath ? [mcpServerPath] : []),
       envVars: NOVEL_MCP_ENVIRONMENT_KEYS,
       approvalMode: "approve",
+      required: true,
+      startupTimeoutMs: 90_000,
     }],
   });
 }
@@ -432,7 +453,8 @@ export function createRuntimeEnvironment(baseEnvironment) {
 
 export function composeNovelCodexPrompt(skillText, prompt, taskInstructions = "") {
   const normalizedPrompt = prompt.trim();
-  const message = `${skillText.trim() ? `Novel Codex 专用工作约束（只对当前应用生效）：\n${skillText}\n\n` : ""}${taskInstructions ? `${taskInstructions}\n\n` : ""}用户当前指令：\n${normalizedPrompt}`;
+  const replyInstructions = "作者可见表达：遵守产品对话语言，用‘读取本章正文’等作者用语说明正在处理的内容。纯讨论直接回答。委托登记后只简述已安排、结果尚待交付；有成功保存回执才说明实际保存了什么，候选保存不等于采用、发布或设定确认。失败、未保存、覆盖不足或尚未分析如实说明。仅目标歧义、缺授权或正式决定时询问，不重复询问已授权事项，不主动邀请核对或继续。默认不重抄全文、不展示内部ID、字段、状态码、任务绑定或冻结上下文；作者明确要求详细分析、全文或技术细节时按权限充分回答。正文与结构化产物仍通过工具完整保存，身份、JSON和回执完整传入并核验，不以简短回复代替产物或正式决定。";
+  const message = `${skillText.trim() ? `小说工坊专用工作约束（只对当前应用生效）：\n${skillText}\n\n` : ""}${taskInstructions ? `${taskInstructions}\n\n` : ""}${replyInstructions}\n\n${LANGUAGE_CONSISTENCY_INSTRUCTIONS}\n\n用户当前指令：\n${normalizedPrompt}`;
   const bytes = Buffer.byteLength(message, "utf8");
   if (bytes > MAX_MODEL_MESSAGE_BYTES) {
     throw new Error(`包含工作约束的本轮消息超过安全上限：${bytes}/${MAX_MODEL_MESSAGE_BYTES} UTF-8 字节。请缩短本轮创作意图；作者要求未被截断或发送。`);
@@ -540,7 +562,14 @@ export async function checkCodexConnectionAccess({ apiKey, connection, fetchImpl
     max_output_tokens: Math.min(16, connection.declaredLimits.outputTokens),
     stream: false,
   }, connection, apiKey);
-  const response = await fetchImpl(prepared.url, { method: "POST", headers: prepared.headers, body: JSON.stringify(prepared.body) });
+  const controller = new AbortController();
+  let timer;
+  const expired = new Promise((_, reject) => { timer = setTimeout(() => {
+    const error = new Error("模型连接验证超过 55 秒，请检查网络后重试");
+    controller.abort(error); reject(error);
+  }, 55_000); });
+  try { return await Promise.race([expired, (async () => {
+  const response = await fetchImpl(prepared.url, { method: "POST", headers: prepared.headers, body: JSON.stringify(prepared.body), signal: controller.signal });
   if (!response.ok) {
     const error = new Error(`模型账号检查失败：HTTP ${response.status}`);
     error.statusCode = response.status;
@@ -550,10 +579,12 @@ export async function checkCodexConnectionAccess({ apiKey, connection, fetchImpl
   try {
     payload = await response.json();
   } catch {
+    if (controller.signal.aborted) throw controller.signal.reason;
     throw new Error("模型账号检查返回了无效 JSON");
   }
   codec.parseResponse(payload, prepared.context);
   return { status: "available", protocol: connection.protocol };
+  })()]); } finally { clearTimeout(timer); }
 }
 
 function redactVerificationValue(value, secret) {
@@ -705,12 +736,20 @@ export async function verifyCodexConnectionEdge({ baseEnvironment, conformanceRu
 }
 
 export function installManagedAgentRoles(codexHome, sourceRoot) {
-  if (!existsSync(sourceRoot)) throw new Error("Novel Codex 子 Agent 角色目录缺失");
+  if (!existsSync(sourceRoot)) throw new Error("创作引擎子任务角色目录缺失");
   const roleFiles = readdirSync(sourceRoot, { withFileTypes: true })
     .filter((entry) => entry.isFile() && /^[a-z][a-z0-9_-]*\.toml$/.test(entry.name))
     .map((entry) => entry.name)
     .sort();
-  if (roleFiles.length === 0) throw new Error("Novel Codex 子 Agent 角色为空");
+  if (roleFiles.length === 0) throw new Error("创作引擎子任务角色为空");
+  const expected = NOVEL_AGENT_ROLES.map(role => `${role.id}.toml`).sort();
+  if (JSON.stringify(roleFiles) !== JSON.stringify(expected)) throw new Error("创作引擎子任务角色集合与当前目录不一致");
+  // Validate every profile before touching the currently installed role directory.
+  for (const role of NOVEL_AGENT_ROLES) {
+    if (readFileSync(join(sourceRoot, `${role.id}.toml`), "utf8") !== renderNovelAgentRole(role)) {
+      throw new Error(`创作引擎子任务角色配置不一致：${role.id}`);
+    }
+  }
   const destination = join(codexHome, "agents");
   rmSync(destination, { recursive: true, force: true });
   mkdirSync(destination, { recursive: true, mode: 0o700 });
@@ -797,11 +836,11 @@ export function resolveCodexCli({
     path: null,
     source: "missing",
     reason: rejectedIntegrity
-      ? "Novel Codex CLI 的平台 SHA-256 或版本不在固定支持清单中"
+      ? "创作引擎的 SHA-256 或平台版本不在固定支持清单中"
       : rejectedPolicy
       ? "CLI 来源未获 supported-cli.json 授权"
       : rejectedDesktopBinary
-      ? "已拒绝使用 ChatGPT 桌面版附带的 Codex CLI，请配置 Novel Codex 专用 CLI"
-      : "未找到 Novel Codex 专用 Codex CLI",
+      ? "已拒绝使用 ChatGPT 桌面版附带的引擎，请配置小说工坊专用创作引擎"
+      : "未找到小说工坊专用创作引擎",
   };
 }

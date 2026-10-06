@@ -1,7 +1,11 @@
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import { isDeepStrictEqual } from "node:util";
 import { selectFinalReply } from "./agent-final-reply.mjs";
 import { terminateEngineProcess } from "./engine-process-lifecycle.mjs";
+import { executeManagedTurn } from "./engine-turn-lifecycle.mjs";
+import { readActiveTurn } from "./active-turn-recovery.mjs";
+import { toolCorrectionLimitError } from "./tool-validation-recovery.mjs";
 
 const MAX_EVENT_BYTES = 64 * 1024;
 const MAX_AGENT_MESSAGE_TEXT = 64 * 1024;
@@ -9,6 +13,7 @@ const MAX_THREAD_TEXT = 240;
 const MAX_THREAD_LIST = 20;
 const MAX_THREAD_DETAIL_TURNS = 12;
 const MAX_THREAD_DETAIL_ITEMS = 8;
+const MAX_THREAD_ITEM_TEXT = 8_000;
 const MAX_USER_INPUT_QUESTIONS = 3;
 const MAX_USER_INPUT_OPTIONS = 6;
 const MAX_USER_INPUT_TEXT = 240;
@@ -119,7 +124,7 @@ function userInputQuestions(params) {
 }
 
 function boundedUserInputText(value) {
-  return typeof value === "string" && value.trim() && value.length <= MAX_USER_INPUT_TEXT && !/[\r\n]/.test(value);
+  return typeof value === "string" && value.trim() && value.length <= MAX_USER_INPUT_TEXT && !/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/.test(value);
 }
 
 function validateUserInputResponse(response, params) {
@@ -177,16 +182,24 @@ function threadItemSummary(item, index) {
     id: bounded(item?.id ?? `${type}-${index}`, MAX_THREAD_TEXT),
     type,
     status: bounded(status ?? null, 40),
-    text: bounded(text, MAX_THREAD_TEXT),
+    text: bounded(text, MAX_THREAD_ITEM_TEXT),
+    phase: ["commentary", "final_answer"].includes(item?.phase) ? item.phase : null,
   };
 }
 
 function threadTurnSummary(turn, index) {
   const status = typeof turn?.status === "string" ? turn.status : turn?.status?.type;
-  const items = Array.isArray(turn?.items) ? turn.items.slice(0, MAX_THREAD_DETAIL_ITEMS).map(threadItemSummary) : [];
+  const all = Array.isArray(turn?.items) ? turn.items : [];
+  const important = all.map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.type === "userMessage" || (item.type === "agentMessage" && item.phase === "final_answer"));
+  const chosen = new Set(important.slice(-MAX_THREAD_DETAIL_ITEMS).map(({ index }) => index));
+  for (let index = all.length - 1; index >= 0 && chosen.size < MAX_THREAD_DETAIL_ITEMS; index--) chosen.add(index);
+  const items = [...chosen].sort((a, b) => a - b).map(index => threadItemSummary(all[index], index));
   return {
     id: bounded(turn?.id ?? `turn-${index}`, MAX_THREAD_TEXT),
     status: bounded(status ?? null, 40),
+    startedAt: Number.isSafeInteger(turn?.startedAt) ? turn.startedAt : null,
+    completedAt: Number.isSafeInteger(turn?.completedAt) ? turn.completedAt : null,
     items,
   };
 }
@@ -218,6 +231,7 @@ export class CodexAppServerAdapter {
     this.initialized = false;
     this.activeOperation = this.env.NOVEL_CODEX_OPERATION ?? null;
     this.turnWaiter = null;
+    this.turnOperation = null;
     this.protocolFailure = false;
     this.callbacks = { onEvent: () => {}, onRawEvent: () => {}, onUserInputRequest: () => {} };
     this.eventSubscribers = new Set();
@@ -236,9 +250,9 @@ export class CodexAppServerAdapter {
   status() {
     return {
       configured: this.enabled,
-      state: this.lastError || this.configurationError ? "error" : this.initializing ? "starting" : this.turnWaiter ? "running" : this.initialized ? "ready" : "idle",
+      state: this.lastError || this.configurationError ? "error" : this.initializing || this.threadStarting ? "starting" : this.turnOperation || this.turnWaiter ? "running" : this.initialized ? "ready" : "idle",
       mode: this.enabled ? "novel-agent-engine" : this.localEnabled ? "local-history" : "local",
-      error: this.lastError ?? this.configurationError ?? (this.enabled ? null : "未找到 Novel Agent Engine 内核"),
+      error: this.lastError ?? this.configurationError ?? (this.enabled ? null : "未找到 创作引擎 内核"),
       provider: this.provider,
       model: this.model,
       commandSource: this.commandSource,
@@ -277,8 +291,8 @@ export class CodexAppServerAdapter {
   }
 
   assertConfigurable() {
-    if (this.turnWaiter || this.turnId) throw new Error("Novel Agent Engine 正在处理上一轮请求，不能重新配置");
-    if (this.initializing || this.threadStarting || this.pending.size > 0) throw new Error("Novel Agent Engine 正在处理请求，不能重新配置");
+    if (this.turnOperation || this.turnWaiter || this.turnId) throw new Error("创作引擎 正在处理上一轮请求，不能重新配置");
+    if (this.initializing || this.threadStarting || this.pending.size > 0) throw new Error("创作引擎 正在处理请求，不能重新配置");
   }
 
   setCallbacks(callbacks) {
@@ -286,7 +300,7 @@ export class CodexAppServerAdapter {
   }
 
   async ensureInitialized({ localOnly = false } = {}) {
-    if (!this.localEnabled || (!localOnly && !this.enabled)) throw new Error(localOnly ? "Novel Agent Engine 本地历史不可用" : "Novel Agent Engine 未配置");
+    if (!this.localEnabled || (!localOnly && !this.enabled)) throw new Error(localOnly ? "创作引擎 本地历史不可用" : "创作引擎 未配置");
     if (this.initialized) return true;
     if (this.initializing) return this.initializing;
     const initialization = this.initialize().finally(() => {
@@ -304,7 +318,7 @@ export class CodexAppServerAdapter {
       this.lastError = null;
       this.emit({ method: "agent/starting", params: { message: "正在启动独立创作引擎" } });
       await this.request("initialize", {
-        clientInfo: { name: "novel_codex", title: "Novel Codex", version: "0.1.0" },
+        clientInfo: { name: "novel_codex", title: "小说工坊", version: "0.1.0" },
         capabilities: { experimentalApi: true },
       });
       if (this.process !== child) throw new Error("创作引擎任务会话已重新绑定");
@@ -327,30 +341,62 @@ export class CodexAppServerAdapter {
   }
 
   async ensureSession() {
-    await this.ensureInitialized();
-    if (this.threadId) return this.threadId;
-    if (this.threadStarting) return this.threadStarting;
-    this.threadStarting = this.startThread().finally(() => { this.threadStarting = null; });
-    return this.threadStarting;
+    return (await this.openThread()).thread.id;
   }
 
-  async startThread() {
-    const result = await this.request("thread/start", { model: this.modelRoute, cwd: this.cwd, serviceName: "novel_codex" });
-    this.threadId = result?.thread?.id;
-    if (!this.threadId) throw new Error("Novel Agent Engine 未返回 thread id");
-    this.turnId = null;
-    this.emit({ method: "agent/ready", params: { threadId: this.threadId } });
-    return this.threadId;
+  async openThread({ resumeId = null } = {}) {
+    const handshake = this.ensureInitialized({ localOnly: resumeId !== null });
+    const child = this.process;
+    await handshake;
+    if (this.process !== child || !this.initialized) throw new Error("创作引擎任务会话已重新绑定");
+    if (this.turnWaiter) throw new Error("创作引擎 正在处理上一轮请求");
+    if (this.threadStarting) {
+      if (resumeId !== null && this.threadStarting.resumeId !== resumeId) throw new Error("创作引擎会话正在准备，不能切换目标");
+      return this.threadStarting.promise;
+    }
+    if (resumeId === null && this.threadId) return { thread: { id: this.threadId } };
+    const opening = { resumeId, promise: null };
+    this.threadStarting = opening;
+    this.lastError = null;
+    opening.promise = (async () => {
+      try {
+        this.emit({ method: "agent/starting", params: { message: resumeId ? "正在恢复对话并准备作品工具" : "正在准备作品工具" } });
+        const result = await this.request(resumeId ? "thread/resume" : "thread/start", resumeId
+          ? { threadId: resumeId } : { model: this.modelRoute, cwd: this.cwd, serviceName: "novel_codex" });
+        if (this.process !== child) throw new Error("创作引擎任务会话已重新绑定");
+        const thread = result?.thread;
+        if (resumeId ? thread?.id !== resumeId : typeof thread?.id !== "string" || !thread.id.trim()) throw new Error("创作引擎 未返回匹配的线程");
+        this.threadId = thread.id;
+        this.turnId = null;
+        if (resumeId) this.emit({ method: "thread/started", params: { thread } });
+        this.emit({ method: "agent/ready", params: { threadId: thread.id } });
+        return result;
+      } catch (error) {
+        if (this.process === child) {
+          this.reader?.close();
+          this.process = null;
+          this.reader = null;
+          this.threadId = null;
+          this.fail(error);
+          await terminateEngineProcess(child);
+        }
+        throw error;
+      } finally {
+        if (this.threadStarting === opening) this.threadStarting = null;
+      }
+    })();
+    return opening.promise;
   }
 
   detachThread() {
-    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
+    if (this.turnOperation || this.turnWaiter) throw new Error("创作引擎 正在处理上一轮请求");
+    if (this.threadStarting) throw new Error("创作引擎会话正在准备，不能切换目标");
     this.threadId = null;
     this.turnId = null;
   }
 
   prepareTaskOperation(operation, taskCapability) {
-    if (!new Set(["generateBrief", "generateOutline", "generatePlan", "generateChapter", "modelKnowledge", "assessSceneOutcome", "assessRevisionOutcome", "extractCommitments", "reviseCommitment", "reviewPlanningSeat", "generatePropertyRules"]).has(operation)) throw new Error("生成任务 operation 无效");
+    if (!new Set(["reviewQuality", "generateBrief", "generateOutline", "generatePlan", "generateChapter", "modelKnowledge", "assessSceneOutcome", "assessRevisionOutcome", "assessChapterStructure", "extractCommitments", "reviseCommitment", "reviewPlanningSeat", "generatePropertyRules"]).has(operation)) throw new Error("生成任务 operation 无效");
     this.prepareOperationEnvironment(operation, taskCapability);
   }
 
@@ -360,7 +406,7 @@ export class CodexAppServerAdapter {
 
   prepareOperationEnvironment(operation, taskCapability) {
     if (typeof taskCapability !== "string" || taskCapability.length < 24 || /[\r\n]/.test(taskCapability)) throw new Error("任务能力凭证无效");
-    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
+    if (this.turnOperation || this.turnWaiter) throw new Error("创作引擎 正在处理上一轮请求");
     if (this.process && operation === this.activeOperation && this.env.NOVEL_CODEX_TASK_CAPABILITY === taskCapability) return;
     if (this.process) {
       this.reader?.close();
@@ -391,6 +437,7 @@ export class CodexAppServerAdapter {
 
   async finishTaskOperation() {
     const error = new Error("创作引擎任务会话已结束");
+    this.turnOperation = null;
     if (this.turnWaiter) {
       clearTimeout(this.turnWaiter.timer);
       this.turnWaiter.reject(error);
@@ -445,66 +492,64 @@ export class CodexAppServerAdapter {
     await this.ensureInitialized({ localOnly: true });
     const result = await this.request("thread/read", { threadId, includeTurns: true });
     const thread = result?.thread;
-    if (thread?.id !== threadId) throw new Error("Novel Agent Engine 未返回匹配的线程");
-    const turns = Array.isArray(thread.turns) ? thread.turns.slice(0, MAX_THREAD_DETAIL_TURNS).map(threadTurnSummary) : [];
+    if (thread?.id !== threadId) throw new Error("创作引擎 未返回匹配的线程");
+    const turns = Array.isArray(thread.turns) ? thread.turns.slice(-MAX_THREAD_DETAIL_TURNS).map(threadTurnSummary) : [];
     return { thread: threadSummary(thread), turns };
   }
 
   async resumeThread(threadId) {
     validateThreadId(threadId);
-    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
+    if (this.turnOperation) throw new Error("创作引擎 正在处理上一轮请求");
+    const result = await this.openThread({ resumeId: threadId });
+    return { thread: threadSummary(result.thread) };
+  }
+
+  async createThread() {
+    if (this.turnOperation || this.turnWaiter) throw new Error("当前对话正在执行");
+    this.detachThread();
+    const result = await this.openThread();
+    return { thread: threadSummary(result.thread) };
+  }
+
+  async forkThread(threadId, lastTurnId) {
+    validateThreadId(threadId); validateThreadId(lastTurnId);
+    if (this.turnOperation || this.turnWaiter) throw new Error("当前对话正在执行");
     await this.ensureInitialized({ localOnly: true });
-    const result = await this.request("thread/resume", { threadId });
-    const thread = result?.thread;
-    if (thread?.id !== threadId) throw new Error("Novel Agent Engine 未返回匹配的线程");
-    this.threadId = thread.id;
-    this.turnId = null;
-    this.emit({ method: "thread/started", params: { thread } });
-    return { thread: threadSummary(thread) };
+    const result = await this.request("thread/fork", { threadId, lastTurnId });
+    if (!result?.thread?.id || result.thread.id === threadId) throw new Error("未返回独立分支对话");
+    return { thread: threadSummary(result.thread) };
   }
 
   async reconnectThread(threadId) {
     validateThreadId(threadId);
-    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
+    if (this.turnWaiter) throw new Error("创作引擎 正在处理上一轮请求");
     this.lastError = null;
     const result = await this.resumeThread(threadId);
     this.emit({ method: "agent/connection", params: { state: "ready", threadId } });
     return result;
   }
 
+  async reconnectActiveTurn(threadId, turnId, isCurrent, onInterrupted) {
+    return readActiveTurn(this, threadId, turnId, isCurrent, onInterrupted);
+  }
+
   async reviewThread(threadId) {
     validateThreadId(threadId);
-    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
-    await this.resumeThread(threadId);
-    const result = await this.runManagedTurn(threadId, () => this.request("review/start", { threadId, delivery: "inline", target: { type: "uncommittedChanges" } }));
+    const result = await executeManagedTurn(this, {
+      prepare: async () => (await this.openThread({ resumeId: threadId })).thread.id,
+      start: () => this.request("review/start", { threadId, delivery: "inline", target: { type: "uncommittedChanges" } }),
+    });
     this.emit({ method: "agent/review", params: { threadId, delivery: "inline", target: "uncommittedChanges" } });
     return { started: true, turn: result?.turn ?? null };
   }
 
   async compactThread(threadId) {
     validateThreadId(threadId);
-    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
-    await this.resumeThread(threadId);
-    const result = await this.runManagedTurn(threadId, () => this.request("thread/compact/start", { threadId }));
-    return { started: true, turn: result?.turn ?? null };
-  }
-
-  async runManagedTurn(threadId, start) {
-    const completion = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.turnWaiter = null; reject(new Error("Novel Agent Engine 回合超时")); }, 10 * 60 * 1000);
-      this.turnWaiter = { resolve, reject, timer, threadId, turnId: null, agentMessageItemId: null, agentMessage: "" };
+    const result = await executeManagedTurn(this, {
+      prepare: async () => (await this.openThread({ resumeId: threadId })).thread.id,
+      start: () => this.request("thread/compact/start", { threadId }),
     });
-    void completion.catch(() => {});
-    try {
-      const started = await start();
-      this.turnId = started?.turn?.id ?? this.turnId;
-      if (this.turnWaiter) this.turnWaiter.turnId = this.turnId;
-      return await completion;
-    } catch (error) {
-      if (this.turnWaiter) clearTimeout(this.turnWaiter.timer);
-      this.turnWaiter = null;
-      throw error;
-    }
+    return { started: true, turn: result?.turn ?? null };
   }
 
   async listBackgroundTerminals(threadId) {
@@ -539,7 +584,7 @@ export class CodexAppServerAdapter {
 
   async archiveThread(threadId) {
     validateThreadId(threadId);
-    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
+    if (this.turnWaiter) throw new Error("创作引擎 正在处理上一轮请求");
     await this.ensureInitialized({ localOnly: true });
     await this.request("thread/archive", { threadId });
     if (this.threadId === threadId) {
@@ -553,7 +598,7 @@ export class CodexAppServerAdapter {
     validateThreadId(threadId);
     await this.ensureInitialized({ localOnly: true });
     const result = await this.request("thread/unarchive", { threadId });
-    if (result?.thread?.id !== threadId) throw new Error("Novel Agent Engine 未返回匹配的线程");
+    if (result?.thread?.id !== threadId) throw new Error("创作引擎 未返回匹配的线程");
     return { thread: threadSummary(result.thread) };
   }
 
@@ -578,7 +623,7 @@ export class CodexAppServerAdapter {
       delete this.env.NOVEL_CODEX_OPERATION;
       delete this.env.NOVEL_CODEX_TASK_CAPABILITY;
       this.activeOperation = null;
-      this.fail(new Error(`Novel Agent Engine 内核已退出 (${code ?? signal ?? "unknown"})`));
+      this.fail(new Error(`创作引擎 内核已退出 (${code ?? signal ?? "unknown"})`));
     });
   }
 
@@ -606,12 +651,19 @@ export class CodexAppServerAdapter {
         params: {
           requestId: message.id,
           requestMethod: message.method,
-          reason: "Novel Agent Engine 不允许模型请求命令、文件或网络权限",
+          reason: "创作引擎 不允许模型请求命令、文件或网络权限",
         },
       });
       return;
     }
     this.callbacks.onEvent(safe);
+    const correctionFailure = toolCorrectionLimitError(message, this.turnWaiter);
+    if (correctionFailure) {
+      // The managed turn owns process shutdown and the caller owns settlement.
+      // Do not start a replacement turn or allocate a fresh budget here.
+      this.fail(correctionFailure);
+      return;
+    }
     if (message.method === "thread/started" && message.params?.thread?.id) this.threadId = message.params.thread.id;
     if (message.method === "thread/closed" && message.params?.threadId === this.threadId) {
       this.threadId = null;
@@ -626,6 +678,12 @@ export class CodexAppServerAdapter {
     if (isUserInputMethod(message.method)) {
       if (!validRequestId(message.id)) {
         this.emit({ method: "agent/error", params: { message: "作者问题缺少有效 ID" } });
+        return;
+      }
+      if (this.activeOperation === "reviewQuality") {
+        // An independent reader cannot solicit author intent outside its packet.
+        // Empty answers mean unavailable input, never an invented author choice.
+        this.write({ id: message.id, result: { answers: {} } });
         return;
       }
       this.userInputs.set(message.id, message);
@@ -644,9 +702,9 @@ export class CodexAppServerAdapter {
       this.pending.delete(message.id);
       clearTimeout(request.timer);
       if (message.error) {
-        request.reject(new Error(message.error.message ?? "Novel Agent Engine 请求失败"));
+        request.reject(new Error(message.error.message ?? "创作引擎 请求失败"));
       } else {
-        if (request.method === "turn/start" && this.turnWaiter && message.result?.turn?.id) {
+        if (["turn/start", "review/start", "thread/compact/start"].includes(request.method) && this.turnWaiter && message.result?.turn?.id) {
           this.turnWaiter.turnId = message.result.turn.id;
         }
         request.resolve(message.result);
@@ -692,7 +750,7 @@ export class CodexAppServerAdapter {
       if (completedWaiter.turnId === null || message.params?.threadId !== completedWaiter.threadId || message.params?.turn?.id !== completedWaiter.turnId) return;
       this.turnWaiter = null;
       clearTimeout(completedWaiter.timer);
-      if (message.params?.turn?.status === "failed") completedWaiter.reject(new Error(message.params?.turn?.error?.message ?? "Novel Agent Engine 回合失败"));
+      if (message.params?.turn?.status === "failed") completedWaiter.reject(new Error(message.params?.turn?.error?.message ?? "创作引擎 回合失败"));
       else {
         for (const item of message.params?.turn?.items ?? []) {
           completedWaiter.finalReply = selectFinalReply(completedWaiter.finalReply, item);
@@ -710,8 +768,8 @@ export class CodexAppServerAdapter {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Novel Agent Engine 请求超时：${method}`));
-      }, method === "initialize" ? this.timeouts.startupMs : this.timeouts.requestMs);
+        reject(new Error(`创作引擎 请求超时：${method}`));
+      }, ["initialize", "thread/start", "thread/resume"].includes(method) ? this.timeouts.startupMs : this.timeouts.requestMs);
       this.pending.set(id, { method, resolve, reject, timer });
       try {
         this.write({ id, method, params });
@@ -726,39 +784,25 @@ export class CodexAppServerAdapter {
   notify(method, params) { this.write({ method, params }); }
 
   write(message) {
-    if (!this.process?.stdin.writable) throw new Error("Novel Agent Engine stdin 不可写");
+    if (!this.process?.stdin.writable) throw new Error("创作引擎 stdin 不可写");
     this.process.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
   async sendTurn(input, { disableEnvironment = false, threadName = null } = {}) {
-    if (this.turnWaiter) throw new Error("Novel Agent Engine 正在处理上一轮请求");
     const createdThread = !this.threadId;
-    const threadId = await this.ensureSession();
-    const result = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.turnWaiter = null; reject(new Error("Novel Agent Engine 回合超时")); }, 10 * 60 * 1000);
-      this.turnWaiter = { resolve, reject, timer, threadId, turnId: null, agentMessageItemId: null, agentMessage: "" };
-    });
-    void result.catch(() => {});
-    try {
-      const started = await this.request("turn/start", {
+    return executeManagedTurn(this, {
+      prepare: () => this.ensureSession(),
+      start: threadId => this.request("turn/start", {
         threadId,
         input,
         ...(disableEnvironment ? { environments: [], approvalPolicy: "never" } : {}),
-      });
-      this.turnId = started?.turn?.id ?? this.turnId;
-      if (this.turnWaiter) this.turnWaiter.turnId = this.turnId;
-      if (createdThread) {
+      }),
+      afterStart: async threadId => {
+        if (!createdThread) return;
         const name = (threadName ?? input[0]?.text ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_THREAD_TEXT);
-        if (name) {
-          await this.request("thread/name/set", { threadId, name });
-        }
-      }
-      return await result;
-    } catch (error) {
-      if (this.turnWaiter) clearTimeout(this.turnWaiter.timer);
-      this.turnWaiter = null;
-      throw error;
-    }
+        if (name) await this.request("thread/name/set", { threadId, name });
+      },
+    });
   }
 
   resumeSession(threadId) {
@@ -772,6 +816,7 @@ export class CodexAppServerAdapter {
   }
 
   async steerTurn(input) {
+    if (this.activeOperation === "reviewQuality") throw new Error("独立读者只接收冻结阅读材料；请先停止审阅，再准备新的阅读包。");
     if (!this.turnWaiter || !this.threadId || !this.turnId) return { steered: false };
     await this.request("turn/steer", {
       threadId: this.threadId,
@@ -805,13 +850,29 @@ export class CodexAppServerAdapter {
   }
 
   async bindExecution({ lease }) {
-    if (this.executionLease) throw new Error("Novel Agent Engine already has an execution lease");
+    if (this.executionLease) throw new Error("创作引擎已有执行授权");
     this.executionLease = { ...lease };
+  }
+
+  async renewExecution({ lease, sessionPlan }) {
+    const current = this.executionLease;
+    if (!current || current.revoked || lease.planId !== sessionPlan?.id
+      || Date.parse(current.deadline) <= Date.now()
+      || Date.parse(lease.deadline) <= Date.parse(current.deadline)) {
+      throw new Error("创作引擎执行授权无法续期");
+    }
+    const immutable = value => Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !["planId", "deadline"].includes(key)));
+    if (!isDeepStrictEqual(immutable(current), immutable(lease))) {
+      throw new Error("创作引擎续期改变了执行身份");
+    }
+    this.executionLease = { ...lease };
+    return lease;
   }
 
   async revokeExecution({ runId, leaseId, expectedEpoch, revokedEpoch }) {
     const lease = this.executionLease;
-    if (!lease || lease.runId !== runId || lease.leaseId !== leaseId || lease.epoch !== expectedEpoch) throw new Error("Novel Agent Engine execution lease mismatch");
+    if (!lease || lease.runId !== runId || lease.leaseId !== leaseId || lease.epoch !== expectedEpoch) throw new Error("创作引擎执行授权不匹配");
     this.executionLease = { ...lease, epoch: revokedEpoch, revoked: true };
     return { revokedEpoch };
   }
@@ -835,6 +896,7 @@ export class CodexAppServerAdapter {
   }
 
   close() {
+    this.turnOperation = null;
     this.reader?.close();
     this.process?.kill();
     this.process = null;
@@ -845,6 +907,6 @@ export class CodexAppServerAdapter {
     this.activeOperation = null;
     this.protocolFailure = false;
     this.executionLease = null;
-    this.fail(new Error("Novel Agent Engine 已关闭"));
+    this.fail(new Error("创作引擎 已关闭"));
   }
 }

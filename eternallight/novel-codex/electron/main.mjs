@@ -1,10 +1,21 @@
+import { executorValidatedTools } from "./executor-validation-policy.mjs";
+import { enforceWorkDeliveryProtocol } from "./work-delivery-protocol.mjs";
+import { registerWorkCatalog } from "./work-catalog.mjs";
+import { registerChapterDeletion } from "./chapter-deletion.mjs";
+import { ChapterStructureAnalysisConsumer, registerChapterStructureReadHandlers } from "./chapter-structure-analysis.mjs";
+import { registerQualityNotebookHandlers } from "./quality-notebook.mjs";
+import { bindUnsentStructureTask } from "./unsent-structure-task.mjs";
+import { composeAdvisoryPrompt } from "./advisory-prompt.mjs";
+import { structureDiscussionThread } from "./structure-discussion.mjs";
+import { verifyDiscussionReference } from "./discussion-reference.mjs";
+import { isDeepStrictEqual } from "node:util";
 import { app, BrowserWindow, dialog, ipcMain, session } from "electron";
 import { spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { persistTaskFinalReply } from "./agent-final-reply.mjs";
-import { assessQueuedRevision } from "./revision-outcome-followup.mjs";
+import { bindConversationFocus, validateConversationFocus, conversationFocusInstructions, executeCandidateAction } from "./conversation-analysis.mjs";
 import { registerRevisionOutcomeHandlers, registerRevisionDecisionHandlers } from "./revision-outcome-handlers.mjs";
-import { REVISION_REPAIR_INSTRUCTIONS, advisoryTaskTarget, assertAdvisoryPromptRoute, assertRevisionRepairTaskTarget, preflightRevisionRepair, registerAdvisoryPromptHandler } from "./revision-repair-handlers.mjs";
+import { advisoryTaskTarget, assertAdvisoryPromptRoute, assertRevisionRepairTaskTarget, preflightRevisionRepair, registerAdvisoryPromptHandler } from "./revision-repair-handlers.mjs";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { isAbsolute, join } from "node:path";
@@ -17,35 +28,48 @@ import { waitForRuntimeReady } from "./runtime-readiness.mjs";
 import { CodexConformanceRunner } from "./codex-conformance-runner.mjs";
 import { CodexCoreIntegrationRunner } from "./codex-core-integration-runner.mjs";
 import { applyAgentConfiguration } from "./agent-configuration.mjs";
-import { AdvisorySessions } from "./advisory-sessions.mjs";
+import { ModelConnectionGate } from "./model-connection-gate.mjs";
+import { assertAgentAvailability, readAgentStatus } from "./agent-availability.mjs";
+import { registerConversationHandlers, readConversation, conversationSummary } from "./conversation-handlers.mjs";
+import { NOVEL_ROOT_DEVELOPER_INSTRUCTIONS } from "./creative-mission.mjs";
 import { authorSteerInput } from "./author-steer.mjs";
-import { ModelingConsumer } from "./modeling-consumer.mjs";
+import { listModelConnections, prepareEvidenceReverification, readModelEvidenceCache } from "./model-evidence-cache.mjs";
 import { registerCommitmentHandlers } from "./commitment-handlers.mjs";
 import { registerActionPermissionHandlers } from "./action-permission-handlers.mjs";
 import { registerExecutionScopeHandlers } from "./execution-scope-handlers.mjs";
 import { advanceWorkSteps } from "./work-step-continuation.mjs";
+import { recoverUnstartedWorkResume } from "./work-resume-not-started.mjs";
+import { readWorkExecutionBinding } from "./work-execution-binding.mjs";
 import { bindTaskProviderBudget, reconcileWorkProviderUsage, settleTaskProviderBudget } from "./task-provider-budget.mjs";
-import { confirmNewRootBudget } from "./initial-budget-confirmation.mjs";
-import { ensureWorkBudgetAuthorization } from "./work-budget-confirmation.mjs";
+import { grantNewRootBudget } from "./task-budget-grant.mjs";
+import { ensureWorkBudgetAuthorization } from "./work-budget-authorization.mjs";
+import { executeConversationPlanningReviews, registerPlanningReviewReadHandler } from "./conversation-planning-reviews.mjs";
 import { readPlanningReviewContinuation } from "./planning-review-resumption.mjs";
 import { registerConditionEvaluationHandlers } from "./condition-evaluation-handlers.mjs";
 import { registerGenerationReplanHandlers } from "./generation-replan-handlers.mjs";
 import { remainingGenerationDurationMs } from "./generation-duration.mjs";
+import { maintainExecutionAuthority } from "./execution-authority-renewal.mjs";
+import { renewTaskAuthority } from "./task-capability-renewal.mjs";
+import { presentAuthorHistory } from "./thread-history-presentation.mjs";
 import { registerChapterRebindHandlers } from "./chapter-rebind-handlers.mjs";
-import { assertProviderOperation, buildCodexConfig, buildCodexModelCatalog, composeNovelCodexPrompt, createCodexEnvironment, createQualificationContextDigest, createRuntimeEnvironment, createTaskCapability, credentialScopesFromEnvironment, inspectCodexConnection, installManagedAgentRoles, listCodexConnections, loadCodexEvidence, prepareIsolatedStorage, providerConfigurationError, recordRuntimeQualificationFailure, resolveCodexCli, resolveCodexProvider, resolveRuntimeBinaries, verifyCodexConnection, verifyCodexConnectionEdge } from "./codex-runtime.mjs";
+import { NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS, assertProviderOperation, buildCodexConfig, buildCodexModelCatalog, composeNovelCodexPrompt, createCodexEnvironment, createQualificationContextDigest, createRuntimeEnvironment, createTaskCapability, credentialScopesFromEnvironment, inspectCodexConnection, installManagedAgentRoles, listCodexConnections, loadCodexEvidence, prepareIsolatedStorage, providerConfigurationError, recordRuntimeQualificationFailure, resolveCodexCli, resolveCodexProvider, resolveRuntimeBinaries, verifyCodexConnection, verifyCodexConnectionEdge } from "./codex-runtime.mjs";
 import { chapterGenerationTask, planningGenerationTask } from "./creative-task-contract.mjs";
 import { isAllowedRendererNavigation, isTrustedIpcSender } from "./navigation-policy.mjs";
 import { reconcileRecoveryIndex } from "./recovery-reconciliation.mjs";
 import { safeSendToWebContents } from "./webcontents-safety.mjs";
-import { SCOPED_REVISION_INSTRUCTIONS, createTaskBoundHandoff, taskBoundInstructions, taskMethodText, taskExecutionPrompt, STORY_QUERY_INSTRUCTIONS } from "./workflow-handoff.mjs";
+import { createTaskBoundHandoff, taskBoundInstructions, taskMethodText, taskExecutionPrompt } from "./workflow-handoff.mjs";
 import { validateAuthorIntent } from "../shared/author-input-budget.mjs";
 import { generationPermitForChapters } from "../shared/generation-permit.mjs";
+import { AuthorSessionStore, registerAuthorSessionHandlers } from "./author-session-store.mjs";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
+app.setName("小说工坊");
 const configuredUserDataDir = process.env.NOVEL_CODEX_USER_DATA_DIR ?? null;
 if (configuredUserDataDir !== null) {
   if (!isAbsolute(configuredUserDataDir) || configuredUserDataDir.includes("\0")) throw new Error("NOVEL_CODEX_USER_DATA_DIR 必须是绝对路径");
   app.setPath("userData", configuredUserDataDir);
+} else {
+  app.setPath("userData", join(app.getPath("appData"), app.getName()));
 }
 const rendererUrl = process.env.NOVEL_CODEX_RENDERER_URL ?? "http://127.0.0.1:5173";
 const parsedRendererUrl = new URL(rendererUrl);
@@ -76,33 +100,59 @@ let activeAgentPurpose = null;
 let activeAgentTargetKey = null;
 let activeRuntimeTask = null;
 let activeAgentExecution = null;
+let recoveryRefreshPromise = null;
+const modelConnectionGate = new ModelConnectionGate(() => Boolean(activeAgentExecution || activeWorkFlow || activeGenerationRunId));
 let advisorySteerInFlight = false;
 let advisorySteerCompletion = null;
 let activeGenerationRunId = null;
 let activeWorkFlow = null;
 let recoveryIndex = null;
 let recoveryJournal = null;
-const advisorySessions = new AdvisorySessions();
 let rendererWebContents = null;
 let allowWindowClose = false;
 let quitRequested = false;
 let codexAdapter = new CodexAppServerAdapter({ command: null, cwd: projectRoot });
-const modelingConsumer = new ModelingConsumer({
+const chapterStructureConsumer = new ChapterStructureAnalysisConsumer({
   available: ({ event }) => {
-    try { return !quitRequested && !event.sender.isDestroyed() && isTrustedRendererUrl(event.sender.getURL())
-      && codexAdapter.enabled && !activeWorkFlow && !activeAgentExecution && !activeGenerationRunId; }
-    catch { return false; }
+    try {
+      assertTrustedIpcSender(event);
+      assertProviderOperation(agentProviderConfig, "assessChapterStructure");
+      return !quitRequested && codexAdapter.enabled && !modelConnectionGate.busy
+        && !activeWorkFlow && !activeAgentExecution && !activeGenerationRunId;
+    } catch { return false; }
   },
-  dispatch: (projectId) => runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/modeling-outbox/dispatch`, { method: "POST", body: "{}" }),
-  run: ({ event, projectId }, workTaskId) => resumeWorkTask(event, projectId, workTaskId, { origin: "automatic" }),
-  failed: async ({ projectId }, id, error) => {
-    if (error?.code === "TASK_CANCELLED") return;
-    const path = `/api/projects/${encodeURIComponent(projectId)}/work-tasks/${encodeURIComponent(id)}`;
-    const work = await runtimeRequest(path);
-    if (work.status === "running") await runtimeRequest(`${path}/control`, { method: "POST", body: JSON.stringify({ expectedVersion: work.version, command: "pause" }) });
-    forwardAgentEvent({ method: "agent/error", params: { message: `自动分析已停止：${error.message}` } });
+  list: (projectId, { cursor, limit, assessmentState }) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor !== null) query.set("cursor", cursor);
+    if (assessmentState !== null) query.set("assessmentState", assessmentState);
+    return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/chapter-structure-changes?${query}`);
   },
-  updated: ({ projectId }) => forwardAgentEvent({ method: "agent/modeling-updated", params: { projectId } }),
+  read: (projectId, id) => runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/chapter-structure-changes/${encodeURIComponent(id)}`),
+  run: ({ event, projectId }, prompt, taskType, target, isCurrent) => withWorkFlow(projectId, () =>
+    runCreativeAgentTask(event, projectId, prompt, taskType, target, { assertCurrent: () => {
+      if (!isCurrent()) throw new Error("作品或编辑状态已变化，衔接检查尚未继续。");
+    } })),
+  updated: ({ projectId }, change, result) => forwardAgentEvent({ method: "agent/structure-updated", params: { projectId, changeId: change.id, completed: result !== null } }),
+  failed: async ({ projectId }, change, error) => {
+    if (error?.code === "TASK_CANCELLED") {
+      forwardAgentEvent({ method: "agent/structure-updated", params: { projectId, changeId: change?.id ?? null, completed: false } });
+      return;
+    }
+    // Creation may have committed even when its response was lost. Stop the
+    // exact bound Work so it cannot remain visibly "running" without a model.
+    if (change?.assessment.state === "bound") {
+      try {
+        const path = `/api/projects/${encodeURIComponent(projectId)}/work-tasks/${encodeURIComponent(change.assessment.workTaskId)}`;
+        const work = await runtimeRequest(path);
+        if (work.status === "running") await runtimeRequest(`${path}/control`, {
+          method: "POST", body: JSON.stringify({ expectedVersion: work.version, command: "pause" }),
+        });
+      } catch { /* Keep the original error and bound task visible for recovery. */ }
+    }
+    forwardAgentEvent({ method: "structure/error", params: {
+      projectId, changeId: change?.id ?? null, taskId: change?.assessment.taskId ?? null, message: `衔接检查未完成：${error.message}`,
+    } });
+  },
 });
 const electronIpcMain = ipcMain;
 const trustedIpcMain = {
@@ -131,7 +181,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 720,
     backgroundColor: "#f5f6f8",
-    title: "Novel Codex",
+    title: app.getName(),
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -151,7 +201,7 @@ function createWindow() {
     safeSendToWebContents(window.webContents, "app:close-requested", {});
   });
   webContents.once("destroyed", () => {
-    if (rendererWebContents === webContents) { rendererWebContents = null; modelingConsumer.select(null); }
+    if (rendererWebContents === webContents) { rendererWebContents = null; chapterStructureConsumer.select(null); }
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
@@ -252,6 +302,7 @@ function ensureCodexConfig(codexHome, providerConfig, bridge = null) {
 
 async function prepareModelTransport(providerConfig, storage = agentStorage) {
   const instance = new ModelBridgeProcess({
+    executorValidatedTools,
     sessionPlan: providerConfig.sessionPlan,
     connections: providerConfig.connections ?? [providerConfig.connection],
     credentialResolver: async (reference) => process.env[reference] ?? null,
@@ -303,26 +354,31 @@ async function interruptAgentTurn(execution = activeAgentExecution) {
 }
 
 async function assertCurrentAgentPlan(operation, providerConfig = agentProviderConfig) {
-  if (!providerConfig?.sessionPlan) throw new Error("Agent SessionPlan 尚未就绪");
-  if (!engineQualificationContextDigest) throw new Error("Agent QualificationContext 尚未就绪");
-  const evidence = agentStorage
-    ? await loadCodexEvidence(agentStorage.evidencePath)
-    : providerConfig.evidence ?? [];
-  const current = resolveCodexProvider({
-    credentialScopes: agentStorage ? credentialScopesFromEnvironment(process.env, agentStorage.credentialSaltPath) : {},
-    evidence,
-    model: providerConfig.model,
-    operation,
-    provider: providerConfig.provider,
-    qualificationContextDigest: engineQualificationContextDigest,
+  return assertAgentAvailability(async () => {
+    if (!providerConfig?.sessionPlan) throw new Error("Agent SessionPlan 尚未就绪");
+    if (!engineQualificationContextDigest) throw new Error("Agent QualificationContext 尚未就绪");
+    const evidence = agentStorage
+      ? await loadCodexEvidence(agentStorage.evidencePath)
+      : providerConfig.evidence ?? [];
+    const current = resolveCodexProvider({
+      credentialScopes: agentStorage ? credentialScopesFromEnvironment(process.env, agentStorage.credentialSaltPath) : {},
+      evidence,
+      model: providerConfig.model,
+      operation,
+      provider: providerConfig.provider,
+      qualificationContextDigest: engineQualificationContextDigest,
+    });
+    if (current.sessionPlan.id !== providerConfig.sessionPlan.id) {
+      throw Object.assign(new Error("模型能力证据或路由计划已经变化，请重新选择模型后再开始任务"), { code: "SESSION_PLAN_STALE" });
+    }
+    return current.sessionPlan;
   });
-  if (current.sessionPlan.id !== providerConfig.sessionPlan.id) {
-    throw Object.assign(new Error("模型能力证据或路由计划已经变化，请重新选择模型后再开始任务"), { code: "SESSION_PLAN_STALE" });
-  }
-  return current.sessionPlan;
 }
 
 async function beginAgentExecution(execution, operation) {
+  while (recoveryRefreshPromise) await recoveryRefreshPromise;
+  if (activeAgentExecution && activeAgentExecution !== execution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
+  modelConnectionGate.assertExecutionAllowed();
   const bridge = modelBridge;
   const adapter = codexAdapter;
   const providerConfig = agentProviderConfig;
@@ -339,7 +395,7 @@ async function beginAgentExecution(execution, operation) {
   }
 }
 
-const QUIET_RECOVERY_OPERATIONS = new Set(["read_context", "read_commitment", "read_property_rules", "search_story", "search_relations", "query_story", "read_reading_progress"]);
+const QUIET_RECOVERY_OPERATIONS = new Set(["read_context", "read_commitment", "read_task_source", "read_work_status", "search_story", "search_relations", "query_story", "read_reading_progress", "read_chapter_structure_source", "analyze_story_impact", "read_quality_notebook", "read_quality_review", "read_quality_packet"]);
 
 async function closeFinishedReads(index) {
   if (!index) return [];
@@ -356,6 +412,20 @@ async function closeFinishedReads(index) {
     visible.push(run);
   }
   return visible;
+}
+
+function refreshRecoveryReport() {
+  if (recoveryRefreshPromise) return recoveryRefreshPromise;
+  // Active executions own their journal and task capability. Fencing them
+  // would interrupt the work, so report reads stay passive until the host is idle.
+  if (activeAgentExecution || activeWorkFlow || activeGenerationRunId) return closeFinishedReads(recoveryIndex);
+  recoveryRefreshPromise = (async () => {
+    if (recoveryIndex) await reconcileRecoveryIndex(recoveryIndex, runtimeRequest, (projectId, phase, error) => {
+      console.error(`[novel-codex] recovery refresh failed (${projectId}/${phase}): ${error instanceof Error ? error.message : String(error)}`);
+    });
+    return closeFinishedReads(recoveryIndex);
+  })().finally(() => { recoveryRefreshPromise = null; });
+  return recoveryRefreshPromise;
 }
 
 async function finishAgentExecution(execution) {
@@ -412,17 +482,52 @@ async function sendAgentTurn(execution, input, options) {
   execution.engineHost = host;
   execution.engineSessionId = sessionId;
   execution.engineRunId = runId;
+  let renewal = null;
   try {
     await host.startSession({ sessionPlan: execution.sessionPlan, sessionId });
-    const started = await host.startRun({ sessionId, runId, budgetId: execution.taskBudget?.id ?? randomUUID(), mode: execution.operation, input, turnOptions: options,
+    const turnOptions = execution.task?.inputManifest?.workDecision && !options?.dispatch
+      ? { ...options, dispatch: adapter => enforceWorkDeliveryProtocol(adapter, input, options, execution.task,
+        path => runtimeRequest(path, path.includes("/work-decision?") ? { headers: {
+          Authorization: `Bearer ${runtimeCandidateToken}`, "x-novel-task-capability": execution.capability.secret,
+        } } : {}), () => assertTaskCompletable(execution)) }
+      : options;
+    const started = await host.startRun({ sessionId, runId, budgetId: execution.taskBudget?.id ?? randomUUID(), mode: execution.operation, input, turnOptions,
       ...(execution.taskDeadlineAt == null ? {} : { maxDurationMs: remainingGenerationDurationMs(execution.taskDeadlineAt), deadlineAtMs: execution.taskDeadlineAt * 1000 }) });
-    const result = await started.completion;
+    renewal = maintainExecutionAuthority({ capability: execution.task ? execution.capability : null,
+      sessionPlan: execution.sessionPlan,
+      isCurrent: () => activeAgentExecution === execution && !execution.cancellationRequested && execution.engineRunId === runId,
+      renewTask: expectedExpiresAt => renewTaskAuthority({ execution, expectedExpiresAt, runtimeRequest }),
+      renewPlan: async (previous, minimumEvidenceValidityMs) => {
+        assertTaskCompletable(execution);
+        const evidence = agentStorage ? await loadCodexEvidence(agentStorage.evidencePath) : execution.providerConfig.evidence ?? [];
+        const next = resolveCodexProvider({ evidence, minimumEvidenceValidityMs,
+          credentialScopes: agentStorage ? credentialScopesFromEnvironment(process.env, agentStorage.credentialSaltPath) : {},
+          model: execution.providerConfig.model, provider: execution.providerConfig.provider,
+          operation: execution.operation, qualificationContextDigest: engineQualificationContextDigest });
+        assertTaskCompletable(execution);
+        if (activeAgentExecution !== execution) throw new Error("执行任务已变化，不能续期");
+        await host.renewRun({ runId, sessionPlan: next.sessionPlan });
+        assertTaskCompletable(execution);
+        if (activeAgentExecution !== execution) throw new Error("执行任务已变化，不能续期");
+        if (agentProviderConfig === execution.providerConfig) agentProviderConfig = next;
+        execution.providerConfig = next;
+        execution.sessionPlan = next.sessionPlan;
+        return next.sessionPlan;
+      } });
+    let result;
+    try { result = await Promise.race([started.completion, renewal.failure]); }
+    catch (error) {
+      if (error.code === "EXECUTION_AUTHORITY_INVALID") await host.cancelRun(runId, "authorization-renewal-failed").catch(() => undefined);
+      throw error;
+    }
+    await renewal.stop();
     host.closeRun(runId);
     execution.engineRunId = null;
     await host.closeSession(sessionId);
     execution.engineSessionId = null;
     return result;
   } finally {
+    await renewal?.stop();
     if (execution.engineSessionId) await host.closeSession(sessionId).catch(() => undefined);
     execution.engineHost = null;
     execution.engineSessionId = null;
@@ -480,17 +585,20 @@ async function prepareNovelWorkflow(projectId, prompt, task, purpose) {
     }
   }
   const handoff = createTaskBoundHandoff(projectId, workspace, task);
+  const executionBinding = await readWorkExecutionBinding(runtimeRequest, projectId, task);
   codexAdapter.emit({
     method: "agent/workflow",
-    params: { workflow: { task, target, revision: workspace.revision } },
+    params: { workflow: { task, target, revision: workspace.revision, executionBinding } },
   });
   return {
-    workflow: { task, target, revision: workspace.revision },
-    prompt: composeNovelCodexPrompt(taskMethodText(task), prompt, taskBoundInstructions(handoff)),
+    workflow: { task, target, revision: workspace.revision, executionBinding },
+    prompt: composeNovelCodexPrompt(task.operation === "reviewQuality" ? "" : taskMethodText(task), prompt, taskBoundInstructions(handoff)),
   };
 }
 
 async function withWorkFlow(projectId, work) {
+  while (recoveryRefreshPromise) await recoveryRefreshPromise;
+  modelConnectionGate.assertExecutionAllowed();
   if (activeWorkFlow || activeAgentExecution || activeGenerationRunId) throw new Error("已有创作任务正在推进");
   const flow = { projectId, id: null, runId: null, cancelled: false };
   activeWorkFlow = flow;
@@ -530,7 +638,11 @@ async function bindCodexTurn(projectId, task, threadId, result) {
   return persistTaskFinalReply(runtimeRequest, projectId, task, result);
 }
 
-async function runCreativeAgentTask(event, projectId, prompt, taskType, target = null) {
+const failedCreativeAttempts = new WeakMap();
+const unstartedCreativeAttempts = new WeakMap();
+
+async function runCreativeAgentTask(event, projectId, prompt, taskType, target = null, { assertCurrent = () => {} } = {}) {
+  assertCurrent();
   if (activeGenerationRunId && target?.runId !== activeGenerationRunId) throw new Error("自动创作运行正在推进，不能并行创建其他模型任务");
   if (!codexAdapter.enabled) throw new Error("Novel Agent Engine 未配置，当前只能手动编辑，不能生成伪造产物");
   if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
@@ -546,11 +658,15 @@ async function runCreativeAgentTask(event, projectId, prompt, taskType, target =
   let task = null;
   let generationClaim = null;
   let taskCompleted = false;
+  let creationRequest = null;
+  let taskCreationAttempted = false;
+  let recoveredUnsentTask = false;
   try {
     assertTaskCompletable(execution);
     const capability = createTaskCapability();
+    execution.capability = capability;
     adapter.prepareTaskOperation(taskType.operation, capability.secret);
-    const taskPurpose = taskType.operation === "generateChapter" ? "writer" : ["modelKnowledge", "assessSceneOutcome", "assessRevisionOutcome", "extractCommitments", "reviseCommitment"].includes(taskType.operation) ? "critic" : "planner";
+    const taskPurpose = taskType.operation === "generateChapter" ? "writer" : ["modelKnowledge", "assessSceneOutcome", "assessRevisionOutcome", "assessChapterStructure", "extractCommitments", "reviseCommitment", "reviewQuality"].includes(taskType.operation) ? "critic" : "planner";
     const targetKey = target?.chapterId ? `${projectId}:${taskPurpose}:${target.chapterId}` : `${projectId}:${taskPurpose}`;
     activeAgentProjectId = projectId;
     activeAgentPurpose = taskPurpose;
@@ -559,12 +675,10 @@ async function runCreativeAgentTask(event, projectId, prompt, taskType, target =
     assertTaskCompletable(execution);
     const workspace = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/creative-workspace`);
     assertTaskCompletable(execution);
-    const initialBudget = await confirmNewRootBudget({ target, execution, databasePath: agentStorage?.budgetDb,
-      getWindow: () => BrowserWindow.fromWebContents(event.sender),
-      showMessageBox: (owner, options) => dialog.showMessageBox(owner, options), workspace, projectId, prompt });
-    task = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks`, {
-      method: "POST",
-      body: JSON.stringify({
+    assertCurrent();
+    const initialBudget = grantNewRootBudget({ target, execution, databasePath: agentStorage?.budgetDb,
+      getWindow: () => BrowserWindow.fromWebContents(event.sender), workspace });
+    creationRequest = {
         target,
         initialBudget,
         inputRevision: workspace.revision,
@@ -574,11 +688,17 @@ async function runCreativeAgentTask(event, projectId, prompt, taskType, target =
         authorIntent: prompt,
         capabilityHash: capability.hash,
         capabilityExpiresAt: capability.expiresAt,
-      }),
+    };
+    taskCreationAttempted = true;
+    task = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks`, {
+      method: "POST", body: JSON.stringify(creationRequest),
     });
     task = bindExecutionTask(execution, task);
     activeRuntimeTask = task;
     prompt = taskExecutionPrompt(task);
+    if (task.operation === "assessChapterStructure") forwardAgentEvent({ method: "agent/structure-started", params: {
+      projectId, taskId: task.id, threadId: task.threadId, operation: task.operation,
+    } });
     await bindWorkFlowAttempt(projectId, task.id);
     if (target?.runId) {
       generationClaim = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/generation-runs/${encodeURIComponent(target.runId)}`);
@@ -588,7 +708,7 @@ async function runCreativeAgentTask(event, projectId, prompt, taskType, target =
     }
     await bindTaskProviderBudget(execution, { runtimeRequest, projectId, taskId: task.id,
       generationRun: generationClaim, databasePath: agentStorage?.budgetDb });
-    if (initialBudget && !execution.taskBudget) throw new Error("已确认任务缺少持久额度，不能执行");
+    if (initialBudget && !execution.taskBudget) throw new Error("任务缺少持久额度，不能执行");
     if (execution.cancellationRequested) {
       await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/cancel`, { method: "POST", body: "{}" });
       throw Object.assign(new Error("生成已停止"), { code: "TASK_CANCELLED" });
@@ -596,6 +716,7 @@ async function runCreativeAgentTask(event, projectId, prompt, taskType, target =
     const prepared = await prepareNovelWorkflow(projectId, prompt, task, task.purpose);
     await beginRecoveryRun(task, projectId, threadId);
     assertTaskCompletable(execution);
+    assertCurrent();
     const result = await sendAgentTurn(execution, prepared.prompt, { disableEnvironment: true, threadName: prompt });
     assertTaskCompletable(execution);
     const finalReplyReceipt = await bindCodexTurn(projectId, task, threadId, result);
@@ -616,17 +737,25 @@ async function runCreativeAgentTask(event, projectId, prompt, taskType, target =
     if (activeRuntimeTask?.id === task.id) activeRuntimeTask = null;
     return { ...result, finalReplyReceipt, projectId, workflow: prepared.workflow, completion, generationRun };
   } catch (error) {
-    if (!taskCompleted && shouldMarkTaskFailed(task)) {
+    if (!task && creationRequest?.operation === "assessChapterStructure") {
+      try {
+        task = bindExecutionTask(execution, await bindUnsentStructureTask(execution, {
+          runtimeRequest, projectId, request: creationRequest, databasePath: agentStorage?.budgetDb,
+        }));
+        recoveredUnsentTask = true;
+      } catch { /* Unknown or foreign binding must not manufacture a zero-usage receipt. */ }
+    }
+    if (!taskCompleted && (recoveredUnsentTask || shouldMarkTaskFailed(task))) {
       try {
         await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}`, {
           method: "PATCH",
-          body: JSON.stringify({ threadId: task.threadId, status: "failed", error: error.message }),
+          body: JSON.stringify({ threadId: task.threadId, status: recoveredUnsentTask && execution.cancellationRequested ? "cancelled" : "failed", error: error.message }),
         });
       } catch { /* Preserve the original Agent failure and any saved checkpoints. */ }
     }
     if (execution.budgetUsagePath && task && agentStorage?.budgetDb) {
       if (execution.taskBudget && !execution.taskBudgetBound) {
-        try { execution.taskBudget.complete("failed"); } catch { /* A terminal receipt or recovery must decide the outcome. */ }
+        try { execution.taskBudget.complete(recoveredUnsentTask && execution.cancellationRequested ? "cancelled" : "failed"); } catch { /* A terminal receipt or recovery must decide the outcome. */ }
       }
       try {
         await runtimeRequest(execution.budgetUsagePath, {
@@ -638,26 +767,50 @@ async function runCreativeAgentTask(event, projectId, prompt, taskType, target =
     }
     if (activeRuntimeTask?.id === task?.id) activeRuntimeTask = null;
     if (execution.cancellationRequested) throw Object.assign(new Error("生成已停止"), { code: "TASK_CANCELLED" });
+    if (!taskCreationAttempted && error && typeof error === "object" && target?.resumeStepId) {
+      unstartedCreativeAttempts.set(error, { projectId, workTaskId: activeWorkFlow?.id, stepId: target.resumeStepId });
+    }
+    if (task && !taskCompleted && error && typeof error === "object") {
+      failedCreativeAttempts.set(error, { id: task.id, projectId: task.projectId,
+        threadId: task.threadId, operation: task.operation });
+    }
     throw error;
   } finally {
+    if (recoveredUnsentTask && execution.taskBudget && !execution.taskBudgetBound) {
+      try { execution.taskBudget.close(); } catch { /* Preserve the original creation failure. */ }
+    }
     await recoveryJournal?.abandonRun().catch(() => undefined);
     await adapter.finishTaskOperation();
     await finishAgentExecution(execution);
   }
 }
 
-async function modelChapterKnowledge(event, projectId, chapterId, generationTarget = null, expectedSourceRevisionId = null, sourceTaskId = null) {
+function candidateActionDependencies() {
+  return { runtimeRequest, currentWorkFlowState, currentWorkTaskId: () => activeWorkFlow?.id ?? null, runCandidateWorkflow: runCreativeAgentTask, runCreativeAgentTask,
+    continueCreativeWork, continueFailedCreativeWork,
+    runConversationReviews: (event, projectId, discussion) => executeConversationPlanningReviews(event, projectId, discussion, { runtimeRequest, currentWorkFlowState, runPlanningReview,
+      notifyReviewStart: params => forwardAgentEvent({ method: "agent/planning-review-started", params }) }),
+    notifyCandidateStart: params => forwardAgentEvent({ method: "agent/candidate-started", params }),
+    assertAvailable: operation => {
+      if (!codexAdapter.enabled) throw new Error("创作引擎未配置，候选建议仍待确认；配置模型后可重试");
+      assertProviderOperation(agentProviderConfig, operation);
+    } };
+}
+
+async function runQueuedPlanningReview(event, projectId, work, runId) {
+  const continuation = await readPlanningReviewContinuation(runtimeRequest, projectId, work, runId);
+  if (continuation?.roles.length) await runPlanningReview(event, projectId, continuation.run, continuation);
+  else if (continuation) await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/planning-reviews/${encodeURIComponent(runId)}/finalize`,
+    { method: "POST", body: "{}" });
+}
+
+async function modelChapterKnowledge(event, projectId, chapterId, expectedSourceRevisionId) {
   const workspace = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/creative-workspace`);
   const source = workspace.modeling?.find((item) => item.objectId === `draft-${chapterId}`);
   if (expectedSourceRevisionId && source?.sourceRevisionId !== expectedSourceRevisionId) {
     throw new Error("章节工作稿已变化，知识建模需基于新的版本重新执行");
   }
   if (!source || source.status === "ready") {
-    if (source?.status === "ready" && generationTarget?.runId) {
-      await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/generation-runs/${encodeURIComponent(generationTarget.runId)}/skip-ready-extract`, {
-        method: "POST", body: JSON.stringify({ expectedVersion: generationTarget.runVersion }),
-      });
-    }
     return { status: source?.status ?? "not_applicable" };
   }
   const batch = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/modeling-batches`, {
@@ -672,51 +825,87 @@ async function modelChapterKnowledge(event, projectId, chapterId, generationTarg
   const prompt = "从本次章节工作稿提取可定位到原文的候选故事知识；只处理绑定的源修订，无法确认的内容不输出。";
   await runCreativeAgentTask(event, projectId, prompt, { operation: "modelKnowledge" }, {
     batchId: batch.id,
-    ...(sourceTaskId ? { sourceTaskId } : {}),
-    ...(generationTarget ? {
-      runId: generationTarget.runId,
-      stepToken: generationTarget.stepToken,
-      runVersion: generationTarget.runVersion,
-      intentGeneration: generationTarget.intentGeneration,
-      chapterId,
-    } : {}),
+
   });
   return { status: "ready", batchId: batch.id };
 }
 
-async function runCandidateWorkflow(event, projectId, prompt, taskType, target = null) {
-  const result = await runCreativeAgentTask(event, projectId, prompt, taskType, target);
+async function continueCreativeWork(event, projectId, initial) {
+  const results = [...(initial.candidateResults ?? [])];
+  let latest = initial;
+  const work = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(initial.workflow.task.id)}/work-task`);
   try {
-    if (await currentWorkFlowState() === "paused") return { ...result, followup: { status: "paused" } };
-    const { action } = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(result.workflow.task.id)}/next-step`);
-    if (!action) return result;
-    if (action.kind !== "modelKnowledge") throw new Error(`未知任务后续步骤：${action.kind}`);
-    const modeling = await modelChapterKnowledge(event, projectId, action.chapterId, null, action.sourceRevisionId, action.sourceTaskId);
-    if (modeling.status !== "ready") throw new Error("章节知识建模尚未就绪");
-    const outcome = await assessQueuedRevision({ event, projectId, writerTask: result.workflow.task,
-      runtimeRequest, currentWorkFlowState, runCreativeAgentTask });
-    return { ...result, modeling, outcome,
-      ...(outcome && ["pending", "paused"].includes(outcome.status) ? { followup: outcome } : {}) };
+    const finalWork = await advanceWorkSteps(event, projectId, work.id, {
+      runtimeRequest, currentWorkFlowState, runCreativeAgentTask, runAdvisoryAgentTask, runQueuedPlanningReview,
+      onResult(result, step) {
+        if (step.operation === "advisory") latest = result;
+        else results.push({ taskId: result.workflow.task.id, action: { operation: step.operation, target: step.target } });
+      },
+    });
+    if (finalWork.status !== "completed") throw new Error("本轮处理已暂停，请从原任务继续。");
+    return { ...latest, candidateResults: results, workTask: finalWork };
   } catch (error) {
-    if (error?.code === "TASK_CANCELLED") throw error;
-    console.warn(`[novel-codex] candidate follow-up remains pending: ${error.message}`);
-    const followup = { status: "pending", error: error.message };
-    return { ...result, followup, ...(taskType.operation === "generateChapter" ? { modeling: { status: "model_pending", error: error.message } } : {}) };
+    const cancelled = error?.code === "TASK_CANCELLED";
+    return { ...latest, candidateResults: results,
+      executionFailure: { message: Array.from(String(error?.message || "后续处理未完成")).slice(0, 400).join(""),
+        code: cancelled ? "TASK_CANCELLED" : "CONVERSATION_INCOMPLETE",
+        sourceTaskId: latest.workflow.task.id, workTaskId: work.id, stepId: null },
+      message: `${results.length ? "已有保存结果保留。" : ""}${cancelled ? "本轮已停止。" : "本轮尚未完成，请从原任务继续或核对执行结果。"}` };
   }
 }
 
-async function resumeWorkTask(event, projectId, workTaskId, { origin = "author" } = {}) {
+async function runCandidateWorkflow(event, projectId, prompt, taskType, target = null) {
+  let result;
+  try {
+    result = await runCreativeAgentTask(event, projectId, prompt, taskType, target);
+  } catch (error) {
+    const recovered = await continueFailedCreativeWork(event, projectId, error);
+    delete recovered.originalFailedTaskId;
+    return recovered;
+  }
+  return continueCreativeWork(event, projectId, result);
+}
+
+async function continueFailedCreativeWork(event, projectId, error) {
+  const issued = error?.code === "TASK_CANCELLED" ? null : failedCreativeAttempts.get(error);
+  if (!issued || issued.projectId !== projectId) throw error;
+  const base = `/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(issued.id)}`;
+  let task, work;
+  try {
+    task = await runtimeRequest(base);
+    work = await runtimeRequest(`${base}/work-task`);
+  } catch { throw error; }
+  if (task.id !== issued.id || task.projectId !== projectId || task.threadId !== issued.threadId
+    || task.operation !== issued.operation || task.status !== "failed"
+    || work.projectId !== projectId || work.id !== activeWorkFlow?.id
+    || !["running", "blocked"].includes(work.status)
+    || !work.steps.some(step => step.currentAttemptId === task.id && step.operation === task.operation
+      && step.status === "blocked")) throw error;
+  const delivered = await continueCreativeWork(event, projectId, { projectId, workflow: { task },
+    candidateResults: [], message: String(error.message || "本轮尚未完成") });
+  return { ...delivered, originalFailedTaskId: task.id };
+}
+
+async function resumeWorkTask(event, projectId, workTaskId, { origin = "author", requestedMode = "continueExecution" } = {}) {
   if (typeof projectId !== "string" || !projectId.trim() || typeof workTaskId !== "string" || !/^work-[a-zA-Z0-9-]+$/.test(workTaskId)) throw new Error("创作任务标识无效");
   return withWorkFlow(projectId, async (flow) => {
     flow.id = workTaskId;
     const path = `/api/projects/${encodeURIComponent(projectId)}/work-tasks/${encodeURIComponent(workTaskId)}`;
     let work = await runtimeRequest(path);
+    const resumeOwner = { id: work.id, projectId: work.projectId, threadId: work.threadId, kind: work.kind };
+    try {
+    if (requestedMode === "recoverSavedResult" && (work.kind === "generation"
+      || !["paused", "blocked"].includes(work.status) || work.resumeMode !== "recoverSavedResult")) {
+      throw new Error("已保存结果的恢复条件已变化，请重新读取任务；不会改为调用模型。");
+    }
     if (origin === "automatic" && work.status !== "running") return work;
     if (work.kind === "generation") {
+      if (!codexAdapter.enabled) throw new Error("需要可用模型才能继续执行；请先完成模型配置与验证。");
       const runId = workTaskId.slice("work-".length);
       if (work.status === "blocked") {
-        await retryGenerationRun(event, projectId, runId);
-        return runtimeRequest(path);
+        const result = await retryGenerationRun(event, projectId, runId);
+        const refreshed = await runtimeRequest(path);
+        return result.resumeFailure ? { ...refreshed, resumeFailure: result.resumeFailure } : refreshed;
       }
       if (work.status === "paused") {
         const run = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/generation-runs/${encodeURIComponent(runId)}`);
@@ -724,12 +913,33 @@ async function resumeWorkTask(event, projectId, workTaskId, { origin = "author" 
           method: "POST", body: JSON.stringify({ expectedVersion: run.version, command: "resume" }),
         });
       }
-      await continueGenerationRun(event, projectId, runId);
-      return runtimeRequest(path);
+      const result = await continueGenerationRun(event, projectId, runId);
+      const refreshed = await runtimeRequest(path);
+      return result.resumeFailure ? { ...refreshed, resumeFailure: result.resumeFailure } : refreshed;
     }
     work = await reconcileWorkProviderUsage(runtimeRequest, projectId, work);
-    const isPlanningReview = work.steps.some(step => step.operation === "reviewPlanningSeat");
-    if (work.status === "cancelled" || (work.status === "completed" && !isPlanningReview)) return work;
+    if (requestedMode === "recoverSavedResult" && work.resumeMode !== "recoverSavedResult") {
+      throw new Error("已保存结果的恢复条件已变化，请重新读取任务；不会改为调用模型。");
+    }
+    if (work.kind === "conversation" && work.status !== "cancelled") {
+      const reviewIds = [...new Set(work.steps.filter(step => step.operation === "reviewPlanningSeat").map(step => step.target.reviewRunId))];
+      for (const runId of reviewIds) {
+        if (work.steps.filter(step => step.target.reviewRunId === runId).every(step => step.status === "completed")) {
+          if (work.status === "paused") work = await runtimeRequest(`${path}/control`, {
+            method: "POST", body: JSON.stringify({ expectedVersion: work.version, command: "resume" }),
+          });
+          await runQueuedPlanningReview(event, projectId, work, runId);
+        }
+      }
+      if (reviewIds.length) work = await runtimeRequest(path);
+    }
+    const isPlanningReview = work.kind === "direct" && work.steps.some(step => step.operation === "reviewPlanningSeat");
+    if (work.status === "cancelled") return work;
+    if (["paused", "blocked"].includes(work.status) && work.resumeMode === "recoverSavedResult") {
+      return runtimeRequest(`${path}/control`, {
+        method: "POST", body: JSON.stringify({ expectedVersion: work.version, command: "recoverSavedResult" }),
+      });
+    }
     if (isPlanningReview && work.steps.every(step => step.status === "completed")) {
       if (work.status === "paused") work = await runtimeRequest(`${path}/control`, {
         method: "POST", body: JSON.stringify({ expectedVersion: work.version, command: "resume" }),
@@ -739,10 +949,10 @@ async function resumeWorkTask(event, projectId, workTaskId, { origin = "author" 
         { method: "POST", body: "{}" });
       return runtimeRequest(path);
     }
+    if (!codexAdapter.enabled) throw new Error("需要可用模型才能继续执行；请先完成模型配置与验证。");
     if (work.status !== "completed") work = await ensureWorkBudgetAuthorization({ runtimeRequest, projectId, work, origin,
-      databasePath: agentStorage?.budgetDb, model: agentProviderConfig?.model,
-      getWindow: () => BrowserWindow.fromWebContents(event.sender),
-      showMessageBox: (owner, options) => dialog.showMessageBox(owner, options) });
+      databasePath: agentStorage?.budgetDb,
+      getWindow: () => BrowserWindow.fromWebContents(event.sender) });
     if (["paused", "blocked"].includes(work.status)) work = await runtimeRequest(`${path}/control`, {
       method: "POST", body: JSON.stringify({ expectedVersion: work.version, command: "resume" }),
     });
@@ -753,14 +963,19 @@ async function resumeWorkTask(event, projectId, workTaskId, { origin = "author" 
         { method: "POST", body: "{}" });
       return runtimeRequest(path);
     }
-    return advanceWorkSteps(event, projectId, workTaskId, {
+    return await advanceWorkSteps(event, projectId, workTaskId, {
       runtimeRequest, currentWorkFlowState, runCreativeAgentTask, runAdvisoryAgentTask,
-      runCandidateWorkflow, modelChapterKnowledge,
+      runQueuedPlanningReview,
     });
+    } catch (error) {
+      return recoverUnstartedWorkResume({ runtimeRequest, projectId, workTaskId, owner: resumeOwner,
+        provenance: unstartedCreativeAttempts.get(error), error });
+    }
   });
 }
 
 async function continueGenerationRun(event, projectId, runId) {
+  while (recoveryRefreshPromise) await recoveryRefreshPromise;
   if (activeGenerationRunId) throw new Error("已有自动创作运行正在推进");
   activeGenerationRunId = runId;
   if (activeWorkFlow) {
@@ -768,8 +983,10 @@ async function continueGenerationRun(event, projectId, runId) {
     activeWorkFlow.id = `work-${runId}`;
   }
   const runBase = `/api/projects/${encodeURIComponent(projectId)}/generation-runs/${encodeURIComponent(runId)}`;
+  let dispatchedWork = null;
   try {
-    for (let step = 0; step < 40; step += 1) {
+    const dispatched = new Set();
+    while (true) {
       if (await currentWorkFlowState() === "paused") return (await runtimeRequest(runBase));
       const { run, action } = await runtimeRequest(`${runBase}/next`, { method: "POST", body: "{}" });
       if (run.status !== "running" || !action) return run;
@@ -781,39 +998,43 @@ async function continueGenerationRun(event, projectId, runId) {
         });
         continue;
       }
-      if (action.kind === "materializeChapter") {
-        await runtimeRequest(`${runBase}/materialize`, {
-          method: "POST", body: JSON.stringify({ expectedVersion: run.version }),
-        });
-        continue;
-      }
-      if (action.kind === "checkKnowledge") {
-        await runtimeRequest(`${runBase}/check`, {
-          method: "POST", body: JSON.stringify({ expectedVersion: run.version }),
-        });
-        continue;
-      }
       if (action.kind !== "agentTask") throw new Error(`未知创作运行步骤：${action.kind}`);
-      if (action.operation === "modelKnowledge") {
-        const modeled = await modelChapterKnowledge(event, projectId, action.target.chapterId, action.target);
-        if (modeled.status !== "ready") throw new Error("章节知识建模未就绪，自动创作已停止");
-        continue;
+      const target = action.target;
+      if (!target?.resumeStepId || target.runId !== runId || dispatched.has(target.resumeStepId)) {
+        throw new Error("自动创作未返回新的已授权执行步骤，已停止重复调用。");
       }
-      const instructions = {
-        generateBrief: "建立作品创作简报候选",
-        generateOutline: "根据创作简报生成全书层级大纲候选",
-        generatePlan: `根据本轮作者意图、已完成章节的实际正文、知识检查和场景结果评估，规划第 ${action.target.planFromChapter} 章起的近三章候选。Context Pack 中如有现行 Plan，先核对它与本轮意图和已发生事实是否一致：一致的章节、场景和节拍保留内容及稳定 id，仅改动冲突部分；若方向冲突则重规划，不能因为旧 Plan 结构完整就直接沿用。已有大纲可参考，但不可要求作者先补 Brief 或大纲。每章提供非空 chapterPlanId；每个规划场景与节拍使用稳定的 id；每个场景还需列出非空 expectedEffects，每项包含稳定 id、dimension(world/knowledge/relationship/narrative) 和具体 description、commitmentRefs 数组。未关联承诺时为空；独立引用 {type:commitment,commitmentId,revisionId}，提案引用 {type:proposal,reportRevisionId,proposalId,sourceRevisionId}，从 Context Pack 原样复制，不凭摘要推测 ID。每效果最多4项，全计划最多64项。预期效果是目标，不是已发生事实；未评估的链接不得当作效果已落实`,
-        generateChapter: `生成第 ${action.target.chapterNumber} 章完整工作稿。正文 sceneGroups 应使用对应规划场景的 sceneId，便于后续逐场景核对；不得伪造规划来源`,
-        extractCommitments: `处理第 ${action.target.chapterNumber} 章完整正文并提取开放叙事承诺提案。先读取 critic 上下文，冻结源正文修订为 ${action.target.sourceRevisionId}；调用 submit_commitment_extraction，payload 包含 chapterId、sourceRevisionId、examinedRanges 和 candidates。examinedRanges 使用 Unicode 字符位置，连续覆盖整章正文，无发现可提交空 candidates，但不得以空处理范围跳过正文。候选只能是 open 状态、open 目标窗口并带本章原文 setupEvidenceRefs，不创建正式承诺，不自动确认或关闭伏笔`,
-        assessSceneOutcome: `对第 ${action.target.chapterNumber} 章逐场景、逐 expectedEffect 评估规划与正文实际结果。先读取 critic 上下文中的 scenePlanDraftLinks、boundCommitmentInputs、正文及来源事件证据，再调用 submit_scene_assessment。payload 包含 chapterId、planRevisionId、draftRevisionId、knowledgeBatchId、inputSnapshotId、intentGeneration 和 assessments；来源字段照抄冻结任务目标。每个 sceneId 的评估包含 verdict、rationale、recommendation 和 effectAssessments；effectAssessments 必须覆盖该场景全部预期效果，每项含 effectId、verdict(realized/deviated/insufficientEvidence)、rationale、actualEventRefs: [{modelingBatchId, assertionIndex}]。每个效果还必须显式包含 commitmentAssessments 数组，一一覆盖原规划 commitmentRefs，未绑定时为 []。承诺判断含 reference、referenceState（照抄冻结输入）、outcome(advanced/partiallyFulfilled/fulfilled/contradicted/unchanged/insufficientEvidence)、rationale、actualEventRefs。依据原 fulfillmentCriteria 判断；推进、部分兑现、兑现或矛盾必须有属于该效果的非空事件证据。引用状态不是 current 时只能 insufficientEvidence。realized 至少引用一条该场景内的事件；场景 verdict 是逐项结果的汇总：效果存在 deviated 或承诺存在 contradicted 则 deviated，否则存在 insufficientEvidence 则 insufficientEvidence，否则 realized。不能把“有事件”推断成“效果已实现”。评估只保存候选分析，不得改写 Canon 或正式承诺状态`,
-      };
-      const instruction = instructions[action.operation];
-      if (!instruction) throw new Error(`未知创作任务：${action.operation}`);
-      await runCreativeAgentTask(event, projectId, `${instruction}。\n\n作者意图：${action.authorIntent}`, {
-        operation: action.operation,
-      }, action.target);
+      dispatched.add(target.resumeStepId);
+      const instruction = action.instruction || action.authorIntent || run.authorIntent;
+      if (typeof instruction !== "string" || !instruction.trim()) throw new Error("创作步骤缺少原目标");
+      dispatchedWork = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/work-tasks/work-${encodeURIComponent(runId)}`);
+      try {
+        if (action.operation === "advisory") {
+          const work = dispatchedWork;
+          const step = work.steps.find(item => item.id === target.resumeStepId && item.operation === "advisory" && item.status === "queued");
+          if (!step) throw new Error("自动创作决策步骤不存在");
+          await runAdvisoryAgentTask(event, projectId, instruction, step, null, null, work.threadId || null);
+        } else {
+          await runCreativeAgentTask(event, projectId, instruction, { operation: action.operation }, target);
+        }
+      } catch (error) {
+        if (error?.code === "TASK_CANCELLED") throw error;
+        const provenance = unstartedCreativeAttempts.get(error);
+        if (provenance) {
+          const paused = await recoverUnstartedWorkResume({ runtimeRequest, projectId, workTaskId: `work-${runId}`,
+            owner: dispatchedWork, provenance, error });
+          const stopped = await runtimeRequest(runBase);
+          if (stopped.id !== runId || stopped.projectId !== projectId || stopped.status !== "paused") throw error;
+          return { ...stopped, resumeFailure: paused.resumeFailure,
+            pausedWork: { id: paused.id, projectId: paused.projectId, threadId: paused.threadId, status: paused.status, version: paused.version } };
+        }
+        // Runtime alone decides whether a settled, known-zero failure can be
+        // corrected. Do not replay the failed step or mint another permit.
+        const recovery = await runtimeRequest(`${runBase}/next`, { method: "POST", body: "{}" }).catch(() => null);
+        if (recovery?.run?.status !== "running" || recovery.action?.kind !== "agentTask"
+          || recovery.action.operation !== "advisory" || recovery.action.target?.runId !== runId
+          || !recovery.action.target.resumeStepId || dispatched.has(recovery.action.target.resumeStepId)) throw error;
+      }
     }
-    throw new Error("自动创作达到单次推进步数上限；已保存的运行可继续恢复");
   } catch (error) {
     await runtimeRequest(`${runBase}/next`, { method: "POST", body: "{}" }).catch(() => undefined);
     throw error;
@@ -865,7 +1086,7 @@ async function listGenerationRunsWithUsage(projectId) {
   return { runs: reconciled };
 }
 
-async function startGenerationRun(event, projectId, authorIntent, targetChapters, expectedProjectRevision, expectedBaseSnapshotId, expectedSourceDigest, revisionPredecessor) {
+async function startGenerationRun(event, projectId, authorIntent, targetChapters, expectedProjectRevision, expectedBaseSnapshotId, expectedSourceDigest, revisionPredecessor, generationProposalId = null) {
   if (!codexAdapter.enabled) throw new Error("Novel Agent Engine 未配置，无法启动自动创作");
   if (typeof projectId !== "string" || !projectId.trim() || /[\r\n]/.test(projectId)) throw new Error("作品 ID 无效");
   validateAuthorIntent(authorIntent);
@@ -881,14 +1102,7 @@ async function startGenerationRun(event, projectId, authorIntent, targetChapters
     || workspace.sourceDigest !== expectedSourceDigest) {
     throw new Error("作品已在确认期间变化，请重新核对创作目标与范围");
   }
-  const position = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/generation-start-position`);
-  const firstOperation = {
-    brief: "generateBrief",
-    outline: "generateOutline",
-    rollingPlan: "generatePlan",
-  }[position.firstStage];
-  if (!firstOperation) throw new Error("创作运行起点无效，请检查作品状态");
-  assertProviderOperation(agentProviderConfig, firstOperation);
+  assertProviderOperation(agentProviderConfig, "advisory");
   const run = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/generation-runs`, {
     method: "POST", body: JSON.stringify({
       expectedProjectRevision,
@@ -896,11 +1110,12 @@ async function startGenerationRun(event, projectId, authorIntent, targetChapters
       expectedSourceDigest,
       authorIntent,
       revisionPredecessor,
+      generationProposalId,
       targetChapters,
       maxTaskAttempts: permit.maxTaskAttempts,
-      maxProviderRequests: permit.maxProviderRequests,
-      maxProviderTokens: permit.maxProviderTokens,
-      deadlineAt: Math.floor(Date.now() / 1000) + permit.maxDurationMinutes * 60,
+      maxProviderRequests: null,
+      maxProviderTokens: null,
+      deadlineAt: null,
     }),
   });
   if (activeWorkFlow?.cancelled) {
@@ -951,7 +1166,7 @@ async function runPlanningReview(event, projectId, request, continuation = null)
   if (typeof request.revisionId !== "string" || !request.revisionId.trim()) throw new Error("规划评审缺少明确版本");
   validateAuthorIntent(request.authorIntent);
   const roles = request.roles;
-  if (!Array.isArray(roles) || ![2, 3].includes(roles.length) || new Set(roles).size !== roles.length || roles.some((role) => !["structure", "character", "experience"].includes(role))) throw new Error("规划评审角色无效");
+  if (!Array.isArray(roles) || ![1, 2, 3].includes(roles.length) || new Set(roles).size !== roles.length || roles.some((role) => !["structure", "character", "experience"].includes(role))) throw new Error("规划评审角色无效");
   assertProviderOperation(agentProviderConfig, "reviewPlanningSeat");
   attachAgentWebContents(event.sender);
   codexAdapter.setCallbacks({
@@ -970,12 +1185,13 @@ async function runPlanningReview(event, projectId, request, continuation = null)
       body: JSON.stringify(request),
     });
     execution.runId = run.id;
-    const reviewWork = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/work-tasks/work-${encodeURIComponent(run.id)}`);
+    if (run.projectId !== projectId || typeof run.workTaskId !== "string" || !/^[a-zA-Z0-9-]{1,160}$/.test(run.workTaskId)) throw new Error("规划检查工作任务归属无效");
+    const reviewWork = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/work-tasks/${encodeURIComponent(run.workTaskId)}`);
+    if (reviewWork.id !== run.workTaskId || reviewWork.projectId !== projectId || (run.sourceTaskId === null ? reviewWork.kind !== "direct" : reviewWork.kind !== "conversation")) throw new Error("规划检查工作任务归属无效");
     if (activeWorkFlow) activeWorkFlow.id = reviewWork.id;
-    if (reviewWork.status !== "completed") await ensureWorkBudgetAuthorization({ runtimeRequest, projectId, work: reviewWork, origin: "author",
-      databasePath: agentStorage?.budgetDb, model: execution.providerConfig?.model,
-      getWindow: () => BrowserWindow.fromWebContents(event.sender),
-      showMessageBox: (owner, options) => dialog.showMessageBox(owner, options) });
+    if (reviewWork.status !== "completed") await ensureWorkBudgetAuthorization({ runtimeRequest, projectId, work: reviewWork, origin: run.sourceTaskId === null ? "author" : "automatic",
+      databasePath: agentStorage?.budgetDb,
+      getWindow: () => BrowserWindow.fromWebContents(event.sender) });
     assertTaskCompletable(execution);
     for (const role of continuation?.roles ?? run.roles) {
       if (execution.cancellationRequested) break;
@@ -987,6 +1203,7 @@ async function runPlanningReview(event, projectId, request, continuation = null)
         await assertCurrentAgentPlan("reviewPlanningSeat");
         assertTaskCompletable(execution);
         const capability = createTaskCapability();
+        execution.capability = capability;
         adapter.prepareTaskOperation("reviewPlanningSeat", capability.secret);
         const threadId = await adapter.ensureSession();
         assertTaskCompletable(execution);
@@ -1054,9 +1271,14 @@ async function runPlanningReview(event, projectId, request, continuation = null)
   }
 }
 
-async function runAdvisoryAgentTask(event, projectId, prompt, resumeStep = null, revisionRepairSource = null) {
-  const target = advisoryTaskTarget({ resumeStep, revisionRepairSource });
-  if (activeGenerationRunId) throw new Error("自动创作运行正在推进，请稍后讨论");
+async function runAdvisoryAgentTask(event, projectId, prompt, resumeStep = null, revisionRepairSource = null, conversationFocus = null, continuationThreadId = null, selectedThreadId = null) {
+  let target = advisoryTaskTarget({ resumeStep, revisionRepairSource });
+  if (selectedThreadId !== null) await readConversation(runtimeRequest, projectId, selectedThreadId, true);
+  if (continuationThreadId !== null && (!target.workDecision
+    || typeof continuationThreadId !== "string" || !continuationThreadId || continuationThreadId.length > 160)) {
+    throw new Error("创作协调缺少原对话绑定");
+  }
+  if (activeGenerationRunId && target.runId !== activeGenerationRunId) throw new Error("自动创作运行正在推进，请稍后讨论");
   if (!codexAdapter.enabled) throw new Error("Novel Agent Engine 未配置，当前只能手动编辑");
   if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
   assertProviderOperation(agentProviderConfig, "advisory");
@@ -1070,13 +1292,22 @@ async function runAdvisoryAgentTask(event, projectId, prompt, resumeStep = null,
   const adapter = execution.adapter;
   let task = null;
   let taskCompleted = false;
+  let taskCreationAttempted = false;
   try {
     await preflightRevisionRepair({ runtimeRequest, projectId, source: target.revisionRepairSource ?? null });
     assertTaskCompletable(execution);
     const capability = createTaskCapability();
-    const advisoryThreadId = advisorySessions.preferredThread(projectId);
+    execution.capability = capability;
+    const selectedFocus = conversationFocus ?? target.conversationFocus ?? null;
+    // Validate before opening any thread; a missing report never falls back to another session.
+    const continuationFocus = validateConversationFocus(selectedFocus);
+    const reportThreadId = await structureDiscussionThread({ projectId, focus: continuationFocus,
+      repairSource: target.revisionRepairSource, runtimeRequest });
+    assertTaskCompletable(execution);
+    const advisoryThreadId = continuationThreadId ?? selectedThreadId ?? reportThreadId;
     adapter.prepareAdvisorySession(capability.secret);
-    if (adapter.threadId && !advisorySessions.canReuseCurrent(projectId, adapter.threadId, activeAgentProjectId, activeAgentPurpose)) {
+    if (adapter.threadId && (!advisoryThreadId || adapter.threadId !== advisoryThreadId
+      || activeAgentProjectId !== projectId || activeAgentPurpose !== "advisory")) {
       adapter.detachThread();
     }
     if (!adapter.threadId && advisoryThreadId) await adapter.resumeThread(advisoryThreadId);
@@ -1085,35 +1316,59 @@ async function runAdvisoryAgentTask(event, projectId, prompt, resumeStep = null,
     activeAgentTargetKey = `${projectId}:advisory`;
     const threadId = await adapter.ensureSession();
     assertTaskCompletable(execution);
-    advisorySessions.remember(projectId, threadId);
+    if (!continuationThreadId && !reportThreadId) {
+      if (selectedThreadId !== null && threadId !== selectedThreadId) throw new Error("引擎未使用所选对话，已阻止发送");
+      if (selectedThreadId === null) await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/conversations`, {
+        method: "POST", body: JSON.stringify({ threadId, title: Array.from(prompt).slice(0, 40).join("").replace(/[\p{Cc}]/gu, " ").trim() || "新对话", forkedFromId: null, lastTurnId: null }),
+      });
+      else {
+        const record = await readConversation(runtimeRequest, projectId, threadId, true);
+        await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(threadId)}`, {
+          method: "PATCH", body: JSON.stringify({ expectedVersion: record.version,
+            title: record.version === 0 && record.title === "新对话" ? Array.from(prompt).slice(0, 40).join("").replace(/[\p{Cc}]/gu, " ").trim() || "新对话" : record.title }),
+        });
+      }
+    }
     const workspace = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/creative-workspace`);
     assertTaskCompletable(execution);
-    const initialBudget = await confirmNewRootBudget({ target,
+    const focus = bindConversationFocus(workspace, conversationFocus ?? target.conversationFocus ?? null);
+    if (focus?.reference || focus?.chapterStructureTaskId || focus?.excerpts) conversationFocusInstructions(focus);
+    await verifyDiscussionReference({ projectId, workspace, reference: focus?.reference, runtimeRequest });
+    assertTaskCompletable(execution);
+    if (focus) target = Object.freeze({ ...target, conversationFocus: focus });
+    const initialBudget = grantNewRootBudget({ target,
       execution, databasePath: agentStorage?.budgetDb,
-      getWindow: () => BrowserWindow.fromWebContents(event.sender),
-      showMessageBox: (owner, options) => dialog.showMessageBox(owner, options), workspace, projectId, prompt });
+      getWindow: () => BrowserWindow.fromWebContents(event.sender), workspace });
+    taskCreationAttempted = true;
     task = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks`, {
       method: "POST",
       body: JSON.stringify({ target, initialBudget, inputRevision: workspace.revision, threadId, model: execution.providerConfig?.model ?? null, operation: "advisory", authorIntent: prompt, capabilityHash: capability.hash, capabilityExpiresAt: capability.expiresAt }),
     });
+    if ((focus?.reference || focus?.chapterStructureTaskId || focus?.excerpts) && (task.projectId !== projectId || task.operation !== "advisory"
+      || !isDeepStrictEqual(bindConversationFocus(workspace, task.target?.conversationFocus ?? null), focus))) {
+      throw new Error("Runtime 未保留精确的讨论来源引用");
+    }
     assertRevisionRepairTaskTarget(task, projectId, target);
     task = bindExecutionTask(execution, task);
     activeRuntimeTask = task;
     prompt = taskExecutionPrompt(task);
     await bindWorkFlowAttempt(projectId, task.id);
+    const generationClaim = target.runId ? await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/generation-runs/${encodeURIComponent(target.runId)}`) : null;
+    if (generationClaim && (generationClaim.activeTaskId !== task.id || generationClaim.version !== target.runVersion + 1)) {
+      throw new Error("生成决策没有绑定到本次任务");
+    }
     await bindTaskProviderBudget(execution, { runtimeRequest, projectId, taskId: task.id,
-      databasePath: agentStorage?.budgetDb });
-    if (initialBudget && !execution.taskBudget) throw new Error("已确认任务缺少持久额度，不能执行");
+      generationRun: generationClaim, databasePath: agentStorage?.budgetDb });
+    if (initialBudget && !execution.taskBudget) throw new Error("任务缺少持久额度，不能执行");
     if (execution.cancellationRequested) {
       await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/cancel`, { method: "POST", body: "{}" });
       throw Object.assign(new Error("生成已停止"), { code: "TASK_CANCELLED" });
     }
     const handoff = createTaskBoundHandoff(projectId, workspace, task);
+    const executionBinding = await readWorkExecutionBinding(runtimeRequest, projectId, task);
     adapter.emit({ method: "agent/workflow", params: { workflow: { task, revision: workspace.revision,
-      headSnapshotId: workspace.headSnapshotId, sourceDigest: workspace.sourceDigest } } });
-    const extractionInstructions = "若作者明确要求提取并保存叙事承诺候选，可调用 request_candidate_task，operation=extractCommitments，target 包含 chapterId、chapterNumber、当前 sourceRevisionId。先以检索返回的源修订核对正文，不能使用已被工作稿替换的版本。提取批次只是开放承诺提案，不会确认或关闭已有伏笔。若明确要求调整已有承诺，先 search_story(kind=commitment) 定位，再 read_commitment 读取完整对象，request_candidate_task(operation=reviseCommitment) 的 target 包含 commitmentId 和读取到的 revisionId。名字歧义先询问作者，不猜目标；只能生成这个承诺的候选修订，不创建、确认或自动关闭承诺。若作者明确要求生成或调整属性结构及事件条件规则，request_candidate_task(operation=generatePropertyRules,target={type:artifact}) 登记有限规则候选任务；模型不能直接采用、确认事实或执行规则说明/例外，合法的条件表达式也不证明条件成立。仅讨论规则不登记修改。";
-    const repairInstructions = target.revisionRepairSource ? REVISION_REPAIR_INSTRUCTIONS : "";
-    const advisoryPrompt = composeNovelCodexPrompt(taskMethodText(task), prompt, `${STORY_QUERY_INSTRUCTIONS}\n\n${target.revisionRepairSource ? "" : extractionInstructions}\n\n${SCOPED_REVISION_INSTRUCTIONS}\n\n作者意图代次为 0；若调用 request_candidate_task，必须显式传 expectedIntentRevision=0。收到追加指令后，只能使用其注明的最新代次，不能沿用旧代次。\n\n先通过 novel_workspace.read_context 读取本次任务的冻结上下文，调用时原样传入以下绑定中的 taskId、projectId、threadId、expectedRevision，并使用 purpose=planner、budget=24、byteBudget=60000：\n${JSON.stringify(handoff, null, 2)}\n\n根据作者的问题自主规划证据检索：query_story 可在同一版本联合检索正文、精确名称身份候选、时间状态和关系；search_story 可补充正文分页。查询计划只使用工具支持的有限操作，名称歧义先澄清再选择身份，不能把不完整空结果解释为不存在。区分已确认事实、工作稿和推测，并引用来源。分析和预测只作为对话回复。${target.revisionRepairSource ? repairInstructions : "若作者明确要求修改作品，可调用 request_candidate_task 指定规划或已有章节的精确目标、操作和作者要求；它只登记后续候选任务，不会直接修改作品。"}若作者要求续写尚不存在的下一章，不要用 request_candidate_task(generateChapter) 虚构章节 ID 或创建占位；说明作者可在章节区将本轮原始指令带入续写许可确认，核对目标、范围和预算后由 GenerationRun 建章。一次对话最多登记三个候选任务。不得把提问、假设或预测当成修改指令。解释证据与变更目标；不要声称候选已采用。`);
+      headSnapshotId: workspace.headSnapshotId, sourceDigest: workspace.sourceDigest, executionBinding } } });
+    const advisoryPrompt = composeAdvisoryPrompt(task, prompt, handoff, focus);
     await beginRecoveryRun(task, projectId, threadId);
     assertTaskCompletable(execution);
     const result = await sendAgentTurn(execution, advisoryPrompt, { disableEnvironment: true, threadName: prompt });
@@ -1127,9 +1382,14 @@ async function runAdvisoryAgentTask(event, projectId, prompt, resumeStep = null,
     if (execution.budgetUsagePath) await runtimeRequest(execution.budgetUsagePath, {
       method: "POST", body: JSON.stringify({ taskId: task.id }),
     });
+    const latestRun = generationClaim ? await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/generation-runs/${encodeURIComponent(target.runId)}`) : null;
+    const generationRun = latestRun?.status === "running" ? await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/generation-runs/${encodeURIComponent(target.runId)}/advance-task`, {
+      method: "POST", body: JSON.stringify({ expectedVersion: latestRun.version, taskId: task.id }),
+    }) : latestRun;
     if (activeRuntimeTask?.id === task.id) activeRuntimeTask = null;
-    return { ...result, finalReplyReceipt, projectId, workflow: { task, revision: workspace.revision,
-      headSnapshotId: workspace.headSnapshotId, sourceDigest: workspace.sourceDigest }, completion };
+    const { proposal: generationHandoff } = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}/generation-handoff`);
+    return { ...result, finalReplyReceipt, projectId, generationRun, generationHandoff, workflow: { task, revision: workspace.revision,
+      headSnapshotId: workspace.headSnapshotId, sourceDigest: workspace.sourceDigest, executionBinding }, completion };
   } catch (error) {
     if (!taskCompleted && shouldMarkTaskFailed(task)) {
       try { await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}`, { method: "PATCH", body: JSON.stringify({ threadId: task.threadId, status: "failed", error: error.message }) }); } catch { /* Preserve the original advisory failure. */ }
@@ -1146,6 +1406,9 @@ async function runAdvisoryAgentTask(event, projectId, prompt, resumeStep = null,
     }
     if (activeRuntimeTask?.id === task?.id) activeRuntimeTask = null;
     if (execution.cancellationRequested) throw Object.assign(new Error("生成已停止"), { code: "TASK_CANCELLED" });
+    if (!taskCreationAttempted && error && typeof error === "object" && target?.resumeStepId) {
+      unstartedCreativeAttempts.set(error, { projectId, workTaskId: activeWorkFlow?.id, stepId: target.resumeStepId });
+    }
     throw error;
   } finally {
     await recoveryJournal?.abandonRun().catch(() => undefined);
@@ -1176,6 +1439,7 @@ async function runtimeRequest(path, options = {}) {
 }
 
 function registerIpcHandlers(ipcMain = trustedIpcMain) {
+  registerAuthorSessionHandlers(ipcMain, new AuthorSessionStore(join(app.getPath("userData"), "author-session.json")));
   registerActionPermissionHandlers(ipcMain, runtimeRequest);
   registerRevisionOutcomeHandlers(ipcMain, runtimeRequest);
   registerRevisionDecisionHandlers(ipcMain, runtimeRequest);
@@ -1187,16 +1451,18 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     },
     advance: (event, projectId, workTaskId) => advanceWorkSteps(event, projectId, workTaskId, {
       runtimeRequest, currentWorkFlowState, runCreativeAgentTask, runAdvisoryAgentTask,
-      runCandidateWorkflow, modelChapterKnowledge,
+      runQueuedPlanningReview,
     }),
   });
   registerConditionEvaluationHandlers(ipcMain, runtimeRequest);
   registerGenerationReplanHandlers(ipcMain, runtimeRequest, reconcileGenerationUsage);
   registerChapterRebindHandlers(ipcMain, runtimeRequest);
   registerCommitmentHandlers(ipcMain, runtimeRequest);
-  ipcMain.handle("agent:set-modeling-context", (event, context) => {
+  registerChapterStructureReadHandlers(ipcMain, runtimeRequest);
+  ipcMain.handle("agent:retry-chapter-structure-check", (_event, projectId, changeId) => chapterStructureConsumer.retry(projectId, changeId));
+  ipcMain.handle("agent:set-workspace-context", (event, context) => {
     if (!context || typeof context.dirty !== "boolean" || (context.projectId !== null && (typeof context.projectId !== "string" || !context.projectId.trim() || context.projectId.length > 160))) throw new Error("自动分析上下文无效");
-    modelingConsumer.select(context.projectId === null ? null : { ...context, event });
+    chapterStructureConsumer.select(context.projectId === null ? null : { ...context, event });
     return { selected: context.projectId };
   });
   ipcMain.handle("app:confirm-close", () => {
@@ -1299,6 +1565,13 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/hypotheses/${encodeURIComponent(hypothesisId)}`);
   });
   ipcMain.handle("runtime:get-identity-catalog", (_event, projectId) => runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/knowledge/entities`));
+  ipcMain.handle("runtime:get-character-knowledge", (_event, projectId, entityId) => {
+    const validId = value => typeof value === "string" && value.trim() === value && value.length > 0
+      && Buffer.byteLength(value, "utf8") <= 160 && !/[\p{Cc}]/u.test(value);
+    if (!validId(projectId) || !validId(entityId)) throw new Error("人物资料读取范围无效");
+    const query = new URLSearchParams({ perspective: "author", entityId });
+    return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/knowledge/state?${query}`);
+  });
   ipcMain.handle("runtime:save-identity-decisions", (_event, projectId, decisions, expectedRevision, expectedCandidateRevisionId = null) => {
     if (!Array.isArray(decisions) || decisions.length > 256 || !Number.isInteger(expectedRevision) || expectedRevision < 0) throw new Error("身份决议参数无效");
     if (expectedCandidateRevisionId !== null && (typeof expectedCandidateRevisionId !== "string" || !expectedCandidateRevisionId.trim())) throw new Error("身份候选版本无效");
@@ -1402,6 +1675,9 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
       || typeof taskId !== "string" || !taskId.trim() || taskId.length > 160) throw new Error("最终回复标识无效");
     return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/final-reply`);
   });
+  registerPlanningReviewReadHandler(ipcMain, runtimeRequest);
+  registerWorkCatalog(ipcMain, runtimeRequest);
+  registerChapterDeletion(ipcMain, runtimeRequest);
   ipcMain.handle("runtime:cancel-planning-review", async (_event, projectId, runId) => {
     if (typeof projectId !== "string" || !projectId.trim() || typeof runId !== "string" || !runId.trim()) throw new Error("规划评审标识无效");
     if (activeAgentExecution?.projectId === projectId && activeAgentExecution?.runId === runId) {
@@ -1447,7 +1723,7 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/artifacts/${kind}`, { method: "POST", body: JSON.stringify({ payload, expectedRevision, expectedCandidateRevisionId, linkedImpactIds, idempotencyKey: `desktop-save-${kind}-${randomUUID()}` }) });
   });
   ipcMain.handle("runtime:materialize-chapter-plan", (_event, projectId, chapterPlanId, expectedRevision) => runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/chapters/materialize-from-plan`, { method: "POST", body: JSON.stringify({ chapterPlanId, expectedRevision, idempotencyKey: `desktop-materialize-${chapterPlanId}-${expectedRevision}` }) }));
-  ipcMain.handle("runtime:materialize-standalone-chapter", (_event, projectId, title, expectedRevision) => runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/chapters/materialize-standalone`, { method: "POST", body: JSON.stringify({ title, expectedRevision, idempotencyKey: `desktop-standalone-${expectedRevision}-${String(title).slice(0, 40)}` }) }));
+  ipcMain.handle("runtime:materialize-standalone-chapter", (_event, projectId, title, expectedRevision, volumeId = null) => runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/chapters/materialize-standalone`, { method: "POST", body: JSON.stringify({ title, expectedRevision, volumeId, idempotencyKey: `desktop-standalone-${expectedRevision}-${volumeId ?? "unfiled"}-${String(title).slice(0, 40)}` }) }));
   ipcMain.handle("runtime:associate-chapter-plan", (_event, projectId, chapterId, chapterPlanId, expectedRevision) => {
     if (typeof chapterId !== "string" || !chapterId.trim() || typeof chapterPlanId !== "string" || !chapterPlanId.trim()) throw new Error("章节规划关联参数无效");
     return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/chapters/associate-plan`, { method: "POST", body: JSON.stringify({ chapterId, chapterPlanId, expectedRevision, idempotencyKey: `desktop-associate-${chapterId}-${chapterPlanId}-${expectedRevision}` }) });
@@ -1489,7 +1765,6 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/commits/${encodeURIComponent(commitId)}/undo`, { method: "POST", body: JSON.stringify({ expectedRevision, idempotencyKey: `desktop-undo-${commitId}-${expectedRevision}` }) });
   });
   ipcMain.handle("runtime:get-diffs", (_event, projectId, chapterId) => runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/chapters/${encodeURIComponent(chapterId)}/diffs`));
-  ipcMain.handle("runtime:story-tests", (_event, projectId) => runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/story-tests`, { method: "POST" }));
   ipcMain.handle("runtime:search", (_event, projectId, query, limit = 20, kind = null, cursor = null) => {
     if (typeof projectId !== "string" || !projectId.trim()) throw new Error("作品 ID 无效");
     if (typeof query !== "string" || query.length > 240) throw new Error("搜索内容无效");
@@ -1501,32 +1776,32 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     if (cursor) params.set("cursor", cursor);
     return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/search?${params}`);
   });
-  ipcMain.handle("agent:status", () => codexAdapter.status());
-  ipcMain.handle("agent:recovery-report", () => closeFinishedReads(recoveryIndex));
-  ipcMain.handle("agent:resolve-recovery", async (_event, projectId, runId) => {
-    if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，不能结束恢复核对");
-    if (typeof projectId !== "string" || !projectId.trim() || typeof runId !== "string" || !runId.trim()) throw new Error("恢复任务参数无效");
-    if (!recoveryIndex) throw new Error("恢复索引尚未就绪");
-    const report = await recoveryIndex.recoveryReport();
-    const run = report.find((entry) => entry.runId === runId && entry.projectId === projectId);
-    if (!run) throw new Error("恢复任务不存在或不属于当前作品");
-    if (!run.requests.some((request) => request.recovery === "manual-reconciliation")) throw new Error("该任务不需要人工核对");
-    await recoveryIndex.resolveRun(runId, "manual-reviewed");
-    return { resolved: true, runId };
-  });
+  ipcMain.handle("agent:status", () => readAgentStatus({
+    readStatus: () => codexAdapter.status(),
+    isActive: () => Boolean(activeAgentExecution || activeWorkFlow || activeGenerationRunId),
+    getOwner: () => agentProviderConfig,
+    check: () => assertCurrentAgentPlan(null),
+  }));
+  ipcMain.handle("agent:recovery-report", refreshRecoveryReport);
   ipcMain.handle("agent:list-connections", async () => ({
-    connections: listCodexConnections({
+    connections: await listModelConnections({
       credentialScopes: agentStorage ? credentialScopesFromEnvironment(process.env, agentStorage.credentialSaltPath) : {},
-      evidence: agentStorage ? await loadCodexEvidence(agentStorage.evidencePath) : [],
+      evidencePath: agentStorage.evidencePath,
       qualificationContextDigest: engineQualificationContextDigest ?? "unavailable",
     }),
   }));
-  ipcMain.handle("agent:verify-connection", async (_event, provider, model) => {
+  ipcMain.handle("agent:verify-connection", async (_event, provider, model) => modelConnectionGate.run(async () => {
     if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，不能验证连接");
-    if (!agentStorage || !agentCli?.path) throw new Error("Novel Codex 内核尚未就绪，无法执行真实能力认证");
+    if (!agentStorage || !agentCli?.path) throw new Error("创作引擎尚未就绪，无法执行真实能力认证");
+    const connection = inspectCodexConnection({ provider, model });
+    const credentialError = providerConfigurationError(connection, process.env);
+    if (credentialError) throw new Error(credentialError);
+    await prepareEvidenceReverification(agentStorage.evidencePath);
     const conformanceRunner = new CodexConformanceRunner({
       baseEnvironment: process.env,
       baseInstructions: engineBaseInstructions,
+      developerInstructions: NOVEL_ROOT_DEVELOPER_INSTRUCTIONS,
+      subagentDeveloperInstructions: NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS,
       command: [agentCli.path, "app-server"],
       cwd: agentStorage.workspaceHome,
       nodeCommand: process.execPath,
@@ -1534,6 +1809,8 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     const coreRunner = new CodexCoreIntegrationRunner({
       baseEnvironment: process.env,
       baseInstructions: engineBaseInstructions,
+      developerInstructions: NOVEL_ROOT_DEVELOPER_INSTRUCTIONS,
+      subagentDeveloperInstructions: NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS,
       command: [agentCli.path, "app-server"],
       cwd: agentStorage.workspaceHome,
       nodeCommand: process.execPath,
@@ -1548,13 +1825,20 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
       qualificationContextDigest: engineQualificationContextDigest ?? "unavailable",
       model,
     });
-  });
-  ipcMain.handle("agent:verify-connection-edge", async (_event, parentProvider, parentModel, childProvider, childModel) => {
+  }));
+  ipcMain.handle("agent:verify-connection-edge", async (_event, parentProvider, parentModel, childProvider, childModel) => modelConnectionGate.run(async () => {
     if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，不能验证连接");
-    if (!agentStorage || !agentCli?.path) throw new Error("Novel Codex 内核尚未就绪，无法执行真实能力认证");
+    if (!agentStorage || !agentCli?.path) throw new Error("创作引擎尚未就绪，无法执行真实能力认证");
+    for (const [provider, model] of [[parentProvider, parentModel], [childProvider, childModel]]) {
+      const credentialError = providerConfigurationError(inspectCodexConnection({ provider, model }), process.env);
+      if (credentialError) throw new Error(credentialError);
+    }
+    await prepareEvidenceReverification(agentStorage.evidencePath);
     const conformanceRunner = new CodexConformanceRunner({
       baseEnvironment: process.env,
       baseInstructions: engineBaseInstructions,
+      developerInstructions: NOVEL_ROOT_DEVELOPER_INSTRUCTIONS,
+      subagentDeveloperInstructions: NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS,
       command: [agentCli.path, "app-server"],
       cwd: agentStorage.workspaceHome,
       nodeCommand: process.execPath,
@@ -1570,12 +1854,12 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
       childModel,
       qualificationContextDigest: engineQualificationContextDigest ?? "unavailable",
     });
-  });
-  ipcMain.handle("agent:configure", async (_event, provider, model) => {
+  }));
+  ipcMain.handle("agent:configure", async (_event, provider, model) => modelConnectionGate.run(async () => {
     if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
     if (typeof provider !== "string" || provider.length > 40 || /[\r\n]/.test(provider)) throw new Error("Provider 无效");
     if (typeof model !== "string" || model.length > 120 || /[\r\n]/.test(model)) throw new Error("Model 无效");
-    if (!agentStorage || !agentCli) throw new Error("Novel Codex 配置尚未就绪");
+    if (!agentStorage || !agentCli) throw new Error("创作配置尚未就绪");
     const requestEpoch = ++configurationRequestEpoch;
     const evidence = await loadCodexEvidence(agentStorage.evidencePath);
     const next = resolveCodexProvider({
@@ -1623,7 +1907,7 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     previousAdapter.close();
     if (previousBridge) await previousBridge.close();
     return status;
-  });
+  }));
   ipcMain.handle("agent:interrupt", async () => {
     const flow = activeWorkFlow;
     if (flow) {
@@ -1664,12 +1948,16 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     }
     return { ...interrupted, interrupted: interrupted.interrupted || Boolean(execution) || Boolean(flow) };
   });
-  ipcMain.handle("agent:steer", async (_event, projectId, prompt, revisionRepairSource = null) => {
-    assertAdvisoryPromptRoute({ steer: true, revisionRepairSource });
+  ipcMain.handle("agent:steer", async (_event, projectId, prompt, threadId = null) => {
+    assertAdvisoryPromptRoute({ steer: true });
     validateAuthorIntent(prompt);
     if (typeof projectId !== "string" || !projectId.trim()) throw new Error("作品 ID 无效");
     const execution = activeAgentExecution;
     const task = activeRuntimeTask;
+    if (threadId !== null) {
+      await readConversation(runtimeRequest, projectId, threadId, true);
+      if (threadId !== task?.threadId) throw new Error("只能追加当前执行对话的指令");
+    }
     if (!execution || !task || execution.task?.id !== task.id || execution.operation !== "advisory"
       || execution.cancellationRequested || task.operation !== "advisory"
       || projectId !== task.projectId || projectId !== activeAgentProjectId || advisorySteerInFlight
@@ -1710,89 +1998,86 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
       finishSteer();
     }
   });
-  ipcMain.handle("agent:list-threads", async (_event, projectId, archived = false, cursor = null) => {
-    if (typeof projectId !== "string" || !projectId.trim()) throw new Error("作品 ID 无效");
-    if (typeof archived !== "boolean") throw new Error("archived 必须是布尔值");
-    if (cursor !== null && typeof cursor !== "string") throw new Error("任务列表 cursor 无效");
-    const result = await codexAdapter.listThreads({ archived, cursor });
-    if (result.threads.length === 0) return result;
-    const { tasks } = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/lookup`, {
-      method: "POST", body: JSON.stringify({ threadIds: result.threads.map((thread) => thread.id) }),
-    });
-    const allowed = new Set(tasks.map((task) => task.threadId));
-    return { ...result, threads: result.threads.filter((thread) => allowed.has(thread.id)) };
+  registerConversationHandlers(ipcMain, {
+    runtimeRequest, adapter: () => codexAdapter,
+    isBusy: () => Boolean(activeAgentExecution || activeWorkFlow || activeGenerationRunId),
+    exclusive: async (callback, { modelRequired = true } = {}) => {
+      if (activeAgentExecution || activeWorkFlow || activeGenerationRunId) throw new Error("当前任务正在执行，完成后可新建对话");
+      if (modelRequired) modelConnectionGate.assertExecutionAllowed();
+      const operation = createTaskExecution(); activeAgentExecution = operation;
+      try { return await callback(); } finally { if (activeAgentExecution === operation) activeAgentExecution = null; }
+    },
+    readHistory: async (projectId, threadId) => {
+      const detail = await codexAdapter.readThread(threadId);
+      const authored = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/threads/${encodeURIComponent(threadId)}/author-messages`, {
+        method: "POST", body: JSON.stringify({ turnIds: detail.turns.map(turn => turn.id) }),
+      });
+      return presentAuthorHistory(detail, authored);
+    },
   });
   for (const [channel, restore] of [
     ["agent:resume-thread", (threadId) => codexAdapter.resumeThread(threadId)],
     ["agent:reconnect-thread", (threadId) => codexAdapter.reconnectThread(threadId)],
   ]) {
-    ipcMain.handle(channel, async (_event, projectId, threadId) => {
+    ipcMain.handle(channel, async (_event, projectId, threadId, expectedTurnId) => {
+      while (recoveryRefreshPromise) await recoveryRefreshPromise;
+      modelConnectionGate.assertExecutionAllowed();
+      if (channel === "agent:reconnect-thread" && expectedTurnId !== null && (typeof expectedTurnId !== "string" || !expectedTurnId.trim())) throw new Error("恢复回合 ID 无效");
+      if (channel === "agent:reconnect-thread" && activeAgentExecution) {
+        const execution = activeAgentExecution, adapter = execution.adapter;
+        const isCurrent = () => activeAgentExecution === execution && codexAdapter === adapter
+          && execution.task?.projectId === projectId && execution.task?.threadId === threadId;
+        if (!isCurrent() || !expectedTurnId) throw new Error("只能核对当前作品正在执行的原回合");
+        const recovery = await adapter.reconnectActiveTurn(threadId, expectedTurnId, isCurrent, () => requestTaskCancellation(execution));
+        return { thread: { id: threadId }, recovery };
+      }
       if (activeAgentExecution) throw new Error("已有创作引擎任务正在运行，请先等待或停止当前任务");
       const execution = createTaskExecution();
       activeAgentExecution = execution;
       try {
-        const task = await assertThreadProject(projectId, threadId);
+        const conversation = channel === "agent:resume-thread" ? await readConversation(runtimeRequest, projectId, threadId, true) : null;
+        const task = conversation ? { purpose: "advisory", target: {} } : await assertThreadProject(projectId, threadId);
         const purpose = task.purpose;
         if (!["advisory", "planner", "writer", "critic"].includes(purpose)) throw new Error("任务缺少有效的上下文用途");
+        if (channel === "agent:reconnect-thread" && purpose !== "advisory") {
+          const persisted = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(task.id)}`);
+          if (persisted.threadId !== threadId || (expectedTurnId && persisted.turnId !== expectedTurnId)
+            || !["completed", "failed", "cancelled"].includes(persisted.status)) throw new Error("原生成任务需要在创作任务中核对恢复，不能恢复为普通对话");
+          return { thread: { id: threadId }, recovery: { turnId: persisted.turnId,
+            state: persisted.status === "completed" ? "completed" : persisted.status === "cancelled" ? "cancelled" : "error" } };
+        }
         const result = await restore(threadId);
         activeAgentProjectId = projectId;
         activeAgentPurpose = purpose;
         activeAgentTargetKey = task.target?.chapterId
           ? `${projectId}:${purpose}:${task.target.chapterId}`
           : `${projectId}:${purpose}`;
-        if (purpose === "advisory") advisorySessions.remember(projectId, threadId);
-        return result;
+        return channel === "agent:reconnect-thread" ? { ...result, recovery: null } : { ...result, thread: { ...result.thread, ...conversationSummary(conversation) } };
       } finally {
         if (activeAgentExecution === execution) activeAgentExecution = null;
       }
     });
   }
-  ipcMain.handle("agent:read-thread", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return codexAdapter.readThread(threadId); });
+  ipcMain.handle("agent:read-thread", async (_event, projectId, threadId) => {
+    await assertThreadProject(projectId, threadId);
+    const detail = await codexAdapter.readThread(threadId);
+    const authored = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/threads/${encodeURIComponent(threadId)}/author-messages`, {
+      method: "POST", body: JSON.stringify({ turnIds: detail.turns.map(turn => turn.id) }),
+    });
+    return presentAuthorHistory(detail, authored);
+  });
   ipcMain.handle("agent:review-thread", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return runCoreTurnWithLease("advisory", () => codexAdapter.reviewThread(threadId)); });
   ipcMain.handle("agent:compact-thread", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return runCoreTurnWithLease("advisory", () => codexAdapter.compactThread(threadId)); });
   ipcMain.handle("agent:list-background-terminals", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return codexAdapter.listBackgroundTerminals(threadId); });
   ipcMain.handle("agent:terminate-background-terminal", async (_event, projectId, threadId, processId) => { await assertThreadProject(projectId, threadId); return codexAdapter.terminateBackgroundTerminal(threadId, processId); });
-  ipcMain.handle("agent:set-thread-pinned", async (_event, projectId, threadId, isPinned) => {
-    if (typeof isPinned !== "boolean") throw new Error("isPinned 必须是布尔值");
-    await assertThreadProject(projectId, threadId);
-    return codexAdapter.setThreadPinned(threadId, isPinned);
-  });
-  ipcMain.handle("agent:archive-thread", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return codexAdapter.archiveThread(threadId); });
-  ipcMain.handle("agent:unarchive-thread", async (_event, projectId, threadId) => { await assertThreadProject(projectId, threadId); return codexAdapter.unarchiveThread(threadId); });
-  registerAdvisoryPromptHandler(ipcMain, { withWorkFlow, runtimeRequest, runAdvisoryAgentTask,
+  registerAdvisoryPromptHandler(ipcMain, { withWorkFlow, runAdvisoryAgentTask, analysisDependencies: candidateActionDependencies(),
     routingState: () => ({ activeWorkFlow, activeAgentExecution, activeGenerationRunId }) });
   ipcMain.handle("agent:list-proposed-actions", async (_event, projectId) => {
     if (typeof projectId !== "string" || !projectId.trim() || /[\r\n]/.test(projectId)) throw new Error("作品 ID 无效");
     return runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/task-actions/proposed`);
   });
-  ipcMain.handle("agent:approve-action", (event, projectId, sourceTaskId, actionId) => withWorkFlow(projectId, async () => {
-    if (typeof projectId !== "string" || !projectId.trim() || /[\r\n]/.test(projectId)
-      || typeof sourceTaskId !== "string" || !/^task-[a-f0-9]{32}$/.test(sourceTaskId)
-      || typeof actionId !== "string" || !/^action-[a-f0-9]{32}$/.test(actionId)) throw new Error("候选动作身份无效");
-    const path = `/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(sourceTaskId)}/actions`;
-    const { actions } = await runtimeRequest(path);
-    const proposed = actions.find((action) => action.id === actionId && action.sourceTaskId === sourceTaskId && action.status === "proposed");
-    if (!proposed) throw new Error("这项候选动作已失效或已处理，请刷新后重试");
-    if (!codexAdapter.enabled) throw new Error("创作引擎未配置，候选建议仍待确认；配置模型后可重试");
-    assertProviderOperation(agentProviderConfig, proposed.operation);
-    const action = await runtimeRequest(`${path}/${encodeURIComponent(actionId)}/approve`, {
-      method: "POST", body: JSON.stringify({ expectedIntentRevision: proposed.intentRevision }),
-    });
-    try {
-      const target = { ...action.target, requestedByTaskId: sourceTaskId, requestedActionId: action.id };
-      const result = await runCandidateWorkflow(event, projectId, action.instruction, { operation: action.operation }, target);
-      await runtimeRequest(`${path}/${encodeURIComponent(action.id)}/finish`, {
-        method: "POST", body: JSON.stringify({ resultTaskId: result.workflow.task.id }),
-      });
-      return { action, taskId: result.workflow.task.id, modeling: result.modeling ?? null,
-        outcome: result.outcome ?? null, followup: result.followup ?? null };
-    } catch (error) {
-      await runtimeRequest(`${path}/${encodeURIComponent(action.id)}/finish`, {
-        method: "POST", body: JSON.stringify({ error: String(error?.message ?? "候选任务失败").slice(0, 400) }),
-      }).catch(() => undefined);
-      throw error;
-    }
-  }));
+  ipcMain.handle("agent:approve-action", (event, projectId, sourceTaskId, actionId) => withWorkFlow(projectId,
+    () => executeCandidateAction(event, projectId, sourceTaskId, actionId, candidateActionDependencies(), { coordinate: true })));
   ipcMain.handle("agent:decline-action", async (_event, projectId, sourceTaskId, actionId) => {
     if (typeof projectId !== "string" || !projectId.trim() || /[\r\n]/.test(projectId)
       || typeof sourceTaskId !== "string" || !/^task-[a-f0-9]{32}$/.test(sourceTaskId)
@@ -1805,14 +2090,17 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
       method: "POST", body: JSON.stringify({ expectedIntentRevision: proposed.intentRevision }),
     });
   });
+  registerQualityNotebookHandlers(ipcMain, { runtimeRequest,
+    runReader: (event, projectId, prompt, type, target) => withWorkFlow(projectId,
+      () => runCreativeAgentTask(event, projectId, prompt, type, target)) });
   ipcMain.handle("agent:generate-planning", (event, projectId, operation, intent) => withWorkFlow(projectId, async () => {
     if (typeof projectId !== "string" || !projectId.trim() || /[\r\n]/.test(projectId)) throw new Error("作品 ID 无效");
     const task = planningGenerationTask(operation, intent);
     return runCandidateWorkflow(event, projectId, task.prompt, task.taskType, task.target);
   }));
-  ipcMain.handle("agent:generate-work", (event, projectId, intent, targetChapters, expectedProjectRevision, expectedBaseSnapshotId, expectedSourceDigest, revisionPredecessor) =>
+  ipcMain.handle("agent:generate-work", (event, projectId, intent, targetChapters, expectedProjectRevision, expectedBaseSnapshotId, expectedSourceDigest, revisionPredecessor, generationProposalId = null) =>
     withWorkFlow(projectId, () => startGenerationRun(event, projectId, intent, targetChapters,
-      expectedProjectRevision, expectedBaseSnapshotId, expectedSourceDigest, revisionPredecessor)));
+      expectedProjectRevision, expectedBaseSnapshotId, expectedSourceDigest, revisionPredecessor, generationProposalId)));
   ipcMain.handle("agent:continue-work", (event, projectId, runId) =>
     withWorkFlow(projectId, () => continueGenerationRun(event, projectId, runId)));
   ipcMain.handle("agent:retry-work", (event, projectId, runId) =>
@@ -1831,6 +2119,7 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
       return continueGenerationRun(event, projectId, runId);
     }));
   ipcMain.handle("agent:resume-work-task", (event, projectId, workTaskId) => resumeWorkTask(event, projectId, workTaskId));
+  ipcMain.handle("agent:recover-work-task", (event, projectId, workTaskId) => resumeWorkTask(event, projectId, workTaskId, { requestedMode: "recoverSavedResult" }));
   ipcMain.handle("agent:control-work-task", async (_event, projectId, workTaskId, command) => {
     if (typeof projectId !== "string" || typeof workTaskId !== "string" || !/^work-[a-zA-Z0-9-]+$/.test(workTaskId) || !["pause", "cancel"].includes(command)) throw new Error("创作任务控制参数无效");
     const path = `/api/projects/${encodeURIComponent(projectId)}/work-tasks/${encodeURIComponent(workTaskId)}`;
@@ -1878,11 +2167,9 @@ function registerIpcHandlers(ipcMain = trustedIpcMain) {
     if (action.kind !== "modelKnowledge" || action.chapterId !== chapterId) throw new Error("章节后续步骤无效");
     if (action.sourceTaskId) {
       const work = await runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(action.sourceTaskId)}/work-task`);
-      if (work.status === "blocked" && work.steps.some((step) => step.operation === "modelKnowledge" && step.target?.sourceTaskId === action.sourceTaskId && step.status === "blocked")) {
-        return resumeWorkTask(event, projectId, work.id);
-      }
+      return resumeWorkTask(event, projectId, work.id);
     }
-    return withWorkFlow(projectId, () => modelChapterKnowledge(event, projectId, chapterId, null, action.sourceRevisionId, action.sourceTaskId));
+    return withWorkFlow(projectId, () => modelChapterKnowledge(event, projectId, chapterId, action.sourceRevisionId));
   });
   ipcMain.handle("agent:review-planning", (event, projectId, request) =>
     withWorkFlow(projectId, () => runPlanningReview(event, projectId, request)));
@@ -1920,7 +2207,7 @@ app.whenReady().then(async () => {
     ? join(runtimeAssetRoot, "codex-runtime", "engine-prompt.md")
     : join(projectRoot, "../../codex-rs/models-manager/prompt.md");
   engineBaseInstructions = readFileSync(enginePromptPath, "utf8").trim();
-  if (!engineBaseInstructions) throw new Error("Codex 上游基础指令为空");
+  if (!engineBaseInstructions) throw new Error("创作引擎基础指令为空");
   const codexCli = resolveCodexCli({
     explicitPath: process.env.NOVEL_CODEX_CLI,
     isPackaged: app.isPackaged,
@@ -1930,15 +2217,16 @@ app.whenReady().then(async () => {
   engineQualificationContextDigest = codexCli.path
     ? createQualificationContextDigest({ baseInstructions: engineBaseInstructions, cliPath: codexCli.path })
     : null;
-  const evidence = await loadCodexEvidence(storage.evidencePath);
+  const evidenceSnapshot = await readModelEvidenceCache(storage.evidencePath);
   const selectedConnection = inspectCodexConnection({ model: process.env.NOVEL_CODEX_MODEL, provider: process.env.NOVEL_CODEX_PROVIDER });
   let providerConfig = null;
   let capabilityError = null;
   try {
-    if (!engineQualificationContextDigest) throw new Error(codexCli.reason ?? "Novel Codex CLI 来源不可验证");
+    if (evidenceSnapshot.error) throw new Error(evidenceSnapshot.error);
+    if (!engineQualificationContextDigest) throw new Error(codexCli.reason ?? "内置创作引擎来源不可验证");
     providerConfig = resolveCodexProvider({
       credentialScopes: credentialScopesFromEnvironment(process.env, storage.credentialSaltPath),
-      evidence,
+      evidence: evidenceSnapshot.records,
       model: selectedConnection.model,
       provider: selectedConnection.provider,
       qualificationContextDigest: engineQualificationContextDigest,
@@ -1980,7 +2268,7 @@ app.whenReady().then(async () => {
     return;
   }
   createWindow();
-  modelingConsumer.start();
+  chapterStructureConsumer.start();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1991,7 +2279,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", (event) => {
-  if (allowWindowClose) { modelingConsumer.stop(); return; }
+  if (allowWindowClose) { chapterStructureConsumer.stop(); return; }
   quitRequested = true;
   event.preventDefault();
   const window = BrowserWindow.getAllWindows()[0];
