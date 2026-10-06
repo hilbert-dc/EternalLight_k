@@ -99,6 +99,9 @@ pub use crate::approvals::NetworkPolicyAmendment;
 pub use crate::approvals::NetworkPolicyRuleAction;
 pub use crate::environment::EnvironmentConfig;
 pub use crate::environment::EnvironmentConfigState;
+pub use crate::environment::TurnEnvironmentRequest;
+pub use crate::environment::TurnEnvironmentSelection;
+pub use crate::environment::TurnEnvironmentSelections;
 pub use crate::environment::has_full_access;
 pub use crate::legacy_events::HasLegacyEvent;
 pub use crate::permissions::FileSystemAccessMode;
@@ -149,34 +152,6 @@ pub fn strip_user_message_prefix(text: &str) -> &str {
     }
 }
 
-// TODO(anp): Replace `TurnEnvironmentSelection` with `PathUri` once path URIs carry environment
-// identifiers.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TurnEnvironmentSelection {
-    pub environment_id: String,
-    pub cwd: PathUri,
-    pub workspace_roots: Vec<PathUri>,
-    pub config: EnvironmentConfigState,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TurnEnvironmentSelections {
-    pub legacy_fallback_cwd: AbsolutePathBuf,
-    pub environments: Vec<TurnEnvironmentSelection>,
-}
-
-impl TurnEnvironmentSelections {
-    pub fn new(
-        legacy_fallback_cwd: AbsolutePathBuf,
-        environments: Vec<TurnEnvironmentSelection>,
-    ) -> Self {
-        Self {
-            legacy_fallback_cwd,
-            environments,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, TS)]
 #[serde(transparent)]
 #[ts(type = "string")]
@@ -186,23 +161,6 @@ impl GitSha {
     pub fn new(sha: &str) -> Self {
         Self(sha.to_string())
     }
-}
-
-/// Submission Queue Entry - requests from user
-#[derive(Debug)]
-pub struct Submission {
-    /// Unique id for this Submission to correlate with Events
-    pub id: String,
-    /// Payload
-    pub op: Op,
-    /// Optional W3C trace carrier propagated across async submission handoffs.
-    pub trace: Option<W3cTraceContext>,
-    /// Core-provided ID of the parent turn that directly initiated this submission.
-    ///
-    /// This is only used for inter-agent communication.
-    pub parent_turn_id: Option<String>,
-    /// Core-provided ID of the top-level turn that causally initiated this submission.
-    pub root_turn_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -232,6 +190,8 @@ pub struct ConversationStartParams {
     /// Selects how automatic Codex handoffs are routed in Frameless Bidi sessions.
     /// Realtime V1 and V2 ignore this setting.
     pub codex_response_handoff_mode: CodexResponseHandoffMode,
+    /// Relays public reasoning summaries as quiet context for realtime V3 delegations.
+    pub backend_reasoning_status: bool,
     /// Optional client-selected BEM prefixes keyed by `analysis`, `commentary`, and `final`.
     pub codex_response_handoff_channel_prefixes: Option<BTreeMap<String, Vec<String>>>,
     /// Overrides the configured realtime model for this session only.
@@ -491,10 +451,14 @@ pub struct ConversationSpeechParams {
 
 /// Supported sparse changes to one live task's current settings, regardless of
 /// task kind. Child sessions and consumers of frozen initial settings are unchanged.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct TurnSettingsUpdate {
     /// Changes the reviewer for subsequent approval requests, not pending reviews.
     pub approvals_reviewer: Option<ApprovalsReviewer>,
+    /// Replaces the selection for subsequent steps, without changing future turns.
+    /// Environments may inherit the running turn's defaults or provide their own configuration,
+    /// which can be pending. An already-selected environment with its own cannot switch back.
+    pub environments: Option<Vec<TurnEnvironmentSelection>>,
     pub model: Option<String>,
     /// `None` preserves the selection; `Some(None)` clears it.
     pub effort: Option<Option<ReasoningEffortConfig>>,
@@ -524,7 +488,7 @@ pub struct ThreadSettingsOverrides {
     pub environments: Option<TurnEnvironmentSelections>,
 
     /// Updated top-level runtime workspace roots for default environments.
-    /// Explicit environment selections own their roots separately.
+    /// Explicit environment requests own their workspace roots separately.
     pub runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
 
     /// Updated profile-defined workspace roots for status summaries and
@@ -603,6 +567,13 @@ pub enum Op {
     /// This server sends [`EventMsg::TurnAborted`] in response.
     Interrupt,
 
+    /// Interrupt the named turn only if no input is queued for it.
+    /// The decision is acknowledged before cancellation finishes.
+    InterruptIfNoPendingInput {
+        turn_id: String,
+        reply: oneshot::Sender<bool>,
+    },
+
     /// Terminate all running background terminal processes for this thread.
     /// Use this when callers intentionally want to stop long-lived background shells.
     CleanBackgroundTerminals,
@@ -651,6 +622,9 @@ pub enum Op {
     ThreadSettings {
         /// Sparse thread-settings overrides to apply.
         thread_settings: ThreadSettingsOverrides,
+        /// When present, report validation errors here instead of emitting an error event.
+        /// Successful updates still emit `ThreadSettingsApplied` for all callers.
+        reply: Option<oneshot::Sender<CodexResult<()>>>,
     },
 
     /// Update only the named running turn, without changing future settings.
@@ -934,6 +908,7 @@ impl Op {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Interrupt => "interrupt",
+            Self::InterruptIfNoPendingInput { .. } => "interrupt_if_no_pending_input",
             Self::CleanBackgroundTerminals => "clean_background_terminals",
             Self::RealtimeConversationStart(_) => "realtime_conversation_start",
             Self::RealtimeConversationAudio(_) => "realtime_conversation_audio",
@@ -1856,10 +1831,12 @@ pub enum CodexErrorInfo {
     SessionBudgetExceeded,
     UsageLimitExceeded,
     RateLimitExceeded,
+    FlexUnavailable,
     ServerOverloaded,
     CyberPolicy,
     BioPolicy,
     MisalignmentPolicyViolation,
+    TooManyDenials,
     HttpConnectionFailed {
         http_status_code: Option<u16>,
     },
@@ -1870,6 +1847,7 @@ pub enum CodexErrorInfo {
     InternalServerError,
     Unauthorized,
     BadRequest,
+    InvalidPrompt,
     SandboxError,
     /// The response SSE stream disconnected in the middle of a turnbefore completion.
     ResponseStreamDisconnected {
@@ -1898,15 +1876,18 @@ impl CodexErrorInfo {
             | Self::SessionBudgetExceeded
             | Self::UsageLimitExceeded
             | Self::RateLimitExceeded
+            | Self::FlexUnavailable
             | Self::ServerOverloaded
             | Self::CyberPolicy
             | Self::BioPolicy
             | Self::MisalignmentPolicyViolation
+            | Self::TooManyDenials
             | Self::HttpConnectionFailed { .. }
             | Self::ResponseStreamConnectionFailed { .. }
             | Self::InternalServerError
             | Self::Unauthorized
             | Self::BadRequest
+            | Self::InvalidPrompt
             | Self::SandboxError
             | Self::ResponseStreamDisconnected { .. }
             | Self::ResponseTooManyFailedAttempts { .. }
@@ -2034,6 +2015,9 @@ pub struct MisalignmentErrorDetails {
     /// Model-visible instruction to submit if the user elects to continue.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub steer: Option<MisalignmentSteer>,
+    /// Opaque server-issued block target, echoed verbatim only on explicit continuation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_target: Option<String>,
 }
 
 impl fmt::Debug for MisalignmentErrorDetails {
@@ -2046,6 +2030,7 @@ impl fmt::Debug for MisalignmentErrorDetails {
                 &self.detailed_explanation.is_some(),
             )
             .field("has_steer", &self.steer.is_some())
+            .field("has_review_target", &self.review_target.is_some())
             .finish()
     }
 }
@@ -2190,7 +2175,7 @@ pub struct TurnStartedEvent {
     pub collaboration_mode_kind: ModeKind,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
 pub struct ThreadSettingsAppliedEvent {
     /// Logical task that owns this snapshot, independent of the physical rollout file.
     /// Absent in older histories; copied snapshots retain their original owner's ID.
@@ -3115,6 +3100,12 @@ pub struct HistoryPosition {
 /// and should be used when there is no config override.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, TS)]
 pub struct SessionMeta {
+    /// ChatGPT user that created this thread; absent when unavailable or for older threads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creator_user_id: Option<String>,
+    /// ChatGPT account selected when this thread was created. Never updated on resume.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creator_account_id: Option<String>,
     /// session_id is equal to the root thread's ID.
     pub session_id: SessionId,
     pub id: ThreadId,
@@ -3189,6 +3180,8 @@ impl Default for SessionMeta {
     fn default() -> Self {
         let id = ThreadId::default();
         SessionMeta {
+            creator_user_id: None,
+            creator_account_id: None,
             session_id: id.into(),
             id,
             forked_from_id: None,
@@ -3611,10 +3604,6 @@ pub struct ExecCommandEndEvent {
     #[ts(optional)]
     pub interaction_input: Option<String>,
 
-    /// Captured stdout
-    pub stdout: String,
-    /// Captured stderr
-    pub stderr: String,
     /// Captured aggregated output
     #[serde(default)]
     pub aggregated_output: String,
@@ -3623,8 +3612,6 @@ pub struct ExecCommandEndEvent {
     /// The duration of the command execution.
     #[ts(type = "string")]
     pub duration: Duration,
-    /// Formatted output from the command, as seen by the model.
-    pub formatted_output: String,
     /// Completion status for this command execution.
     pub status: ExecCommandStatus,
 }
@@ -3993,11 +3980,6 @@ pub struct SessionConfiguredEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffortConfig>,
 
-    /// Optional initial messages (as events) for resumed sessions.
-    /// When present, UIs can use these to seed the history.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub initial_messages: Option<Vec<EventMsg>>,
-
     /// Runtime proxy bind addresses, when the managed proxy was started for this session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -4039,7 +4021,6 @@ impl<'de> Deserialize<'de> for SessionConfiguredEvent {
             active_permission_profile: Option<ActivePermissionProfile>,
             cwd: AbsolutePathBuf,
             reasoning_effort: Option<ReasoningEffortConfig>,
-            initial_messages: Option<Vec<EventMsg>>,
             network_proxy: Option<SessionNetworkProxyRuntime>,
             rollout_path: Option<PathBuf>,
         }
@@ -4072,7 +4053,6 @@ impl<'de> Deserialize<'de> for SessionConfiguredEvent {
             active_permission_profile: wire.active_permission_profile,
             cwd: wire.cwd,
             reasoning_effort: wire.reasoning_effort,
-            initial_messages: wire.initial_messages,
             network_proxy: wire.network_proxy,
             rollout_path: wire.rollout_path,
         })
@@ -4243,6 +4223,10 @@ pub struct Chunk {
 pub struct TurnAbortedEvent {
     pub turn_id: Option<String>,
     pub reason: TurnAbortReason,
+    /// Optional error describing why the turn was interrupted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error: Option<ErrorEvent>,
     /// Unix timestamp (in seconds) when the turn started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(type = "number | null", optional)]
@@ -5574,6 +5558,7 @@ mod tests {
             started_at_ms: 10,
             item: TurnItem::CommandExecution(CommandExecutionItem {
                 model_context: None,
+                sandbox_type: None,
                 id: "exec-1".into(),
                 plugin_id: Some("sample@openai-curated".into()),
                 script_path: Some("scripts/run.py".into()),
@@ -5586,12 +5571,9 @@ mod tests {
                 source: ExecCommandSource::Agent,
                 interaction_input: None,
                 status: CommandExecutionStatus::InProgress,
-                stdout: None,
-                stderr: None,
                 aggregated_output: None,
                 exit_code: None,
                 duration: None,
-                formatted_output: None,
             }),
         };
         let completed = ItemCompletedEvent {
@@ -5601,6 +5583,7 @@ mod tests {
             completed_at_ms: 20,
             item: TurnItem::CommandExecution(CommandExecutionItem {
                 model_context: None,
+                sandbox_type: None,
                 id: "exec-1".into(),
                 plugin_id: Some("sample@openai-curated".into()),
                 script_path: Some("scripts/run.py".into()),
@@ -5613,12 +5596,9 @@ mod tests {
                 source: ExecCommandSource::Agent,
                 interaction_input: None,
                 status: CommandExecutionStatus::Completed,
-                stdout: Some("done\n".into()),
-                stderr: Some(String::new()),
                 aggregated_output: Some("done\n".into()),
                 exit_code: Some(0),
                 duration: Some(Duration::from_millis(5)),
-                formatted_output: Some("done\n".into()),
             }),
         };
 
@@ -5868,6 +5848,7 @@ mod tests {
             misalignment: Some(MisalignmentErrorDetails {
                 error_type: Some("unauthorized_data_transfer".to_string()),
                 detailed_explanation: Some("Sensitive customer explanation".to_string()),
+                review_target: Some("sensitive-review-target".to_string()),
                 steer: Some(MisalignmentSteer {
                     message: "Sensitive customer steering".to_string(),
                 }),
@@ -5889,6 +5870,7 @@ mod tests {
         let debug = format!("{event:?}");
         assert!(!debug.contains("Sensitive customer explanation"));
         assert!(!debug.contains("Sensitive customer steering"));
+        assert!(!debug.contains("sensitive-review-target"));
     }
 
     #[test]
@@ -6276,7 +6258,6 @@ mod tests {
                 active_permission_profile: None,
                 cwd: test_path_buf("/home/user/project").abs(),
                 reasoning_effort: Some(ReasoningEffortConfig::default()),
-                initial_messages: None,
                 network_proxy: None,
                 rollout_path: Some(rollout_file.path().to_path_buf()),
             }),

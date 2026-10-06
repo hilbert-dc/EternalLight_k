@@ -2,6 +2,7 @@ use super::*;
 use crate::agents_md_manager::AgentsMdManager;
 use crate::context::ContextualUserFragment;
 use crate::context_manager::ContextManager;
+use crate::session::Submission;
 use codex_guardian_reviewer::ReviewerRequest;
 use codex_guardian_reviewer::guardian_output_contract_prompt;
 use codex_history::CodexHarnessMetadata;
@@ -13,7 +14,6 @@ use codex_protocol::openai_models::AutoReviewMessages;
 use codex_protocol::openai_models::ModelMessages;
 use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::ErrorEvent;
-use codex_protocol::protocol::Submission;
 use codex_protocol::protocol::TurnAbortReason;
 use codex_protocol::protocol::TurnAbortedEvent;
 use codex_protocol::protocol::TurnCompleteEvent;
@@ -27,10 +27,6 @@ async fn run_review_preserves_evidence_during_parent_compaction() {
             codex_login::CodexAuth::from_api_key("Test API Key"),
             Vec::new(),
             |config| {
-                config
-                    .features
-                    .enable(Feature::GuardianThreadContext)
-                    .unwrap();
                 config.features.disable(Feature::TokenBudget).unwrap();
             },
         )
@@ -49,7 +45,6 @@ async fn run_review_preserves_evidence_during_parent_compaction() {
     .unwrap();
     params.parent_session = Arc::clone(&parent);
     params.parent_context = GuardianReviewContext::from(Arc::clone(&turn));
-    params.compaction_model_hash = Some("matching".to_owned());
     let evidence: ResponseItem = serde_json::from_value(serde_json::json!({
         "type": "function_call_output", "call_id": "prior-inspection", "output": EVIDENCE
     }))
@@ -65,7 +60,7 @@ async fn run_review_preserves_evidence_during_parent_compaction() {
         &params.spawn_config,
         parent.inherited_instructions().await,
         params.parent_history.history_version(),
-        parent.guardian_context_mode,
+        GuardianContextMode::ThreadOwned,
     )
     .with_environments(params.parent_context.environments())
     .with_node_repl_policy_eligibility(
@@ -87,9 +82,10 @@ async fn run_review_preserves_evidence_during_parent_compaction() {
     parent
         .replace_compacted_history(
             vec![checkpoint.into()],
-            /*reference_context_item*/ None,
-            /*world_state_baseline*/ None,
+            turn.to_turn_context_item(),
+            crate::context::world_state::WorldStateSnapshot::default(),
             crate::compact::CompactedHistoryMetadata {
+                input_goal_ids: Default::default(),
                 message: String::new(),
                 window_number,
                 window_ids,
@@ -163,6 +159,9 @@ async fn test_review_session() -> (
             reuse_key,
             state: Mutex::new(GuardianReviewState {
                 conversation: ConversationState::default(),
+                fresh_parent_checkpoint: false,
+                transcript_history_version: 0,
+                transcript_source: None,
                 last_admitted_node_repl_response_sequence: 0,
                 pending_node_repl_evidence_admission: None,
             }),
@@ -198,6 +197,7 @@ fn turn_aborted_event(turn_id: &str) -> Event {
             turn_id: Some(turn_id.to_string()),
             started_at: None,
             reason: TurnAbortReason::Interrupted,
+            error: None,
             completed_at: None,
             duration_ms: None,
         }),
@@ -230,6 +230,7 @@ async fn test_review_params() -> GuardianReviewSessionParams {
         parent_context: GuardianReviewContext::from(Arc::new(turn)),
         spawn_config,
         node_repl_policy: GuardianNodeReplPolicy::from_messages(ResolvedModelMessages::bundled()),
+        category: GuardianScope::Shell,
         request: GuardianApprovalRequest::ExecCommand {
             id: "shell-1".to_string(),
             environment_id: codex_exec_server::LOCAL_ENVIRONMENT_ID.to_string(),
@@ -251,7 +252,6 @@ async fn test_review_params() -> GuardianReviewSessionParams {
             model_overridden: false,
             model_override: None,
         },
-        compaction_model_hash: None,
         reasoning_summary,
         personality,
         external_cancel: None,
@@ -299,7 +299,7 @@ async fn spawned_guardian_reuse_key_matches_inherited_instructions() {
             ..Default::default()
         },
         /*parent_history_version*/ 0,
-        parent.guardian_context_mode,
+        GuardianContextMode::ThreadOwned,
     );
     let expected_key = GuardianReviewSessionReuseKey {
         user_instructions: latest_global,
@@ -449,17 +449,14 @@ async fn guardian_review_session_config_change_invalidates_cached_session() {
     );
 }
 
-#[test_case::test_case(true; "thread owned")]
-#[test_case::test_case(false; "legacy")]
+#[test_case::test_case(GuardianContextMode::ThreadOwned; "thread owned")]
+#[test_case::test_case(GuardianContextMode::Legacy; "legacy checkpoint")]
 #[tokio::test]
-async fn encrypted_parent_compaction_requires_original_item_id(thread_context_enabled: bool) {
+async fn encrypted_parent_compaction_requires_original_item_id(mode: GuardianContextMode) {
     let (session, _) = crate::session::tests::make_session_and_context().await;
-    let mut features = session.get_config().await.features.clone();
-    features
-        .set_enabled(Feature::GuardianThreadContext, thread_context_enabled)
-        .expect("context mode");
-    let policy =
-        ReviewContextPolicy::for_context(GuardianContextMode::from_features(&features), &features);
+    let features = session.get_config().await.features.clone();
+
+    let policy = ReviewContextPolicy::for_context(mode, &features);
     let item = ResponseItem::Compaction {
         id: Some(codex_protocol::ResponseItemId::from_server(
             "cmp_guardian_parent_summary".to_string(),
@@ -478,7 +475,7 @@ async fn encrypted_parent_compaction_requires_original_item_id(thread_context_en
     }]);
     assert_eq!(
         policy
-            .parent_compaction(&history, Some("compatible"))
+            .parent_compaction(&history)
             .expect("valid checkpoint"),
         Some(item)
     );
@@ -493,8 +490,8 @@ async fn encrypted_parent_compaction_requires_original_item_id(thread_context_en
         .into(),
     );
     history.replace_annotated(items);
-    let result = policy.parent_compaction(&history, Some("compatible"));
-    if thread_context_enabled {
+    let result = policy.parent_compaction(&history);
+    if mode == GuardianContextMode::ThreadOwned {
         assert!(result.is_err());
     } else {
         assert_eq!(result.expect("legacy omission"), None);
@@ -657,6 +654,7 @@ async fn guardian_review_session_config_resolves_policy_and_template(
         Some(
             GuardianPolicyInstructions::new(
                 expected_policy,
+                "",
                 expected_template,
                 guardian_output_contract_prompt(),
             )
@@ -1070,4 +1068,51 @@ async fn prewarm_test_session(
     .unwrap();
     pool.prewarm(Arc::new(context), key).await.unwrap();
     pool
+}
+
+#[tokio::test]
+async fn parent_checkpoint_recovery_stops_after_one_restart() {
+    let mut params = test_review_params().await;
+    params.parent_history.replace(vec![
+        serde_json::from_value(serde_json::json!({
+            "type": "compaction", "id": "cmp-parent", "encrypted_content": "parent checkpoint"
+        }))
+        .unwrap(),
+    ]);
+    let spawns = Arc::new(std::sync::atomic::AtomicUsize::default());
+    let observed_spawns = Arc::clone(&spawns);
+    let pool = Arc::new(GuardianReviewSessionManager::new(
+        Arc::new(codex_guardian_reviewer::ReviewerTasks::default()),
+        move |_, key, _, _, _| {
+            let spawns = Arc::clone(&spawns);
+            Box::pin(async move {
+                assert!(
+                    spawns.fetch_add(/*val*/ 1, Ordering::SeqCst) < 2,
+                    "recovery must not loop"
+                );
+                let (mut reviewer, _events, _submissions) = test_review_session().await;
+                reviewer.reuse_key = key;
+                reviewer.state.lock().await.conversation.complete_review(
+                    GuardianTranscriptCursor {
+                        parent_history_version: 0,
+                        transcript_entry_count: 0,
+                    },
+                );
+                // Every attempted reviewer loses its admitted evidence, including
+                // the replacement. The second failure must be returned to the caller.
+                reviewer
+                    .session
+                    .replace_history(Vec::new(), /*reference_context_item*/ None)
+                    .await;
+                Ok(reviewer)
+            })
+        },
+    ));
+    let (outcome, _) = setup::run_guardian_review_session(Arc::clone(&pool), params).await;
+    assert!(matches!(
+        outcome,
+        GuardianReviewSessionOutcome::PromptBuildFailed(_)
+    ));
+    assert_eq!(observed_spawns.load(Ordering::SeqCst), 2);
+    assert!(pool.trunk().await.is_none());
 }
