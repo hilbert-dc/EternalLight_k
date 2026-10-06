@@ -1,0 +1,20 @@
+:root dialog.saved-analysis-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; margin: auto; padding: 24px; border: 1px solid var(--nc-border); border-radius: 12px; background: var(--nc-surface); color: var(--nc-ink); font-size: 14px; line-height: 1.7; }
+:root dialog.saved-analysis-dialog::backdrop { background: rgb(0 0 0 / 35%); }
+:root .saved-analysis-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+:root .saved-analysis-dialog h2 { margin: 0; color: var(--nc-ink); font-size: 20px; }
+:root .saved-analysis-dialog h3 { margin: 0 0 8px; color: var(--nc-ink); font-size: 15px; }
+:root .saved-analysis-dialog h4 { margin: 0 0 8px; color: var(--nc-ink); font-size: 14px; }
+:root .saved-analysis-dialog p, :root .saved-analysis-dialog li, :root .saved-analysis-dialog dd { overflow-wrap: anywhere; white-space: pre-wrap; }
+:root .saved-analysis-dialog section { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--nc-border); }
+:root .saved-analysis-dialog article + article { margin-top: 16px; }
+:root .saved-analysis-dialog blockquote { margin: 8px 0; padding: 8px 12px; border-left: 2px solid var(--nc-border-strong); color: var(--nc-ink-soft); background: var(--nc-surface-subtle); white-space: pre-wrap; overflow-wrap: anywhere; }
+:root .saved-analysis-dialog button { width: 32px; min-height: 32px; padding: 0; border: 1px solid var(--nc-border-strong); border-radius: 5px; color: var(--nc-ink); background: var(--nc-surface); font: inherit; font-size: 20px; cursor: pointer; }
+:root .saved-analysis-dialog button:focus-visible, :root .saved-analysis-dialog summary:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 3px; }
+:root .saved-analysis-dialog summary { cursor: pointer; overflow-wrap: anywhere; }
+:root .saved-analysis-dialog dl { display: grid; gap: 8px; margin: 12px 0; }
+:root .saved-analysis-dialog dt, :root .saved-analysis-dialog small, :root .saved-analysis-notice { color: var(--nc-ink-soft); }
+:root .saved-analysis-dialog dd { margin: 0; }
+:root .saved-analysis-dialog .saved-analysis-scope { font-weight: 600; }
+:root .saved-analysis-warning { padding: 8px 12px; border-left: 2px solid var(--nc-amber); }
+:root .saved-analysis-source { margin-top: 20px; border-top: 1px solid var(--nc-border); padding-top: 16px; }
+@media (max-width: 480px) { :root dialog.saved-analysis-dialog { padding: 16px; } }

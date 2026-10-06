@@ -1,0 +1,21 @@
+exports[`exact task results preserve source, navigation and publication check recovery 1`] = `
+{
+  "resultLabels": [
+    "查看第 1 章正文",
+    "检查第 2 章故事设定",
+    "检查创作简报",
+    "检查全书大纲",
+    "检查近章规划",
+    "检查世界规则",
+    "查看第 7 章伏笔建议",
+    "检查这条伏笔修订"
+  ],
+  "narrowFits": true,
+  "recovered": {
+    "revisionId": "source-1",
+    "reviewId": "review",
+    "reviewWrites": 1,
+    "saves": 0
+  }
+}
+`;

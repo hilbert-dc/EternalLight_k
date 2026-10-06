@@ -11,8 +11,8 @@ export function WriterContextDetails({ preview }: { preview: WriterContextPrevie
     <div><strong>{plan?.publicTitle || "无公开标题"}</strong><small>作品 v{preview.target.projectRevision}</small></div>
     <p>{plan?.writerGuidance || "当前范围没有公开写作指引。"}</p>
     <small>公开承诺：{plan?.publicCommitments?.join("；") || "无"} · 视角：{position.povCharacterId || "未指定"} · 故事时间：{position.storyTime ?? "未指定"}</small>
-    {target && <small>当前目标稿：第 {target.content.chapterNumber} 章 · {target.authority === "accepted" ? "正式稿" : target.authority === "working" ? "作者选定工作稿" : "候选稿"}{target.workingSelectionRevision != null ? "（已选为后续依据）" : ""}</small>}
-    {references.length ? <details><summary>参考前文 · {references.length} 项</summary>{references.map(source => <small key={source.sourceRevisionId}>第 {source.content.chapterNumber} 章 · {source.authority === "accepted" ? "正式稿" : source.authority === "working" ? "作者选定工作稿" : "候选稿"}{source.workingSelectionRevision != null ? "（已选为后续依据）" : ""}</small>)}</details> : <small>当前范围未包含前文正文</small>}
+    {target && <small>正在创作：第 {target.content.chapterNumber} 章 · {target.authority === "accepted" ? "已发布内容" : target.authority === "working" ? "已选定的编辑内容" : "尚未发布的内容"}{target.workingSelectionRevision != null ? "（用于继续创作）" : ""}</small>}
+    {references.length ? <details><summary>参考前文 · {references.length} 项</summary>{references.map(source => <small key={source.sourceRevisionId}>第 {source.content.chapterNumber} 章 · {source.authority === "accepted" ? "已发布内容" : source.authority === "working" ? "已选定的编辑内容" : "尚未发布的内容"}{source.workingSelectionRevision != null ? "（用于继续创作）" : ""}</small>)}</details> : <small>当前范围未包含前文正文</small>}
     <small>覆盖：{preview.coverage.complete ? "已覆盖请求范围" : "尚有未覆盖范围"} · 语义完整性尚未认证</small>
     <small>上下文 {preview.budgetsUsed.byteSize} / {preview.budgetsUsed.byteLimit} 字节 · 已带入事实 {preview.coverage.scannedScope.factsIncluded} 条</small>
     {preview.coverage.missingScope.length > 0 && <small>未覆盖项：{preview.coverage.missingScope.join("、")}</small>}

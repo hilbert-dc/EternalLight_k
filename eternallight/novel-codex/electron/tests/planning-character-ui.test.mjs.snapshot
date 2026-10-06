@@ -1,0 +1,79 @@
+exports[`planning POV keeps exact source identity across reads and project changes 1`] = `
+[
+  {
+    "case": "exact raw sources",
+    "options": [
+      {
+        "value": "",
+        "label": "未指定"
+      },
+      {
+        "value": "A-raw-a",
+        "label": "林夕 · 林夕握着旧信，望向海面。 · 来源 1"
+      },
+      {
+        "value": "A-raw-b",
+        "label": "林夕 · 林夕握着旧信，望向海面。 · 来源 2 · 身份已合并（原始来源）"
+      }
+    ],
+    "saved": {
+      "povCharacterId": "A-raw-b"
+    },
+    "unknownSecond": "other-unknown",
+    "detailsClosed": true
+  },
+  {
+    "case": "scope and retry",
+    "options": [
+      {
+        "value": "",
+        "label": "未指定"
+      },
+      {
+        "value": "A-raw-b",
+        "label": "当前人物（名称暂缺）"
+      },
+      {
+        "value": "A-new-raw-a",
+        "label": "林夕 · 林夕握着旧信，望向海面。 · 来源 1"
+      },
+      {
+        "value": "A-new-raw-b",
+        "label": "林夕 · 林夕握着旧信，望向海面。 · 来源 2 · 身份已合并（原始来源）"
+      }
+    ],
+    "changes": [
+      "A-raw-b"
+    ],
+    "reads": [
+      "A",
+      "A",
+      "A",
+      "A",
+      "B",
+      "A"
+    ],
+    "notePreserved": true
+  },
+  {
+    "case": "light 330",
+    "fits": true,
+    "optionsReadable": true
+  },
+  {
+    "case": "light 740",
+    "fits": true,
+    "optionsReadable": true
+  },
+  {
+    "case": "dark 330",
+    "fits": true,
+    "optionsReadable": true
+  },
+  {
+    "case": "dark 740",
+    "fits": true,
+    "optionsReadable": true
+  }
+]
+`;

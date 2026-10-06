@@ -8,7 +8,7 @@ const check = (value, message) => { if (!value) throw new Error(message); };
 const click = async label => { const button = [...document.querySelectorAll("button")].find(item => item.textContent === label); check(button && !button.disabled, `Unavailable ${label}`); button.click(); await tick(); };
 const runId = "generation-" + "a".repeat(32);
 let source = "b".repeat(64); let fail = false; let defer = false; let release; let submissions = []; let confirmed = []; let chapterMode = false;
-const preview = projectId => ({ run: { id: runId, authorMessageId: "author-message-generation-replan-ui", projectId, version: 7, status: "paused", stage: chapterMode ? "draft" : "outline", activeTaskId: chapterMode ? "failed-attempt" : null, currentChapterId: chapterMode ? "chapter-1" : null, pendingCurrentIntentGeneration: null, maxTaskAttempts: 12, usedTaskAttempts: 2, providerBudget: { maxRequests: 100, maxTokens: 100_000, usedRequests: 7, usedTokens: 12_000, unknownTokens: 2_000, overrun: false, charges: [] }, completedChapters: 0, targetChapters: 1, deadlineAt: 2000000000 }, projectRevision: 2, sourceDigest: source, availableFrom: chapterMode ? ["currentChapter"] : ["brief", "outline"], activeAttemptStatus: chapterMode ? "failed" : null });
+const preview = projectId => ({ run: { id: runId, authorMessageId: "author-message-generation-replan-ui", projectId, version: 7, status: "paused", stage: "coordinate", activeTaskId: chapterMode ? "failed-attempt" : null, currentChapterId: chapterMode ? "chapter-1" : null, pendingCurrentIntentGeneration: null, maxTaskAttempts: null, usedTaskAttempts: 2, providerBudget: { maxRequests: null, maxTokens: null, usedRequests: 7, usedTokens: 12_000, unknownTokens: 2_000, overrun: false, charges: [] }, completedChapters: 0, targetChapters: 1, deadlineAt: null }, projectRevision: 2, sourceDigest: source, availableFrom: chapterMode ? ["currentChapter"] : ["brief", "outline"], activeAttemptStatus: chapterMode ? "failed" : null });
 const api = { runtime: {
   previewGenerationReplan: async projectId => defer ? new Promise(resolve => { release = resolve; }) : preview(projectId),
   replanGeneration: async (projectId, id, request) => { submissions.push({ projectId, id, request }); if (fail) throw new Error("作品已变化"); return { ...preview(projectId).run, status: "running" }; },
@@ -17,7 +17,7 @@ const root = createRoot(document.getElementById("root"));
 const render = projectId => root.render(<main style={{ width: "min(640px, 90vw)", margin: "40px auto" }}><GenerationReplanPanel api={api} projectId={projectId} runId={runId} disabled={false} onConfirmed={value => confirmed.push(value)} /></main>);
 (async () => {
   render("project"); await tick(); await click("预览重规划");
-  check(document.body.textContent.includes("剩余 10 次任务尝试") && document.body.textContent.includes("剩余 93 次请求") && document.body.textContent.includes("保留当前简报"), "Missing decision context");
+  check(document.body.textContent.includes("已执行 2 次任务") && document.body.textContent.includes("已请求 7 次") && document.body.textContent.includes("保留当前简报"), "Missing decision context");
   const input = document.querySelector("textarea");
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(input, "按新藏信设定重新规划"); input.dispatchEvent(new Event("input", { bubbles: true })); await tick();
   window.uiReady = true; await new Promise(resolve => setTimeout(resolve, 400));

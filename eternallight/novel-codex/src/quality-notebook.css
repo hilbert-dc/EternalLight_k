@@ -1,0 +1,14 @@
+.quality-notebook { margin-top: 12px; }
+.quality-notebook article { padding: 14px 0; border-bottom: 1px solid var(--nc-border); }
+.quality-notebook .quality-meta { font-size: 12px; color: var(--nc-ink-soft); line-height: 1.6; }
+.quality-notebook form, .quality-notebook label:not(.quality-select) { display: grid; gap: 8px; margin: 10px 0; }
+.quality-notebook input:not([type=checkbox]), .quality-notebook textarea, .quality-notebook select { box-sizing: border-box; width: 100%; max-width: 100%; font: inherit; padding: 8px; border: 1px solid var(--nc-border); border-radius: 5px; background: var(--nc-surface); color: var(--nc-ink); }
+.quality-notebook textarea { min-height: 72px; resize: vertical; }
+.quality-notebook blockquote { margin: 8px 0; padding-left: 12px; border-left: 2px solid var(--nc-border-strong); color: var(--nc-ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.quality-notebook .quality-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.quality-notebook details { margin: 12px 0; }
+.quality-notebook summary { cursor: pointer; line-height: 1.8; }
+.quality-notebook .quality-prose { white-space: pre-wrap; }
+.quality-notebook .quality-reader { margin-top: 20px; border-top: 1px solid var(--nc-border); }
+.quality-notebook :is(input,textarea,select,summary):focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+.quality-notebook button:disabled { opacity: .55; cursor: default; }

@@ -10,7 +10,7 @@ const click = async label => { const value = button(label); check(value && !valu
 const acknowledge = async () => { document.querySelector('input[type="checkbox"]').click(); await tick(); };
 let planId = "new-plan"; let draftId = "draft-current"; let reads = 0; let fail = true; let deferPreview = false; let deferSubmit = false; let release; let submissions = []; let disabled = false; let hasUpdate = true; let refreshes = 0;
 const workspace = projectId => ({ project: { id: projectId }, revision: 2,
-  chapters: [{ id: "chapter-1", number: 1, candidate: { id: draftId, body: "他藏好密函，等待白塔亮灯。" }, accepted: null }],
+  chapters: [{ id: "chapter-1", number: 1, candidate: { id: draftId, title: "白塔", body: "他藏好密函，等待白塔亮灯。" }, accepted: null }],
   chapterPlanBindings: [{ chapter_id: "chapter-1", chapter_plan_id: "plan-1", plan_revision_id: "old-plan", writerProjection: { publicTitle: "焚信", writerGuidance: "主角焚烧密函，拒绝留下证词。" } }, { chapter_id: "chapter-2", chapter_plan_id: "occupied", plan_revision_id: "old-plan" }],
   artifacts: { plan: { candidate: { id: planId, payload: { chapters: [
     { chapterPlanId: "plan-1", chapterNumber: 1, publicTitle: "藏信", writerGuidance: "主角保留密函，在亮灯时记录证词。" },

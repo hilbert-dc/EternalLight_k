@@ -1,0 +1,86 @@
+.work-task-panel.conversation-panel {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--nc-ink);
+  overflow-wrap: anywhere;
+}
+
+.work-task-panel .work-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 0;
+}
+
+.work-task-panel .work-task-row {
+  display: block;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0 0 20px;
+  border-bottom: 1px solid var(--nc-border);
+}
+
+.work-task-row > .user-message .conversation-message-meta {
+  display: flex;
+  margin-bottom: 6px;
+}
+
+.work-task-panel .work-task-status {
+  color: var(--nc-ink-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.work-task-panel .work-task-row > p,
+.work-task-panel .work-task-execution {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.work-task-execution > summary {
+  cursor: pointer;
+  color: var(--nc-ink-muted);
+  padding: 6px 0;
+}
+
+.work-task-execution > ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.work-task-execution li + li {
+  margin-top: 10px;
+}
+
+.work-task-changes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid var(--nc-border);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 12px;
+}
+
+.work-task-changes .work-task-change {
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.work-task-panel .conversation-load-earlier {
+  display: block;
+  margin: 0 auto 20px;
+}
+
+.work-task-panel .saved-task-reply {
+  margin: 8px 0 0;
+}
+
+.work-task-panel .work-task-controls:empty {
+  display: none;
+}

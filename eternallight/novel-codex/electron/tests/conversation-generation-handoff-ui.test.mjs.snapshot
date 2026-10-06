@@ -1,0 +1,32 @@
+exports[`actual App exposes one source-bound generation approval in ordinary conversation on any page 1`] = `
+[
+  {
+    "case": "characters proposal cancel",
+    "oneCard": true,
+    "zeroGenerate": true,
+    "sameDraftDOM": true
+  },
+  {
+    "case": "stale proposal",
+    "generateCalls": 0,
+    "sourceErrorVisible": true
+  },
+  {
+    "case": "exact scope approval",
+    "goalUnchanged": true,
+    "targetChapters": 2,
+    "proposalId": "proposal-3",
+    "generateCalls": 1,
+    "draftPreserved": true,
+    "authorMessages": 1
+  },
+  {
+    "case": "initial generation host-proven not started",
+    "localError": "原任务尚未启动：MCP 首次启动超时",
+    "duplicateAuthorTurn": false,
+    "consumedPermitRestored": false,
+    "draftDOMAndCaretPreserved": true,
+    "automaticReplay": false
+  }
+]
+`;

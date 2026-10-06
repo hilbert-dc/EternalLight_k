@@ -1,0 +1,6 @@
+.chapter-delete-dialog { width: min(440px, calc(100vw - 32px)); }
+.chapter-delete-dialog p { line-height: 1.6; overflow-wrap: anywhere; }
+.chapter-delete-dialog .chapter-delete-target { font-weight: 600; }
+.chapter-delete-dialog small { color: var(--nc-ink-soft); }
+.chapter-delete-dialog footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+.chapter-delete-dialog .chapter-delete-confirm, .directory-menu .directory-menu-danger { color: var(--nc-red); }

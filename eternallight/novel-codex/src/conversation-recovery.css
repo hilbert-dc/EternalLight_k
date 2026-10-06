@@ -1,0 +1,11 @@
+.conversation-recovery { margin: 0 0 16px; padding: 10px 0; border-bottom: 1px solid var(--nc-border); color: var(--nc-ink); font-size: 12px; }
+.conversation-recovery > summary { cursor: pointer; font-weight: 600; }
+.conversation-recovery > p { color: var(--nc-ink-soft); line-height: 1.6; margin: 10px 0; overflow-wrap: anywhere; }
+.conversation-recovery-row { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--nc-border); }
+.conversation-recovery-row small { color: var(--nc-ink-soft); }
+.conversation-recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.conversation-recovery-actions .secondary-button { padding: 6px 9px; font-size: 12px; }
+.conversation-recovery > p[role="alert"] { color: var(--nc-red); }
+
+.conversation-recovery-preview { min-width: 0; overflow-wrap: anywhere; }
+.conversation-recovery-preview article { border-top: 1px solid var(--nc-border); margin-top: 10px; padding-top: 10px; }

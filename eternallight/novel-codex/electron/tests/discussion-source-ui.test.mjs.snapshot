@@ -1,0 +1,26 @@
+exports[`actual App binds discussion sources and opens exact catalogue decisions without writes 1`] = `
+[
+  {
+    "case": "exact reference across pages, projects and retry",
+    "sent": {
+      "kind": "claim",
+      "projectId": "project-last-lamp",
+      "snapshotId": "snapshot-project-last-lamp",
+      "objectId": "draft-chapter-01",
+      "revisionId": "project-last-lamp-draft",
+      "modelingBatchId": "batch-1",
+      "assertionIndex": 1
+    },
+    "nextDraftRetained": true
+  },
+  {
+    "case": "directory opens exact existing author decision",
+    "summary": "准确伏笔 two",
+    "writes": 0
+  },
+  {
+    "case": "late catalogue read isolated",
+    "writes": 0
+  }
+]
+`;

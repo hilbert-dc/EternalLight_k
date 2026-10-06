@@ -9,7 +9,7 @@ const check = (condition, message) => { if (!condition) throw new Error(message)
 
 const calls = [];
 const workspace = {
-  chapters: [{ id: "chapter-one", number: 1, title: "白塔", candidate: { id: "draft-after", parentRevisionId: "draft-before" }, accepted: null }],
+  chapters: [{ id: "chapter-one", number: 1, title: "白塔", candidate: { id: "draft-after", title: "白塔", parentRevisionId: "draft-before" }, accepted: null }],
   modeling: [{ status: "ready", entities: [{ id: "linxi", displayName: "林夕" }] }],
 };
 const api = { runtime: {

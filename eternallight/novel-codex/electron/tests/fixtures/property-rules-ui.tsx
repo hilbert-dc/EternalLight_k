@@ -1,9 +1,10 @@
+import { chapterRuntimeReads } from "../helpers/chapter-runtime";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../../src/App";
 import { PropertyRulesPanel } from "../../../src/PropertyRulesPanel";
 import { ruleInputError } from "../../../src/PropertyRuleFields";
-import { saveAuthor, clearAuthor } from "../../../src/author-session";
+import { saveAuthor, clearAuthor } from "../helpers/author-session";
 import "../../../src/styles.css";
 
 window.addEventListener("error", (event) => { window.testResult = { passed: false, error: event.error?.stack ?? event.message }; });
@@ -20,8 +21,10 @@ const field = async (text, value) => {
 };
 const project = { id: "rules-A", title: "规则测试作品", logline: "", updated_at: "" };
 const state = { project, canon: { characters: [], relationships: [], events: [], locations: [], plotThreads: [], worldRules: [], notes: [] }, narrativeIr: { version: "1.0", scenes: [], anchors: [] }, novelEdition: { chapters: [] } };
-const blank = () => ({ revision: 0, artifacts: { propertyRules: { candidate: null, accepted: null, working: null, workingSelection: null, locked: false } }, reviews: [], commits: [] });
-const workspaces = { "rules-A": blank(), "rules-B": blank() };
+const blank = id => ({ project: { ...project, id }, revision: 0, headSnapshotId: "rules-head", sourceDigest: "a".repeat(64), index: { status: "ready" },
+  artifacts: Object.fromEntries(["brief", "outline", "plan", "identity", "propertyRules"].map(kind => [kind, { candidate: null, accepted: null, working: null, workingSelection: null, locked: false }])),
+  chapters: [], reviews: [], commits: [], workingBaselines: [], continuationIntents: [], planningReviews: [], tasks: [], impacts: [], modeling: [], factProposals: [], chapterPlanBindings: [] });
+const workspaces = { "rules-A": blank("rules-A"), "rules-B": blank("rules-B") };
 let serial = 0, closeRequested, confirmedCloses = 0, releaseSave, failRead = false, failReview = false;
 let saveMode = "normal", heldRead = null, savedHandler, discardHandler, dirty = false;
 const requests = [], receipts = new Map();
@@ -29,8 +32,9 @@ let reviews = 0, accepts = 0, undos = 0;
 const api = {
   app: { onCloseRequested: (handler) => { closeRequested = handler; return () => {}; }, confirmClose: async () => { confirmedCloses += 1; }, cancelClose: async () => {} },
   agent: { onEvent: () => () => {}, onUserInputRequest: () => () => {}, status: async () => ({ configured: false, state: "idle", mode: "novel-agent-engine", error: null }),
-    listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listProposedActions: async () => ({ actions: [] }), setModelingContext: async () => ({ selected: true }) },
-  runtime: {
+    listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => ({ selected: true }) },
+  runtime: { ...chapterRuntimeReads(id => ({ ...project, id })), listWorkTasks: async () => ({ tasks: [], nextCursor: null, activeCount: 0 }),
+    ...Object.fromEntries(["Search", "Entity", "Relation", "Knowledge", "SnapshotKnowledge", "Fact"].map(kind => [`get${kind}Audit`, async () => ({ job: null })])),
     status: async () => ({ state: "online", mode: "local", error: null }), listProjects: async () => ({ projects: [project] }), getState: async () => state,
     getCreativeWorkspace: async (projectId) => {
       const result = structuredClone(workspaces[projectId]);

@@ -142,14 +142,14 @@ export function IndexAuditPanel({ api, projectId, refreshToken, kind, onState }:
   const restartable = !visible || ["completed", "stale", "failed", "cancelled"].includes(visible.status);
   const running = visible && ["queued", "running"].includes(visible.status);
   const controllable = visible && ["queued", "running", "paused"].includes(visible.status);
-  const statusLabel = error || actionError ? "需要处理" : !loaded ? "读取中" : !visible ? "尚未校验"
-    : running ? "进行中" : visible.status === "paused" ? "已暂停" : visible.status === "stale" ? "来源已变化"
+  const statusLabel = error || actionError ? "需要处理" : !loaded ? "读取中" : !visible ? "未运行"
+    : running ? "进行中" : visible.status === "paused" ? "已暂停" : visible.status === "stale" ? "报告已过期"
       : visible.status === "failed" ? "失败" : visible.status === "cancelled" ? "已取消"
         : visible.verifiedConsistent === true ? "一致" : visible.verifiedConsistent === false ? "发现不一致" : "未完成核验";
 
-  return <details className="creative-alert" aria-label={title}>
-    <summary>{title} · {statusLabel}</summary>
-    <p>{visible ? `已核对 ${progress} / ${visible.sourceCount} 个${kind === "search" ? "修订" : kind === "snapshotKnowledge" ? "快照成员" : kind === "fact" ? "确认事实" : "建模批次"}。` : "尚未执行全量校验。"} 该检查只覆盖{scope}，不代表故事知识已全部建模。</p>
+  return <details className="diagnostic-check" aria-label={title}>
+    <summary><span>{title}</span><small>{statusLabel}</small></summary>
+    <p>{visible ? `已核对 ${progress} / ${visible.sourceCount} 个${kind === "search" ? "修订" : kind === "snapshotKnowledge" ? "快照成员" : kind === "fact" ? "确认事实" : "建模批次"}。` : ""} 检查范围：{scope}。</p>
     {visible?.verifiedConsistent === false && (kind === "search"
       ? <p role="alert">发现 {(visible as SearchAuditJobSummary).audit.mismatch_count} 个修订索引不一致、{(visible as SearchAuditJobSummary).audit.orphaned_documents} 个孤立文档、{(visible as SearchAuditJobSummary).audit.orphaned_grams} 个孤立索引项。检索结果可能遗漏内容。</p>
       : kind === "entity"
@@ -162,7 +162,7 @@ export function IndexAuditPanel({ api, projectId, refreshToken, kind, onState }:
             ? <p role="alert">确认事实关联错误 {(visible as FactAuditJobSummary).audit.invalidLinks} 条、载荷错误 {(visible as FactAuditJobSummary).audit.invalidPayloads} 条。涉及 {(visible as FactAuditJobSummary).audit.affectedFacts.join("、") || "未列出"}。权威事实不自动修复。</p>
           : <p role="alert">断言索引缺失 {(visible as KnowledgeAuditJobSummary).audit.assertions.missingClaims} 条、错误 {(visible as KnowledgeAuditJobSummary).audit.assertions.changedClaims} 条；来源依赖索引缺失 {(visible as KnowledgeAuditJobSummary).audit.assertions.missingDependencies} 条、多余 {(visible as KnowledgeAuditJobSummary).audit.assertions.extraDependencies} 条；人物认知索引缺失 {(visible as KnowledgeAuditJobSummary).audit.epistemic.missingClaims} 条、错误 {(visible as KnowledgeAuditJobSummary).audit.epistemic.changedClaims} 条；当前知识头缺失 {(visible as KnowledgeAuditJobSummary).audit.heads.missingHeads} 个、错误 {(visible as KnowledgeAuditJobSummary).audit.heads.changedHeads} 个、孤立 {(visible as KnowledgeAuditJobSummary).audit.heads.extraHeads} 个、来源失效 {(visible as KnowledgeAuditJobSummary).audit.heads.invalidReadyBatches} 批、来源歧义 {(visible as KnowledgeAuditJobSummary).audit.heads.ambiguousReadyBatches} 批。知识检索结果可能遗漏或错误。</p>)}
     {kind === "knowledge" && visible?.status === "completed" && visible.verifiedConsistent === false && <p role="alert">实体索引缺失 {(visible as KnowledgeAuditJobSummary).audit.entities.missingClaims} 条、多余 {(visible as KnowledgeAuditJobSummary).audit.entities.extraClaims} 条、错误 {(visible as KnowledgeAuditJobSummary).audit.entities.changedClaims} 条；名称索引缺失 {(visible as KnowledgeAuditJobSummary).audit.entities.missingNames} 条、多余 {(visible as KnowledgeAuditJobSummary).audit.entities.extraNames} 条。</p>}
-    {visible?.status === "stale" && <p>来源或索引已变化，请重新开始校验。</p>}
+    {visible?.status === "stale" && <p>数据已更新，这份报告不再反映当前状态。需要排查时可重新运行。</p>}
     {visible?.status === "failed" && <p role="alert">校验失败：{visible.error ?? "未知错误"}</p>}
     {error && <p role="alert">{error}</p>}
     {actionError && <p role="alert">{actionError}</p>}

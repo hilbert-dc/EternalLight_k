@@ -1,0 +1,62 @@
+exports[`actual App preserves author drafts by project and creates once until a receipt arrives 1`] = `
+{
+  "sizeNotice": "对话草稿过长，请先整理或复制保存，再切换作品。原文仍保留在输入框中。",
+  "capacityNotice": "已有 10 部作品保留对话草稿，请先发送或清空其中一份，再切换作品。当前输入仍保留。",
+  "retainedTitle": "一次创建",
+  "geometry": [
+    {
+      "theme": "light",
+      "surface": "project creation",
+      "width": 1400,
+      "height": 900,
+      "fields": 2,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0,
+      "focusTrapped": true
+    },
+    {
+      "theme": "dark",
+      "surface": "project creation",
+      "width": 1400,
+      "height": 900,
+      "fields": 2,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0,
+      "focusTrapped": true
+    },
+    {
+      "theme": "light",
+      "surface": "project creation",
+      "width": 900,
+      "height": 600,
+      "fields": 2,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0,
+      "focusTrapped": true
+    },
+    {
+      "theme": "dark",
+      "surface": "project creation",
+      "width": 900,
+      "height": 600,
+      "fields": 2,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0,
+      "focusTrapped": true
+    },
+    {
+      "surface": "failed creation",
+      "width": 1400,
+      "height": 900,
+      "fields": 2,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    }
+  ]
+}
+`;

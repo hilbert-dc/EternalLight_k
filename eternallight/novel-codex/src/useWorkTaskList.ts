@@ -6,6 +6,7 @@ const emptyPage: Page = { tasks: [], nextCursor: null, activeCount: 0 };
 type Scope = { api: NovelCodexApi | undefined; projectId: string };
 type ListState = Page & { scope: Scope; loaded: boolean; reading: boolean; loadingMore: boolean; error: string | null };
 type Reader = { scope: Scope; refresh: () => Promise<void>; more: () => Promise<void>; poll: () => void };
+export type WorkTaskList = ReturnType<typeof useWorkTaskList>;
 
 // This owns only the lifetime of UI reads, never task execution or domain state.
 export function useWorkTaskList(api: NovelCodexApi | undefined, projectId: string, refreshToken: number, agentRunning: boolean) {
@@ -68,6 +69,7 @@ export function useWorkTaskList(api: NovelCodexApi | undefined, projectId: strin
 
   const refresh = useCallback(() => readerRef.current?.scope === scope ? readerRef.current.refresh() : Promise.resolve(), [scope]);
   const loadMore = useCallback(() => readerRef.current?.scope === scope ? readerRef.current.more() : Promise.resolve(), [scope]);
+  const poll = useCallback(() => { if (readerRef.current?.scope === scope) readerRef.current.poll(); }, [scope]);
   // Initial read is owned by the lifecycle effect; subsequent external changes coalesce.
   const signalRef = useRef({ scope, refreshToken, agentRunning });
   useEffect(() => {
@@ -85,5 +87,5 @@ export function useWorkTaskList(api: NovelCodexApi | undefined, projectId: strin
     }, 1500);
     return () => window.clearInterval(timer);
   }, [agentRunning, running, scope]);
-  return { ...visible, refresh, loadMore, scope };
+  return { ...visible, refresh, loadMore, poll, scope };
 }

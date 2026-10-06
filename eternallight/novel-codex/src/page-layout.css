@@ -1,0 +1,112 @@
+/* Page-level rules are scoped above legacy component selectors. The chapter
+   document keeps its own scroll and typography contract. */
+:root .workspace .main-panel:not(.chapter-main-panel) {
+  position: relative;
+  padding: 20px clamp(16px, 2vw, 32px) 32px;
+  background: var(--nc-surface);
+  container: page / inline-size;
+  scroll-padding-block: 24px 100px;
+}
+:root .main-panel > :is(.content-header, .view-panel, .creative-workspace-view:not(.chapter-workspace-view), .property-rules-panel, .identity-decision-panel, .user-settings) { width: 100%; max-width: 960px; margin-inline: auto; min-width: 0; }
+:root .main-panel .content-header { min-height: 40px; margin-bottom: 16px; padding: 0 0 12px; gap: 12px; border-bottom: 1px solid var(--nc-border); }
+:root .main-panel .breadcrumbs h1 { margin: 0; font-family: inherit; font-size: 20px; font-weight: 600; line-height: 1.4; color: var(--nc-ink); }
+:root .main-panel .header-actions { flex-shrink: 0; }
+:root .main-panel .header-actions .secondary-button { padding: 6px 10px; min-height: 32px; background: transparent; box-shadow: none; }
+:root .main-panel .editor-toolbar { padding: 10px 16px; gap: 8px; flex-wrap: wrap; background: transparent; }
+:root .main-panel .editor-toolbar > div { min-width: 0; flex-wrap: wrap; }
+:root .main-panel .editor-toolbar .toolbar-actions { margin-left: auto; }
+:root .main-panel .chapter-editor { padding: 24px clamp(16px, 4cqw, 36px); max-width: 780px; margin: auto; }
+:root .main-panel .chapter-editor h2 { font-size: 26px; margin: 20px 0; }
+:root .main-panel .chapter-editor p { font-size: 16px; line-height: 1.9; overflow-wrap: anywhere; }
+:root .main-panel .chapter-meta { flex-wrap: wrap; gap: 6px 14px; }
+:root .main-panel .work-summary { color: var(--nc-ink-soft); font-size: 12px; padding-block: 12px; }
+:root .main-panel .view-panel { padding: 0; }
+:root .main-panel .view-intro { align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
+:root .main-panel .view-intro p { margin: 0; font-size: 13px; line-height: 1.65; }
+:root .main-panel .empty-state { min-height: 180px; padding: 36px 20px; gap: 12px; background: var(--nc-canvas); border: 1px dashed var(--nc-border); border-radius: 8px; box-shadow: none; }
+:root .main-panel .empty-state > span { font-size: 22px; }
+:root .main-panel .empty-state strong { font-size: 16px; color: var(--nc-ink); }
+:root .main-panel .empty-state p { max-width: 44ch; margin: 0; font-size: 13px; line-height: 1.7; color: var(--nc-ink-soft); }
+:root .main-panel .empty-state > div { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
+:root .main-panel .character-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; }
+:root .main-panel .big-character-card { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-content: start; gap: 4px 12px; padding: 16px; text-align: left; border-radius: 8px; box-shadow: none; }
+:root .main-panel .big-character-card .character-avatar { grid-row: 1 / 4; width: 40px; height: 40px; margin: 0; font-size: 18px; }
+:root .main-panel .big-character-card :is(h3, p, span) { margin: 0; overflow-wrap: anywhere; }
+:root .main-panel .big-character-card h3 { font-size: 15px; }
+:root .main-panel .big-character-card p { font-size: 13px; line-height: 1.5; }
+:root .main-panel .big-character-card > span { justify-self: start; font-size: 12px; }
+:root .main-panel :is(.list-card, .diff-card) { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+:root .main-panel .list-card:empty { display: none; }
+:root .main-panel .list-row { padding: 16px 0; gap: 12px; align-items: start; border-bottom: 1px solid var(--nc-border); }
+:root .main-panel .list-row > span { min-width: 0; overflow-wrap: anywhere; }
+:root .main-panel .list-row .list-index { flex: 0 0 80px; font-size: 12px; line-height: 1.6; }
+:root .main-panel .list-sub { white-space: normal; line-height: 1.65; font-size: 12px; }
+:root .main-panel .scene-beats { padding: 8px 0 16px; color: var(--nc-ink-soft); font-size: 12px; }
+:root .main-panel .scene-beats summary { cursor: pointer; }
+:root .main-panel .beat-list { margin: 10px 0 0; padding: 0 0 0 12px; border-left: 2px solid var(--nc-border); }
+:root :is(.main-panel, .module-records-popover) .diff-card { border-bottom: 1px solid var(--nc-border); padding: 14px 0; }
+:root :is(.main-panel, .module-records-popover) .diff-card summary { cursor: pointer; font-size: 14px; overflow-wrap: anywhere; }
+:root :is(.main-panel, .module-records-popover) .diff-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-top: 16px; }
+:root :is(.main-panel, .module-records-popover) .diff-columns section { min-width: 0; }
+:root :is(.main-panel, .module-records-popover) .diff-columns h3 { margin: 0 0 8px; color: var(--nc-ink-soft); font-size: 12px; }
+:root :is(.main-panel, .module-records-popover) .diff-columns :is(del, ins) { display: block; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 6px; line-height: 1.75; font-size: 14px; }
+:root .main-panel .creative-workspace-view:not(.chapter-workspace-view) { padding: 0 0 24px; gap: 20px; }
+:root .main-panel .creative-view-header { min-width: 0; padding: 0; border: 0; align-items: start; gap: 12px; }
+:root .main-panel .creative-view-header p { margin: 0; font-size: 13px; line-height: 1.65; }
+:root .main-panel .revision-badge { background: transparent; border: 0; padding: 0; font-size: 12px; white-space: nowrap; }
+:root .main-panel .artifact-editor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+:root .main-panel .artifact-editor-grid label { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0; gap: 6px; }
+:root .main-panel .artifact-editor-grid label > span { font-size: 13px; }
+:root .main-panel .artifact-editor-grid label > small { font-size: 12px; color: var(--nc-ink-soft); }
+:root .main-panel .artifact-editor-grid textarea { min-height: 110px; padding: 12px; font: inherit; font-size: 14px; line-height: 1.7; }
+:root .main-panel :is(.plan-editor-card, .outline-node > article) { border: 0; border-bottom: 1px solid var(--nc-border); border-radius: 0; box-shadow: none; padding: 16px 0; background: transparent; }
+:root .main-panel .outline-tree-editor .outline-node ol { margin-left: 12px; padding-left: 12px; }
+:root .main-panel .outline-node header input { min-width: 0; }
+:root .main-panel :is(.plan-advanced, .plan-writer-note) { border: 0; border-top: 1px solid var(--nc-border); padding: 10px 0 0; border-radius: 0; }
+:root .main-panel .planning-intent-card { border: 1px solid var(--nc-border); border-radius: 8px; box-shadow: none; padding: 14px; background: var(--nc-canvas); }
+:root .main-panel .planning-intent-card textarea { min-height: 72px; }
+:root .main-panel .candidate-toolbar:not(.chapter-save-toolbar) { flex-wrap: wrap; gap: 8px; bottom: -32px; margin-top: 8px; padding: 12px 0; border: 0; border-top: 1px solid var(--nc-border); border-radius: 0; background: var(--nc-surface); box-shadow: none; backdrop-filter: none; }
+:root .main-panel .candidate-toolbar .revision-authority-status { margin-right: auto; gap: 4px; }
+:root .main-panel :is(.identity-decision-panel, .property-rules-panel) { padding: 20px 0; border: 0; border-top: 1px solid var(--nc-border); border-radius: 0; box-shadow: none; }
+:root .main-panel :is(.identity-decision-panel, .property-rules-panel) header { flex-wrap: wrap; gap: 8px; }
+:root .main-panel :is(input, select, textarea):not(.draft-editor):focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+:root .main-panel :is(.creative-alert, .review-panel, .property-rules-panel, .identity-decision-panel) { overflow-wrap: anywhere; }
+:root .app-shell .topbar { min-height: 56px; padding-block: 8px; box-shadow: none; }
+:root .sidebar .project-card { padding: 12px; border-radius: 8px; box-shadow: none; }
+:root .sidebar .nav-item { min-height: 34px; border-radius: 6px; padding-block: 8px; }
+:root .sidebar .nav-label { margin-bottom: 6px; }
+:root .sidebar .nav-group { margin-bottom: 16px; }
+:root .sidebar .book-icon { width: 30px; height: 36px; border-radius: 6px; font-size: 18px; box-shadow: none; }
+@container page (max-width: 620px) {
+  :root .main-panel :is(.artifact-editor-grid, .plan-editor-card, .plan-advanced[open], .property-rule-fields fieldset, .diff-columns) { grid-template-columns: minmax(0, 1fr); }
+  :root .main-panel .plan-card-head { flex-wrap: wrap; gap: 8px; }
+  :root .main-panel .plan-card-head .plan-title { flex: 1 1 150px; }
+  :root .main-panel .outline-tree-editor .outline-node ol { margin-left: 6px; padding-left: 6px; }
+  :root .main-panel .outline-node-controls label { min-width: 0; flex-basis: 100%; }
+  :root .main-panel .creative-view-header { flex-wrap: wrap; }
+  :root .main-panel .property-rules-panel header { flex-direction: column; }
+}
+@media (max-width: 1100px) {
+  :root .app-shell .brand-lockup { min-width: 0; }
+  :root .app-shell .brand-lockup > span { display: none; }
+  :root .app-shell .topbar-actions { min-width: 0; gap: 4px; }
+  :root .app-shell .save-state { display: none; }
+}
+:root .main-panel .plan-field { align-content: start; }
+:root .main-panel .plan-advanced label { min-width: 0; }
+:root .main-panel .plan-advanced :is(input, select) { width: 100%; min-width: 0; max-width: 100%; }
+:root .main-panel .planning-review-panel { padding: 14px 0; border: 0; border-top: 1px solid var(--nc-border); border-radius: 0; box-shadow: none; background: transparent; }
+:root .main-panel > .identity-decision-panel { order: 3; }
+:root .main-panel .view-intro p { font-family: inherit; }
+:root .app-shell .topbar-center { min-width: 0; }
+:root .app-shell .project-switcher-wrap { min-width: 0; max-width: min(320px, 100%); }
+:root .app-shell .project-switcher { min-width: 0; width: 100%; }
+:root .app-shell .project-switcher > span:nth-child(2) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root :is(.main-panel, .module-records-popover) .diff-columns del { color: var(--nc-ink); background: var(--nc-canvas); border-left: 3px solid var(--nc-red); }
+:root :is(.main-panel, .module-records-popover) .diff-columns ins { color: var(--nc-ink); background: var(--nc-canvas); border-left: 3px solid var(--nc-green); }
+:root .main-panel .empty-state p { font-family: inherit; }
+:root :is(.main-panel, .module-records-popover) .diff-card summary { color: var(--nc-ink); padding: 8px 0; }
+
+.chapter-start { order: 4; padding: 16px 24px 0; color: var(--nc-ink-soft); font-size: 14px; }
+.chapter-start p { margin: 0 0 12px; }
+.project-empty-state { margin-block: 48px; }

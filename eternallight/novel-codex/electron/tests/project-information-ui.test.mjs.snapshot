@@ -1,0 +1,88 @@
+exports[`project information reads scoped brief authority without changing author edits and uses native modal keyboard behavior 1`] = `
+[
+  {
+    "name": "saved brief",
+    "modal": true,
+    "metadata": "作品名称a的作品一句话简介同一作品的独立简介",
+    "source": "来自已保存的创作简报，尚未采用",
+    "fields": [
+      "a的原始目标",
+      "可信的情感变化",
+      "失去归属",
+      "保留希望"
+    ],
+    "check": null
+  },
+  {
+    "name": "adopted with saved changes",
+    "modal": true,
+    "metadata": "作品名称a的作品一句话简介同一作品的独立简介",
+    "source": "来自已采用的创作简报；另有未采用修改",
+    "fields": [
+      "a已采用目标",
+      "可信的情感变化",
+      "失去归属",
+      "保留希望"
+    ],
+    "check": null
+  },
+  {
+    "name": "light 1400",
+    "inViewport": true,
+    "background": "rgb(255, 255, 255)",
+    "text": "rgb(31, 41, 55)"
+  },
+  {
+    "name": "light 900",
+    "inViewport": true,
+    "background": "rgb(255, 255, 255)",
+    "text": "rgb(31, 41, 55)"
+  },
+  {
+    "name": "dark 1400",
+    "inViewport": true,
+    "background": "rgb(25, 27, 32)",
+    "text": "rgb(238, 240, 244)"
+  },
+  {
+    "name": "dark 900",
+    "inViewport": true,
+    "background": "rgb(25, 27, 32)",
+    "text": "rgb(238, 240, 244)"
+  },
+  {
+    "name": "unfilled brief",
+    "modal": true,
+    "metadata": "作品名称a的作品一句话简介同一作品的独立简介",
+    "source": "尚未填写创作简报",
+    "fields": [],
+    "check": null
+  },
+  {
+    "name": "read-only retry",
+    "modal": true,
+    "metadata": "作品名称a的作品一句话简介同一作品的独立简介",
+    "source": "来自已保存的创作简报，尚未采用",
+    "fields": [
+      "a的原始目标",
+      "可信的情感变化",
+      "失去归属",
+      "保留希望"
+    ],
+    "check": null
+  },
+  {
+    "name": "project scope isolated",
+    "modal": true,
+    "metadata": "作品名称a的作品一句话简介同一作品的独立简介",
+    "source": "来自已保存的创作简报，尚未采用",
+    "fields": [
+      "a的原始目标",
+      "可信的情感变化",
+      "失去归属",
+      "保留希望"
+    ],
+    "check": null
+  }
+]
+`;

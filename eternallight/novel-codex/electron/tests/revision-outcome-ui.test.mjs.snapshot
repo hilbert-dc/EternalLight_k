@@ -1,6 +1,6 @@
 exports[`production revision UI shows criteria before approval and isolates lazy candidate judgments 1`] = `
 {
-  "proposal": "待确认的候选修改模型建议不会自行修改作品章节正文第 2 章只修改密函与守卫场景。模型提出的修改标准批准操作或确认范围时，将一并冻结以下标准与适用场景。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard拒绝建议设置本轮范围批准生成候选批准只允许生成可审阅候选，不会正式采用正文或事实。",
+  "proposal": "待确认的候选修改模型建议不会自行修改作品章节正文第 2 章只修改密函与守卫场景。只修改密函与守卫场景。模型提出的修改标准批准操作或确认范围时，将一并冻结以下标准与适用场景。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard拒绝建议设置本轮范围批准生成候选批准只允许生成可审阅候选，不会正式采用正文或事实。",
   "scope": {
     "proposed": "模型提出的修改标准批准操作或确认范围时，将一并冻结以下标准与适用场景。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard",
     "frozen": "模型提出的修改标准批准操作或确认范围时，将一并冻结以下标准与适用场景。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard",
@@ -175,9 +175,9 @@ exports[`production revision UI shows criteria before approval and isolates lazy
     ]
   },
   "approvalMessages": {
-    "pending": "✦候选已保存：task-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa；知识已就绪，作者结果核验待继续。",
-    "paused": "✦候选已保存：task-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa；知识已就绪，作者结果核验已暂停，请在创作任务中继续。",
-    "recorded": "✦已生成可审阅候选：task-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa，尚未正式采用。"
+    "savedFailure": "✦候选后续处理未完成：修改效果检查尚未完成；没有生成检查结论。",
+    "failure": "✦候选后续处理未完成：修改效果检查尚未完成；没有生成检查结论。",
+    "recorded": "✦本轮候选处理已完成，尚未正式采用。"
   }
 }
 `;

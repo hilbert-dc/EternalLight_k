@@ -1,0 +1,31 @@
+:root .main-panel .outline-document-editor { min-width: 0; max-width: 880px; margin-inline: auto; }
+:root .main-panel .outline-document-editor .outline-node > article { padding: 12px 0 20px; display: grid; gap: 24px; border: 0; }
+:root .main-panel .outline-document-editor .outline-node header input { background: transparent; font-size: 22px; font-weight: 650; }
+:root .main-panel .outline-document-editor .outline-node label { gap: 10px; }
+:root .main-panel .outline-document-editor .outline-node label > span { font-size: 14px; color: var(--nc-ink-soft); }
+:root .main-panel .outline-document-editor .outline-node textarea { field-sizing: content; min-height: 100px; resize: none; overflow: hidden; line-height: 1.85; padding: 14px 16px; background: var(--nc-surface); }
+:root .main-panel .outline-document-editor .outline-story-field textarea { min-height: 240px; }
+:root .main-panel .outline-document-editor .outline-node-extra { font-size: 13px; color: var(--nc-ink-muted); }
+:root .main-panel .outline-document-editor .outline-node-extra[open] { gap: 16px; }
+:root .main-panel .outline-document-editor .outline-node-extra p { margin: 0; line-height: 1.7; }
+:root .main-panel .outline-document-editor .outline-node-actions button { min-height: 36px; }
+:root .main-panel .outline-structure-tools > ol { display: grid; gap: 4px; }
+:root .main-panel .outline-structure-node { display: flex; align-items: baseline; gap: 10px; width: 100%; min-height: 40px; padding: 10px 12px; text-align: left; border: 0; border-radius: 6px; color: var(--nc-ink-soft); background: transparent; }
+:root .main-panel .outline-structure-node small { flex-shrink: 0; color: var(--nc-ink-muted); }
+:root .main-panel .outline-structure-node span { overflow-wrap: anywhere; }
+:root .main-panel .outline-structure-node[aria-current] { background: var(--nc-blue-soft); color: var(--nc-blue); }
+:root .main-panel .outline-structure-node:hover { background: var(--nc-canvas); }
+:root .main-panel .outline-structure-node:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+:root .main-panel .outline-workspace-view:has(> .planning-manual-editor[open]) > .planning-reading { display: none; }
+:root .main-panel .outline-workspace-view .planning-manual-editor { margin-top: 12px; }
+:root .main-panel .outline-workspace-view .planning-manual-editor[open] { border-top: 0; }
+:root .main-panel .outline-workspace-view .planning-manual-editor .outline-editor-open-label,
+:root .main-panel .outline-workspace-view .planning-manual-editor[open] .outline-editor-closed-label { display: none; }
+:root .main-panel .outline-workspace-view .planning-manual-editor[open] .outline-editor-open-label { display: inline; }
+:root .main-panel .outline-editing-scope { max-width: 880px; margin: 0 auto 12px; color: var(--nc-ink-muted); font-size: 13px; line-height: 1.8; }
+:root .main-panel .outline-workspace-view .planning-workspace-header { max-width: 880px; margin: 20px auto; padding-block: 16px; border-top: 1px solid var(--nc-border); border-bottom: 0; }
+:root .main-panel .outline-workspace-view .planning-workspace-description { display: none; }
+:root .main-panel .outline-workspace-view .planning-save-actions .primary-button { box-shadow: none; background: transparent; color: var(--nc-ink-soft); border: 1px solid var(--nc-border); }
+:root .main-panel .outline-workspace-view .planning-save-actions .secondary-button { background: var(--nc-blue); color: white; border-color: var(--nc-blue); }
+:root[data-theme="dark"] .main-panel .outline-workspace-view .planning-save-actions .secondary-button { color: var(--nc-canvas); }
+:root .main-panel .outline-return-reading { display: block; max-width: 100%; margin: 0 auto 20px; }

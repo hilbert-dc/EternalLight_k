@@ -1,7 +1,8 @@
+import { chapterRuntimeReads } from "../helpers/chapter-runtime";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../../src/App";
-import { clearAuthor, saveAuthor } from "../../../src/author-session";
+import { clearAuthor, saveAuthor } from "../helpers/author-session";
 
 window.addEventListener("error", (event) => { window.testResult = { passed: false, error: event.error?.stack ?? event.message }; });
 const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
@@ -15,7 +16,7 @@ const declines = [];
 let pending = [proposal, declinedProposal];
 window.novelCodex = {
   app: { onCloseRequested: () => () => {} },
-  runtime: {
+  runtime: { ...chapterRuntimeReads(() => project), listWorkTasks: async () => ({ tasks: [], nextCursor: null, activeCount: 0 }),
     status: async () => ({ state: "online", mode: "local", error: null }),
     listProjects: async () => ({ projects: [project] }),
     getState: async () => state,
@@ -24,7 +25,8 @@ window.novelCodex = {
     onEvent: () => () => {}, onUserInputRequest: () => () => {},
     status: async () => ({ configured: false, state: "idle", mode: "novel-agent-engine", error: null }),
     listConnections: async () => ({ connections: [] }), recoveryReport: async () => [],
-    setModelingContext: async () => ({ selected: true }),
+    listThreads: async () => ({ threads: [], currentThreadId: null, nextCursor: null }),
+    setWorkspaceContext: async () => ({ selected: true }),
     listProposedActions: async () => ({ actions: pending }),
     approveAction: async (...args) => { approvals.push(args); pending = pending.filter((item) => item.id !== args[2]); return { action: proposal, taskId: "task-candidate", modeling: { status: "model_pending" }, followup: { status: "pending" } }; },
     declineAction: async (...args) => { declines.push(args); pending = pending.filter((item) => item.id !== args[2]); return { ...declinedProposal, status: "declined" }; },

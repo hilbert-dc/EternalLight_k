@@ -14,7 +14,9 @@ test("model action stays a visible proposal until the author approves its exact 
   try {
     await build({ entryPoints: [fileURLToPath(new URL("./fixtures/action-proposal-ui.tsx", import.meta.url))], outfile: path.join(directory, "test.js"), bundle: true, platform: "browser", jsx: "automatic" });
     await writeFile(path.join(directory, "index.html"), '<html><body><div id="root"></div><script src="test.js"></script></body></html>');
-    const { stdout } = await promisify(execFile)(electron, [fileURLToPath(new URL("./fixtures/creative-workspace-ui-main.cjs", import.meta.url)), path.join(directory, "index.html")], { timeout: 25000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "" } });
+    let stdout;
+    try { ({ stdout } = await promisify(execFile)(electron, [fileURLToPath(new URL("./fixtures/creative-workspace-ui-main.cjs", import.meta.url)), path.join(directory, "index.html")], { timeout: 25000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "" } })); }
+    catch (error) { throw Error(`${error.stdout ?? ""}\n${error.stderr ?? ""}`, { cause: error }); }
     const result = JSON.parse(stdout.trim());
     assert.equal(result.passed, true, result.error);
     t.assert.snapshot(result.activity);

@@ -1,0 +1,51 @@
+.character-catalog { color: var(--nc-ink); min-width: 0; }
+.character-catalog .view-intro { margin-bottom: 20px; }
+.character-catalog h2, .character-catalog h3, .character-catalog h4 { margin: 0; }
+.character-catalog p, .character-catalog blockquote { line-height: 1.65; overflow-wrap: anywhere; }
+.character-catalog .view-intro p, .character-section-note, .character-catalog small { color: var(--nc-ink-soft); }
+.character-workspace { display: grid; grid-template-columns: minmax(140px, 190px) minmax(0, 1fr); gap: 28px; align-items: start; }
+.character-list { display: grid; gap: 4px; min-width: 0; max-height: calc(100dvh - 180px); overflow-y: auto; }
+.character-picker { display: none; }
+:root .character-list .character-select { display: grid; width: 100%; gap: 4px; padding: 12px; text-align: left; border: 0; border-radius: 6px; background: transparent; color: var(--nc-ink); white-space: normal; overflow-wrap: anywhere; }
+:root .character-list .character-select:hover { background: var(--nc-surface-subtle); }
+:root .character-list .character-select[aria-pressed="true"] { color: var(--nc-blue); background: var(--nc-blue-soft); }
+.character-select strong { font-size: 14px; font-weight: 500; }
+.character-select small { font-size: 11px; }
+.character-catalog-card { min-width: 0; overflow-wrap: anywhere; }
+.character-profile-heading { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.character-profile-heading h2 { font-size: 24px; font-weight: 600; margin-bottom: 6px; }
+.character-profile-heading p { margin-block: 6px; }
+.character-profile-section { padding-block: 24px; border-bottom: 1px solid var(--nc-border); }
+.character-profile-section h3 { font-size: 16px; font-weight: 600; }
+.character-section-note { font-size: 12px; margin: 8px 0 16px; }
+.character-biography, .character-plans, .character-storyline, .character-story-chapter > ul { list-style: none; margin: 0; padding: 0; }
+.character-biography { display: grid; gap: 12px; }
+.character-biography li { display: grid; gap: 4px; }
+.character-catalog small { font-size: 11px; }
+.character-storyline { margin-top: 20px; }
+.character-story-chapter { padding: 0 0 24px 18px; border-left: 1px solid var(--nc-border); position: relative; }
+.character-story-chapter::before { content: ""; position: absolute; left: -4px; top: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--nc-ink-muted); }
+.character-story-chapter > header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.character-story-chapter h4, .character-plans h4 { font-size: 14px; font-weight: 500; }
+.character-story-entry { margin-top: 16px; list-style: none; }
+.character-story-entry-heading { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.character-story-entry-heading strong { font-size: 13px; font-weight: 500; }
+.character-story-entry p { margin: 6px 0; }
+.character-story-entry summary, .character-sources > summary { color: var(--nc-ink-soft); font-size: 12px; cursor: pointer; }
+.character-catalog blockquote { margin: 8px 0; padding-left: 12px; border-left: 2px solid var(--nc-border); color: var(--nc-ink-soft); }
+.character-plans { display: grid; gap: 18px; }
+.character-plans p { margin: 6px 0; }
+.character-sources { margin-top: 20px; }
+.character-catalog-source { padding-top: 16px; font-size: 13px; }
+.character-catalog-warning { color: var(--nc-warning); }
+.character-identity-tools { order: 4; margin-top: 28px; border-top: 1px solid var(--nc-border); padding-top: 16px; }
+.character-identity-tools > summary { color: var(--nc-ink-soft); font-size: 13px; cursor: pointer; }
+:root .character-catalog :is(button,summary):focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+@container page (max-width: 640px) {
+  .character-workspace { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .character-workspace .character-list { display: none; }
+  .character-picker { display: grid; gap: 8px; min-width: 0; font-size: 13px; }
+  .character-picker select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--nc-border); border-radius: 6px; background: var(--nc-surface); color: var(--nc-ink); font: inherit; }
+}
+
+.character-name-context { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }

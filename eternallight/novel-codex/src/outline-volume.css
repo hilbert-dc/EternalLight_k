@@ -1,0 +1,26 @@
+:root .sidebar .outline-volume-navigation { min-width: 0; }
+:root .sidebar .outline-volume-root { position: relative; }
+:root .sidebar .outline-volume-root > .nav-item { padding-right: 34px; font-size: 12px; font-weight: 400; }
+:root .sidebar .outline-volume-root .outline-volume-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root .sidebar .outline-volume-toggle { position: absolute; top: 4px; right: 3px; width: 28px; height: 30px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--nc-ink-soft); font-size: 18px; }
+:root .sidebar .outline-volume-toggle:hover { background: var(--nc-surface-subtle); color: var(--nc-ink); }
+:root .sidebar .outline-volume-children { min-width: 0; padding: 3px 0 6px 36px; }
+:root .sidebar .outline-volume-children[hidden] { display: none; }
+:root .sidebar .outline-volume-children ul { list-style: none; margin: 0; padding: 0; }
+:root .sidebar .outline-volume-children li { min-width: 0; }
+:root .sidebar .outline-volume-children li > button { width: 100%; min-height: 30px; padding: 5px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--nc-ink-soft); font-size: 13px; font-weight: 400; line-height: 1.5; text-align: left; overflow-wrap: anywhere; }
+:root .sidebar .outline-volume-children li > button:hover { background: var(--nc-surface-subtle); color: var(--nc-ink); }
+:root .sidebar .outline-volume-children li > button.active { color: var(--nc-blue); background: var(--nc-blue-soft); }
+:root .sidebar .outline-volume-children p { margin: 6px 0; font-size: 12px; line-height: 1.6; color: var(--nc-ink-muted); overflow-wrap: anywhere; }
+:root .sidebar .outline-volume-error > button { max-width: 100%; font-size: 12px; white-space: normal; }
+:root .sidebar .outline-volume-navigation button:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+
+:root .main-panel .outline-focus-heading { display:flex; justify-content:space-between; align-items:start; flex-wrap:wrap; gap:12px; }
+.outline-focus-heading h2 { margin:8px 0; overflow-wrap:anywhere; }
+.outline-focus-heading small { color:var(--nc-ink-muted); }
+.outline-link-panel form, .outline-link-panel label { display:grid; gap:12px; margin-top:16px; }
+.outline-link-panel select { width:100%; min-width:0; }
+.outline-link-panel small { color:var(--nc-ink-soft); }
+.outline-volume-overview { padding:12px 0; border-bottom:1px solid var(--nc-border); }
+.outline-volume-overview h3 { font-size:16px; margin:0; }
+.outline-volume-overview p { font-size:14px; line-height:1.7; overflow-wrap:anywhere; }

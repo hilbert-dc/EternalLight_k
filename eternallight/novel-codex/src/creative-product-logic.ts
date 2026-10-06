@@ -75,10 +75,10 @@ export function firstOutlineEditorError(nodes: OutlineNode[]): { nodeId: string;
   return { nodeId: firstUntitled.id ?? firstUntitled.clientKey ?? "", message: "请先填写这个大纲节点的标题。" };
 }
 
-export function generationStatusLabel(task: { status: string; delivery_status: "pending" | "ready_for_review" | "incomplete"; outputRefs: unknown[] }): { label: string; failed: boolean } {
-  if (task.delivery_status === "ready_for_review") return { label: "候选可审阅", failed: false };
+export function generationStatusLabel(task: { status: string; deliveryStatus: "pending" | "ready_for_review" | "incomplete"; outputRefs: unknown[] }): { label: string; failed: boolean } {
+  if (task.deliveryStatus === "ready_for_review") return { label: "内容已保存", failed: false };
   if (task.status === "cancelled") return { label: task.outputRefs.length > 0 ? "已停止，部分稿已保存" : "生成已停止", failed: false };
-  if (task.delivery_status === "incomplete" && task.outputRefs.length > 0) return { label: "生成部分完成", failed: false };
-  if (task.status === "failed" || task.delivery_status === "incomplete") return { label: "生成失败", failed: true };
+  if (task.deliveryStatus === "incomplete" && task.outputRefs.length > 0) return { label: "生成部分完成", failed: false };
+  if (task.status === "failed" || task.deliveryStatus === "incomplete") return { label: "生成失败", failed: true };
   return { label: "生成任务进行中", failed: false };
 }

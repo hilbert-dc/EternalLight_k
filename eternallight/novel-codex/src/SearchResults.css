@@ -1,0 +1,4 @@
+.workspace-search-results { flex-wrap: wrap; }
+.workspace-search-results > p, .workspace-search-results > div { width: 100%; margin: 4px 0; }
+.workspace-search-results > button { display: flex; flex-direction: column; gap: 4px; text-align: left; }
+.workspace-search-results small { color: var(--nc-ink-soft); white-space: normal; overflow-wrap: anywhere; }

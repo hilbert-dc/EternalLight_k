@@ -113,7 +113,7 @@ export function RevisionOutcomeDecisionPanel({ api, projectId, receipt, disabled
       {historyOpen && <><p>历史决定只用于追溯。后继创作以当前报告对应的最新作者决定为准。</p>
         <ol aria-label="作者决策历史">{history.map(item => <li key={item.id}>
           <strong>{labels[item.choice]}</strong>{item.note && <p>{item.note}</p>}
-          <small>决定 {item.id} · 写作尝试 {item.writerTaskId} · 判断 {item.assessmentRevisionId} · 正文 {item.draftRevisionId} · 知识批次 {item.knowledgeBatchId} · 时间 {item.createdAt}</small>
+          <small>决定 {item.id} · 写作尝试 {item.writerTaskId} · 判断 {item.assessmentRevisionId} · 正文 {item.draftRevisionId} · 知识批次 {item.knowledgeBatchId ?? "未使用（直接对照正文）"} · 时间 {item.createdAt}</small>
         </li>)}</ol></>}
     </details>}
     <label>决策备注（可选）<textarea aria-label="修改结果决策备注" value={note} disabled={blocked || Boolean(pending)} onChange={event => setNote(event.target.value)} /></label>

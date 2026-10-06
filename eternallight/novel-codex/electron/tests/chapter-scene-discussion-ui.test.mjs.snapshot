@@ -1,0 +1,236 @@
+exports[`chapter scene discussion preserves exact saved identities and editor state without executing 1`] = `
+[
+  {
+    "label": "saved-and-locked",
+    "actions": [
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 1",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 2",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 3",
+        "disabled": false
+      }
+    ],
+    "notice": null,
+    "reference": {
+      "kind": "scene",
+      "projectId": "a",
+      "snapshotId": "snapshot-a",
+      "objectId": "draft-chapter-one",
+      "revisionId": "source-a",
+      "sceneGroupId": "group-locked"
+    }
+  },
+  {
+    "label": "unsaved",
+    "actions": [
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 1",
+        "disabled": true
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 2",
+        "disabled": true
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 3",
+        "disabled": true
+      }
+    ],
+    "notice": "保存后讨论此场景",
+    "reference": {
+      "kind": "scene",
+      "projectId": "a",
+      "snapshotId": "snapshot-a",
+      "objectId": "draft-chapter-one",
+      "revisionId": "source-a",
+      "sceneGroupId": "group-locked"
+    }
+  },
+  {
+    "label": "saved-reorder",
+    "actions": [
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 1",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 2",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 3",
+        "disabled": false
+      }
+    ],
+    "notice": null,
+    "reference": {
+      "kind": "scene",
+      "projectId": "a",
+      "snapshotId": "saved-snapshot-a-2",
+      "objectId": "draft-chapter-one",
+      "revisionId": "saved-source-a-2",
+      "sceneGroupId": "group-two"
+    }
+  },
+  {
+    "label": "running",
+    "actions": [
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 1",
+        "disabled": true
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 2",
+        "disabled": true
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 3",
+        "disabled": true
+      }
+    ],
+    "notice": null,
+    "reference": {
+      "kind": "scene",
+      "projectId": "a",
+      "snapshotId": "saved-snapshot-a-2",
+      "objectId": "draft-chapter-one",
+      "revisionId": "saved-source-a-2",
+      "sceneGroupId": "group-two"
+    }
+  },
+  {
+    "label": "light-330",
+    "actions": [
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 1",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 2",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 3",
+        "disabled": false
+      }
+    ],
+    "notice": null,
+    "reference": {
+      "kind": "scene",
+      "projectId": "a",
+      "snapshotId": "saved-snapshot-a-2",
+      "objectId": "draft-chapter-one",
+      "revisionId": "saved-source-a-2",
+      "sceneGroupId": "group-two"
+    }
+  },
+  {
+    "label": "light-740",
+    "actions": [
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 1",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 2",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 3",
+        "disabled": false
+      }
+    ],
+    "notice": null,
+    "reference": {
+      "kind": "scene",
+      "projectId": "a",
+      "snapshotId": "saved-snapshot-a-2",
+      "objectId": "draft-chapter-one",
+      "revisionId": "saved-source-a-2",
+      "sceneGroupId": "group-two"
+    }
+  },
+  {
+    "label": "dark-330",
+    "actions": [
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 1",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 2",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 3",
+        "disabled": false
+      }
+    ],
+    "notice": null,
+    "reference": {
+      "kind": "scene",
+      "projectId": "a",
+      "snapshotId": "saved-snapshot-a-2",
+      "objectId": "draft-chapter-one",
+      "revisionId": "saved-source-a-2",
+      "sceneGroupId": "group-two"
+    }
+  },
+  {
+    "label": "dark-740",
+    "actions": [
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 1",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 2",
+        "disabled": false
+      },
+      {
+        "label": "讨论这个场景",
+        "accessibleName": "讨论场景 3",
+        "disabled": false
+      }
+    ],
+    "notice": null,
+    "reference": {
+      "kind": "scene",
+      "projectId": "a",
+      "snapshotId": "saved-snapshot-a-2",
+      "objectId": "draft-chapter-one",
+      "revisionId": "saved-source-a-2",
+      "sceneGroupId": "group-two"
+    }
+  }
+]
+`;

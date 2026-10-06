@@ -69,6 +69,6 @@ function Controls({ api, projectId, chapterId, disabled, hasUpdate, submit, refr
         if (alive.current) { setPreview(null); setAcknowledged(false); setReceipt(result); }
       })}>确认替换章纲关联</button>
     </>}
-    {receipt && <div role="status"><p>关联已更新至作品版本 {receipt.binding.resultRevision}，正文保留。新内容仍需单独生成和审阅。</p><p>如需继续中断的创作，请在创作简报中重新预览运行，选择“基于当前章重写”。</p><details><summary>查看关联回执</summary><p>原规划：{receipt.previousPlanRevisionId} / {receipt.previousChapterPlanId}</p><p>新规划：{receipt.binding.planRevisionId} / {receipt.binding.chapterPlanId}</p><p>保留正文来源：{receipt.sourceRevisionId}</p></details><button type="button" className="secondary-button" disabled={disabled || busy} onClick={() => void request(refresh)}>重新读取作品</button></div>}
+    {receipt && <div role="status"><p>关联已更新至作品版本 {receipt.binding.resultRevision}，正文保留。新内容仍需单独生成和审阅。</p><p>如需继续中断的创作，请在作品概况中重新预览运行，选择“基于当前章重写”。</p><details><summary>查看关联回执</summary><p>原规划：{receipt.previousPlanRevisionId} / {receipt.previousChapterPlanId}</p><p>新规划：{receipt.binding.planRevisionId} / {receipt.binding.chapterPlanId}</p><p>保留正文来源：{receipt.sourceRevisionId}</p></details><button type="button" className="secondary-button" disabled={disabled || busy} onClick={() => void request(refresh)}>重新读取作品</button></div>}
   </section>;
 }

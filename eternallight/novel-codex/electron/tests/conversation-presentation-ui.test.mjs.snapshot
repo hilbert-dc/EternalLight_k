@@ -1,0 +1,31 @@
+exports[`conversation respects author identity, process choices and reading intent 1`] = `
+{
+  "prompt": "作者要修改第二章结尾。",
+  "process": "读取本章正文\\n查看过程",
+  "defaultCollapsed": true,
+  "flow": "创作流程 · 1 步",
+  "privateArgumentsHidden": true,
+  "preservedReading": true,
+  "controlsExecuted": 0,
+  "neutralInteractionsFollow": [
+    "pointer-copy",
+    "Tab",
+    "Ctrl+C",
+    "Meta+C",
+    "Ctrl+Shift+Space",
+    "Meta+Shift+Space",
+    "input-ArrowUp",
+    "letter",
+    "wheel-down",
+    "wheel-horizontal",
+    "zoom-wheel"
+  ],
+  "explicitReadingPreserved": [
+    "details-pointer",
+    "details-keyboard",
+    "selection",
+    "scroll-only"
+  ],
+  "restoredAfterShortPlaceholder": true
+}
+`;

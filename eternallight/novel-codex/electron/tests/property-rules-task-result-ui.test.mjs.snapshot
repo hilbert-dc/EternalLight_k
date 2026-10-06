@@ -1,0 +1,23 @@
+exports[`task results prepare exact property rule decisions without accepting 1`] = `
+[
+  {
+    "flow": "exact result",
+    "creates": 1,
+    "accepted": false,
+    "factsConfirmed": false
+  },
+  {
+    "flow": "read/receipt recovery",
+    "creates": 3,
+    "readOnlyRetries": true
+  },
+  {
+    "flow": "scope guards",
+    "staleRejected": true,
+    "dirtyPreserved": true,
+    "runningRejected": true,
+    "lateProjectRejected": true,
+    "foreignReadRejected": true
+  }
+]
+`;

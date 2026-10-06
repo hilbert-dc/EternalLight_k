@@ -1,0 +1,4 @@
+.discussion-source { margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--nc-border); border-radius: 10px; font-size: 13px; }
+.discussion-source > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.discussion-source span { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+.discussion-source button { flex: 0 0 auto; padding: 4px 8px; font-size: inherit; }

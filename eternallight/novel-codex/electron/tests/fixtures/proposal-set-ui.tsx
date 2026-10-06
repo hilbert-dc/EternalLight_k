@@ -22,7 +22,7 @@ const initialWorkspace = {
     plan: { candidate: null, locked: false },
     identity: { candidate: mixed ? { id: "revision-identity" } : null, locked: false },
   },
-  chapters: mixed ? [{ id: "first", number: 1, title: "白塔", candidate: { id: "revision-draft" } }] : [],
+  chapters: mixed ? [{ id: "first", number: 1, title: "白塔", candidate: { id: "revision-draft", title: "白塔" } }] : [],
   reviews: [
     { id: "review-brief", artifactKind: "brief", artifactRevisionId: "revision-brief", status: "ready", projectRevision: 0, checks: [] },
     { id: "review-outline", artifactKind: "outline", artifactRevisionId: "revision-outline", status: "ready", projectRevision: 0, checks: [] },
@@ -94,7 +94,7 @@ async function run() {
   check(reviews.length === (mixed ? 3 : 2), "Current ready reviews were not offered");
   for (const review of reviews) review.click();
   await tick();
-  const dependency = [...document.querySelectorAll('.proposal-set-dependency')].find((label) => label.textContent.includes(mixed ? "白塔依赖创作简报" : "长篇大纲依赖创作简报"))?.querySelector('input');
+  const dependency = [...document.querySelectorAll('.proposal-set-dependency')].find((label) => label.textContent.includes(mixed ? "白塔依赖创作简报" : "全书大纲依赖创作简报"))?.querySelector('input');
   check(dependency, "Planning dependency selector was not available");
   dependency.click();
   await tick();

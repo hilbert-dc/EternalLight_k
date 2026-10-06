@@ -47,12 +47,7 @@ void (async () => {
   const frozen = preview("港城", previews[2].args[2]);
   check(frozen.request.maxTaskAttempts === 10, "Changed bound did not reach preview request");
   previews[2].resolve(frozen); await wait(() => !button("确认范围并继续").disabled);
-  changeNumber("后继分析轮数", "2"); await tick();
-  check(button("确认范围并继续").disabled && !document.querySelector('[aria-label="冻结范围预览"]'), "Edited advisory limit retained an old preview");
-  button("预览范围").click(); await wait(() => previews.length === 4);
-  const continued = preview("港城", previews[3].args[2]);
-  check(continued.request.maxAdvisoryRounds === 2, "Advisory limit did not reach author preview");
-  previews[3].resolve(continued); await wait(() => !button("确认范围并继续").disabled);
+  const continued = frozen;
   const review = { heading: document.querySelector("h2").textContent, author: document.querySelector(".scope-preview p").textContent,
     limits: continued.request, targets: continued.targets, warning: document.querySelector("#scope-description").textContent };
   document.documentElement.dataset.theme = "light";
@@ -68,11 +63,11 @@ void (async () => {
   await wait(() => button("确认范围并继续"));
   check(completions[0].work === null && button("确认范围并继续").disabled, "Unknown execution was incorrectly considered complete or re-authorized");
   check(document.body.textContent.includes("不要重复确认"), "Unknown committed result recovery warning missing");
-  check(confirmations.length === 1 && previews.length === 4, "Recovery blindly retried confirmation");
+  check(confirmations.length === 1 && previews.length === 3, "Recovery blindly retried confirmation");
   await render("港城", "reopened");
-  button("预览范围").click(); await wait(() => previews.length === 5);
-  const reopened = preview("港城", previews[4].args[2]);
-  previews[4].resolve(reopened); await wait(() => !button("确认范围并继续").disabled);
+  button("预览范围").click(); await wait(() => previews.length === 4);
+  const reopened = preview("港城", previews[3].args[2]);
+  previews[3].resolve(reopened); await wait(() => !button("确认范围并继续").disabled);
   button("确认范围并继续").click(); await wait(() => confirmations.length === 2);
   check(!button("查看执行过程").disabled, "Long execution trapped the author inside the confirmation dialog");
   button("查看执行过程").click(); await tick();

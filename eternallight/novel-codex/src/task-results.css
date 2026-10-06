@@ -1,0 +1,13 @@
+.work-task-panel .task-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 12px;
+  min-width: 0;
+}
+.work-task-panel .task-result-actions > button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}

@@ -1,0 +1,19 @@
+.selection-discussion-entry { position: fixed; z-index: 1000; display: flex; flex-wrap: wrap; gap: 5px; max-width: calc(100vw - 16px); }
+.selection-discussion-entry button { padding: 9px 12px; border: 1px solid var(--nc-border); border-radius: 8px; background: var(--nc-surface); color: var(--nc-ink); box-shadow: 0 4px 18px #0002; cursor: pointer; }
+.selection-discussion-entry kbd { margin-left: 8px; font-size: 10px; opacity: .65; }
+.selection-discussion-entry button:disabled { opacity: .6; cursor: wait; }
+.selection-discussion-entry button:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+.selection-discussion-entry .selection-discussion-new { color: var(--nc-blue); }
+.selection-discussion-notice { flex-basis: 100%; max-width: 360px; margin: 0; padding: 7px 10px; border: 1px solid var(--nc-border); border-radius: 6px; color: var(--nc-ink); background: var(--nc-surface); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.discussion-excerpts { display: grid; gap: 6px; margin: 8px 12px; max-height: 240px; overflow: auto; }
+.conversation-rail > .discussion-excerpts { flex: 0 0 auto; max-height: min(240px, 28vh); }
+.discussion-excerpt { min-width: 0; border: 1px solid var(--nc-border); border-radius: 8px; padding: 8px 10px; font-size: 12px; }
+.discussion-excerpt header { display: flex; align-items: start; gap: 8px; }
+.discussion-excerpt header span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.discussion-excerpt header button { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0 4px; }
+.discussion-excerpt small { display: block; opacity: .7; overflow-wrap: anywhere; }
+.discussion-excerpt summary { cursor: pointer; margin-top: 5px; }
+.discussion-excerpt summary span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.discussion-excerpt summary em { display: block; font-size: 10px; font-style: normal; opacity: .65; }
+.discussion-excerpt blockquote { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.discussion-excerpt-notice { margin: 0; font-size: 11px; opacity: .75; }

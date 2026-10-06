@@ -1,0 +1,118 @@
+exports[`author can review, reject, adopt, and revise identity decisions 1`] = `
+[
+  {
+    "case": "same names distinct sources",
+    "people": [
+      {
+        "name": "林夕",
+        "source": "第 1 章 · 雾港邮局",
+        "quote": "林夕站在邮局门口，握着那封旧信。",
+        "missing": null,
+        "recordsCollapsed": true
+      },
+      {
+        "name": "林夕",
+        "source": "第 2 章 · 城门灯火",
+        "quote": "林夕在城门下熄灭灯火，转身离开。",
+        "missing": null,
+        "recordsCollapsed": true
+      }
+    ],
+    "relation": null
+  },
+  {
+    "case": "light 330",
+    "fits": true,
+    "sourcesReadable": true
+  },
+  {
+    "case": "light 740",
+    "fits": true,
+    "sourcesReadable": true
+  },
+  {
+    "case": "dark 330",
+    "fits": true,
+    "sourcesReadable": true
+  },
+  {
+    "case": "dark 740",
+    "fits": true,
+    "sourcesReadable": true
+  },
+  {
+    "case": "author confirmed distinct",
+    "people": [
+      {
+        "name": "林夕",
+        "source": "第 1 章 · 雾港邮局",
+        "quote": "林夕站在邮局门口，握着那封旧信。",
+        "missing": null,
+        "recordsCollapsed": true
+      },
+      {
+        "name": "林夕",
+        "source": "第 2 章 · 城门灯火",
+        "quote": "林夕在城门下熄灭灯火，转身离开。",
+        "missing": null,
+        "recordsCollapsed": true
+      },
+      {
+        "name": "林夕",
+        "source": "第 1 章 · 雾港邮局",
+        "quote": "林夕站在邮局门口，握着那封旧信。",
+        "missing": null,
+        "recordsCollapsed": true
+      },
+      {
+        "name": "林夕",
+        "source": "第 2 章 · 城门灯火",
+        "quote": "林夕在城门下熄灭灯火，转身离开。",
+        "missing": null,
+        "recordsCollapsed": true
+      }
+    ],
+    "relation": "与下方人物是不同身份"
+  },
+  {
+    "case": "author confirmed same with original references",
+    "people": [
+      {
+        "name": "林夕",
+        "source": "第 2 章 · 城门灯火",
+        "quote": "林夕在城门下熄灭灯火，转身离开。",
+        "missing": null,
+        "recordsCollapsed": true
+      },
+      {
+        "name": "林夕",
+        "source": "第 1 章 · 雾港邮局",
+        "quote": "林夕站在邮局门口，握着那封旧信。",
+        "missing": null,
+        "recordsCollapsed": true
+      }
+    ],
+    "relation": "与下方人物是同一身份"
+  },
+  {
+    "case": "missing source stays explicit",
+    "people": [
+      {
+        "name": "人物名称暂缺",
+        "source": null,
+        "quote": null,
+        "missing": "人物来源暂缺，不能凭名称猜测对应身份。",
+        "recordsCollapsed": true
+      },
+      {
+        "name": "林夕",
+        "source": "第 1 章 · 雾港邮局",
+        "quote": "林夕站在邮局门口，握着那封旧信。",
+        "missing": null,
+        "recordsCollapsed": true
+      }
+    ],
+    "relation": "与下方人物是同一身份"
+  }
+]
+`;

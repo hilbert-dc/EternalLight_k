@@ -17,5 +17,5 @@ exports[`chapter rebind UI requires fresh explicit confirmation and isolates lat
 `;
 
 exports[`chapter rebind UI requires fresh explicit confirmation and isolates late responses 2`] = `
-"关联已更新至作品版本 3，正文保留。新内容仍需单独生成和审阅。如需继续中断的创作，请在创作简报中重新预览运行，选择“基于当前章重写”。查看关联回执原规划：old-plan / plan-1新规划：changed-plan / plan-1保留正文来源：changed-draft重新读取作品"
+"关联已更新至作品版本 3，正文保留。新内容仍需单独生成和审阅。如需继续中断的创作，请在作品概况中重新预览运行，选择“基于当前章重写”。查看关联回执原规划：old-plan / plan-1新规划：changed-plan / plan-1保留正文来源：changed-draft重新读取作品"
 `;

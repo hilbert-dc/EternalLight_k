@@ -1,0 +1,46 @@
+exports[`search experience app-search-experience-ui.tsx 1`] = `
+[
+  {
+    "view": "chapters",
+    "chapter": "chapter-two"
+  },
+  {
+    "view": "brief"
+  },
+  {
+    "view": "outline"
+  },
+  {
+    "view": "plans"
+  }
+]
+`;
+
+exports[`search experience search-experience-ui.tsx 1`] = `
+[
+  {
+    "loading": "正在搜索当前作品…"
+  },
+  {
+    "results": [
+      "章节 · 明日来信明日，主角收到一封信。",
+      "章节 · 明日来信明日，主角收到一封信。",
+      "作品简报 · 明日来信明日，主角收到一封信。",
+      "大纲 · 明日来信明日，主角收到一封信。",
+      "近章规划 · 明日来信明日，主角收到一封信。"
+    ]
+  },
+  {
+    "error": "搜索失败：受控读取失败重试搜索"
+  },
+  {
+    "empty": "未找到匹配内容，请尝试其他关键词。"
+  },
+  {
+    "partial": "结果未覆盖全部匹配，请缩小查询范围。当前范围未返回匹配内容。"
+  },
+  {
+    "missing": "搜索失败：对应章节已不可用，请重新搜索。重试搜索"
+  }
+]
+`;

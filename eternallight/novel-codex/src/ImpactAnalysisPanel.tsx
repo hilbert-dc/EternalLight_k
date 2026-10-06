@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CreativeWorkspace, HistoricalKnowledgeState, HypothesisAssumption, HypothesisResult, ImpactAnalysisResult, NovelCodexApi } from "./types";
+import "./analysis-entry.css";
 
 interface Props {
   api: NovelCodexApi | null;
@@ -8,6 +9,8 @@ interface Props {
   chapterId: string;
   dirty: boolean;
   refreshToken: number;
+  onDiscuss?: (prompt: string) => void;
+  agentRunning?: boolean;
 }
 
 function chapterLabel(workspace: CreativeWorkspace | null, objectId: string): string {
@@ -27,7 +30,7 @@ function suppressionKey(entry: HistoricalKnowledgeState["entries"][number]): str
   return JSON.stringify([entry.modelingBatchId, entry.sourceRevisionId, entry.assertionIndex]);
 }
 
-export function ImpactAnalysisPanel({ api, projectId, workspace, chapterId, dirty, refreshToken }: Props) {
+export function ImpactAnalysisPanel({ api, projectId, workspace, chapterId, dirty, refreshToken, onDiscuss, agentRunning = false }: Props) {
   const chapter = workspace?.chapters.find((item) => item.id === chapterId);
   const revision = chapter?.candidate ?? chapter?.accepted;
   const [entityId, setEntityId] = useState("");
@@ -139,8 +142,13 @@ export function ImpactAnalysisPanel({ api, projectId, workspace, chapterId, dirt
     }
   }
 
-  return <details className="impact-analysis-panel">
-    <summary>检查修改可能影响的故事内容</summary>
+  return <section className="impact-analysis-panel" aria-label="故事改动影响">
+    {onDiscuss && <div className="impact-analysis-controls"><button type="button" className="secondary-button" disabled={!revision || dirty || agentRunning} onClick={() => {
+      if (!revision || dirty || agentRunning || workspace?.project.id !== projectId) return;
+      onDiscuss(`请先核对第 ${chapter?.number} 章《${revision.title}》当前已保存正文，再检查本次修改可能影响的人物、关系与后文。若有上一版，请对照变化；没有上一版请说明。列出正文依据和未覆盖范围，只分析，不修改或确认设定。`);
+    }}>在对话中检查本章改动影响</button><small>只准备讨论；发送后按正文证据检查，不自动改写。</small></div>}
+    {dirty && <p className="impact-analysis-warning">请先保存当前编辑；分析只读取已保存的修订。</p>}
+    <details><summary>手动检查与假设模拟</summary>
     <p>按实体查看有证据的关系路径与正文提及。这是只读候选，不会自动修改章节或设定。</p>
     <div className="impact-analysis-controls">
       <label><span>人物、事件或地点</span><input aria-label="影响分析实体" list={`impact-entities-${chapterId}`} value={entityId} maxLength={160} onChange={(event) => setEntityId(event.target.value)} placeholder="选择或输入实体 ID" /></label>
@@ -149,7 +157,6 @@ export function ImpactAnalysisPanel({ api, projectId, workspace, chapterId, dirt
       <button type="button" className="secondary-button" disabled={!api || !revision || dirty || !entityId.trim() || loading} onClick={() => void analyze()}>{loading ? "检查中…" : "检查影响"}</button>
     </div>
     {entities.truncated && <p>实体建议仅显示前 100 项；仍可输入完整 ID 检查其他实体。</p>}
-    {dirty && <p className="impact-analysis-warning">请先保存当前编辑；分析只读取已保存的修订。</p>}
     {error && <p role="alert" className="impact-analysis-warning">{error}</p>}
     {report && <div className="impact-analysis-results" aria-label="影响分析结果">
       <p className="impact-analysis-warning">未证明全书影响已找全；关系和字面命中仅表示需要复核，不表示必须改写。分析基于快照 {report.baseSnapshotId}。</p>
@@ -175,8 +182,8 @@ export function ImpactAnalysisPanel({ api, projectId, workspace, chapterId, dirt
         {report.literalTextCandidates.length === 0 ? <p>未召回已知名称的字面提及；代词及隐含语义仍未覆盖。</p> : <ol>{report.literalTextCandidates.map((hit, index) => <li key={`${hit.sourceRevisionId}-${hit.sourcePath}-${index}`}><strong>{chapterLabel(workspace, hit.sourceObjectId)}</strong> · {hit.sourcePath}<blockquote>{hit.evidence.quote}</blockquote><small>{hit.sourceRevisionId}</small></li>)}</ol>}
       </section>
       <section>
-        <h4>事实假设检查</h4>
-        <p>在固定快照上选择需要替换的原始证据，再加入临时真假主张。其他独立来源仍保留；不生成剧情，也不修改主线或 Canon。只有双方故事时间一致时才能确认时间上的冲突。</p>
+        <h4>固定快照假设模拟</h4>
+        <p>这是独立的手动模拟，普通对话分析不会自动执行此模拟。在固定快照上选择要临时排除的证据，再加入真假假设；其他独立来源仍保留。不生成剧情、不修改正文或正式设定，只有故事时间一致时才能判断时间冲突。</p>
         <div className="impact-analysis-controls">
           <label><span>属性 ID</span><input aria-label="假设属性" value={hypothesisPredicate} maxLength={160} onChange={(event) => { setHypothesisPredicate(event.target.value); setSuppressedKeys([]); setHypothesis(null); }} placeholder="例如 alive" /></label>
           <label><span>假设值</span><select aria-label="假设值" value={hypothesisValue} onChange={(event) => { setHypothesisValue(event.target.value); setHypothesis(null); }}><option value="true">是</option><option value="false">否</option></select></label>
@@ -210,5 +217,6 @@ export function ImpactAnalysisPanel({ api, projectId, workspace, chapterId, dirt
         </div>}
       </section>
     </div>}
-  </details>;
+    </details>
+  </section>;
 }

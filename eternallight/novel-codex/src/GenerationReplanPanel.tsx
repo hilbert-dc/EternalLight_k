@@ -3,11 +3,11 @@ import type { GenerationReplanPreview, GenerationRunSummary, NovelCodexApi, Repl
 import "./generation-replan.css";
 
 type Props = { api: NovelCodexApi; projectId: string; runId: string; disabled: boolean; onConfirmed: (run: GenerationRunSummary) => void };
-const choices: Record<ReplanStage, { label: string; detail: string; preparation: number }> = {
-  brief: { label: "从创作简报开始", detail: "重建简报、大纲和近章规划；已有正文保留。", preparation: 2 },
-  outline: { label: "从全书大纲开始", detail: "保留当前简报，重建大纲和近章规划；已有正文保留。", preparation: 1 },
-  rollingPlan: { label: "只重建近章规划", detail: "保留当前简报、大纲和已有正文。", preparation: 0 },
-  currentChapter: { label: "基于当前章重写", detail: "以作者修改后的当前稿为依据重写本章，再重新建模和评估；前文与当前规划绑定保留。", preparation: -1 },
+const choices: Record<ReplanStage, { label: string; detail: string }> = {
+  brief: { label: "从创作简报开始", detail: "允许调整创作方向，由创作助手按需要重新安排；已有正文保留。" },
+  outline: { label: "从全书大纲开始", detail: "保留当前简报，允许调整全书故事脉络，由创作助手安排后续步骤；已有正文保留。" },
+  rollingPlan: { label: "只重建近章规划", detail: "保留当前简报、大纲和已有正文。" },
+  currentChapter: { label: "基于当前章重写", detail: "以作者修改后的当前稿为依据重写本章，由创作助手安排必要检查；前文与当前规划绑定保留。" },
 };
 
 export function GenerationReplanPanel(props: Props) {
@@ -44,16 +44,15 @@ function Controls({ api, projectId, runId, disabled, onConfirmed }: Props) {
   }
   const run = preview?.run;
   const eligible = run && ["paused", "blocked"].includes(run.status)
-    && (stage === "currentChapter" ? ["draft", "extract", "commitments", "assess", "check"].includes(run.stage)
-      : ["brief", "outline", "rollingPlan", "materializeChapter"].includes(run.stage) && !run.currentChapterId)
+    && (stage === "currentChapter" ? Boolean(run.currentChapterId)
+      : !run.currentChapterId)
     && (!run.activeTaskId || ["completed", "failed", "cancelled"].includes(preview.activeAttemptStatus ?? ""));
-  const remainingAttempts = run ? run.maxTaskAttempts - run.usedTaskAttempts : 0;
-  const remainingRequests = run ? run.providerBudget.maxRequests - run.providerBudget.usedRequests : 0;
-  const remainingTokens = run ? run.providerBudget.maxTokens - run.providerBudget.usedTokens - run.providerBudget.unknownTokens : 0;
-  const required = run ? (run.targetChapters - run.completedChapters) * 5 + choices[stage].preparation : 0;
-  const providerBudgetAvailable = Boolean(run && !run.providerBudget.overrun && remainingRequests >= required && remainingTokens > 0);
-  const canConfirm = eligible && preview?.availableFrom.includes(stage) && remainingAttempts >= required && providerBudgetAvailable
-    && run.deadlineAt > Date.now() / 1000 && instruction.trim() && Array.from(instruction.trim()).length <= 1000;
+  const remainingAttempts = run?.maxTaskAttempts == null ? null : run.maxTaskAttempts - run.usedTaskAttempts;
+  const remainingRequests = run?.providerBudget.maxRequests == null ? null : run.providerBudget.maxRequests - run.providerBudget.usedRequests;
+  const remainingTokens = run?.providerBudget.maxTokens == null ? null : run.providerBudget.maxTokens - run.providerBudget.usedTokens - run.providerBudget.unknownTokens;
+  const providerBudgetAvailable = Boolean(run && !run.providerBudget.overrun && (remainingRequests === null || remainingRequests > 0) && (remainingTokens === null || remainingTokens > 0));
+  const canConfirm = eligible && preview?.availableFrom.includes(stage) && (remainingAttempts === null || remainingAttempts > 0) && providerBudgetAvailable
+    && (run.deadlineAt === null || run.deadlineAt > Date.now() / 1000) && instruction.trim() && Array.from(instruction.trim()).length <= 1000;
   return <section className="generation-replan" aria-label="调整后重新规划" aria-busy={busy}>
     <strong>按当前作品重新规划</strong>
     <p>选择需要重建的范围，补充这一轮的创作要求。</p>
@@ -64,11 +63,11 @@ function Controls({ api, projectId, runId, disabled, onConfirmed }: Props) {
         {preview.availableFrom.map(value => <option key={value} value={value}>{choices[value].label}</option>)}
       </select></label>
       <p>{choices[stage].detail}</p>
-      <p>剩余 {remainingAttempts} 次任务尝试，本范围至少需要 {required} 次。已完成 {run.completedChapters} 章，目标共 {run.targetChapters} 章。</p>
-      <p>供应商预算：剩余 {remainingRequests} 次请求、{remainingTokens.toLocaleString()} token；已使用 {run.providerBudget.usedTokens.toLocaleString()} token，未知用量 {run.providerBudget.unknownTokens.toLocaleString()} token。</p>
-      <small>原截止时间：{new Date(run.deadlineAt * 1000).toLocaleString()}。预算和截止时间保持不变。</small>
+      <p>已执行 {run.usedTaskAttempts} 次任务，后续步骤由创作助手按需要安排。已完成 {run.completedChapters} 章，目标共 {run.targetChapters} 章。</p>
+      <p>模型用量：已请求 {run.providerBudget.usedRequests} 次 · 已使用 {run.providerBudget.usedTokens.toLocaleString()} token · 未确认用量 {run.providerBudget.unknownTokens.toLocaleString()} token。</p>
+      <small>{run.deadlineAt === null ? "执行至本次创作范围完成，可随时暂停或停止。" : `截止时间：${new Date(run.deadlineAt * 1000).toLocaleString()}`}</small>
       {!eligible && <p role="alert">请先核对当前任务或未完成章节；此状态暂不能重规划。</p>}
-      {remainingAttempts < required && <p role="alert">剩余任务尝试次数不足，请缩小本次工作范围或另行安排创作。</p>}
+      {remainingAttempts !== null && remainingAttempts <= 0 && <p role="alert">剩余任务尝试次数不足，请缩小本次工作范围或另行安排创作。</p>}
       {!providerBudgetAvailable && <p role="alert">供应商请求或 token 预算不足，不能继续生成；重规划不会增加原预算。</p>}
       <label>本轮补充要求<textarea aria-label="重规划补充要求" value={instruction} disabled={disabled || busy} maxLength={1000} onChange={event => setInstruction(event.target.value)} /></label>
       <small>原创作要求继续有效。确认后可点击“继续创作”推进；新内容先保存为候选。</small>

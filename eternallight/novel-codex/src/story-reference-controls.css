@@ -1,0 +1,6 @@
+.story-reference .story-reference-controls { display: grid; gap: 10px; margin-block: 16px 24px; min-width: 0; }
+.story-reference .story-reference-controls > button { justify-self: start; max-width: 100%; white-space: normal; }
+.story-reference .reference-filter, .story-reference .reference-filter-empty { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.story-reference .reference-filter button { padding: 7px 12px; border: 1px solid var(--nc-border); border-radius: 8px; background: var(--nc-surface); color: var(--nc-ink); font: inherit; cursor: pointer; }
+.story-reference .reference-filter button[aria-pressed="true"] { border-color: var(--nc-blue); color: var(--nc-blue); }
+.story-reference .reference-filter-empty { padding: 12px; border: 1px solid var(--nc-border); border-radius: 8px; overflow-wrap: anywhere; }

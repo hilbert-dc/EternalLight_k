@@ -1,0 +1,149 @@
+exports[`actual App restores silently, retains logout, and exposes persistence errors with retry 1`] = `
+{
+  "loading": {
+    "text": "小说工坊正在恢复工作区…",
+    "loginShown": false
+  },
+  "logoutFailure": "会话保存失败",
+  "restoreFailure": {
+    "text": "会话读取失败",
+    "loginShown": false
+  },
+  "geometry": [
+    {
+      "theme": "light",
+      "surface": "settings",
+      "width": 1400,
+      "height": 900,
+      "fields": 5,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    },
+    {
+      "theme": "dark",
+      "surface": "settings",
+      "width": 1400,
+      "height": 900,
+      "fields": 5,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    },
+    {
+      "theme": "light",
+      "surface": "settings",
+      "width": 900,
+      "height": 600,
+      "fields": 5,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    },
+    {
+      "theme": "dark",
+      "surface": "settings",
+      "width": 900,
+      "height": 600,
+      "fields": 5,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    },
+    {
+      "theme": "light",
+      "surface": "login",
+      "width": 1400,
+      "height": 900,
+      "fields": 2,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    },
+    {
+      "theme": "dark",
+      "surface": "login",
+      "width": 1400,
+      "height": 900,
+      "fields": 2,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    },
+    {
+      "theme": "light",
+      "surface": "login",
+      "width": 900,
+      "height": 600,
+      "fields": 2,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    },
+    {
+      "theme": "dark",
+      "surface": "login",
+      "width": 900,
+      "height": 600,
+      "fields": 2,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    },
+    {
+      "theme": "light",
+      "surface": "registration",
+      "width": 1400,
+      "height": 900,
+      "fields": 4,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    },
+    {
+      "theme": "dark",
+      "surface": "registration",
+      "width": 1400,
+      "height": 900,
+      "fields": 4,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    },
+    {
+      "theme": "light",
+      "surface": "registration",
+      "width": 900,
+      "height": 600,
+      "fields": 4,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    },
+    {
+      "theme": "dark",
+      "surface": "registration",
+      "width": 900,
+      "height": 600,
+      "fields": 4,
+      "fitsHorizontally": true,
+      "finalControlReachable": true,
+      "outerScroll": 0
+    }
+  ],
+  "brands": [
+    {
+      "surface": "restore",
+      "name": "小说工坊"
+    },
+    {
+      "surface": "workspace",
+      "name": "小说工坊"
+    },
+    {
+      "surface": "login",
+      "name": "小说工坊"
+    }
+  ]
+}
+`;

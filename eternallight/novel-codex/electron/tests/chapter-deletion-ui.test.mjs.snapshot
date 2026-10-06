@@ -1,0 +1,71 @@
+exports[`actual App deletes exact chapters through author confirmation and read-only receipt recovery 1`] = `
+[
+  {
+    "case": "exact menu and cancellation",
+    "exactTitle": true,
+    "laterChaptersWarning": "删除后会自动检查故事衔接，结果显示在对话中。是否调整其他章节，由你决定。",
+    "initiallyFocusedCancel": true,
+    "cancelFocusReturnsToExactAnchor": true,
+    "requests": 0,
+    "sameEditorAndCaret": true
+  },
+  {
+    "case": "dirty cancellation",
+    "noImplicitSaveOrDelete": true,
+    "preservedDraft": true,
+    "explicitSaveThenFreshConfirmation": true
+  },
+  {
+    "case": "unknown failure stays present and requires new confirmation",
+    "explicitNewKey": true,
+    "requests": 2,
+    "currentEditorPreserved": true,
+    "placementRemoved": true
+  },
+  {
+    "case": "known receipt read failure is read only recovery",
+    "requests": 3,
+    "recoveryDidNotWrite": true
+  },
+  {
+    "case": "lost receipt and current chapter removal",
+    "selectedRemainingChapter": 4,
+    "requests": 4
+  },
+  {
+    "case": "last chapter removal",
+    "automaticCheckExplained": true,
+    "emptyWork": true,
+    "requests": 5,
+    "saves": 1,
+    "modelCalls": 0
+  },
+  {
+    "case": "automatic continuity conversation preserves unsent input",
+    "pendingText": "第 4 章已删除，故事衔接待检查。创作引擎空闲后自动开始。",
+    "oneSystemTurn": true,
+    "multipleFailuresRemainRecoverable": true,
+    "liveReadLabel": "读取删前章节",
+    "noAuthorImpersonation": true,
+    "retainedComposerAndCaret": true,
+    "recovery": "重新读取检查记录",
+    "noAutomaticStoryWrite": true
+  },
+  {
+    "case": "completed check continues in ordinary conversation",
+    "report": "第二章的钥匙来源缺少交代",
+    "authorInput": "先不改，讨论补回忆的方案",
+    "exactReportSource": true,
+    "existingComposer": true,
+    "newButtons": false,
+    "storyUnchanged": true
+  },
+  {
+    "case": "late prepare project and API incarnation",
+    "staleIgnored": true,
+    "strictModeReadable": true,
+    "pendingOldOwnerDoesNotBlockNew": true,
+    "zeroApplied": true
+  }
+]
+`;

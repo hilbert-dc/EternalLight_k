@@ -1,7 +1,7 @@
 import "../../../src/styles.css";
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CreativeWorkspaceView } from "../../../src/CreativeWorkspaceView";
+import { CreativeWorkspaceView } from "./creative-workspace-harness";
 
 // Top-level navigation harness. Editing and confirmations belong to the production workspace controller.
 function Journey() {
@@ -21,12 +21,12 @@ function Journey() {
   if (!workspace) return <p>正在读取真实作品…</p>;
   return <main style={{ width: "min(980px, 95vw)", margin: "24px auto" }}>
     <nav><button disabled={dirty} onClick={() => setView("chapters")}>章节页</button><button disabled={dirty} onClick={() => setView("brief")}>简报页</button><button disabled={!dirty} onClick={() => discard.current?.()}>放弃未保存输入</button></nav>
-    <CreativeWorkspaceView api={api} projectId={projectId} view={view}
+    <CreativeWorkspaceView taskConversationContainer={null} api={api} projectId={projectId} view={view}
       state={{ novelEdition: { chapters: workspace.chapters }, canon: { characters: [] } }} selectedChapterId={chapterId}
       agentAvailable agentRunning={false} refreshToken={refreshToken}
-      onSelectChapter={() => {}} onGeneratePlanning={forbidden} onGenerateWork={forbidden} onContinueWork={forbidden}
+      onSelectChapter={() => {}} onGenerateWork={forbidden} onContinueWork={forbidden}
       onRetryWork={forbidden} onResolveFeedback={forbidden} onReviewPlanning={forbidden} onCancelPlanningReview={forbidden}
-      onGenerateChapter={forbidden} onResumeKnowledge={forbidden} onOpenPlanningTarget={() => {}} onReturnToFeedback={() => {}}
+      onGenerateChapter={forbidden} onOpenPlanningTarget={() => {}} onReturnToFeedback={() => {}}
       onFormalChange={refresh} onDirtyChange={setDirty} onDiscardHandlerChange={handler => { discard.current = handler; }} />
   </main>;
 }

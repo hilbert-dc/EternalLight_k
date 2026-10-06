@@ -1,0 +1,137 @@
+exports[`project entry restores chapters and preserves editing through project information 1`] = `
+{
+  "default": "作品目录",
+  "metadata": "作品名 → 作品信息",
+  "chapterRestored": true,
+  "caretRestored": true,
+  "dirtyGuard": true,
+  "volumeNavigation": {
+    "sameName": "精确卷身份",
+    "source": "同一当前卷纲，精确节点保存读回同步目录",
+    "independent": "不猜来源，显式精确关联",
+    "unavailable": "明确重新关联",
+    "dirtyCancel": "保留正文与选区",
+    "outlineDirtyReturn": "返回全书、同页导航先确认；修改记录只读打开；取消保留卷草稿和选区；明确放弃零写入",
+    "moduleRecords": [
+      {
+        "module": "本卷卷纲",
+        "dirtyReadOnly": true,
+        "sameEditorAndSelection": true,
+        "exactTriggerFocus": true
+      },
+      {
+        "scopeChange": "本地节点键盘返回全书",
+        "closed": true,
+        "sameEntryToggleZeroRead": true,
+        "singleTopEntry": true,
+        "writes": 1,
+        "models": 0
+      },
+      {
+        "module": "独立卷",
+        "missingSourceExplicit": true,
+        "wholeBookPreview": false,
+        "writes": 1,
+        "models": 0
+      },
+      {
+        "module": "失联卷",
+        "missingSourceExplicit": true,
+        "wholeBookPreview": false,
+        "writes": 2,
+        "models": 0
+      },
+      {
+        "scopeChange": "卷",
+        "closed": true,
+        "writes": 2,
+        "models": 0
+      },
+      {
+        "scopeChange": "章节",
+        "closed": true,
+        "writes": 2,
+        "models": 0
+      },
+      {
+        "module": "第2章",
+        "dirtyReadOnly": true,
+        "sameEditorAndSelection": true,
+        "exactTriggerFocus": true
+      }
+    ],
+    "projectSwitch": "清除旧卷详情",
+    "screens": [
+      {
+        "theme": "light",
+        "selected": "page",
+        "title": "卷纲改名后的标题",
+        "reading": "看这一卷怎样推动主线，以及结束时人物与局势有什么变化。已保存的规划建议 · 尚未采用讨论调整只读检查卷卷纲改名后的标题本卷推动什么当前卷纲目的本卷事件与变化卷纲故事安排由作者修改。讨论这一段单元当前单元故事目标局部单元安排故事安排单元发生的事讨论这一段",
+        "source": "同一当前卷纲；建立时绑定留作审计",
+        "keyboard": "Space 展开 → Tab 卷身份 → Return 卷纲聚焦"
+      },
+      {
+        "theme": "dark",
+        "selected": "page",
+        "title": "卷纲改名后的标题",
+        "reading": "看这一卷怎样推动主线，以及结束时人物与局势有什么变化。已保存的规划建议 · 尚未采用讨论调整只读检查卷卷纲改名后的标题本卷推动什么当前卷纲目的本卷事件与变化卷纲故事安排由作者修改。讨论这一段单元当前单元故事目标局部单元安排故事安排单元发生的事讨论这一段",
+        "source": "同一当前卷纲；建立时绑定留作审计",
+        "keyboard": "Space 展开 → Tab 卷身份 → Return 卷纲聚焦"
+      }
+    ],
+    "bodyNavigation": [
+      {
+        "route": "未关联节点正文入口",
+        "node": "node-second",
+        "selected": null,
+        "writes": 1,
+        "models": 0
+      },
+      {
+        "route": "已关联节点正文入口",
+        "node": "node-current",
+        "reportedOutlineStatus": "unavailable",
+        "selected": "volume-old-source",
+        "active": true,
+        "current": "page",
+        "writes": 2,
+        "models": 0
+      },
+      {
+        "route": "返回全书",
+        "selected": null,
+        "writes": 2,
+        "models": 0
+      }
+    ]
+  },
+  "missingChapter": "回到现有首章",
+  "writingSettings": [
+    {
+      "module": "创作方向 · 修改记录",
+      "defaultClosed": true,
+      "current": "尚无已保存内容"
+    },
+    {
+      "module": "全书大纲 · 修改记录",
+      "defaultClosed": true,
+      "current": "当前内容已保存 · 尚未采用"
+    },
+    {
+      "module": "近章规划 · 修改记录",
+      "defaultClosed": true,
+      "current": "尚无已保存内容"
+    }
+  ],
+  "planningVersionDiscussion": {
+    "localMockOnly": true,
+    "discussionSends": 1,
+    "focus": {
+      "view": "plans"
+    },
+    "unexpectedModels": 0
+  },
+  "writes": 2,
+  "models": 0
+}
+`;

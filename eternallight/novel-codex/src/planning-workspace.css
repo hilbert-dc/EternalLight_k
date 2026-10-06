@@ -1,0 +1,22 @@
+:root .main-panel .planning-workspace-header { display: grid; gap: 10px; min-width: 0; padding-bottom: 16px; border-bottom: 1px solid var(--nc-border); color: var(--nc-ink); }
+:root .main-panel .planning-workspace-header p { margin: 0; font-family: inherit; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+:root .main-panel .planning-workspace-description { color: var(--nc-ink-soft); }
+:root .main-panel .planning-workspace-state { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; font-size: 12px; }
+:root .main-panel .planning-workspace-state strong { font-size: 13px; font-weight: 600; }
+:root .main-panel .planning-working-notice { color: var(--nc-ink-soft); border-left: 2px solid var(--nc-amber); padding-left: 10px; }
+:root .main-panel .planning-workspace-actions { display: flex; flex-wrap: wrap; gap: 10px 16px; justify-content: space-between; }
+:root .main-panel :is(.planning-discussion-actions, .planning-save-actions) { display: flex; flex-wrap: wrap; gap: 8px; }
+:root .main-panel .planning-save-actions { margin-left: auto; }
+:root .main-panel .planning-workspace-actions button { min-height: 34px; max-width: 100%; font-size: 13px; }
+:root .main-panel .planning-workspace-header .planning-action-hint { color: var(--nc-ink-soft); font-size: 12px; }
+
+:root .main-panel :is(.outline-structure-tools, details.plan-scenes) > summary { cursor: pointer; color: var(--nc-ink-soft); font-size: 13px; padding-block: 6px; }
+:root .main-panel .outline-structure-tools[open] .outline-node-actions { margin-top: 8px; }
+
+:root .main-panel .plan-advanced[open] { display: block; }
+:root .main-panel .plan-advanced-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 14px; }
+:root .main-panel .plan-editor-card select { min-height: 40px; padding: 9px 11px; border: 1px solid var(--nc-border); border-radius: 9px; background: var(--nc-canvas); color: var(--nc-ink); font: inherit; font-size: 14px; }
+:root .main-panel .plan-editor-card select:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+:root .main-panel .plan-character-sources { color: var(--nc-ink-soft); font-size: 13px; }
+:root .main-panel .plan-field blockquote { margin-inline: 0; overflow-wrap: anywhere; }
+@container page (max-width: 620px) { :root .main-panel .plan-advanced-fields { grid-template-columns: minmax(0, 1fr); } }

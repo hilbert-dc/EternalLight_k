@@ -1,0 +1,24 @@
+exports[`manual author sees saved candidates and can create and recover the next independent chapter 1`] = `
+{
+  "document": [
+    {
+      "status": "未发布",
+      "title": "手写第二章",
+      "scenes": [
+        "第二章独立候选正文。"
+      ]
+    }
+  ],
+  "creation": [
+    {
+      "entry": "作品目录创建请求",
+      "title": "手写第二章",
+      "firstCandidate": "手写第一章的候选正文。"
+    },
+    {
+      "failure": "章节已创建，工作区读取失败：夹具作品读取中断。重新读取不会重复创建章节。重新读取已创建章节",
+      "creationCount": 2
+    }
+  ]
+}
+`;

@@ -1,34 +1,89 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
-import { createAgentRun, reduceAgentEvent, summarizeAgentRun, type AgentPhaseStatus, type AgentRun } from "./agent-events";
+import { ComposerModelPicker } from "./ComposerModelPicker";
+import { ConversationReplyActions } from "./ConversationReplyActions";
+import { ConversationPrompt } from "./ConversationPrompt";
+import type { ChapterTitlePreview } from "./chapter-title";
+import { useChapterDeletion } from "./useChapterDeletion";
+import { ChapterDeleteDialog } from "./ChapterDeleteDialog";
+import { useAgentAvailability } from "./useAgentAvailability";
+import { isModelConnectionUnavailable } from "./agent-error-description";
+import { DiscussionSourceChip } from "./DiscussionSourceChip";
+import { SelectionDiscussion, DiscussionExcerptCards } from "./SelectionDiscussion";
+import { ConversationNavigator } from "./ConversationNavigator";
+import { ConversationReader } from "./ConversationReader";
+import "./conversation-workspace.css";
+import { useSelectedConversation } from "./useSelectedConversation";
+import { resolveCommitmentNavigation } from "./commitment-navigation";
+import { resolveTaskResult, type ResolvedTaskResult } from "./task-result-navigation";
+import type { TaskResultDestination } from "./task-results";
+import { SavedAnalysisDialog } from "./SavedAnalysisDialog";
+import type { NovelCodexApi, ConversationFocus, DiscussionSource, DiscussionExcerpt, CommitmentNavigationRequest, CommitmentNavigationSelection, SavedAnalysis } from "./types";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { createAgentRun, reduceAgentEvent, summarizeAgentRun, type AgentRun } from "./agent-events";
+import { createStopTicket, ownsStop, isConfirmedCancellation, stoppedRun, failedRun, confirmsNativeStop, StoppedExecutionError, type StopTicket } from "./execution-stop";
 import { ExportDialog } from "./ExportDialog";
 import { ExecutionScopeDialog } from "./ExecutionScopeDialog";
 import { DesiredOutcomes } from "./DesiredOutcomes";
+import { ModuleRecordsPopover, type ModuleRecordSource } from "./ModuleRecordsPopover";
+import { StoryReferenceView } from "./StoryReferenceView";
+import "./page-layout.css";
+import { ProjectCreateDialog } from "./ProjectCreateDialog";
+import { ProjectInformation } from "./ProjectInformation";
+import { lastChapter, rememberChapter } from "./chapter-location";
+import { SearchResults, searchNavigation } from "./SearchResults";
+import { useWorkspaceSearch } from "./useWorkspaceSearch";
+import { usePlanningSubmission } from "./usePlanningSubmission";
+import { useComposerDrafts } from "./useComposerDrafts";
+import { useModelConnection } from "./useModelConnection";
+import { ModelConnectionNotice } from "./ModelConnectionNotice";
 import { CreativeWorkspaceView } from "./CreativeWorkspaceView";
+import { useWorkCatalog } from "./useWorkCatalog";
+import { OutlineVolumeNavigation } from "./OutlineVolumeNavigation";
+import { SidebarWorkDirectory, type SidebarChapterCreationRequest } from "./SidebarWorkDirectory";
+import { ConversationRecovery } from "./ConversationRecovery";
+import { WorkTaskPanel } from "./WorkTaskPanel";
+import { ChapterStructureNotice, type StructureCheckFailure } from "./ChapterStructureNotice";
+import { applyChapterStructureEvent } from "./chapter-structure-events";
+import { applyConversationExecutionEvent, createConversationExecutionOwner, createRecoveredExecutionOwner, type ConversationExecutionOwner } from "./conversation-execution-events";
+import { ConversationTimeline } from "./ConversationTimeline";
+import { AgentStatusBar } from "./AgentStatus";
+import { describeAgentError } from "./agent-error-description";
+import { useWorkTaskControls } from "./useWorkTaskControls";
+import { useWorkTaskList } from "./useWorkTaskList";
+import { attemptContainsRun, type WorkConversationContent } from "./work-conversation";
+import { DiscussionSyncNotice } from "./DiscussionSyncNotice";
+import { chapterWritingMatches, type ChapterWritingRequest } from "./chapter-writing";
+import { ComposerDraftNotice } from "./ComposerDraftNotice";
+import { type BoundExecutionRetry, type ExecutionRetry } from "./execution-retry";
+import "./execution-recovery.css";
 import { FailedRevisionRepair, PreparedRevisionRepair } from "./PreparedRevisionRepair";
 import { useRevisionRepair } from "./useRevisionRepair";
+import { CharacterCatalog } from "./CharacterCatalog";
 import { IdentityDecisionPanel } from "./IdentityDecisionPanel";
 import { PropertyRulesPanel } from "./PropertyRulesPanel";
 import { LoginScreen } from "./LoginScreen";
 import { UserSettings } from "./UserSettings";
-import { authorInitial, clearAuthor, hasActiveSession, hashPassword, loadAuthor, markSignedOut, saveAuthor, type AuthorProfile } from "./author-session";
+import { WorkspaceDiagnostics } from "./WorkspaceDiagnostics";
+import { authorInitial, hashPassword, type AuthorProfile } from "./author-session";
+import { useAuthorSession } from "./use-author-session";
 import { MarkdownContent } from "./MarkdownContent";
 import { MetricsPanel } from "./MetricsPanel";
-import type { BackgroundTerminal, Chapter, ChapterDiff, ExecutionScopeConfirmation, PlanningReviewStartRequest, ProjectSummary, ProposedAction, RecoveryRun, RuntimeState, RuntimeStatus, Scene, SearchResult, StoryTestResult, ThreadDetail, ThreadSummary, ViewId } from "./types";
+import type { BackgroundTerminal, Chapter, ExecutionScopeConfirmation, PlanningReviewStartRequest, ProjectSummary, ProposedAction, RecoveryRun, RuntimeState, RuntimeStatus, ThreadDetail, ThreadSummary, ViewId } from "./types";
 
 import { authorIntentError } from "../shared/author-input-budget.mjs";
-import type { RevisionContinuationPreparation, RevisionPredecessor, RevisionRepairPreparation } from "./types";
+import type { GenerationHandoffProposal, RevisionContinuationPreparation, RevisionPredecessor, RevisionRepairPreparation } from "./types";
+import { ConversationGenerationHandoff } from "./ConversationGenerationHandoff";
 
 const DEFAULT_PROJECT_ID = "project-last-lamp";
 const MAX_PENDING_INTERACTIONS = 4;
 type AgentStatus = { configured: boolean; state: string; mode: "novel-agent-engine"; error: string | null; provider?: string; model?: string; commandSource?: string | null; cliPath?: string | null; isolatedHome?: string | null };
-type AgentConnection = { id: string; provider: string; model: string; protocol: "auto" | "responses" | "chat-completions" | "messages" | "generate-content"; selectedProtocol: string | null; declaredCapabilities: string[]; verifiedCapabilities: string[]; failedCapabilities: string[]; operations: string[]; status: "unverified" | "verified" | "failed"; certificationIds: string[]; accountStatus: "configured" | "missing-credential"; isDefault: boolean };
+type AgentConnection = Awaited<ReturnType<NovelCodexApi["agent"]["listConnections"]>>["connections"][number];
 type UserInputRequest = { requestId: string | number; method: "item/tool/requestUserInput"; params: Record<string, unknown>; threadId?: string | null; turnId?: string | null; itemId?: string | null };
 type UserInputResponse = { answers: Record<string, string | string[]> };
 type UserInputQuestion = { id: string; header: string | null; question: string; options: { label: string; description: string | null }[]; isOther: boolean };
 type ResolveUserInput = (response: UserInputResponse) => Promise<boolean> | boolean | void;
-type PendingNavigation = { kind: "view"; view: ViewId } | { kind: "chapter"; chapterId: string } | { kind: "project"; projectId: string } | { kind: "diffs" } | { kind: "new-project" } | { kind: "close" } | { kind: "account" };
+type PendingNavigation = { kind: "delete-chapter"; projectId: string; chapterId: string } | { kind: "volume"; projectId: string; volumeId: string; expectedNodeId?: string } | { kind: "new-chapter"; request: SidebarChapterCreationRequest } | { kind: "commitment"; request: CommitmentNavigationRequest } | { kind: "result"; result: TaskResultDestination } | { kind: "view"; view: ViewId } | { kind: "chapter"; chapterId: string } | { kind: "project"; projectId: string } | { kind: "new-project" } | { kind: "close" } | { kind: "account" };
 const emptyState: RuntimeState = {
-  project: { id: DEFAULT_PROJECT_ID, title: "正在加载作品…", logline: "", updated_at: "" },
+  project: { id: "", title: "正在加载作品…", logline: "", updated_at: "" },
   canon: { characters: [], relationships: [], events: [], locations: [], plotThreads: [], worldRules: [], notes: [] },
   narrativeIr: { version: "1.0", scenes: [], anchors: [] },
   novelEdition: { chapters: [] },
@@ -88,9 +143,9 @@ function PaneSash({ orientation, label, value, min, max, nextValue, onResize }: 
 }
 
 const navGroups: { label: string; items: { id: ViewId; label: string; icon: string }[] }[] = [
-  { label: "故事", items: [{ id: "overview", label: "总览", icon: "⌂" }, { id: "chapters", label: "章节", icon: "▤" }, { id: "characters", label: "角色", icon: "♙" }, { id: "scenes", label: "场景", icon: "◈" }] },
-  { label: "规划", items: [{ id: "brief", label: "创作简报", icon: "◫" }, { id: "outline", label: "长篇大纲", icon: "≡" }, { id: "plans", label: "近章规划", icon: "⋮" }, { id: "plot", label: "情节线", icon: "⌁" }, { id: "timeline", label: "时间线", icon: "◷" }] },
-  { label: "参考", items: [{ id: "world", label: "世界与规则", icon: "◇" }] },
+  { label: "故事", items: [{ id: "brief", label: "作品概况", icon: "◫" }, { id: "chapters", label: "作品目录", icon: "▤" }, { id: "characters", label: "角色", icon: "♙" }] },
+  { label: "规划", items: [{ id: "outline", label: "全书大纲", icon: "≡" }, { id: "plans", label: "近章规划", icon: "⋮" }] },
+  { label: "参考", items: [{ id: "plot", label: "伏笔与悬念", icon: "⌁" }, { id: "timeline", label: "时间线", icon: "◷" }, { id: "world", label: "世界与规则", icon: "◇" }] },
 ];
 
 function isResolvedUserInputEvent(event: unknown): event is { method: "serverRequest/resolved"; params: { requestId: string | number } } {
@@ -99,41 +154,63 @@ function isResolvedUserInputEvent(event: unknown): event is { method: "serverReq
   return message.method === "serverRequest/resolved" && (typeof message.params?.requestId === "string" || typeof message.params?.requestId === "number");
 }
 
-function isUserInputRequest(request: { method: string }): boolean { return request.method === "item/tool/requestUserInput"; }
 function userInputQuestions(params: Record<string, unknown>): UserInputQuestion[] { const questions = Array.isArray(params.questions) ? params.questions : []; return questions.slice(0, 3).flatMap((entry) => { const question = eventRecord(entry); if (!question || typeof question.id !== "string" || !question.id.trim() || typeof question.question !== "string") return []; const options = Array.isArray(question.options) ? question.options.slice(0, 6).flatMap((entry) => { const option = eventRecord(entry); return option && typeof option.label === "string" && option.label.trim() ? [{ label: option.label.slice(0, 240), description: typeof option.description === "string" && option.description.trim() ? option.description.slice(0, 240) : null }] : []; }) : []; return [{ id: question.id.slice(0, 240), header: typeof question.header === "string" && question.header.trim() ? question.header.slice(0, 120) : null, question: question.question.slice(0, 240), options, isOther: question.isOther === true }]; }); }
 
 function eventRecord(value: unknown): Record<string, unknown> | null { return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function eventText(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.slice(0, 240) : null; }
 function eventThreadId(event: unknown): string | null { const message = eventRecord(event); const params = eventRecord(message?.params); const thread = eventRecord(params?.thread); const id = typeof params?.threadId === "string" ? params.threadId : typeof thread?.id === "string" ? thread.id : null; return id && id.trim() && id.length <= 240 && !/[\r\n]/.test(id) ? id : null; }
 function eventThreadStatus(event: unknown): string | null { const message = eventRecord(event); const params = eventRecord(message?.params); const status = eventRecord(params?.status); const type = eventText(status?.type); const flags = Array.isArray(status?.activeFlags) ? status.activeFlags : []; if (flags.some((flag) => flag === "waitingOnApproval" || flag === "waitingOnUserInput")) return "waiting"; if (type) return type; if (message?.method === "turn/started") return "active"; if (message?.method === "turn/completed") { const turn = eventRecord(params?.turn); return turn?.status === "failed" ? "systemError" : turn?.status === "interrupted" ? "interrupted" : "idle"; } return null; }
-function threadSummaryFromEvent(event: unknown): ThreadSummary | null { const message = eventRecord(event); const params = eventRecord(message?.params); const thread = eventRecord(params?.thread); const id = eventThreadId(event); if (!id || !thread) return null; return { id, name: eventText(thread.name), preview: eventText(thread.preview), modelProvider: eventText(thread.modelProvider), status: eventThreadStatus(event) ?? (message?.method === "thread/started" ? "active" : null), createdAt: typeof thread.createdAt === "number" ? thread.createdAt : null, updatedAt: typeof thread.updatedAt === "number" ? thread.updatedAt : null, isPinned: thread.isPinned === true, ephemeral: thread.ephemeral === true }; }
-function agentFailureEvent(message: string): unknown { return message === "生成已停止" ? { method: "turn/completed", params: { turn: { status: "interrupted" } } } : { method: "agent/error", params: { message } }; }
-function applyThreadEvent(threads: ThreadSummary[], event: unknown, archived: boolean): ThreadSummary[] { const message = eventRecord(event); const method = typeof message?.method === "string" ? message.method : ""; const threadId = eventThreadId(event); if (method === "thread/started") { const incoming = threadSummaryFromEvent(event); if (!incoming || archived) return threads; const existing = threads.find((thread) => thread.id === incoming.id); return existing ? threads.map((thread) => thread.id === incoming.id ? { ...thread, ...incoming, name: incoming.name ?? thread.name, preview: incoming.preview ?? thread.preview, modelProvider: incoming.modelProvider ?? thread.modelProvider, createdAt: incoming.createdAt ?? thread.createdAt, updatedAt: incoming.updatedAt ?? thread.updatedAt } : thread) : [incoming, ...threads]; } if (!threadId) return threads; if (method === "thread/archived" && !archived) return threads.filter((thread) => thread.id !== threadId); if (method === "thread/unarchived" && archived) return threads.filter((thread) => thread.id !== threadId); const status = eventThreadStatus(event); if (["thread/status/changed", "turn/started", "turn/completed"].includes(method) && status) return threads.map((thread) => thread.id === threadId ? { ...thread, status } : thread); if (method === "thread/name/updated") { const params = eventRecord(message?.params); const name = eventText(params?.name); return name ? threads.map((thread) => thread.id === threadId ? { ...thread, name } : thread) : threads; } return threads; }
+function applyThreadEvent(threads: ThreadSummary[], event: unknown, _archived: boolean): ThreadSummary[] { const threadId = eventThreadId(event); const method = eventRecord(event)?.method; const status = eventThreadStatus(event); return threadId && status && ["thread/status/changed", "turn/started", "turn/completed"].includes(String(method)) ? threads.map(thread => thread.id === threadId ? { ...thread, status } : thread) : threads; }
 
 function App() {
   const api = window.novelCodex;
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     try { return localStorage.getItem("novel-codex-theme") === "dark" ? "dark" : "light"; } catch { return "light"; }
   });
-  const [author, setAuthor] = useState<AuthorProfile | null>(loadAuthor);
-  const [signedIn, setSignedIn] = useState(hasActiveSession);
+  const authorSession = useAuthorSession();
+  const { author, signedIn } = authorSession;
   const [accountOpen, setAccountOpen] = useState(false);
-  const [activeView, setActiveView] = useState<ViewId>("overview");
+  const [projectInformationOpen, setProjectInformationOpen] = useState(false);
+  const [activeView, setActiveView] = useState<ViewId>("chapters");
   const [state, setState] = useState<RuntimeState>(emptyState);
   const [activeProjectId, setActiveProjectId] = useState(() => {
     try { return localStorage.getItem("novel-codex-active-project") ?? DEFAULT_PROJECT_ID; } catch { return DEFAULT_PROJECT_ID; }
   });
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [projectLoading, setProjectLoading] = useState(true);
   const [exportOpen, setExportOpen] = useState(false);
   const [projectCreateOpen, setProjectCreateOpen] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({ state: "offline", mode: "local", error: "正在连接 Creative Runtime…" });
   const [agentStatus, setAgentStatus] = useState<AgentStatus>({ configured: false, state: "idle", mode: "novel-agent-engine", error: null });
   const [agentConnections, setAgentConnections] = useState<AgentConnection[]>([]);
   const [userInputQueue, setUserInputQueue] = useState<UserInputRequest[]>([]);
-  const [selectedChapterId, setSelectedChapterId] = useState("chapter-01");
-  const [composer, setComposer] = useState("");
+  const [selectedChapterId, setSelectedChapterId] = useState("");
+  const [chapterWriting, setChapterWriting] = useState<ChapterWritingRequest | null>(null);
+  const chapterWritingRef = useRef<ChapterWritingRequest | null>(null);
+  const chapterWritingPendingRef = useRef<object | null>(null);
+  const [chapterWritingPending, setChapterWritingPending] = useState(false);
+  function selectChapterWriting(request: ChapterWritingRequest | null) {
+    chapterWritingRef.current = request;
+    setChapterWriting(request);
+  }
   const [activity, setActivity] = useState<string[]>([]);
-  const [agentRun, setAgentRun] = useState<AgentRun>(createAgentRun());
+  const [agentRun, commitAgentRun] = useState<AgentRun>(createAgentRun());
+  const executionConversationRef = useRef<string | null>(null);
+  const conversationRuns = useRef(new Map<string, { run: AgentRun; retry: BoundExecutionRetry | null; scope: object; pipeline: typeof conversationExecutionRef.current }>());
+  const agentRunRef = useRef(agentRun);
+  const promptScopeRef = useRef({});
+  const stopTicketRef = useRef<StopTicket | null>(null);
+  const executionRetryRef = useRef<BoundExecutionRetry | null>(null);
+  const conversationExecutionRef = useRef<{ api: typeof api; scope: object; owner: ConversationExecutionOwner; pendingStart?: { goal: string; originalRun: AgentRun } } | null>(null);
+  function setAgentRun(update: AgentRun | ((run: AgentRun) => AgentRun)) {
+    const next = typeof update === "function" ? update(agentRunRef.current) : update;
+    const retry = executionRetryRef.current;
+    if (retry && retry.scope === promptScopeRef.current && retry.history === null) retry.history = next.history;
+    agentRunRef.current = next;
+    const conversationId = executionConversationRef.current ?? next.threadId;
+    if (conversationId) conversationRuns.current.set(conversationId, { run: next, retry: executionRetryRef.current, scope: promptScopeRef.current, pipeline: conversationExecutionRef.current });
+    commitAgentRun(next);
+  }
   const [proposedActions, setProposedActions] = useState<{ projectId: string; actions: ProposedAction[] }>({ projectId: "", actions: [] });
   const [approvingActionId, setApprovingActionId] = useState<string | null>(null);
   const [scopeAction, setScopeAction] = useState<{ projectId: string; action: ProposedAction } | null>(null);
@@ -144,51 +221,355 @@ function App() {
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadAction, setThreadAction] = useState<string | null>(null);
   const [threadArchived, setThreadArchived] = useState(false);
-  const [threadCursor, setThreadCursor] = useState<string | null>(null);
-  const [threadDetail, setThreadDetail] = useState<ThreadDetail | null>(null);
-  const [threadDetailLoading, setThreadDetailLoading] = useState(false);
+  const threadListRef = useRef<object | null>(null);
+  const scopeExecutionRef = useRef<{ projectId: string; scope: object } | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [contextTab, setContextTab] = useState<"story" | "task" | "changes" | "usage" | "diagnostics" | "settings">("story");
   const [panes, setPanes] = useState<LayoutPanes>(loadPanes);
   useEffect(() => { try { localStorage.setItem(PANE_KEY, JSON.stringify(panes)); } catch { /* The layout still follows the current drag if storage is unavailable. */ } }, [panes]);
-  const layoutStyle = { "--nc-sidebar": `${panes.sidebar}px`, "--nc-rail": `${panes.rail}px`, "--nc-inspector": `${panes.inspector}px` } as CSSProperties;
-  const sidebarMax = Math.min(480, Math.max(72, window.innerWidth - panes.rail - 380));
-  const railMax = Math.min(840, Math.max(300, window.innerWidth - panes.sidebar - 380));
-  const inspectorMax = Math.max(160, window.innerHeight - 300);
-  const [agentConfigSaving, setAgentConfigSaving] = useState(false);
+  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  useEffect(() => {
+    const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  const sidebarWidth = Math.min(panes.sidebar, Math.max(72, viewport.width - 670));
+  const railWidth = Math.min(panes.rail, Math.max(300, viewport.width - sidebarWidth - 370));
+  const inspectorMax = Math.max(160, viewport.height - 360);
+  const layoutStyle = { "--nc-sidebar": `${sidebarWidth}px`, "--nc-rail": `${railWidth}px`, "--nc-inspector": `${Math.min(panes.inspector, inspectorMax)}px` } as CSSProperties;
+  const sidebarMax = Math.min(480, Math.max(72, viewport.width - railWidth - 370));
+  const railMax = Math.min(840, Math.max(300, viewport.width - sidebarWidth - 370));
   const [backgroundTerminals, setBackgroundTerminals] = useState<BackgroundTerminal[]>([]);
   const [backgroundTerminalLoading, setBackgroundTerminalLoading] = useState(false);
   const [creativeRefreshToken, setCreativeRefreshToken] = useState(0);
-  const [creativeDirty, setCreativeDirty] = useState(false);
+  const [creativeDirty, updateCreativeDirty] = useState(false);
+  const mainPanelRef = useRef<HTMLElement>(null);
+  const [moduleActionsContainer, setModuleActionsContainer] = useState<HTMLDivElement | null>(null);
+  const [taskConversationContainer, setTaskConversationContainer] = useState<HTMLDivElement | null>(null);
+  const creativeDirtyRef = useRef(creativeDirty);
+  const setCreativeDirty = useCallback((value: boolean) => { creativeDirtyRef.current = value; updateCreativeDirty(value); }, []);
+  const [discussionSyncNotice, setDiscussionSyncNotice] = useState<string | null>(null);
+  const [structureFailures, setStructureFailures] = useState<StructureCheckFailure[]>([]);
+  const [discussionSyncBusy, setDiscussionSyncBusy] = useState(false);
+  const discussionSyncRef = useRef<object | null>(null);
+  const deferredDiscussionSync = useRef<{ api: typeof api; projectId: string; scope: object } | null>(null);
+  const resultNavigation = useRef(0);
+  const [commitmentSelection, setCommitmentSelection] = useState<CommitmentNavigationSelection | null>(null);
+  const [pendingDiscussionSource, setPendingDiscussionSource] = useState<(DiscussionSource & { prompt: string }) | null>(null);
+  const pendingDiscussionSourceRef = useRef(pendingDiscussionSource);
+  pendingDiscussionSourceRef.current = pendingDiscussionSource;
+  const [savedAnalysis, setSavedAnalysis] = useState<SavedAnalysis | null>(null);
+  const [taskResultSelection, setTaskResultSelection] = useState<(ResolvedTaskResult & { requestId: string }) | null>(null);
+  const [taskResultError, setTaskResultError] = useState<string | null>(null);
   const [pendingNavigation, setPendingNavigation] = useState<PendingNavigation | null>(null);
+  const [moduleRecords, setModuleRecords] = useState<(ModuleRecordSource & {
+    api: typeof api; opener: HTMLElement | null; requestId: number;
+  }) | null>(null);
+  const moduleRecordsRequest = useRef(0);
+  const [selectedOutlineVolume, setSelectedOutlineVolume] = useState<{ projectId: string; volumeId: string } | null>(null);
+  const [requestedChapterCreation, setRequestedChapterCreation] = useState<SidebarChapterCreationRequest | null>(null);
   const [savingBeforeLeave, setSavingBeforeLeave] = useState(false);
-  const [planningIntentSeed, setPlanningIntentSeed] = useState("");
   const [revisionContinuation, setRevisionContinuation] = useState<RevisionContinuationPreparation | null>(null);
   const [sentRevisionRepair, setSentRevisionRepair] = useState<RevisionRepairPreparation | null>(null);
   // Reducers preserve this array during one run; a new root gets a fresh history.
   const sentRepairHistoryRef = useRef<AgentRun["history"] | null>(null);
   const currentSentRepair = sentRepairHistoryRef.current === agentRun.history ? sentRevisionRepair : null;
-  const promptScopeRef = useRef({});
+  const [taskRecovery, setTaskRecovery] = useState<BoundExecutionRetry | null>(null);
+  const reconnectRef = useRef<object | null>(null);
+  const [reconnectNotice, setReconnectNotice] = useState<{ scope: object; message: string } | null>(null);
+  const promptSubmissionRef = useRef<object | null>(null);
+  const [promptPipeline, setPromptPipeline] = useState<{ projectId: string; scope: object } | null>(null);
+  const steerSubmissionRef = useRef<object | null>(null);
   useEffect(() => () => { promptScopeRef.current = {}; }, []);
-  const [conversationContinuation, setConversationContinuation] = useState<{ projectId: string; intent: string; revision: number;
-    headSnapshotId: string; sourceDigest: string } | null>(null);
+  const [generationHandoff, setGenerationHandoff] = useState<{ proposal: GenerationHandoffProposal; scope: object } | null>(null);
+  const generationHandoffRef = useRef(generationHandoff);
+  generationHandoffRef.current = generationHandoff;
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const advisorySteeredRef = useRef(false);
+  const planningSaveHandlerRef = useRef<(() => Promise<boolean>) | null>(null);
+  const registerPlanningSaveHandler = useCallback((handler: (() => Promise<boolean>) | null) => { planningSaveHandlerRef.current = handler; }, []);
   const creativeSaveHandlerRef = useRef<(() => Promise<boolean>) | null>(null);
   const creativeDiscardHandlerRef = useRef<(() => boolean) | null>(null);
   const recoveryNoticeShownRef = useRef(false);
-  const [diffs, setDiffs] = useState<ChapterDiff[]>([]);
-  const [testResult, setTestResult] = useState<StoryTestResult | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const activeLabel = useMemo(() => navGroups.flatMap((group) => group.items).find((item) => item.id === activeView)?.label ?? "版本与变更", [activeView]);
+  const activeLabel = useMemo(() => navGroups.flatMap((group) => group.items).find((item) => item.id === activeView)?.label ?? "作品", [activeView]);
   const projectId = state.project.id;
+  const selectedConversation = useSelectedConversation(author?.email ?? "", projectId);
+  const conversationSelectionRef = useRef(selectedConversation); conversationSelectionRef.current = selectedConversation;
+  const [conversationChanging, setConversationChanging] = useState(false);
+  const conversationChangeRef = useRef<object | null>(null);
+  const [conversationReading, setConversationReading] = useState<{ projectId: string; threadId: string; detail: ThreadDetail | null; loading: boolean; error: string | null } | null>(null);
+  const conversationReadRef = useRef<object | null>(null);
+  const selectedThread = threads.find(thread => thread.id === selectedConversation.id) ?? (conversationReading?.projectId === projectId && conversationReading.threadId === selectedConversation.id ? conversationReading.detail?.thread : null);
+  const executionConversationId = executionConversationRef.current ?? agentRun.threadId;
+  const viewingExecution = selectedConversation.id === executionConversationId || !selectedConversation.id && (!executionConversationId
+    || Boolean(promptSubmissionRef.current && conversationExecutionRef.current?.scope === promptScopeRef.current));
+  const activeConversationDetail = conversationReading?.projectId === projectId && conversationReading.threadId === selectedConversation.id ? conversationReading : null;
+  const sharedStateOwner = useMemo(() => ({}), [api, projectId, activeProjectId, signedIn]);
+  const sharedStateOwnerRef = useRef(sharedStateOwner); sharedStateOwnerRef.current = sharedStateOwner;
+  const promptPipelineBusy = promptPipeline?.projectId === projectId && promptPipeline.scope === promptScopeRef.current
+    && promptSubmissionRef.current === promptPipeline.scope;
+  const baseExecutionBusy = Boolean(promptPipelineBusy) || agentRun.state === "running" || agentRun.state === "waiting";
+  const conversationProjectReady = signedIn && Boolean(projectId) && projectId === activeProjectId;
+  const workDirectory = useWorkCatalog(api, projectId, creativeRefreshToken, conversationProjectReady);
+  const outlineVolume = conversationProjectReady && selectedOutlineVolume?.projectId === projectId
+    ? workDirectory.catalog?.volumes.find(volume => volume.id === selectedOutlineVolume.volumeId) ?? null : null;
+  useEffect(() => {
+    if (!conversationProjectReady || selectedOutlineVolume && (selectedOutlineVolume.projectId !== projectId
+      || workDirectory.catalog && !workDirectory.catalog.volumes.some(volume => volume.id === selectedOutlineVolume.volumeId))) setSelectedOutlineVolume(null);
+  }, [conversationProjectReady, projectId, workDirectory.catalog, selectedOutlineVolume]);
+  const writingRoute = { projectId: conversationProjectReady ? projectId : "", view: accountOpen ? "account" : activeView, chapterId: selectedChapterId };
+  const writingRouteRef = useRef(writingRoute);
+  writingRouteRef.current = writingRoute;
+  const currentChapterWriting = chapterWritingMatches(chapterWriting, writingRoute) ? chapterWriting : null;
+  if (!chapterWritingMatches(chapterWritingRef.current, writingRoute)) chapterWritingRef.current = null;
+  useEffect(() => {
+    if (!chapterWritingMatches(chapterWriting, writingRoute)) selectChapterWriting(null);
+  }, [projectId, activeProjectId, activeView, accountOpen, selectedChapterId, conversationProjectReady]);
+  function prepareChapterWriting(request: ChapterWritingRequest) {
+    if (!chapterWritingMatches(request, writingRouteRef.current) || currentProjectRef.current !== request.projectId || agentRunRef.current.state === "running"
+      || agentRunRef.current.state === "waiting" || chapterWritingPendingRef.current || promptSubmissionRef.current) return;
+    revisionRepair.cancel();
+    setSentRevisionRepair(null);
+    composerDrafts.setSource(null); setPendingDiscussionSource(null);
+    selectChapterWriting(request);
+    setComposer(value => value.trim() ? value : request.defaultIntent);
+    composerRef.current?.focus();
+  }
+  const taskList = useWorkTaskList(conversationProjectReady ? api : undefined, projectId, creativeRefreshToken, baseExecutionBusy);
+  const taskControlScopeRef = useRef(taskList.scope);
+  taskControlScopeRef.current = taskList.scope;
+  const [taskControlMessage, setTaskControlMessage] = useState<{ scope: object; error: { targetId: string; message: string } | null; notice: { targetId: string; message: string } | null } | null>(null);
+  const taskControls = useWorkTaskControls({ scope: taskList.scope,
+    isBlocked: () => !conversationProjectReady || !api || creativeDirtyRef.current || !!taskList.error || !taskList.loaded,
+    onBeforeResume: async workTaskId => {
+      const controlOwner = taskList.scope;
+      const work = await api!.runtime.getWorkTask(projectId, workTaskId);
+      if (taskControlScopeRef.current !== controlOwner || currentProjectRef.current !== projectId
+        || work.projectId !== projectId || work.id !== workTaskId || !["paused", "blocked"].includes(work.status)) throw new Error("任务来源已变化，尚未继续执行。请重新读取原任务。");
+      const owner = createRecoveredExecutionOwner(work);
+      if (!owner) throw new Error("原任务的对话来源未能核对，尚未继续执行。");
+      const scope = beginExecutionScope({ kind: "taskRecovery", operation: "继续原任务", view: activeView, intent: work.goal });
+      promptSubmissionRef.current = scope;
+      setPromptPipeline({ projectId, scope });
+      const originalRun = agentRunRef.current;
+      conversationExecutionRef.current = { api, scope, owner, pendingStart: { goal: work.goal, originalRun } };
+      return (result, error) => {
+        const returned = eventRecord(result), notStarted = eventRecord(returned?.resumeFailure);
+        const didNotStart = promptScopeRef.current === scope && currentProjectRef.current === projectId && taskControlScopeRef.current === controlOwner
+          && returned?.id === workTaskId && returned.projectId === projectId && returned.status === "paused"
+          && notStarted?.code === "WORK_RESUME_NOT_STARTED" && notStarted.workTaskId === workTaskId
+          && typeof notStarted.message === "string" && Boolean(notStarted.message.trim())
+          && conversationExecutionRef.current?.scope === scope && Boolean(conversationExecutionRef.current.pendingStart);
+        if (didNotStart) {
+          // A Host-proven pre-task failure is an operation error on the original
+          // Work, not another author turn or a fabricated failed model attempt.
+          setAgentRun(originalRun);
+        }
+        if (promptSubmissionRef.current === scope) promptSubmissionRef.current = null;
+        setPromptPipeline(current => current?.scope === scope ? null : current);
+        if (conversationExecutionRef.current?.scope === scope) conversationExecutionRef.current = null;
+        if (didNotStart) return;
+        if (promptScopeRef.current === scope && currentProjectRef.current === projectId
+          && ["running", "waiting"].includes(agentRunRef.current.state)) {
+          setAgentRun(run => error ? failedRun(run, error instanceof Error ? error.message : "原任务恢复未完成")
+            : returned?.status === "cancelled" ? stoppedRun(run)
+              : returned?.status === "completed" ? { ...run, state: "completed", completedAt: Date.now() }
+                : { ...run, state: "error", error: "原任务尚未完成，请查看任务状态继续处理。", completedAt: Date.now() });
+        }
+      };
+    },
+    onControlApplied: (workTaskId) => {
+      const pipeline = conversationExecutionRef.current;
+      if (pipeline?.pendingStart && pipeline.api === api && pipeline.scope === promptScopeRef.current
+        && pipeline.owner.workTaskId === workTaskId && pipeline.owner.projectId === currentProjectRef.current) {
+        if (promptSubmissionRef.current === pipeline.scope) promptSubmissionRef.current = null;
+        setPromptPipeline(current => current?.scope === pipeline.scope ? null : current);
+        conversationExecutionRef.current = null;
+      }
+    },
+    refresh: taskList.refresh, onFormalChange: () => refreshFormalState(() => taskControlScopeRef.current === taskList.scope),
+    onError: (error, targetId) => setTaskControlMessage(previous => ({ scope: taskList.scope, error: error === null ? null : { targetId, message: error }, notice: previous?.scope === taskList.scope ? previous.notice : null })),
+    onNotice: (notice, targetId) => setTaskControlMessage(previous => ({ scope: taskList.scope, notice: notice === null ? null : { targetId, message: notice }, error: previous?.scope === taskList.scope ? previous.error : null })) });
+  const chapterDeletion = useChapterDeletion({ api, projectId, enabled: conversationProjectReady,
+    isBlocked: () => baseExecutionBusy || taskControls.pending || !taskList.loaded || Boolean(taskList.error) || taskList.activeCount > 0
+      || creativeDirtyRef.current || workDirectory.busy || !workDirectory.catalog || Boolean(workDirectory.error),
+    onApplied: (next, deletedId) => {
+      const deleted = state.novelEdition.chapters.find(chapter => chapter.id === deletedId);
+      const remaining = [...next.novelEdition.chapters].sort((left, right) => left.number - right.number);
+      const current = remaining.find(chapter => chapter.id === selectedChapterId);
+      const nearest = remaining.find(chapter => chapter.number >= (deleted?.number ?? 0)) ?? remaining.at(-1);
+      setState(next);
+      if (!current) { setSelectedChapterId(nearest?.id ?? ""); if (nearest) rememberChapter(projectId, nearest.id); }
+      setModuleRecords(null); setTaskResultSelection(null); setCommitmentSelection(null);
+      setCreativeRefreshToken(value => value + 1);
+      setActivity(items => ["章节已从作品目录和正文中删除。", ...items].slice(0, 4));
+    } });
+  const executionBusy = baseExecutionBusy || taskControls.pending || chapterDeletion.active;
+  useEffect(() => {
+    if (!taskControls.resuming) return;
+    taskList.poll();
+    const timer = window.setInterval(taskList.poll, 1500);
+    return () => window.clearInterval(timer);
+  }, [taskControls.resuming, taskList.poll]);
+  const modelConnection = useModelConnection({ api, scope: `${signedIn ? author?.email ?? "" : "signed-out"}:${activeProjectId}`,
+    blocked: !signedIn || executionBusy,
+    onConnections: setAgentConnections,
+    onStatus: next => {
+      setAgentStatus(next);
+      setAgentRun(run => ({ ...run, provider: next.provider ?? null, model: next.model ?? null, connectionState: next.configured ? "ready" : "offline", error: null }));
+      setActivity(items => [`已应用模型：${next.model ?? "当前模型"}。`, ...items].slice(0, 4));
+    } });
+  const agentConfigSaving = modelConnection.busy;
+  const search = useWorkspaceSearch(api, projectId);
+  const composerDrafts = useComposerDrafts(projectId, selectedConversation.id, author?.email ?? "");
+  const composerDraftsRef = useRef(composerDrafts); composerDraftsRef.current = composerDrafts;
+  const [newConversationExcerpt, setNewConversationExcerpt] = useState<{ projectId: string; threadId: string; excerpt: DiscussionExcerpt } | null>(null);
+  const composer = composerDrafts.value;
+  function setComposer(value: string | ((previous: string) => string)) {
+    if (typeof value === "string" && value !== composer) planningSubmission.invalidate();
+    composerDrafts.setValue(value);
+  }
+  useEffect(() => {
+    if (!newConversationExcerpt || newConversationExcerpt.projectId !== projectId || newConversationExcerpt.threadId !== selectedConversation.id) return;
+    if (composerDrafts.addExcerpt(newConversationExcerpt.excerpt)) {
+      if (!composerDrafts.value.trim()) composerDrafts.setValue("请围绕引用内容和我讨论，先不要修改。");
+      requestAnimationFrame(() => composerRef.current?.focus());
+    }
+    setNewConversationExcerpt(null);
+  }, [newConversationExcerpt, selectedConversation.id, projectId]);
+  async function readSelectedConversation(threadId: string) {
+    if (!api || !projectId) return;
+    const ticket = {}; conversationReadRef.current = ticket;
+    const current = () => conversationReadRef.current === ticket && currentProjectRef.current === projectId
+      && conversationSelectionRef.current.current.current.id === threadId;
+    setConversationReading({ projectId, threadId, detail: null, loading: true, error: null });
+    try {
+      const detail = await api.agent.readConversation(projectId, threadId);
+      if (!current()) return;
+      if (detail.thread.id !== threadId || detail.thread.projectId !== projectId) throw new Error("对话不属于当前作品");
+      setConversationReading({ projectId, threadId, detail, loading: false, error: null });
+    } catch (error) { if (current()) setConversationReading({ projectId, threadId, detail: null, loading: false, error: error instanceof Error ? error.message : "读取对话失败" }); }
+  }
+  useEffect(() => {
+    conversationReadRef.current = null;
+    if (conversationProjectReady && selectedConversation.id) void readSelectedConversation(selectedConversation.id);
+    else setConversationReading(null);
+    return () => { conversationReadRef.current = null; };
+  }, [api, projectId, conversationProjectReady, selectedConversation.id]);
+  function selectConversation(thread: ThreadSummary | null) {
+    if (!conversationProjectReady || conversationChanging || !composerDrafts.preserve()) return;
+    if (thread && thread.projectId !== projectId) { setThreadAction("对话不属于当前作品"); return; }
+    selectedConversation.select(thread?.id ?? null);
+    setPendingDiscussionSource(null); selectChapterWriting(null); revisionRepair.cancel();
+    if (!executionBusy) {
+      const saved = thread ? conversationRuns.current.get(thread.id) : null;
+      promptScopeRef.current = saved?.scope ?? {};
+      executionRetryRef.current = saved?.retry ?? null;
+      conversationExecutionRef.current = saved?.pipeline ?? null;
+      executionConversationRef.current = thread?.id ?? null;
+      setAgentRun(saved?.run ?? { ...createAgentRun(), threadId: thread?.id ?? null });
+      setUserInputQueue([]); setTaskRecovery(null); setGenerationHandoff(null);
+    }
+    requestAnimationFrame(() => composerRef.current?.focus());
+  }
+  async function createConversation(excerpt?: DiscussionExcerpt, lastTurnId?: string) {
+    if (!api || !conversationProjectReady || executionBusy || conversationChangeRef.current || !composerDrafts.preserve()) return false;
+    const ticket = {}; conversationChangeRef.current = ticket; setConversationChanging(true); setThreadAction(null);
+    try {
+      const result = await api.agent.createThread(projectId, lastTurnId && selectedConversation.id ? { sourceThreadId: selectedConversation.id, lastTurnId } : {});
+      if (conversationChangeRef.current !== ticket || currentProjectRef.current !== projectId) return false;
+      if (result.thread.projectId !== projectId || result.thread.isArchived) throw new Error("新对话回执不属于当前作品");
+      setThreadArchived(false); setThreads(current => [result.thread, ...current.filter(thread => thread.id !== result.thread.id)]);
+      // Selection is published only after the persistent registration receipt.
+      selectedConversation.select(result.thread.id);
+      executionConversationRef.current = result.thread.id; promptScopeRef.current = {}; executionRetryRef.current = null;
+      conversationExecutionRef.current = null; setAgentRun({ ...createAgentRun(), threadId: result.thread.id });
+      setPendingDiscussionSource(null); selectChapterWriting(null); revisionRepair.cancel();
+      setTaskRecovery(null); setGenerationHandoff(null); setUserInputQueue([]);
+      if (excerpt) setNewConversationExcerpt({ projectId, threadId: result.thread.id, excerpt });
+      requestAnimationFrame(() => composerRef.current?.focus());
+      return true;
+    } catch (error) {
+      if (currentProjectRef.current === projectId) setThreadAction(`创建对话失败：${error instanceof Error ? error.message : "请重试"}`);
+      return false;
+    } finally { if (conversationChangeRef.current === ticket) { conversationChangeRef.current = null; setConversationChanging(false); } }
+  }
+  async function renameConversation(thread: ThreadSummary, title: string) {
+    if (!api || executionBusy || conversationChanging) throw new Error("当前任务执行结束后可重命名");
+    const result = await api.agent.renameThread(projectId, thread.id, title);
+    if (currentProjectRef.current !== projectId) return;
+    setThreads(current => current.map(item => item.id === thread.id ? result.thread : item));
+  }
+  useEffect(() => {
+    if (!executionBusy && !viewingExecution && selectedThread && !activeConversationDetail?.loading) selectConversation(selectedThread);
+  }, [executionBusy]);
   useEffect(() => { setRevisionContinuation(null); }, [projectId, activeView]);
   const selectedChapter = state.novelEdition.chapters.find((chapter) => chapter.id === selectedChapterId) ?? state.novelEdition.chapters[0];
-  const agentAvailable = Boolean(api && agentStatus.configured && agentRun.connectionState !== "error" && agentStatus.state !== "error");
+  const [chapterTitlePreview, setChapterTitlePreview] = useState<{ api: typeof api; preview: ChapterTitlePreview; token: object } | null>(null);
+  const titlePreviewRoute = useRef({ api, projectId, chapterId: selectedChapter?.id, active: conversationProjectReady && activeView === "chapters" && !accountOpen });
+  titlePreviewRoute.current = { api, projectId, chapterId: selectedChapter?.id, active: conversationProjectReady && activeView === "chapters" && !accountOpen };
+  const syncChapterTitlePreview = useCallback((preview: ChapterTitlePreview) => {
+    const route = titlePreviewRoute.current;
+    if (!route.active || route.api !== api || route.projectId !== preview.projectId || route.chapterId !== preview.chapterId) return () => {};
+    const token = {};
+    setChapterTitlePreview({ api, preview, token });
+    return () => setChapterTitlePreview(current => current?.token === token ? null : current);
+  }, [api]);
+  const currentChapterTitlePreview = chapterTitlePreview && chapterTitlePreview.api === api && titlePreviewRoute.current.active
+    && chapterTitlePreview.preview.projectId === projectId && chapterTitlePreview.preview.chapterId === selectedChapter?.id
+    ? chapterTitlePreview.preview : null;
+
+  const recordsCurrent = Boolean(moduleRecords && conversationProjectReady && !accountOpen
+    && moduleRecords.api === api && moduleRecords.projectId === projectId && moduleRecords.view === activeView
+    && (moduleRecords.view !== "chapters" || moduleRecords.chapterId === selectedChapter?.id)
+    && (moduleRecords.view !== "outline" || moduleRecords.volumeId === (outlineVolume?.id ?? null)
+      && (!moduleRecords.volumeId || moduleRecords.outlineNodeId === (outlineVolume?.source?.nodeId ?? null))));
+  useEffect(() => {
+    if (moduleRecords && !recordsCurrent) setModuleRecords(null);
+  }, [moduleRecords, recordsCurrent]);
+  const syncOutlineRecordScope = useCallback((outlineNodeId: string | null) => {
+    setModuleRecords(current => current && current.api === api && current.projectId === projectId && current.view === "outline"
+      && current.outlineNodeId !== outlineNodeId ? null : current);
+  }, [api, projectId]);
+  function openModuleRecords(outlineNodeId: string | null = null) {
+    if (!conversationProjectReady || accountOpen || !["brief", "outline", "plans", "chapters"].includes(activeView)
+      || activeView === "chapters" && !selectedChapter) return;
+    const view = activeView as ModuleRecordSource["view"];
+    const next = { api, projectId, view, chapterId: view === "chapters" ? selectedChapter!.id : null,
+      volumeId: view === "outline" ? outlineVolume?.id ?? null : null,
+      outlineNodeId: view === "outline" ? outlineNodeId : null,
+      label: view === "chapters" ? `第 ${selectedChapter!.number} 章 · ${selectedChapter!.title}`
+        : view === "brief" ? "创作方向" : view === "plans" ? "近章规划"
+        : outlineVolume?.title ?? (outlineNodeId ? "本卷卷纲" : "全书大纲"),
+      opener: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+      requestId: ++moduleRecordsRequest.current };
+    setModuleRecords(current => current && current.api === api && current.projectId === projectId && current.view === view
+      && current.chapterId === next.chapterId && current.volumeId === next.volumeId && current.outlineNodeId === next.outlineNodeId ? null : next);
+  }
+  // A failed run is retryable; only missing configuration disables submission.
+  // The host still checks the current plan, credentials, scope and budget.
+  const agentAvailable = Boolean(api && agentStatus.configured && !agentConfigSaving);
+  useAgentAvailability({ api, blocked: executionBusy || agentConfigSaving, provider: agentStatus.provider, model: agentStatus.model,
+    canApply: () => !promptSubmissionRef.current && !["running", "waiting"].includes(agentRunRef.current.state), onStatus: setAgentStatus });
   const revisionRepair = useRevisionRepair({ api, projectId, activeProjectId, composer,
-    blocked: creativeDirty || !agentAvailable || agentRun.state === "running" || agentRun.state === "waiting" });
+    blocked: creativeDirty || !agentAvailable || executionBusy });
+  const planningSubmissionEligible = conversationProjectReady && !accountOpen && ["brief", "outline", "plans"].includes(activeView)
+    && agentAvailable && !executionBusy && !currentChapterWriting && !composerDrafts.source && !composerDrafts.excerpts.length && !pendingDiscussionSource
+    && !revisionRepair.prepared && !revisionRepair.checking && !currentSentRepair;
+  const planningSubmission = usePlanningSubmission({ api, projectId, view: accountOpen ? "account" : activeView,
+    eligible: planningSubmissionEligible, composer, sourceIdentity: JSON.stringify(composerDrafts.source ?? null),
+    canSendAfterSave: () => !creativeDirtyRef.current && !taskControls.hasPendingRequests() && !promptSubmissionRef.current });
+  useEffect(() => {
+    const pending = deferredDiscussionSync.current;
+    if (!pending) return;
+    if (pending.api !== api || pending.projectId !== projectId || pending.scope !== promptScopeRef.current) { deferredDiscussionSync.current = null; return; }
+    if (creativeDirty || executionBusy || promptSubmissionRef.current || discussionSyncRef.current || planningSubmission.isPending()) return;
+    deferredDiscussionSync.current = null;
+    void refreshDiscussionWorkspace();
+  }, [api, projectId, creativeDirty, executionBusy, promptPipelineBusy, discussionSyncNotice, planningSubmission.pending]);
+
+
 
   useEffect(() => {
     if (!api || !signedIn) return;
@@ -218,8 +599,9 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
+    setProjectLoading(true);
     async function load() {
-      if (!api) return;
+      if (!api) { setProjectLoading(false); return; }
       try {
         const status = await api.runtime.status();
         if (!cancelled) setRuntimeStatus(status);
@@ -233,18 +615,28 @@ function App() {
           setAgentRun((run) => ({ ...run, model: agent.model ?? run.model, provider: agent.provider ?? run.provider, connectionState: agent.configured ? run.connectionState === "error" ? "error" : "ready" : "offline" }));
           if (!recoveryNoticeShownRef.current && recoveryRuns.length) {
             recoveryNoticeShownRef.current = true;
-            setActivity((items) => [`有 ${recoveryRuns.length} 轮写作的保存结果还没确认，系统不会自动再写一次。`, ...items].slice(0, 4));
+            setActivity((items) => ["部分对话的保存结果待核对，可在对应作品的对话栏查看。", ...items].slice(0, 4));
           }
         }
         try {
           const available = await api.runtime.listProjects();
           if (!cancelled) setProjects(available.projects);
+          if (cancelled) return;
+          if (available.projects.length === 0) {
+            setState({ ...emptyState, project: { id: "", title: "创建你的第一部作品", logline: "", updated_at: "" } });
+            setSelectedChapterId("");
+            return;
+          }
+          if (!available.projects.some(project => project.id === activeProjectId)) {
+            setActiveProjectId(available.projects[0].id);
+            return;
+          }
         } catch { /* The active project can still load when list metadata is unavailable. */ }
         const next = await api.runtime.getState(activeProjectId);
-        if (!cancelled) { setState(next); setSelectedChapterId(next.novelEdition.chapters[0]?.id ?? ""); }
+        if (!cancelled) { setState(next); setSelectedChapterId(current => next.novelEdition.chapters.some(chapter => chapter.id === current) ? current : lastChapter(activeProjectId, next.novelEdition.chapters)); }
       } catch (error) {
         if (!cancelled) setRuntimeStatus({ state: "offline", mode: "local", error: error instanceof Error ? error.message : "Creative Runtime 不可用" });
-      }
+      } finally { if (!cancelled) setProjectLoading(false); }
     }
     void load();
     const timer = window.setTimeout(() => void load(), 900);
@@ -260,39 +652,202 @@ function App() {
         if (!cancelled) setRuntimeStatus(status);
       } catch (error) {
         if (!cancelled) setRuntimeStatus({ state: "offline", mode: "local", error: error instanceof Error ? error.message : "Creative Runtime 不可用" });
-      }
+      } finally { if (!cancelled) setProjectLoading(false); }
     };
     const timer = window.setInterval(() => void refreshStatus(), 2_000);
     void refreshStatus();
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [api]);
 
-  useEffect(() => { if (!api) return; return api.agent.onEvent((event) => { setThreads((current) => applyThreadEvent(current, event, threadArchived)); setAgentRun((run) => reduceAgentEvent(run, event)); if (isResolvedUserInputEvent(event)) setUserInputQueue((current) => current.filter((request) => String(request.requestId) !== String(event.params.requestId))); const message = eventRecord(event); if (message?.method === "agent/error") setUserInputQueue([]); if (message?.method === "agent/modeling-updated") setCreativeRefreshToken((value) => value + 1); }); }, [api, threadArchived]);
+  useEffect(() => {
+    if (!api) return;
+    return api.agent.onEvent(event => {
+      const previous = agentRunRef.current;
+      const stop = stopTicketRef.current;
+      const stopped = stop && ownsStop(stop, { scope: promptScopeRef.current, projectId: currentProjectRef.current, threadId: previous.threadId, turnId: previous.turnId }) && confirmsNativeStop(stop, event);
+      if (stopped) stop.settle(true);
+      const automatic = applyChapterStructureEvent(previous, event, currentProjectRef.current);
+      const pipeline = conversationExecutionRef.current;
+      const pipelineOwnsEvent = pipeline?.api === api && pipeline.scope === promptScopeRef.current
+        && promptSubmissionRef.current === pipeline.scope && pipeline.owner.projectId === currentProjectRef.current;
+      const pendingStart = pipelineOwnsEvent ? pipeline.pendingStart : null;
+      const pendingSummary = pendingStart ? summarizeAgentRun(pendingStart.originalRun) : null;
+      const bindingRun = pendingStart && eventRecord(event)?.method === "agent/workflow"
+        ? createAgentRun(pendingStart.goal, pendingSummary ? [pendingSummary, ...pendingStart.originalRun.history] : pendingStart.originalRun.history) : previous;
+      const bound = pipelineOwnsEvent ? applyConversationExecutionEvent(bindingRun, event, pipeline.owner) : bindingRun;
+      const coordinated = bound === bindingRun ? previous : bound;
+      if (pipelineOwnsEvent && coordinated !== previous) delete pipeline.pendingStart;
+      const workflowTask = eventRecord(eventRecord(eventRecord(event)?.params)?.workflow)?.task;
+      const workflowTaskId = eventRecord(workflowTask)?.id;
+      const rejectedWorkflow = pipelineOwnsEvent && eventRecord(event)?.method === "agent/workflow"
+        && (typeof workflowTaskId !== "string" || (!pipeline.owner.parents.has(workflowTaskId) && !pipeline.owner.workers.has(workflowTaskId)));
+      const next = stopped ? stoppedRun(previous) : automatic !== previous ? automatic : coordinated !== previous ? coordinated
+        : rejectedWorkflow || (pipelineOwnsEvent && pendingStart) ? previous : reduceAgentEvent(previous, event);
+      const accepted = next !== previous;
+      if (accepted) {
+        const retry = executionRetryRef.current;
+        if (coordinated !== previous && retry && retry.scope === pipeline?.scope) {
+          retry.history = next.history;
+        }
+        if (automatic !== previous && automatic.origin === "chapterStructure" && automatic.taskId !== previous.taskId) {
+          const scope = {};
+          promptScopeRef.current = scope; stopTicketRef.current = null;
+          executionRetryRef.current = { projectId: currentProjectRef.current, scope, history: automatic.history,
+            execution: { kind: "taskRecovery", operation: "章节衔接检查", view: "chapters" } };
+          setTaskRecovery(null);
+        }
+        setAgentRun(next);
+        if (pipelineOwnsEvent && next.threadId && eventRecord(event)?.method === "agent/workflow"
+          && executionRetryRef.current?.execution.kind === "discussion" && !conversationSelectionRef.current.current.current.id) {
+          executionConversationRef.current = next.threadId;
+          composerDraftsRef.current.bindNewConversation(next.threadId);
+          conversationSelectionRef.current.select(next.threadId);
+          const retry = executionRetryRef.current;
+          if (retry?.execution.kind === "discussion" && !retry.execution.threadId) executionRetryRef.current = { ...retry, execution: { ...retry.execution, threadId: next.threadId } };
+        }
+        setThreads(current => applyThreadEvent(current, event, threadArchived));
+        if (isResolvedUserInputEvent(event)) setUserInputQueue(current => current.filter(request => String(request.requestId) !== String(event.params.requestId)));
+        if (eventRecord(event)?.method === "agent/error") setUserInputQueue([]);
+      }
+      const message = eventRecord(event);
+      const params = eventRecord(message?.params);
+      if (message?.method === "agent/planning-review-started") {
+        const retry = executionRetryRef.current;
+        if (retry?.execution.kind === "discussion" && retry.scope === promptScopeRef.current
+          && promptSubmissionRef.current === retry.scope && retry.projectId === currentProjectRef.current
+          && params?.projectId === retry.projectId && params.sourceTaskId === previous.taskId
+          && typeof params.runId === "string" && (params.artifactKind === "outline" || params.artifactKind === "plan")) {
+          executionRetryRef.current = { ...retry, execution: { kind: "taskRecovery", operation: "规划深审",
+            view: params.artifactKind === "outline" ? "outline" : "plans", intent: retry.execution.prompt } };
+        }
+      }
+      if (message?.method === "agent/candidate-started") {
+        const retry = executionRetryRef.current;
+        const sourceTaskId = params?.sourceTaskId;
+        if (retry?.execution.kind === "discussion" && retry.scope === promptScopeRef.current
+          && promptSubmissionRef.current === retry.scope && retry.projectId === currentProjectRef.current
+          && params?.projectId === retry.projectId && typeof sourceTaskId === "string" && sourceTaskId === previous.taskId
+          && typeof params?.actionId === "string" && typeof params?.operation === "string"
+          && ["generateBrief", "generateOutline", "generatePlan", "generatePropertyRules", "generateChapter", "modelKnowledge", "extractCommitments", "reviseCommitment"].includes(params.operation)) {
+          const operation = params.operation;
+          const view = operation === "generateBrief" ? "brief" : operation === "generateOutline" ? "outline"
+            : operation === "generatePlan" ? "plans" : operation === "generatePropertyRules" ? "world" : "chapters";
+          const target = eventRecord(params.target);
+          executionRetryRef.current = { ...retry, execution: { kind: "taskRecovery", operation, view, intent: retry.execution.prompt,
+            ...(typeof target?.chapterId === "string" ? { chapterId: target.chapterId } : {}) } };
+        }
+      }
+      // Name/archive notifications update known project threads, not a turn.
+      if (!accepted && ["thread/name/updated", "thread/archived", "thread/unarchived"].includes(String(message?.method))) {
+        const threadId = eventThreadId(event);
+        setThreads(current => current.some(thread => thread.id === threadId) ? applyThreadEvent(current, event, threadArchived) : current);
+      }
+      if (params?.projectId === currentProjectRef.current) {
+        if (message?.method === "structure/error" && typeof params.message === "string") {
+          const failure = { projectId: currentProjectRef.current, changeId: typeof params.changeId === "string" ? params.changeId : null, message: params.message.slice(0, 240) };
+          setStructureFailures(current => [...current.filter(item => item.projectId !== failure.projectId || item.changeId !== failure.changeId), failure]);
+          setCreativeRefreshToken(value => value + 1);
+        }
+        if (message?.method === "agent/structure-updated") {
+          if (params.completed === true) setStructureFailures(current => current.filter(item => item.projectId !== params.projectId || item.changeId !== params.changeId));
+          setCreativeRefreshToken(value => value + 1);
+        }
+        if (message?.method === "agent/structure-started") setCreativeRefreshToken(value => value + 1);
+      }
+    });
+  }, [api, threadArchived]);
   useEffect(() => {
     if (!api) return;
     const selectedProjectId = signedIn && author && runtimeStatus.state === "online" && projectId === activeProjectId ? projectId : null;
-    void api.agent.setModelingContext({ projectId: selectedProjectId, dirty: creativeDirty }).catch(() => {});
-    return () => { void api.agent.setModelingContext({ projectId: null, dirty: false }).catch(() => {}); };
-  }, [api, projectId, activeProjectId, creativeDirty, signedIn, author, runtimeStatus.state]);
-  useEffect(() => { if (!api) return; return api.agent.onUserInputRequest((request) => { setUserInputQueue((current) => current.some((item) => String(item.requestId) === String(request.requestId)) || (request.threadId && agentRun.threadId && request.threadId !== agentRun.threadId) || current.length >= MAX_PENDING_INTERACTIONS ? current : [...current, request]); setActivity((items) => ["创作引擎正在等待你的回答。", ...items].slice(0, 4)); }); }, [api, agentRun.threadId]);
+    void api.agent.setWorkspaceContext({ projectId: selectedProjectId, dirty: creativeDirty || chapterDeletion.active || workDirectory.busy }).catch(() => {});
+    return () => { void api.agent.setWorkspaceContext({ projectId: null, dirty: false }).catch(() => {}); };
+  }, [api, projectId, activeProjectId, creativeDirty, chapterDeletion.active, workDirectory.busy, signedIn, author, runtimeStatus.state]);
+  useEffect(() => {
+    if (!api) return;
+    return api.agent.onUserInputRequest(request => {
+      const run = agentRunRef.current;
+      if (!["running", "waiting"].includes(run.state) || !request.threadId || !request.turnId || request.threadId !== run.threadId || request.turnId !== run.turnId) return;
+      setUserInputQueue(current => current.some(item => String(item.requestId) === String(request.requestId)) || current.length >= MAX_PENDING_INTERACTIONS ? current : [...current, request]);
+      setActivity(items => ["创作引擎正在等待你的回答。", ...items].slice(0, 4));
+    });
+  }, [api]);
   useEffect(() => { if (userInputQueue.length === 0) return; setAgentRun((run) => run.state === "running" ? { ...run, state: "waiting" } : run); }, [userInputQueue.length]);
   useEffect(() => {
-    if (!api || !agentStatus.configured) return;
+    if (!api || !conversationProjectReady) return;
     let cancelled = false;
     setThreadLoading(true);
-    setThreadCursor(null);
-    setThreadDetail(null);
-    void api.agent.listThreads(projectId, threadArchived).then((result) => { if (!cancelled) { setThreads(result.threads); setThreadCursor(result.nextCursor); } }).catch(() => { if (!cancelled) setThreadAction("任务历史暂不可用"); }).finally(() => { if (!cancelled) setThreadLoading(false); });
+    void api.agent.listThreads(projectId, threadArchived).then((result) => { if (!cancelled) { setThreads(result.threads); } }).catch(() => { if (!cancelled) setThreadAction("任务历史暂不可用"); }).finally(() => { if (!cancelled) setThreadLoading(false); });
     return () => { cancelled = true; };
-  }, [api, agentStatus.configured, projectId, threadArchived]);
+  }, [api, conversationProjectReady, projectId, activeProjectId, threadArchived]);
 
   const registerCreativeSaveHandler = useCallback((handler: (() => Promise<boolean>) | null) => { creativeSaveHandlerRef.current = handler; }, []);
   const registerCreativeDiscardHandler = useCallback((handler: (() => boolean) | null) => { creativeDiscardHandlerRef.current = handler; }, []);
   function applyNavigation(action: PendingNavigation) {
+    if (action.kind === "delete-chapter") {
+      if (action.projectId === currentProjectRef.current && conversationProjectReady && !executionBusy && !creativeDirtyRef.current) chapterDeletion.open(action.chapterId);
+      return;
+    }
+    if (chapterDeletion.active) return;
+    if (action.kind === "volume" && (!conversationProjectReady || action.projectId !== currentProjectRef.current
+      || executionBusy || workDirectory.busy || promptSubmissionRef.current || ["running", "waiting"].includes(agentRunRef.current.state)
+      || workDirectory.error || !workDirectory.catalog?.volumes.some(volume => volume.id === action.volumeId
+        && (!action.expectedNodeId || volume.source?.nodeId === action.expectedNodeId)))) return;
+    setModuleRecords(null);
+    if (action.kind !== "volume") setSelectedOutlineVolume(null);
+    if (action.kind !== "new-chapter") setRequestedChapterCreation(null);
+    const ticket = ++resultNavigation.current;
+    const readingAnalysis = action.kind === "result" && (action.result.kind === "planningReview" || action.result.kind === "hypothesis");
+    if (!readingAnalysis) setTaskResultSelection(null);
+    setCommitmentSelection(null);
+    setSavedAnalysis(null); setTaskResultError(null);
+    if (action.kind === "commitment") {
+      const request = action.request;
+      if (!api || request.projectId !== currentProjectRef.current || executionBusy) return;
+      void resolveCommitmentNavigation(api, request).then(resolved => {
+        if (resultNavigation.current !== ticket || currentProjectRef.current !== request.projectId) return;
+        if (creativeDirtyRef.current || promptSubmissionRef.current || ["running", "waiting"].includes(agentRunRef.current.state)) {
+          setTaskResultError("当前编辑或任务尚未结束，请处理后重新打开伏笔。"); return;
+        }
+        setAccountOpen(false); setActiveView("chapters");
+        rememberChapter(request.projectId, resolved.chapterId); setSelectedChapterId(resolved.chapterId);
+        setCommitmentSelection({ requestId: crypto.randomUUID(), request, chapterId: resolved.chapterId });
+      }).catch(reason => {
+        if (resultNavigation.current === ticket && currentProjectRef.current === request.projectId) setTaskResultError(reason instanceof Error ? reason.message : "读取伏笔失败，请重试。");
+      });
+      return;
+    }
+    if (action.kind === "result") {
+      if (!api || action.result.projectId !== currentProjectRef.current || executionBusy) return;
+      void resolveTaskResult(api, action.result).then(resolved => {
+        if (resultNavigation.current !== ticket || currentProjectRef.current !== action.result.projectId) return;
+        if (resolved.analysis) { setSavedAnalysis(resolved.analysis); return; }
+        if (creativeDirtyRef.current || promptSubmissionRef.current || ["running", "waiting"].includes(agentRunRef.current.state)) {
+          setTaskResultError("当前编辑或任务尚未结束，请处理后重新打开结果。"); return;
+        }
+        setAccountOpen(false); setActiveView(resolved.view);
+        if (resolved.chapterId) { rememberChapter(projectId, resolved.chapterId); setSelectedChapterId(resolved.chapterId); }
+        setTaskResultSelection({ ...resolved, requestId: crypto.randomUUID() });
+      }).catch(reason => {
+        if (resultNavigation.current === ticket && currentProjectRef.current === action.result.projectId) setTaskResultError(reason instanceof Error ? reason.message : "读取任务结果失败，请重试。");
+      });
+      return;
+    }
+    if (action.kind === "new-chapter") {
+      if (!conversationProjectReady || action.request.projectId !== currentProjectRef.current || executionBusy
+        || promptSubmissionRef.current || ["running", "waiting"].includes(agentRunRef.current.state)) return;
+      setAccountOpen(false); setActiveView("chapters");
+      setRequestedChapterCreation(action.request);
+      return;
+    }
+    if (action.kind === "volume") {
+      setSelectedOutlineVolume({ projectId: action.projectId, volumeId: action.volumeId });
+      setAccountOpen(false); setActiveView("outline");
+      return;
+    }
     if (action.kind === "close") { void api?.app.confirmClose(); return; }
     if (action.kind === "account") { setAccountOpen(true); return; }
-    if (action.kind === "view") { setActiveView(action.view); return; }
-    if (action.kind === "chapter") { setSelectedChapterId(action.chapterId); setActiveView("chapters"); return; }
+    if (action.kind === "view") { setAccountOpen(false); setActiveView(action.view); return; }
+    if (action.kind === "chapter") { rememberChapter(projectId, action.chapterId); setAccountOpen(false); setSelectedChapterId(action.chapterId); setActiveView("chapters"); return; }
     if (action.kind === "project") {
       resetProjectSession();
       setActiveProjectId(action.projectId);
@@ -300,63 +855,164 @@ function App() {
       return;
     }
     if (action.kind === "new-project") { setProjectCreateOpen(true); return; }
-    setActiveView("diffs");
-    if (!api || !selectedChapter) return;
-    void api.runtime.getDiffs(projectId, selectedChapter.id).then((result) => setDiffs(result.diffs)).catch((error) => setActivity((items) => [`读取变更失败：${error instanceof Error ? error.message : "未知错误"}`, ...items].slice(0, 4)));
   }
   function requestNavigation(action: PendingNavigation) {
-    if (creativeDirty) { setPendingNavigation(action); return; }
+    if (planningSubmission.isPending()) planningSubmission.invalidate();
+    if ((action.kind === "project" || action.kind === "new-project") && !composerDrafts.preserve()) return;
+    if (creativeDirty && !(action.kind === "result" && ["planningReview", "hypothesis"].includes(action.result.kind))) { setPendingNavigation(action); return; }
     applyNavigation(action);
   }
+  function openOutlineNode(nodeId: string): "volume" | "node" | "blocked" {
+    if (!conversationProjectReady || activeView !== "outline" || executionBusy || workDirectory.busy || workDirectory.error || !workDirectory.catalog) return "blocked";
+    const matches = workDirectory.catalog.volumes.filter(volume => volume.source?.nodeId === nodeId);
+    if (matches.length > 1) return "blocked";
+    if (matches.length === 0) return "node";
+    requestNavigation({ kind: "volume", projectId, volumeId: matches[0].id, expectedNodeId: nodeId });
+    return "volume";
+  }
   function navigateView(nextView: ViewId) {
-    if (nextView === activeView) return;
+    if (nextView === activeView && !accountOpen && !selectedOutlineVolume) return;
     requestNavigation({ kind: "view", view: nextView });
   }
   function selectChapter(chapter: Chapter) {
-    if (chapter.id === selectedChapterId && activeView === "chapters") return;
+    if (chapter.id === selectedChapterId && activeView === "chapters" && !accountOpen) return;
     requestNavigation({ kind: "chapter", chapterId: chapter.id });
   }
   function resetProjectSession() {
+    setModuleRecords(null);
+    setSelectedOutlineVolume(null);
+    setRequestedChapterCreation(null);
+    resultNavigation.current += 1;
+    setCommitmentSelection(null); setPendingDiscussionSource(null);
+    setSavedAnalysis(null);
+    setTaskResultSelection(null);
+    setTaskResultError(null);
+    selectChapterWriting(null);
     revisionRepair.cancel();
     setSentRevisionRepair(null);
     sentRepairHistoryRef.current = null;
     promptScopeRef.current = {};
+    executionRetryRef.current = null;
+    setTaskRecovery(null);
+    threadListRef.current = null;
+    setThreadLoading(false);
+    deferredDiscussionSync.current = null;
+    setDiscussionSyncNotice(null);
     setAgentRun(createAgentRun());
     setUserInputQueue([]);
     setThreads([]);
-    setThreadDetail(null);
     setThreadAction(null);
-    setDiffs([]);
-    setTestResult(null);
-    setSearchResults([]);
-    setComposer("");
-    setPlanningIntentSeed("");
-    setActiveView("overview");
+    search.reset();
+    setAccountOpen(false);
+    setProjectInformationOpen(false);
+    setSelectedChapterId("");
+    setActiveView("chapters");
   }
   function selectProject(nextProjectId: string) {
-    if (nextProjectId === activeProjectId || agentRun.state === "running" || agentRun.state === "waiting") return;
+    if (nextProjectId === activeProjectId || executionBusy) return;
     requestNavigation({ kind: "project", projectId: nextProjectId });
   }
   async function createProject(title: string, logline: string) {
-    if (!api) throw new Error("Novel Codex 桌面桥接未加载");
+    if (!api) throw new Error("桌面连接未加载，请重新打开应用。");
     const next = await api.runtime.createProject(title, logline);
     setProjects((items) => [next.project, ...items.filter((project) => project.id !== next.project.id)]);
     setState(next);
     setActiveProjectId(next.project.id);
-    setSelectedChapterId(next.novelEdition.chapters[0]?.id ?? "");
     resetProjectSession();
+    setSelectedChapterId(next.novelEdition.chapters[0]?.id ?? "");
     setActivity((items) => [`作品“${next.project.title}”已创建。`, ...items].slice(0, 4));
   }
-  async function refreshFormalState() {
+  async function refreshFormalState(canApply?: () => boolean) {
     if (!api) return;
     const next = await api.runtime.getState(projectId);
-    if (currentProjectRef.current !== projectId) return;
+    if (sharedStateOwnerRef.current !== sharedStateOwner || currentProjectRef.current !== projectId || (canApply && !canApply())) return;
     setState(next);
     const chapter = next.novelEdition.chapters.find((item) => item.id === selectedChapterId) ?? next.novelEdition.chapters[0];
     setSelectedChapterId(chapter?.id ?? "");
     setCreativeRefreshToken((value) => value + 1);
   }
-  async function loadDiffs() { requestNavigation({ kind: "diffs" }); }
+  async function refreshDiscussionWorkspace() {
+    if (!api || discussionSyncRef.current || creativeDirtyRef.current || promptSubmissionRef.current) return;
+    const operation = {};
+    const scope = promptScopeRef.current;
+    const isCurrent = () => promptScopeRef.current === scope && currentProjectRef.current === projectId;
+    discussionSyncRef.current = operation;
+    deferredDiscussionSync.current = null;
+    setDiscussionSyncBusy(true);
+    try {
+      await refreshFormalState(() => isCurrent() && !creativeDirtyRef.current);
+      if (isCurrent()) {
+        deferredDiscussionSync.current = creativeDirtyRef.current ? { api, projectId, scope } : null;
+        setDiscussionSyncNotice(creativeDirtyRef.current ? "中央文档有未保存修改，保存或放弃修改后会自动同步工作区。" : null);
+      }
+    } catch (error) {
+      if (isCurrent()) setDiscussionSyncNotice(`回复已完成；工作区读取失败：${error instanceof Error ? error.message : "未知错误"}。重新读取不会再次调用模型。`);
+    } finally {
+      if (discussionSyncRef.current === operation) {
+        discussionSyncRef.current = null;
+        setDiscussionSyncBusy(false);
+      }
+    }
+  }
+  async function syncExecutionWorkspace(label: string, scope = promptScopeRef.current) {
+    const isCurrent = () => promptScopeRef.current === scope && currentProjectRef.current === projectId;
+    if (!isCurrent()) return;
+    try {
+      if (!creativeDirtyRef.current) await refreshFormalState(() => isCurrent() && !creativeDirtyRef.current);
+      if (isCurrent()) {
+        deferredDiscussionSync.current = creativeDirtyRef.current ? { api, projectId, scope } : null;
+        setDiscussionSyncNotice(creativeDirtyRef.current ? `${label}；中央文档有未保存修改，保存或放弃修改后会自动同步工作区。` : null);
+      }
+    } catch (error) {
+      if (isCurrent()) setDiscussionSyncNotice(`${label}；工作区读取失败：${error instanceof Error ? error.message : "未知错误"}。重新读取不会再次调用模型。`);
+    }
+    if (isCurrent()) void refreshThreads(false, false);
+  }
+  function beginExecutionScope(execution: ExecutionRetry = { kind: "taskRecovery", operation: "当前创作执行", view: "chapters" }) {
+    const scope = {};
+    promptScopeRef.current = scope;
+    stopTicketRef.current = null;
+    executionRetryRef.current = { projectId, scope, history: null, execution };
+    setTaskRecovery(null);
+    return scope;
+  }
+  async function reportExecutionFailure(message: string, scope: object, label: string) {
+    const current = () => promptScopeRef.current === scope && currentProjectRef.current === projectId;
+    if (!current()) return false;
+    const run = agentRunRef.current;
+    const cancelled = await isConfirmedCancellation(message, stopTicketRef.current,
+      { scope, projectId, threadId: run.threadId, turnId: run.turnId }, run);
+    if (!current()) return false;
+    if ((run.threadId && run.threadId !== agentRunRef.current.threadId) || (run.turnId && run.turnId !== agentRunRef.current.turnId)) return false;
+    if (cancelled) { setAgentRun(stoppedRun); return false; }
+    const failed = failedRun(agentRunRef.current, message);
+    if (failed === agentRunRef.current) return failed.state === "error";
+    setAgentRun(failed);
+    setActivity(items => [`${label}：${message}`, ...items].slice(0, 4));
+    return true;
+  }
+  function retryExecution(expected: BoundExecutionRetry | null, history: AgentRun["history"]) {
+    const run = agentRunRef.current;
+    if (currentProjectRef.current !== projectId || projectId !== activeProjectId
+      || run.history !== history || run.state !== "error" || promptSubmissionRef.current
+      || steerSubmissionRef.current || discussionSyncRef.current
+      || creativeDirtyRef.current && !(expected?.execution.kind === "discussion" && expected.execution.conversationFocus?.readOnly)) return;
+    if (expected && (executionRetryRef.current !== expected || expected.scope !== promptScopeRef.current
+      || expected.projectId !== projectId || expected.history !== history)) return;
+    if (expected?.execution.kind === "discussion") {
+      void submitPrompt(expected.execution.prompt, expected.execution.conversationFocus ?? null, expected.execution.threadId ?? null);
+      return;
+    }
+    const recovery: BoundExecutionRetry = expected ?? { projectId, scope: promptScopeRef.current, history,
+      execution: { kind: "taskRecovery", operation: "此回合", view: "chapters" } };
+    if (recovery.execution.kind !== "taskRecovery") return;
+    setTaskRecovery(recovery);
+    setAccountOpen(false);
+    if (recovery.execution.chapterId) { rememberChapter(projectId, recovery.execution.chapterId); setSelectedChapterId(recovery.execution.chapterId); }
+    setActiveView(recovery.execution.view);
+    setCreativeRefreshToken(value => value + 1);
+    setActivity(items => ["请在下方“创作任务”中核对并恢复原任务。不会把生成指令改为聊天，也不会自动再次调用模型。", ...items].slice(0, 4));
+  }
 
   async function saveAndContinueNavigation() {
     const handler = creativeSaveHandlerRef.current;
@@ -380,10 +1036,29 @@ function App() {
     setPendingNavigation(null);
     applyNavigation(action);
   }
-  async function runTests() { try { if (!api) throw new Error("Novel Codex 桌面桥接未加载"); const result = await api.runtime.runStoryTests(projectId); setTestResult(result); setActivity((items) => [`故事检查：${result.passed ? "全部通过" : "发现问题"}`, ...items].slice(0, 4)); } catch (error) { setActivity((items) => [`故事检查失败：${error instanceof Error ? error.message : "未知错误"}`, ...items].slice(0, 4)); } }
-  async function search() { if (!searchQuery.trim()) return setSearchResults([]); try { if (!api) throw new Error("Novel Codex 桌面桥接未加载"); const response = await api.runtime.search(projectId, searchQuery, 20); setSearchResults(response.results); const status = response.coverage.complete ? "" : "（结果未覆盖全部匹配，请缩小查询范围）"; if (response.results[0]) setActivity((items) => [`检索到${searchKindLabel(response.results[0].kind)}：${response.results[0].snippet}${status}`, ...items].slice(0, 4)); else if (!response.coverage.complete) setActivity((items) => [`搜索未完成：候选过多，请缩小查询范围。`, ...items].slice(0, 4)); } catch (error) { setActivity((items) => [`搜索失败：${error instanceof Error ? error.message : "未知错误"}`, ...items].slice(0, 4)); } }
-  async function submitPrompt(requestedPrompt?: string) {
-    if (currentSentRepair && (requestedPrompt !== undefined || agentRun.state === "error")) {
+  function currentRunCanSteer(run: AgentRun): boolean {
+    if (run.state !== "running" || !run.threadId || !run.turnId || currentProjectRef.current !== projectId) return false;
+    const step = taskList.tasks.filter(task => task.projectId === projectId)
+      .flatMap(task => task.steps).find(step => step.attempts.some(attempt => attemptContainsRun(attempt, run)));
+    if (step) return step.operation === "advisory";
+    const retry = executionRetryRef.current;
+    return Boolean(retry?.projectId === projectId && retry.scope === promptScopeRef.current
+      && (retry.execution.kind === "discussion" || retry.execution.operation === "改稿讨论"));
+  }
+  async function submitPrompt(requestedPrompt?: string, requestedFocus?: ConversationFocus | null, requestedThreadId?: string | null) {
+    if (conversationChanging || activeConversationDetail?.loading || selectedThread?.isArchived || executionBusy && !viewingExecution) return;
+    const submittedThreadId = requestedThreadId !== undefined ? requestedThreadId : selectedConversation.id;
+    if (taskControls.hasPendingRequests()) return;
+    if (pendingDiscussionSource?.focus.reference.projectId === projectId) { setActivity(items => ["请先选择保留或替换讨论来源，再发送。", ...items].slice(0, 4)); return; }
+    if (agentRunRef.current.state === "running" && !currentRunCanSteer(agentRunRef.current)) return;
+    if (!projectId || projectId !== activeProjectId) {
+      setActivity(items => ["请先创建或打开作品，再开始创作对话。", ...items].slice(0, 4));
+      return;
+    }
+    // React state has not necessarily committed between two Enter events.
+    // Keep a synchronous root guard without blocking steer on a running turn.
+    if (planningSubmission.isPending() || discussionSyncRef.current || steerSubmissionRef.current || (promptSubmissionRef.current && agentRun.state !== "running")) return;
+    if (currentSentRepair && !currentChapterWriting && (requestedPrompt !== undefined || agentRun.state === "error")) {
       setActivity(items => ["本轮改稿讨论不能作为普通聊天重试。请从任务恢复或重新选择修改结果；也可明确取消改稿来源，开始普通讨论。", ...items].slice(0, 4));
       return;
     }
@@ -391,16 +1066,39 @@ function App() {
     if (!prompt) return;
     const inputError = authorIntentError(prompt);
     if (inputError) { setActivity((items) => [inputError, ...items].slice(0, 4)); return; }
-    if (creativeDirty) {
-      setActivity((items) => ["请先保存当前正文、事实表单或审阅决定，再启动或追加 Agent 任务。", ...items].slice(0, 4));
-      return;
-    }
+    if (requestedPrompt === undefined && chapterWritingRef.current !== currentChapterWriting) return;
+    const writing = requestedPrompt === undefined && chapterWritingMatches(chapterWritingRef.current, writingRouteRef.current) ? chapterWritingRef.current : null;
     if (!agentAvailable) {
       setActivity((items) => ["当前没有可用模型，请先在右侧“设置”中完成配置。", ...items].slice(0, 4));
       return;
     }
+    const selectedExcerpts = requestedPrompt === undefined ? composerDrafts.excerpts : requestedFocus?.excerpts ?? [];
+    const excerptDiscussion = selectedExcerpts.length > 0;
+    const readOnlyExcerpts = excerptDiscussion && (requestedFocus?.readOnly || creativeDirtyRef.current || selectedExcerpts.some(item => item.state === "unsaved"));
+    // Captured local text can be discussed without saving. The frozen focus restricts candidate writes.
+    if (excerptDiscussion && agentRun.state === "running") return;
+    if (creativeDirty && !excerptDiscussion && (!writing || agentRun.state === "running")) {
+      if (requestedPrompt !== undefined || requestedFocus !== undefined || !planningSubmissionEligible) {
+        setActivity((items) => ["请先保存当前正文、事实表单或审阅决定，再启动或追加 Agent 任务。", ...items].slice(0, 4));
+        return;
+      }
+      const save = planningSaveHandlerRef.current;
+      if (!save) { setActivity(items => ["当前规划暂不能自动保存，请先处理页面中的检查或冲突；创作指令已保留。", ...items].slice(0, 4)); return; }
+      setActivity(items => ["正在保存规划修改…", ...items].slice(0, 4));
+      try {
+        if (!await planningSubmission.prepare(save)) {
+          if (currentProjectRef.current === projectId && writingRouteRef.current.view === activeView)
+            setActivity(items => ["创作指令尚未发送。请检查保存结果或更改后的输入，再发送。", ...items].slice(0, 4));
+          return;
+        }
+      } catch (error) {
+        if (currentProjectRef.current === projectId && writingRouteRef.current.view === activeView)
+          setActivity(items => [`规划尚未准备好：${error instanceof Error ? error.message : "请检查保存状态"}。创作指令已保留。`, ...items].slice(0, 4));
+        return;
+      }
+    }
     // Prepared sources are for a new discussion and must never be consumed by steer or retry.
-    if (revisionRepair.prepared && (requestedPrompt !== undefined || agentRun.state === "running" || agentRun.state === "waiting")) return;
+    if (revisionRepair.prepared && (requestedPrompt !== undefined || executionBusy)) return;
     let repairSource: RevisionPredecessor | null = null;
     if (revisionRepair.prepared) {
       repairSource = await revisionRepair.preflight();
@@ -409,94 +1107,190 @@ function App() {
       revisionRepair.cancel();
     }
     if (agentRun.state === "running") {
+      if (!currentRunCanSteer(agentRunRef.current)) return;
       if (!api || agentRun.mode !== "novel-agent-engine") return;
+      const operation = {};
+      const scope = promptScopeRef.current;
+      const threadId = agentRun.threadId;
+      const turnId = agentRun.turnId;
+      const isCurrent = () => promptScopeRef.current === scope && currentProjectRef.current === projectId;
+      steerSubmissionRef.current = operation;
       advisorySteeredRef.current = true;
       try {
-        const result = await api.agent.steer(projectId, prompt);
+        const result = await api.agent.steer(projectId, prompt, executionConversationId);
+        if (!isCurrent()) return;
         if (!result.steered) throw new Error("当前创作引擎轮次尚未准备好接收追加指令");
-        setComposer("");
-        setAgentRun((run) => reduceAgentEvent(run, { method: "agent/steer", params: { prompt } }));
+        setComposer(value => value === composer ? "" : value);
+        setAgentRun(run => run.state === "running" && run.threadId === threadId && run.turnId === turnId
+          ? reduceAgentEvent(run, { method: "agent/steer", params: { prompt } }) : run);
         setActivity((items) => [`已追加指令：${prompt}`, ...items].slice(0, 4));
       } catch (error) {
+        if (!isCurrent()) return;
         setActivity((items) => [`追加指令失败：${error instanceof Error ? error.message : "未知错误"}`, ...items].slice(0, 4));
+      } finally {
+        if (steerSubmissionRef.current === operation) steerSubmissionRef.current = null;
       }
       return;
     }
     if (agentRun.state === "waiting") return;
+    if (requestedPrompt !== undefined) selectChapterWriting(null);
+    if (writing) {
+      if (chapterWritingPendingRef.current || chapterWritingPending) return;
+      const preparation = {};
+      const preparedInputVersion = composerDrafts.version();
+      promptSubmissionRef.current = preparation;
+      chapterWritingPendingRef.current = preparation;
+      setChapterWritingPending(true);
+      try {
+        if (!await writing.prepareDiscussion() || chapterWritingRef.current !== writing
+          || !chapterWritingMatches(writing, writingRouteRef.current) || currentProjectRef.current !== writing.projectId
+          || composerDrafts.version() !== preparedInputVersion) return;
+      } catch (error) {
+        if (currentProjectRef.current === writing.projectId) setActivity(items => [
+          `本章暂未准备好：${error instanceof Error ? error.message : "请重新读取后再试"}`, ...items,
+        ].slice(0, 4));
+        return;
+      } finally {
+        if (promptSubmissionRef.current === preparation) promptSubmissionRef.current = null;
+        if (chapterWritingPendingRef.current === preparation) chapterWritingPendingRef.current = null;
+        setChapterWritingPending(false);
+      }
+      selectChapterWriting(null);
+    }
     if (!repairSource) setSentRevisionRepair(null);
+    let conversationFocus = repairSource ? null : requestedFocus !== undefined ? requestedFocus
+      : composerDrafts.source?.focus ?? (accountOpen ? null : { view: activeView,
+        ...(activeView === "chapters" && selectedChapter
+          ? { chapterId: selectedChapter.id, chapterNumber: selectedChapter.number } : {}) });
+    if (excerptDiscussion) conversationFocus = { ...(conversationFocus ?? { view: activeView }),
+      excerpts: selectedExcerpts, ...(readOnlyExcerpts ? { readOnly: true } : {}) };
+    if (!repairSource && requestedPrompt === undefined && requestedFocus === undefined && !composerDrafts.source && !writing
+      && agentRun.origin === "chapterStructure" && agentRun.state === "completed" && agentRun.taskId && agentRun.answer.trim()) {
+      conversationFocus = { ...(conversationFocus ?? { view: activeView }), chapterStructureTaskId: agentRun.taskId };
+    }
     const promptScope = {};
+    promptSubmissionRef.current = promptScope;
+    planningSubmission.finish();
     promptScopeRef.current = promptScope;
+    conversationExecutionRef.current = repairSource ? null : { api, scope: promptScope,
+      owner: createConversationExecutionOwner(projectId) };
+    setPromptPipeline({ projectId, scope: promptScope });
+    executionRetryRef.current = { projectId, scope: promptScope, history: null,
+      execution: repairSource ? { kind: "taskRecovery", operation: "改稿讨论", view: "chapters", intent: prompt }
+        : { kind: "discussion", prompt, conversationFocus, threadId: submittedThreadId } };
+    setTaskRecovery(null);
     const promptIsCurrent = () => promptScopeRef.current === promptScope && currentProjectRef.current === projectId;
+    setGenerationHandoff(null);
     const previous = summarizeAgentRun(agentRun);
     const history = previous ? [previous, ...agentRun.history] : agentRun.history;
-    sentRepairHistoryRef.current = repairSource ? history : null;
+    executionConversationRef.current = submittedThreadId;
+    const nextRun = { ...createAgentRun(prompt, history), threadId: submittedThreadId, ...(selectedExcerpts.length ? { excerpts: selectedExcerpts } : {}) };
+    sentRepairHistoryRef.current = repairSource ? nextRun.history : null;
     advisorySteeredRef.current = false;
-    setComposer("");
+    if (requestedPrompt === undefined) { setComposer(""); composerDrafts.setSource(null); composerDrafts.clearExcerpts(); setPendingDiscussionSource(null); }
+    const submittedDraftVersion = composerDrafts.version();
     setUserInputQueue([]);
     setProposedActions((current) => current.projectId === projectId ? current : { projectId, actions: [] });
-    setAgentRun(createAgentRun(prompt, history));
+    setAgentRun(nextRun);
     setActivity((items) => [`你：${prompt}`, ...items].slice(0, 4));
+    let replyReceived = false;
     try {
       if (!api) throw new Error("桌面 Agent 未连接，当前只能手动编辑");
-      const result = await api.agent.sendPrompt(projectId, prompt, repairSource);
+      const result = await api.agent.sendPrompt(projectId, prompt, repairSource, conversationFocus, submittedThreadId);
+      replyReceived = true;
       if (!promptIsCurrent()) return;
       const latest = await api.agent.listProposedActions(projectId).catch(() => ({ actions: result.proposedActions }));
       if (!promptIsCurrent()) return;
       setProposedActions({ projectId, actions: latest.actions });
-      setPlanningIntentSeed(`${prompt}\n\n请结合我们刚才的讨论结论：\n${result.message}`);
-      const advisoryRevision = result.workflow?.revision;
-      setConversationContinuation(!advisorySteeredRef.current && typeof advisoryRevision === "number" && Number.isSafeInteger(advisoryRevision)
-        && advisoryRevision >= 0 && typeof result.workflow?.headSnapshotId === "string"
-        && typeof result.workflow?.sourceDigest === "string"
-        ? { projectId, intent: prompt, revision: advisoryRevision,
-          headSnapshotId: result.workflow.headSnapshotId, sourceDigest: result.workflow.sourceDigest }
-        : null);
-      setActivity((items) => [`创作引擎：${result.message}`, ...items].slice(0, 4));
-      if (!creativeDirty) await refreshFormalState();
-      else setActivity((items) => ["Agent 已完成；中央文档有未保存修改，因此未自动刷新。", ...items].slice(0, 4));
+      const proposal = result.generationHandoff;
+      const sourceTask = eventRecord(result.workflow?.task);
+      setGenerationHandoff(!result.executionFailure && !repairSource && !advisorySteeredRef.current && proposal
+        && proposal.projectId === projectId && proposal.state === "proposed" && proposal.authorIntent === prompt
+        && proposal.sourceTaskId === sourceTask?.id && proposal.threadId === sourceTask.threadId
+        ? { proposal, scope: promptScope } : null);
+      setActivity((items) => [`${result.executionFailure ? "执行状态" : "创作引擎"}：${result.message}`, ...items].slice(0, 4));
+      // A read failure after a successful turn must not offer a paid model retry.
+      try {
+        if (!creativeDirtyRef.current) await refreshFormalState(() => promptIsCurrent() && !creativeDirtyRef.current);
+        if (!promptIsCurrent()) return;
+        deferredDiscussionSync.current = creativeDirtyRef.current ? { api, projectId, scope: promptScope } : null;
+        setDiscussionSyncNotice(creativeDirtyRef.current ? "回复已完成；中央文档有未保存修改，保存或放弃修改后会自动同步工作区。" : null);
+      } catch (error) {
+        if (!promptIsCurrent()) return;
+        setDiscussionSyncNotice(`回复已完成；工作区读取失败：${error instanceof Error ? error.message : "未知错误"}。重新读取不会再次调用模型。`);
+      }
       if (!promptIsCurrent()) return;
+      if (result.executionFailure) {
+        const recoveryExecution = executionRetryRef.current?.execution;
+        executionRetryRef.current = { projectId, scope: promptScope, history: null,
+          execution: recoveryExecution?.kind === "taskRecovery" ? recoveryExecution
+            : { kind: "taskRecovery", operation: "创作协调", view: "chapters", intent: prompt } };
+        await reportExecutionFailure(result.executionFailure.message, promptScope, result.candidateResults?.length
+          ? "已有结果已保存，后续处理未完成" : "创作任务未完成");
+      }
       void refreshThreads(false, false);
     } catch (error) {
       if (!promptIsCurrent()) return;
       const message = error instanceof Error ? error.message : "未知错误";
-      setAgentRun((run) => reduceAgentEvent(run, agentFailureEvent(message)));
-      setActivity((items) => [`Agent 请求失败：${message}`, ...items].slice(0, 4));
+      if (isModelConnectionUnavailable(message)) {
+        setAgentStatus(status => ({ ...status, configured: false, state: "error", error: message }));
+        if (requestedPrompt === undefined && !agentRunRef.current.taskId && !agentRunRef.current.turnId
+          && composerDrafts.version() === submittedDraftVersion) {
+          composerDrafts.setValue(composer);
+          composerDrafts.setSource(composerDrafts.source);
+          selectedExcerpts.forEach(item => composerDrafts.addExcerpt(item));
+        }
+        setAgentRun(run => ({ ...run, connectionState: "offline" }));
+      }
+      await reportExecutionFailure(message, promptScope, "Agent 请求失败");
+    } finally {
+      if (conversationExecutionRef.current?.scope === promptScope) conversationExecutionRef.current = null;
+      if (promptSubmissionRef.current === promptScope) promptSubmissionRef.current = null;
+      setPromptPipeline(current => current?.scope === promptScope ? null : current);
+      if (!replyReceived && promptIsCurrent() && !creativeDirtyRef.current) setCreativeRefreshToken(value => value + 1);
     }
   }
   async function approveProposedAction(action: ProposedAction) {
-    if (!api || approvingActionId || agentRun.state === "running" || agentRun.state === "waiting" || creativeDirty) return;
+    if (!api || approvingActionId || executionBusy || creativeDirty) return;
     setApprovingActionId(action.id);
+    const executionScope = beginExecutionScope({ kind: "taskRecovery", operation: action.operation, view: action.operation === "generateBrief" ? "brief" : action.operation === "generateOutline" ? "outline" : action.operation === "generatePlan" ? "plans" : action.operation === "generatePropertyRules" ? "world" : "chapters", intent: action.instruction });
+    const executionIsCurrent = () => promptScopeRef.current === executionScope && currentProjectRef.current === projectId;
     const previous = summarizeAgentRun(agentRun);
     const history = previous ? [previous, ...agentRun.history] : agentRun.history;
     setAgentRun(createAgentRun(`批准候选修改：${action.instruction}`, history));
     try {
+      if (!executionIsCurrent()) return;
       const result = await api.agent.approveAction(projectId, action.sourceTaskId, action.id);
-      const outcome = result.outcome?.status === "pending"
-        ? `候选已保存：${result.taskId}；知识已就绪，作者结果核验待继续。`
-        : result.outcome?.status === "paused"
-          ? `候选已保存：${result.taskId}；知识已就绪，作者结果核验已暂停，请在创作任务中继续。`
-          : result.modeling?.status === "model_pending"
-            ? `候选已保存：${result.taskId}；后续知识建模待继续，不能据此判断故事事实。`
-            : result.followup?.status === "pending"
-              ? `候选已保存：${result.taskId}；后续分析待继续，尚未正式采用。`
-              : result.followup?.status === "paused"
-                ? `候选已保存：${result.taskId}；任务已暂停，后续步骤尚未完成。`
-                : `已生成可审阅候选：${result.taskId}，尚未正式采用。`;
-      setActivity((items) => [outcome, ...items].slice(0, 4));
-      if (!creativeDirty) await refreshFormalState();
-      void refreshThreads(false, false);
+      if (!executionIsCurrent()) return;
+      const hasSavedResults = Boolean(result.candidateResults?.length);
+      const outcome = result.executionFailure
+        ? hasSavedResults ? "已有候选结果保留，后续处理尚未完成。" : "本轮处理尚未完成，请查看对话说明。"
+        : hasSavedResults ? "本轮候选处理已完成，尚未正式采用。" : "本轮处理已结束，请查看对话说明。";
+      setActivity(items => [outcome, ...items].slice(0, 4));
+      await syncExecutionWorkspace(outcome, executionScope);
+      if (!executionIsCurrent()) return;
+      if (result.executionFailure) {
+        await reportExecutionFailure(result.executionFailure.message, executionScope, "候选后续处理未完成");
+      } else {
+        setAgentRun(run => run.state === "running" || run.state === "waiting"
+          ? { ...run, state: "completed", completedAt: Date.now(), summary: outcome, error: null } : run);
+      }
     } catch (error) {
+      if (!executionIsCurrent()) return;
       const message = error instanceof Error ? error.message : "未知错误";
-      setAgentRun((run) => reduceAgentEvent(run, agentFailureEvent(message)));
-      setActivity((items) => [`候选执行失败：${message}`, ...items].slice(0, 4));
+      await reportExecutionFailure(message, executionScope, "候选执行失败");
     } finally {
       const refreshed = await api.agent.listProposedActions(projectId).catch(() => null);
-      if (refreshed) setProposedActions({ projectId, actions: refreshed.actions });
-      setApprovingActionId(null);
+      if (executionIsCurrent()) {
+        if (refreshed) setProposedActions({ projectId, actions: refreshed.actions });
+        setApprovingActionId(null);
+      }
     }
   }
   async function scopeExecutionFinished(result: ExecutionScopeConfirmation) {
-    if (currentProjectRef.current !== projectId) return;
+    const execution = scopeExecutionRef.current;
+    const isCurrent = () => execution?.projectId === projectId && execution.scope === promptScopeRef.current && currentProjectRef.current === projectId;
+    if (!isCurrent()) return;
     const outcome = !result.work ? "范围已保存；执行结果待核对，请查看创作任务。"
       : result.work.status === "completed" ? "本轮工作步骤已结束，候选仍待审阅，未正式采用。"
       : `范围已保存；创作任务当前为 ${result.work.status}，尚未完成。`;
@@ -506,13 +1300,12 @@ function App() {
       summary: outcome, completedAt: Date.now(), error: result.work?.status === "completed" || result.work?.status === "paused" || result.work?.status === "cancelled" ? null : outcome,
     });
     const latest = await api?.agent.listProposedActions(projectId).catch(() => null);
-    if (currentProjectRef.current !== projectId) return;
+    if (!isCurrent()) return;
     if (latest) setProposedActions({ projectId, actions: latest.actions });
-    if (!creativeDirty) await refreshFormalState();
-    void refreshThreads(false, false);
+    await syncExecutionWorkspace(outcome, execution!.scope);
   }
   async function declineProposedAction(action: ProposedAction) {
-    if (!api || approvingActionId || agentRun.state === "running" || agentRun.state === "waiting") return;
+    if (!api || approvingActionId || executionBusy) return;
     setApprovingActionId(action.id);
     try {
       await api.agent.declineAction(projectId, action.sourceTaskId, action.id);
@@ -527,14 +1320,17 @@ function App() {
     }
   }
   async function generateChapter(chapter: Chapter, intent: string, options: { povCharacterId: string | null; storyTime: number | null }) {
-    if (agentRun.state === "running" || agentRun.state === "waiting") throw new Error("当前已有 Agent 任务正在执行");
+    if (agentRunRef.current.state === "running" || agentRunRef.current.state === "waiting") throw new Error("当前已有 Agent 任务正在执行");
     const prompt = `生成第 ${chapter.number} 章：${intent}`;
+    const executionScope = beginExecutionScope({ kind: "taskRecovery", operation: "章节生成", view: "chapters", chapterId: chapter.id, intent });
+    const executionIsCurrent = () => promptScopeRef.current === executionScope && currentProjectRef.current === projectId;
     const previous = summarizeAgentRun(agentRun);
     const history = previous ? [previous, ...agentRun.history] : agentRun.history;
     setUserInputQueue([]);
     setAgentRun(createAgentRun(prompt, history));
     setActivity((items) => [`开始生成第 ${chapter.number} 章：${chapter.title}`, ...items].slice(0, 4));
     try {
+      if (!executionIsCurrent()) return;
       if (!api) throw new Error("桌面 Agent 未连接，当前只能手动编辑");
       const result = await api.agent.generateChapter(projectId, {
         chapterId: chapter.id,
@@ -543,324 +1339,298 @@ function App() {
         storyTime: options.storyTime,
         intent,
       });
-      setActivity((items) => [`第 ${chapter.number} 章已写入。`, `创作引擎：${result.message}`, ...items].slice(0, 4));
-      if (!creativeDirty) await refreshFormalState();
-      void refreshThreads(false, false);
+      if (!executionIsCurrent()) return;
+      setActivity((items) => [`第 ${chapter.number} 章候选已保存，等待审阅。`, `创作引擎：${result.message}`, ...items].slice(0, 4));
+      await syncExecutionWorkspace("章节候选已保存", executionScope);
     } catch (error) {
+      if (!executionIsCurrent()) return;
       const message = error instanceof Error ? error.message : "未知错误";
-      setAgentRun((run) => reduceAgentEvent(run, agentFailureEvent(message)));
-      setActivity((items) => [`章节生成未完成：${message}`, ...items].slice(0, 4));
-      if (!creativeDirty) await refreshFormalState();
-      throw error;
-    }
-  }
-  async function resumeKnowledge(chapter: Chapter) {
-    if (creativeDirty) throw new Error("请先保存或明确放弃当前创作修改，再分析故事知识。");
-    if (agentRun.state === "running" || agentRun.state === "waiting") throw new Error("当前已有 Agent 任务正在执行");
-    const prompt = `继续分析第 ${chapter.number} 章的故事知识`;
-    const previous = summarizeAgentRun(agentRun);
-    setAgentRun(createAgentRun(prompt, previous ? [previous, ...agentRun.history] : agentRun.history));
-    setActivity((items) => [`开始分析第 ${chapter.number} 章的故事知识`, ...items].slice(0, 4));
-    try {
-      if (!api) throw new Error("桌面 Agent 未连接");
-      const result = await api.agent.resumeKnowledge(projectId, chapter.id);
-      if (result.skipped) setAgentRun((run) => reduceAgentEvent(run, { method: "turn/completed", params: { turn: { status: "completed", summary: "当前章节知识已就绪" } } }));
-      setActivity((items) => [`第 ${chapter.number} 章的知识候选已就绪，等待作者审阅。`, ...items].slice(0, 4));
-      if (!creativeDirty) await refreshFormalState();
-      void refreshThreads(false, false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "未知错误";
-      setAgentRun((run) => reduceAgentEvent(run, agentFailureEvent(message)));
-      setActivity((items) => [`知识建模未完成：${message}`, ...items].slice(0, 4));
-      throw error;
-    }
-  }
-  async function generatePlanning(operation: "generateBrief" | "generateOutline" | "generatePlan", prompt: string) {
-    if (creativeDirty || agentRun.state === "running" || agentRun.state === "waiting") return;
-    const previous = summarizeAgentRun(agentRun);
-    const history = previous ? [previous, ...agentRun.history] : agentRun.history;
-    setUserInputQueue([]);
-    setAgentRun(createAgentRun(prompt, history));
-    setActivity((items) => [`开始生成可审阅的规划候选`, ...items].slice(0, 4));
-    try {
-      if (!api) throw new Error("桌面 Agent 未连接，当前只能手动编辑");
-      const result = await api.agent.generatePlanning(projectId, operation, prompt);
-      setActivity((items) => [`规划候选已保存，等待审阅。`, `创作引擎：${result.message}`, ...items].slice(0, 4));
-      if (!creativeDirty) await refreshFormalState();
-      void refreshThreads(false, false);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "未知错误";
-      setAgentRun((run) => reduceAgentEvent(run, agentFailureEvent(message)));
-      setActivity((items) => [`规划生成未完成：${message}`, ...items].slice(0, 4));
-      if (!creativeDirty) await refreshFormalState();
+      const failed = await reportExecutionFailure(message, executionScope, "章节生成未完成");
+      await syncExecutionWorkspace("章节执行已返回", executionScope);
+      if (!failed && executionIsCurrent() && agentRunRef.current.state === "cancelled") throw new StoppedExecutionError();
+      if (failed) throw error;
     }
   }
   async function generateWork(intent: string, targetChapters: number, expectedProjectRevision: number,
-    expectedBaseSnapshotId: string, expectedSourceDigest: string, revisionPredecessor: RevisionPredecessor | null) {
-    if (creativeDirty || agentRun.state === "running" || agentRun.state === "waiting") throw new Error("请先保存当前修改并等待正在执行的任务结束");
-    const previous = summarizeAgentRun(agentRun);
-    const history = previous ? [previous, ...agentRun.history] : agentRun.history;
+    expectedBaseSnapshotId: string, expectedSourceDigest: string, revisionPredecessor: RevisionPredecessor | null, generationProposalId: string | null = null) {
+    if (creativeDirtyRef.current || promptSubmissionRef.current || agentRunRef.current.state === "running" || agentRunRef.current.state === "waiting") throw new Error("请先保存当前修改并等待正在执行的任务结束");
+    const handoff = generationHandoffRef.current;
+    if (generationProposalId && (!handoff || handoff.scope !== promptScopeRef.current
+      || handoff.proposal.proposalId !== generationProposalId || handoff.proposal.projectId !== projectId
+      || handoff.proposal.authorIntent !== intent || handoff.proposal.targetChapters !== targetChapters
+      || revisionPredecessor)) throw new Error("创作安排已变化，请从当前对话重新核对。");
+    const executionScope = beginExecutionScope({ kind: "taskRecovery", operation: "持续创作", view: "chapters", intent });
+    const executionIsCurrent = () => promptScopeRef.current === executionScope && currentProjectRef.current === projectId;
+    const originalRun = agentRunRef.current;
+    let hostNotStarted = false;
+    const startingRun = createAgentRun(intent, summarizeAgentRun(originalRun) ? [summarizeAgentRun(originalRun)!, ...originalRun.history] : originalRun.history);
+    promptSubmissionRef.current = executionScope;
+    setPromptPipeline({ projectId, scope: executionScope });
+    conversationExecutionRef.current = handoff && generationProposalId ? { api, scope: executionScope,
+      owner: createConversationExecutionOwner(projectId, { taskId: handoff.proposal.sourceTaskId, threadId: handoff.proposal.threadId }),
+      pendingStart: { goal: intent, originalRun } } : null;
+    if (generationProposalId) setGenerationHandoff(null);
     setUserInputQueue([]);
-    setAgentRun(createAgentRun(intent, history));
+    if (!generationProposalId) setAgentRun(startingRun);
     setActivity((items) => [`开始创作 ${targetChapters} 章工作稿`, ...items].slice(0, 4));
     try {
+      if (!executionIsCurrent()) return;
       if (!api) throw new Error("桌面 Agent 未连接，无法自动创作");
       const run = await api.agent.generateWork(projectId, intent, targetChapters,
-        expectedProjectRevision, expectedBaseSnapshotId, expectedSourceDigest, revisionPredecessor);
-      setConversationContinuation((current) => current?.projectId === projectId ? null : current);
+        expectedProjectRevision, expectedBaseSnapshotId, expectedSourceDigest, revisionPredecessor, generationProposalId);
+      if (!executionIsCurrent()) return;
+      if (run.resumeFailure) {
+        const proof = run.resumeFailure, paused = run.pausedWork;
+        if (!run.id || run.status !== "paused" || proof.code !== "WORK_RESUME_NOT_STARTED"
+          || proof.workTaskId !== `work-${run.id}` || typeof proof.message !== "string" || !proof.message.trim()
+          || !paused || paused.id !== proof.workTaskId || paused.projectId !== projectId || paused.status !== "paused"
+          || !Number.isInteger(paused.version) || paused.version < 0
+          || (generationProposalId && paused.threadId !== handoff?.proposal.threadId)
+          || (generationProposalId ? !conversationExecutionRef.current?.pendingStart : agentRunRef.current !== startingRun)) {
+          throw new Error("新创作安排的启动结果未能核对，请重新读取任务。");
+        }
+        hostNotStarted = true;
+        setAgentRun(originalRun);
+        setTaskControlMessage({ scope: taskList.scope, error: { targetId: paused.id, message: `原任务尚未启动：${proof.message}` }, notice: null });
+        throw new Error(`原任务尚未启动：${proof.message}`);
+      }
+      setGenerationHandoff((current) => current?.proposal.projectId === projectId ? null : current);
       setActivity((items) => [run.status === "completed" ? `${targetChapters} 章工作稿已生成` : `自动创作暂停：${run.blockedReason ?? run.status}`, ...items].slice(0, 4));
-      if (!creativeDirty) await refreshFormalState();
-      void refreshThreads(false, false);
+      await syncExecutionWorkspace("创作执行已返回，结果已保留", executionScope);
     } catch (error) {
+      if (!executionIsCurrent()) return;
       const message = error instanceof Error ? error.message : "未知错误";
-      setAgentRun((run) => reduceAgentEvent(run, agentFailureEvent(message)));
-      setActivity((items) => [`自动创作未完成：${message}`, ...items].slice(0, 4));
-      if (!creativeDirty) await refreshFormalState();
-      throw error;
+      if (hostNotStarted) {
+        setActivity(items => [message, ...items].slice(0, 4));
+        await syncExecutionWorkspace("创作任务未启动，原对话和已保存内容保留", executionScope);
+        return;
+      }
+      const failed = await reportExecutionFailure(message, executionScope, "自动创作未完成");
+      await syncExecutionWorkspace("创作执行已返回，可能有部分候选", executionScope);
+      if (!failed && executionIsCurrent() && agentRunRef.current.state === "cancelled") throw new StoppedExecutionError();
+      if (failed) throw error;
+    } finally {
+      if (promptSubmissionRef.current === executionScope) promptSubmissionRef.current = null;
+      setPromptPipeline(current => current?.scope === executionScope ? null : current);
+      if (conversationExecutionRef.current?.scope === executionScope) conversationExecutionRef.current = null;
     }
   }
   async function continueWork(runId: string, action: "continue" | "retry" | "feedbackContinue" | "feedbackRepair" = "continue", assessmentRevisionId = "", instruction = "") {
-    if (creativeDirty || agentRun.state === "running" || agentRun.state === "waiting") throw new Error("请先保存当前修改并等待正在执行的任务结束");
-    const previous = summarizeAgentRun(agentRun);
-    const history = previous ? [previous, ...agentRun.history] : agentRun.history;
+    if (creativeDirtyRef.current || promptSubmissionRef.current || agentRunRef.current.state === "running" || agentRunRef.current.state === "waiting") throw new Error("请先保存当前修改并等待正在执行的任务结束");
+    const executionScope = beginExecutionScope({ kind: "taskRecovery", operation: "继续创作", view: "chapters", intent: instruction });
+    const executionIsCurrent = () => promptScopeRef.current === executionScope && currentProjectRef.current === projectId;
+    const originalRun = agentRunRef.current;
+    let hostNotStarted = false;
+    promptSubmissionRef.current = executionScope;
+    setPromptPipeline({ projectId, scope: executionScope });
     setUserInputQueue([]);
-    setAgentRun(createAgentRun(action === "retry" ? "重试自动创作任务" : "继续自动创作", history));
     setActivity((items) => [action === "retry" ? "重试失败的创作步骤" : "继续已有创作运行", ...items].slice(0, 4));
     try {
+      if (!executionIsCurrent()) return;
       if (!api) throw new Error("桌面 Agent 未连接，无法继续创作");
+      const work = await api.runtime.getWorkTask(projectId, `work-${runId}`);
+      if (!executionIsCurrent()) return;
+      const owner = work.projectId === projectId && work.id === `work-${runId}` && work.kind === "generation"
+        ? createRecoveredExecutionOwner(work) : null;
+      if (!owner) throw new Error("原创作任务的来源未能核对，尚未继续执行。");
+      conversationExecutionRef.current = { api, scope: executionScope, owner, pendingStart: { goal: work.goal, originalRun } };
       const run = action === "retry" ? await api.agent.retryWork(projectId, runId)
         : action === "feedbackContinue" || action === "feedbackRepair"
           ? await api.agent.resolveGenerationFeedback(projectId, runId, assessmentRevisionId, action === "feedbackRepair" ? "repairDraft" : "continue", instruction)
           : await api.agent.continueWork(projectId, runId);
+      if (!executionIsCurrent()) return;
+      if (run.resumeFailure) {
+        const proof = run.resumeFailure, paused = run.pausedWork;
+        if (run.id !== runId || run.status !== "paused" || proof.code !== "WORK_RESUME_NOT_STARTED"
+          || proof.workTaskId !== work.id || typeof proof.message !== "string" || !proof.message.trim() || !paused || paused.id !== work.id
+          || paused.projectId !== projectId || paused.threadId !== work.threadId || paused.status !== "paused"
+          || !Number.isInteger(paused.version) || paused.version < work.version || !conversationExecutionRef.current?.pendingStart) {
+          throw new Error("原创作任务恢复结果的来源无法核对，请重新读取任务。");
+        }
+        hostNotStarted = true;
+        throw new Error(`原任务尚未启动：${proof.message}`);
+      }
       setActivity((items) => [run.status === "completed" ? "自动创作已完成" : `自动创作状态：${run.blockedReason ?? run.status}`, ...items].slice(0, 4));
-      if (!creativeDirty) await refreshFormalState();
-      void refreshThreads(false, false);
+      await syncExecutionWorkspace("继续创作已返回，结果已保留", executionScope);
     } catch (error) {
+      if (!executionIsCurrent()) return;
       const message = error instanceof Error ? error.message : "未知错误";
-      setAgentRun((run) => reduceAgentEvent(run, agentFailureEvent(message)));
-      setActivity((items) => [`继续创作失败：${message}`, ...items].slice(0, 4));
-      if (!creativeDirty) await refreshFormalState();
-      throw error;
+      if (hostNotStarted) {
+        setTaskControlMessage({ scope: taskList.scope, error: { targetId: `work-${runId}`, message }, notice: null });
+        setActivity(items => [message, ...items].slice(0, 4));
+        await syncExecutionWorkspace("原任务未启动，已保存内容保留", executionScope);
+        return;
+      }
+      const failed = await reportExecutionFailure(message, executionScope, "继续创作失败");
+      await syncExecutionWorkspace("继续创作已返回，可能有部分候选", executionScope);
+      if (!failed && executionIsCurrent() && agentRunRef.current.state === "cancelled") throw new StoppedExecutionError();
+      if (failed) throw error;
+    } finally {
+      if (promptSubmissionRef.current === executionScope) promptSubmissionRef.current = null;
+      setPromptPipeline(current => current?.scope === executionScope ? null : current);
+      if (conversationExecutionRef.current?.scope === executionScope) conversationExecutionRef.current = null;
     }
   }
   async function reviewPlanning(request: PlanningReviewStartRequest) {
-    if (creativeDirty || agentRun.state === "running" || agentRun.state === "waiting") throw new Error("请先保存当前修改并等待正在执行的任务结束");
+    if (creativeDirtyRef.current || promptSubmissionRef.current || agentRunRef.current.state === "running" || agentRunRef.current.state === "waiting") throw new Error("请先保存当前修改并等待正在执行的任务结束");
     const prompt = `规划深审：${request.authorIntent}`;
+    const executionScope = beginExecutionScope({ kind: "taskRecovery", operation: "规划深审", view: request.artifactKind === "plan" ? "plans" : "outline", intent: request.authorIntent });
+    const executionIsCurrent = () => promptScopeRef.current === executionScope && currentProjectRef.current === projectId;
     const previous = summarizeAgentRun(agentRun);
     const history = previous ? [previous, ...agentRun.history] : agentRun.history;
     setUserInputQueue([]);
     setAgentRun(createAgentRun(prompt, history));
     setActivity((items) => [`开始规划深审 · ${request.roles.length} 席`, ...items].slice(0, 4));
     try {
+      if (!executionIsCurrent()) return;
       if (!api) throw new Error("桌面 Agent 未连接，无法启动规划深审");
       const result = await api.agent.reviewPlanning(projectId, request);
+      if (!executionIsCurrent()) return;
       const resultLabel = result.run.status === "completed" ? "全部完成" : result.run.status === "partial" ? "部分完成" : "已停止";
       setActivity((items) => [`规划深审${resultLabel}，已保存 ${result.run.reports.length}/${result.run.roles.length} 席报告。`, ...items].slice(0, 4));
-      await refreshFormalState();
-      void refreshThreads(false, false);
+      await syncExecutionWorkspace(`规划深审${resultLabel}`, executionScope);
     } catch (error) {
+      if (!executionIsCurrent()) return;
       const message = error instanceof Error ? error.message : "未知错误";
-      setAgentRun((run) => reduceAgentEvent(run, /已停止/.test(message) ? agentFailureEvent("生成已停止") : agentFailureEvent(message)));
-      setActivity((items) => [`规划深审未完整结束：${message}`, ...items].slice(0, 4));
-      await refreshFormalState();
-      void refreshThreads(false, false);
-      throw error;
+      const failed = await reportExecutionFailure(message, executionScope, "规划深审未完整结束");
+      await syncExecutionWorkspace("规划深审已返回，已保存报告可重新读取", executionScope);
+      if (!failed && executionIsCurrent() && agentRunRef.current.state === "cancelled") throw new StoppedExecutionError();
+      if (failed) throw error;
     }
   }
   async function cancelPlanningReview(runId: string) {
+    const scope = promptScopeRef.current;
     if (!api) throw new Error("Runtime 尚未连接，无法停止规划深审");
     const run = await api.runtime.cancelPlanningReview(projectId, runId);
-    setAgentRun((current) => reduceAgentEvent(current, agentFailureEvent("生成已停止")));
+    if (promptScopeRef.current !== scope || currentProjectRef.current !== projectId) return;
+    setAgentRun(stoppedRun);
     setActivity((items) => [`规划深审已停止，已保存 ${run.reports.length}/${run.roles.length} 席报告。`, ...items].slice(0, 4));
-    await refreshFormalState();
+    await syncExecutionWorkspace("规划深审已停止", scope);
   }
   async function refreshThreads(archived = threadArchived, clearAction = true) {
-    if (!api || !agentStatus.configured) return;
+    if (!api || !conversationProjectReady) return;
+    const ticket = {};
+    threadListRef.current = ticket;
+    const isCurrent = () => threadListRef.current === ticket && currentProjectRef.current === projectId;
     setThreadLoading(true);
     if (clearAction) setThreadAction(null);
-    setThreadCursor(null);
-    setThreadDetail(null);
-    try { const result = await api.agent.listThreads(projectId, archived); setThreads(result.threads); setThreadCursor(result.nextCursor); } catch { setThreadAction("任务历史暂不可用"); } finally { setThreadLoading(false); }
-  }
-  async function loadMoreThreads() {
-    if (!api || !agentStatus.configured || !threadCursor || threadLoading) return;
-    setThreadLoading(true);
-    try {
-      const result = await api.agent.listThreads(projectId, threadArchived, threadCursor);
-      setThreads((current) => { const known = new Set(current.map((thread) => thread.id)); return [...current, ...result.threads.filter((thread) => !known.has(thread.id))]; });
-      setThreadCursor(result.nextCursor);
-    } catch { setThreadAction("更多任务暂不可用"); } finally { setThreadLoading(false); }
-  }
-  async function resumeThread(thread: ThreadSummary) {
-    if (!api || agentRun.state === "running" || agentRun.state === "waiting") return;
-    setThreadAction("正在恢复任务…");
-    try {
-      if (threadArchived) {
-        await api.agent.unarchiveThread(projectId, thread.id);
-        setThreadArchived(false);
-      }
-      const result = await api.agent.resumeThread(projectId, thread.id);
-      setAgentRun({ ...createAgentRun("", agentRun.history), threadId: result.thread.id });
-      setUserInputQueue([]);
-      setThreadAction(`已恢复：${result.thread.name ?? result.thread.preview ?? "未命名任务"}`);
-      setActivity((items) => [`已恢复创作引擎任务：${result.thread.name ?? result.thread.preview ?? "未命名任务"}`, ...items].slice(0, 4));
-      if (threadArchived) void refreshThreads(false, false);
-    } catch (error) {
-      setThreadAction(`恢复失败：${error instanceof Error ? error.message : "未知错误"}`);
-    }
+    try { const result = await api.agent.listThreads(projectId, archived); if (isCurrent()) { setThreads(result.threads); } } catch { if (isCurrent()) setThreadAction("任务历史暂不可用"); } finally { if (isCurrent()) setThreadLoading(false); }
   }
   async function inspectRecovery(run: RecoveryRun) {
-    if (!api || !run.projectId || agentRun.state === "running" || agentRun.state === "waiting") return;
-    setThreadAction("正在打开需要核对的任务…");
-    try {
-      const result = await api.agent.resumeThread(run.projectId, run.threadId);
-      setAgentRun({ ...createAgentRun("", agentRun.history), threadId: result.thread.id });
-      setUserInputQueue([]);
-      setThreadDetailLoading(true);
-      setThreadDetail(await api.agent.readThread(run.projectId, run.threadId));
-      setThreadAction("已打开任务历史，请核对中央候选和任务记录");
-    } catch (error) {
-      setThreadAction(`打开核对任务失败：${error instanceof Error ? error.message : "未知错误"}`);
-    } finally {
-      setThreadDetailLoading(false);
-    }
+    if (!api || run.projectId !== projectId || executionBusy) throw new Error("当前无法读取此任务，请稍后重试");
+    return api.agent.readThread(run.projectId, run.threadId);
   }
-  async function acknowledgeRecovery(run: RecoveryRun) {
-    if (!api || !run.projectId || agentRun.state === "running" || agentRun.state === "waiting") return;
-    setThreadAction("正在保存人工核对结论…");
-    try {
-      await api.agent.resolveRecovery(run.projectId, run.runId);
-      setRecoveryRuns((runs) => runs.filter((entry) => entry.runId !== run.runId));
-      setThreadAction("人工核对已记录；系统没有重放任何写操作");
-    } catch (error) {
-      setThreadAction(`保存核对结论失败：${error instanceof Error ? error.message : "未知错误"}`);
-    }
+  async function reconcileRecovery(run: RecoveryRun) {
+    if (!api || run.projectId !== projectId || executionBusy) throw new Error("当前无法核对此任务，请稍后重试");
+    const reports = (await api.agent.recoveryReport()).filter(authorFacingRecoveryRun);
+    if (currentProjectRef.current !== run.projectId) return false;
+    setRecoveryRuns(reports);
+    await taskList.refresh();
+    return !reports.some(entry => entry.runId === run.runId && entry.projectId === run.projectId);
   }
   async function toggleThreadPin(thread: ThreadSummary) {
     if (!api || !agentStatus.configured) return;
     const nextPinned = !thread.isPinned;
-    setThreadAction(nextPinned ? "正在置顶任务…" : "正在取消置顶…");
+    setThreadAction(null);
     try {
       await api.agent.setThreadPinned(projectId, thread.id, nextPinned);
       await refreshThreads(threadArchived, false);
-      setThreadAction(nextPinned ? "任务已置顶" : "任务已取消置顶");
+      setThreadAction(null);
     } catch (error) {
       setThreadAction(`更新置顶状态失败：${error instanceof Error ? error.message : "未知错误"}`);
     }
   }
-  async function readThread(thread: ThreadSummary) {
-    if (!api || !agentStatus.configured) return;
-    setThreadDetail(null);
-    setThreadDetailLoading(true);
-    setThreadAction("正在读取任务详情…");
-    try {
-      setThreadDetail(await api.agent.readThread(projectId, thread.id));
-      setThreadAction(null);
-    } catch (error) {
-      setThreadAction(`读取详情失败：${error instanceof Error ? error.message : "未知错误"}`);
-    } finally {
-      setThreadDetailLoading(false);
-    }
-  }
   async function toggleThreadArchive(thread: ThreadSummary) {
     if (!api || !agentStatus.configured) return;
-    if (agentRun.state === "running" || agentRun.state === "waiting") {
+    if (executionBusy) {
       setThreadAction("当前任务正在执行，完成或停止后才能归档。");
       return;
     }
     const restoring = threadArchived;
-    setThreadAction(restoring ? "正在恢复归档任务…" : "正在归档任务…");
+    setThreadAction(null);
     try {
       if (restoring) {
         await api.agent.unarchiveThread(projectId, thread.id);
       } else {
         await api.agent.archiveThread(projectId, thread.id);
-        if (thread.id === agentRun.threadId) setAgentRun((run) => ({ ...run, threadId: null, turnId: null }));
+        if (thread.id === selectedConversation.id) selectConversation(null);
       }
       await refreshThreads(threadArchived, false);
-      setThreadAction(restoring ? "任务已恢复到活动列表" : "任务已归档，可在已归档列表中恢复");
+      setThreadAction(null);
     } catch (error) {
       setThreadAction(`${restoring ? "恢复" : "归档"}失败：${error instanceof Error ? error.message : "未知错误"}`);
     }
   }
   function toggleThreadArchiveView() { setThreadAction(null); setThreadArchived((archived) => !archived); }
-  async function interruptAgent() { if (!api || !["running", "waiting"].includes(agentRun.state)) return; try { const result = await api.agent.interrupt(); if (result.interrupted) { setUserInputQueue([]); setAgentRun((run) => reduceAgentEvent(run, { method: "turn/completed", params: { turn: { id: run.turnId, status: "interrupted" } } })); setActivity((items) => ["已请求停止创作引擎当前执行。", ...items].slice(0, 4)); } } catch (error) { const message = error instanceof Error ? error.message : "未知错误"; setAgentRun((run) => reduceAgentEvent(run, { method: "agent/error", params: { message } })); setActivity((items) => [`停止 Agent 失败：${message}`, ...items].slice(0, 4)); } }
+  async function interruptAgent() {
+    const run = agentRunRef.current;
+    if (!api || (!promptPipelineBusy && !["running", "waiting"].includes(run.state))) return;
+    const stoppingContinuation = promptPipelineBusy && !["running", "waiting"].includes(run.state);
+    // A pipeline stop addresses the host-owned Work, never an already completed advisory turn.
+    const owner = { scope: promptScopeRef.current, projectId, threadId: stoppingContinuation ? null : run.threadId, turnId: stoppingContinuation ? null : run.turnId };
+    if (ownsStop(stopTicketRef.current, owner)) return;
+    const ticket = createStopTicket(owner);
+    stopTicketRef.current = ticket;
+    const current = () => ownsStop(ticket, { scope: promptScopeRef.current, projectId: currentProjectRef.current,
+      threadId: agentRunRef.current.threadId, turnId: agentRunRef.current.turnId });
+    try {
+      const result = await api.agent.interrupt();
+      ticket.settle(result.interrupted);
+      if (!result.interrupted && stopTicketRef.current === ticket) stopTicketRef.current = null;
+      if (result.interrupted && current()) {
+        setUserInputQueue([]);
+        if (!stoppingContinuation) setAgentRun(stoppedRun);
+        setActivity(items => ["当前执行已停止，已保存结果仍保留。", ...items].slice(0, 4));
+      }
+    } catch (error) {
+      ticket.settle(false);
+      if (stopTicketRef.current === ticket) stopTicketRef.current = null;
+      if (current()) await reportExecutionFailure(error instanceof Error ? error.message : "未知错误", owner.scope, "停止 Agent 失败");
+    }
+  }
   async function reconnectAgent() {
-    if (!api || !agentRun.threadId) return;
+    const current = agentRunRef.current;
+    if (!api || !current.threadId || reconnectRef.current) return;
+    const owner = {}, scope = promptScopeRef.current, threadId = current.threadId, turnId = current.turnId;
+    const isCurrent = () => scope === promptScopeRef.current && currentProjectRef.current === projectId
+      && agentRunRef.current.threadId === threadId && agentRunRef.current.turnId === turnId;
+    reconnectRef.current = owner;
+    setReconnectNotice({ scope, message: "正在核对原任务连接，不会重新生成。" });
     setAgentRun((run) => reduceAgentEvent(run, { method: "agent/connection", params: { state: "reconnecting" } }));
     setActivity((items) => ["正在恢复创作引擎任务连接…", ...items].slice(0, 4));
     try {
-      const result = await api.agent.reconnectThread(projectId, agentRun.threadId);
-      setAgentRun((run) => reduceAgentEvent({ ...run, error: null }, { method: "thread/started", params: { thread: result.thread } }));
-      setThreadAction("创作引擎任务连接已恢复");
-      setActivity((items) => ["创作引擎任务连接已恢复，可以继续发送指令。", ...items].slice(0, 4));
+      const result = await api.agent.reconnectThread(projectId, threadId, turnId);
+      if (!isCurrent()) return;
+      if (result.thread.id !== threadId || (result.recovery && result.recovery.turnId !== turnId)) throw new Error("恢复回执不属于原回合");
+      setAgentRun(run => {
+        const effectiveState = ["completed", "cancelled"].includes(run.state) ? run.state : result.recovery?.state ?? run.state;
+        return { ...run, state: effectiveState, connectionState: "ready", error: result.recovery?.state === "error" ? run.error : null,
+          completedAt: effectiveState === "running" || effectiveState === "waiting" ? null : run.completedAt ?? Date.now() };
+      });
+      setReconnectNotice(null);
+      setThreadAction(null);
+      setActivity((items) => [result.recovery?.state === "completed" ? "原任务已完成，请核对候选结果；后续修改从新任务开始。"
+        : result.recovery ? "已核对原创作回合，请以原任务交付状态为准。" : "创作引擎任务连接已恢复。", ...items].slice(0, 4));
       void refreshThreads(false, false);
     } catch (error) {
+      if (!isCurrent()) return;
       const message = error instanceof Error ? error.message : "未知错误";
-      setAgentRun((run) => reduceAgentEvent(run, { method: "agent/error", params: { message } }));
-      setActivity((items) => [`恢复创作引擎连接失败：${message}`, ...items].slice(0, 4));
-    }
+      // A failed status read does not end the original generation promise.
+      const stillActive = ["running", "waiting"].includes(agentRunRef.current.state);
+      setAgentRun(run => ["running", "waiting"].includes(run.state) ? run : { ...run, connectionState: "error" });
+      setReconnectNotice({ scope, message: `连接核对未完成：${message}。${stillActive
+        ? "原任务仍保留，可等待或停止；不会重新生成。"
+        : "请在创作任务中核对交付状态并继续；此次核对没有重新生成。"}` });
+    } finally { if (reconnectRef.current === owner) reconnectRef.current = null; }
   }
-  async function reviewAgent() {
-    if (!api || !agentRun.threadId || agentRun.review === "running") return;
-    setAgentRun((run) => reduceAgentEvent(run, { method: "agent/review", params: { threadId: run.threadId } }));
-    setContextTab("changes");
-    try {
-      await api.agent.reviewThread(projectId, agentRun.threadId);
-      setActivity((items) => ["已启动当前工作区变更审查。", ...items].slice(0, 4));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "未知错误";
-      setAgentRun((run) => reduceAgentEvent(run, { method: "agent/error", params: { message } }));
-      setActivity((items) => [`变更审查失败：${message}`, ...items].slice(0, 4));
-    }
+  function reviewAgent() {
+    setAccountOpen(false);
+    navigateView("chapters");
   }
-  async function compactContext() {
-    if (!api || !agentRun.threadId) return;
-    setAgentRun((run) => reduceAgentEvent(run, { method: "agent/compactionStarted", params: { threadId: run.threadId } }));
-    try {
-      await api.agent.compactThread(projectId, agentRun.threadId);
-      setAgentRun((run) => reduceAgentEvent(run, { method: "agent/compactionCompleted", params: { threadId: run.threadId } }));
-      setActivity((items) => ["上下文压缩完成，已保留当前故事约束。", ...items].slice(0, 4));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "未知错误";
-      setAgentRun((run) => reduceAgentEvent(run, { method: "agent/error", params: { message } }));
-      setActivity((items) => [`上下文压缩失败：${message}`, ...items].slice(0, 4));
-    }
-  }
-  async function configureAgent(provider: string, model: string): Promise<boolean> {
-    if (!api || agentConfigSaving) return false;
-    setAgentConfigSaving(true);
-    try {
-      const next = await api.agent.configure(provider, model);
-      setAgentStatus(next);
-      setAgentRun((run) => ({ ...run, provider: next.provider ?? provider, model: next.model ?? model, connectionState: next.configured ? "ready" : "offline", error: null }));
-      setActivity((items) => [`Agent 配置已切换为 ${next.provider ?? provider} · ${next.model ?? model}。`, ...items].slice(0, 4));
-      return true;
-    } catch (error) {
-      setActivity((items) => [`Agent 配置失败：${error instanceof Error ? error.message : "未知错误"}`, ...items].slice(0, 4));
-      return false;
-    } finally { setAgentConfigSaving(false); }
-  }
-  async function verifyAgent(provider: string, model: string): Promise<boolean> {
-    if (!api || agentConfigSaving) return false;
-    setAgentConfigSaving(true);
-    try {
-      const result = await api.agent.verifyConnection(provider, model);
-      const availableConnections = await api.agent.listConnections();
-      setAgentConnections(availableConnections.connections);
-      setActivity((items) => [result.certificationIds?.length
-        ? `账号连接可用：${result.selectedProtocol}；模型能力来自 ${result.certificationIds.length} 项发布认证。`
-        : `连接验证完成：${result.selectedProtocol}，${result.records.filter((record) => record.status === "verified").length} 项能力已取得探测证据；报告 ${result.reportId.slice(0, 12)}。`, ...items].slice(0, 4));
-      return true;
-    } catch (error) {
-      setActivity((items) => [`连接验证失败：${error instanceof Error ? error.message : "未知错误"}`, ...items].slice(0, 4));
-      return false;
-    } finally { setAgentConfigSaving(false); }
-  }
-  async function selectAgentConnection(connection: AgentConnection) {
-    if (agentConfigSaving || agentRun.state === "running" || agentRun.state === "waiting") return;
-    if (connection.status !== "verified" && !await verifyAgent(connection.provider, connection.model)) return;
-    await configureAgent(connection.provider, connection.model);
+  function configureAgent(provider: string, model: string) { return modelConnection.run(provider, model, "apply"); }
+  function verifyAgent(provider: string, model: string) { return modelConnection.run(provider, model, "verify"); }
+  function selectAgentConnection(connection: AgentConnection) {
+    return modelConnection.run(connection.provider, connection.model, connection.status === "verified" ? "apply" : "verifyAndApply");
   }
   async function loadBackgroundTerminals() {
     if (!api || !agentRun.threadId) return;
@@ -872,42 +1642,57 @@ function App() {
     try { await api.agent.terminateBackgroundTerminal(projectId, agentRun.threadId, processId); setBackgroundTerminals((terminals) => terminals.filter((terminal) => terminal.processId !== processId)); setActivity((items) => [`后台终端 ${processId} 已终止。`, ...items].slice(0, 4)); } catch (error) { setActivity((items) => [`终止后台终端失败：${error instanceof Error ? error.message : "未知错误"}`, ...items].slice(0, 4)); }
   }
   async function resolveUserInput(response: UserInputResponse): Promise<boolean> { const current = userInputQueue[0]; if (!current || !api) return false; try { await api.agent.resolveUserInput(current.requestId, response); setUserInputQueue((queue) => queue.filter((request) => String(request.requestId) !== String(current.requestId))); setActivity((items) => ["已提交作者回答。", ...items].slice(0, 4)); return true; } catch (error) { setActivity((items) => [`作者回答提交失败：${error instanceof Error ? error.message : "未知错误"}`, ...items].slice(0, 4)); return false; } }
-  function openFactReview() { navigateView("chapters"); setActivity((items) => ["故事事实会在保存这一章时一并写入。", ...items].slice(0, 4)); }
+  function prepareConversation(prompt: string, source?: DiscussionSource) {
+    if (!conversationProjectReady || executionBusy || source && source.focus.reference.projectId !== projectId) return;
+    if (source && composerDrafts.source && JSON.stringify(source.focus) !== JSON.stringify(composerDrafts.source.focus)) {
+      setPendingDiscussionSource({ ...source, prompt }); composerRef.current?.focus(); return;
+    }
+    selectChapterWriting(null); revisionRepair.cancel(); setSentRevisionRepair(null);
+    const removedSource = !source && Boolean(composerDrafts.source);
+    composerDrafts.setSource(source ?? null); setPendingDiscussionSource(null);
+    if (composer.trim()) setActivity(items => [source ? "已附加讨论来源，保留你正在输入的文字。" : removedSource ? "已切换为当前页面讨论，移除原精确来源；输入文字已保留。" : "已保留你正在输入的内容；可在当前对话中补充要处理的事项。", ...items].slice(0, 4));
+    else { setComposer(prompt); if (removedSource) setActivity(items => ["已切换为当前页面讨论，移除原精确来源。", ...items].slice(0, 4)); }
+    composerRef.current?.focus();
+  }
+  function addDiscussionExcerpt(excerpt: DiscussionExcerpt) {
+    if (!conversationProjectReady || executionBusy || excerpt.projectId !== projectId) return false;
+    if (!composerDrafts.addExcerpt(excerpt)) return false;
+    selectChapterWriting(null); revisionRepair.cancel(); setSentRevisionRepair(null);
+    if (!composer.trim()) setComposer("请围绕引用内容和我讨论，先不要修改。");
+    requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }));
+    return true;
+  }
+  function openFactReview() { prepareConversation("请核对当前作品的故事设定，说明有来源的事实、候选解释和需要我决定的冲突，先不要改写或发布。"); }
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "p") { event.preventDefault(); setCommandPaletteOpen((open) => !open); return; }
-      if (event.key === "Escape") { setCommandPaletteOpen(false); setSearchOpen(false); }
+      if (event.key === "Escape") { setCommandPaletteOpen(false); search.close(); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [search.close]);
 
   const connectionState = agentRun.connectionState;
-  const visibleAgentStatus = { ...agentStatus, state: connectionState === "reconnecting" ? "reconnecting" : agentRun.state === "running" ? "running" : agentRun.state === "waiting" ? "waiting" : agentRun.state === "error" || connectionState === "error" ? "error" : agentStatus.state };
-  function signIn(profile: AuthorProfile) {
-    saveAuthor(profile);
-    setAuthor(profile);
-    setSignedIn(true);
-  }
-  function signOut() {
-    markSignedOut();
-    setSignedIn(false);
+  const renderedRetry = executionRetryRef.current;
+  const recoveryChapterId = taskRecovery?.execution.kind === "taskRecovery" ? taskRecovery.execution.chapterId : null;
+  const visibleAgentStatus = { ...agentStatus, state: agentRun.state === "waiting" ? "waiting" : executionBusy ? "running" : connectionState === "reconnecting" ? "reconnecting" : agentRun.state === "error" || connectionState === "error" ? "error" : agentStatus.state };
+  async function signOut() {
+    await authorSession.signOut();
+    composerDrafts.clear(); setPendingDiscussionSource(null);
     setAccountOpen(false);
   }
-  function deleteAccount() {
-    clearAuthor();
-    setAuthor(null);
-    setSignedIn(false);
+  async function deleteAccount() {
+    await authorSession.deleteAccount();
+    composerDrafts.clear(); setPendingDiscussionSource(null);
     setAccountOpen(false);
   }
-  function saveProfile(next: Pick<AuthorProfile, "name" | "email">) {
+  async function saveProfile(next: Pick<AuthorProfile, "name" | "email">) {
     if (!author) return "作者资料不存在。";
     if (!next.name) return "请填写笔名。";
     if (!/^\S+@\S+\.\S+$/.test(next.email)) return "请填写有效邮箱。";
     const profile = { ...author, name: next.name, email: next.email };
-    saveAuthor(profile);
-    setAuthor(profile);
+    await authorSession.signIn(profile);
     return null;
   }
   async function changePassword(current: string, next: string) {
@@ -915,35 +1700,114 @@ function App() {
     if (await hashPassword(current, author.passwordSalt) !== author.passwordHash) return "当前密码不正确。";
     const passwordSalt = crypto.randomUUID();
     const profile = { ...author, passwordSalt, passwordHash: await hashPassword(next, passwordSalt) };
-    saveAuthor(profile);
-    setAuthor(profile);
+    await authorSession.signIn(profile);
     return null;
   }
+  if (authorSession.loading || authorSession.error) {
+    return <div className="login-screen"><div className="login-card" role="status">
+      <h1>小说工坊</h1>
+      <p>{authorSession.loading ? "正在恢复工作区…" : authorSession.error}</p>
+      {!authorSession.loading && <button type="button" className="primary-button" onClick={() => void authorSession.restore()}>重试</button>}
+    </div></div>;
+  }
   if (!signedIn || !author) {
-    return <LoginScreen existing={author} theme={theme} onToggleTheme={() => setTheme(theme === "light" ? "dark" : "light")} onSignedIn={signIn} />;
+    return <LoginScreen existing={author} theme={theme} onToggleTheme={() => setTheme(theme === "light" ? "dark" : "light")} onSignedIn={authorSession.signIn} />;
   }
 
-  return <div className="app-shell"><header className="topbar"><div className="brand-lockup"><div className="brand-mark">✦</div><span>Novel Codex</span><span className="beta-pill">本地</span></div><div className="topbar-center"><ProjectSwitcher projects={projects} activeProjectId={activeProjectId} busy={agentRun.state === "running" || agentRun.state === "waiting"} onSelect={selectProject} onCreate={() => requestNavigation({ kind: "new-project" })} /><span className="save-state"><span className={`save-dot ${creativeDirty ? "pending" : ""}`} />{creativeDirty ? "创作修改未保存" : "工作区已同步"}</span></div><div className="topbar-actions">{searchOpen && <input autoFocus className="top-search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void search(); }} placeholder="搜索角色、场景、章节" />}<button className="icon-button" title="搜索" onClick={() => setSearchOpen((open) => !open)}>⌕</button><button className="icon-button" title="命令面板 ⌘⇧P" onClick={() => setCommandPaletteOpen(true)}>⌘</button><button className="icon-button" title="运行 Story Tests" onClick={() => void runTests()}>✓</button><button className="icon-button theme-toggle" title={theme === "light" ? "切换深色主题" : "切换浅色主题"} aria-label={theme === "light" ? "切换深色主题" : "切换浅色主题"} onClick={() => setTheme(theme === "light" ? "dark" : "light")}>{theme === "light" ? "☾" : "☼"}</button><button type="button" className="avatar" title="用户设置" aria-label="打开用户设置" onClick={() => requestNavigation({ kind: "account" })}>{authorInitial(author.name)}</button></div></header><div className="workspace" style={layoutStyle}><Sidebar activeView={activeView} state={state} onNavigate={navigateView} onDiffs={() => void loadDiffs()} onCreateProject={() => requestNavigation({ kind: "new-project" })} runtimeStatus={runtimeStatus} threads={threads} currentThreadId={agentRun.threadId} onResume={(thread) => void resumeThread(thread)} busy={agentRun.state === "running" || agentRun.state === "waiting"} /><PaneSash orientation="vertical" label="调整导航宽度" value={panes.sidebar} min={72} max={sidebarMax} nextValue={(start, dx) => start + dx} onResize={(sidebar) => setPanes((current) => ({ ...current, sidebar }))} /><main className={`main-panel${accountOpen ? " account-open" : ""}`}><div className="content-header"><div className="breadcrumbs"><strong>{accountOpen ? "用户设置" : activeLabel}</strong></div><div className="header-actions">{accountOpen ? <button type="button" className="secondary-button" onClick={() => setAccountOpen(false)}>返回作品</button> : <button type="button" className="secondary-button" onClick={() => setExportOpen(true)}>导出</button>}</div></div>{accountOpen ? <UserSettings profile={author} theme={theme} onTheme={setTheme} onSaveProfile={saveProfile} onChangePassword={changePassword} onSignOut={signOut} onDeleteAccount={deleteAccount} /> : activeView === "overview" && <section className="hero-block"><h1>{state.project.title}</h1>{state.project.logline && <p className="logline">{state.project.logline}</p>}</section>}{(connectionState === "reconnecting" || connectionState === "error" || agentRun.state === "error" || agentRun.state === "waiting" || !agentStatus.configured) && <AgentStatusBar status={visibleAgentStatus} connectionState={connectionState} threadId={agentRun.threadId} onReconnect={() => void reconnectAgent()} />}<RecoveryPanel runs={recoveryRuns.filter((run) => run.projectId === projectId)} busy={agentRun.state === "running" || agentRun.state === "waiting"} onInspect={(run) => void inspectRecovery(run)} onAcknowledge={(run) => void acknowledgeRecovery(run)} /><div className="sr-only" role="status" aria-live="polite">{connectionState === "reconnecting" ? "正在恢复 Codex 任务连接" : visibleAgentStatus.state === "running" ? "Agent 正在执行" : visibleAgentStatus.state === "waiting" ? "等待你的输入或授权" : ""}</div>{agentStatus.configured && <ThreadHistory threads={threads} loading={threadLoading} action={threadAction} currentThreadId={agentRun.threadId} archived={threadArchived} busy={agentRun.state === "running" || agentRun.state === "waiting"} nextCursor={threadCursor} detail={threadDetail} detailLoading={threadDetailLoading} onRefresh={() => void refreshThreads()} onLoadMore={() => void loadMoreThreads()} onToggleArchived={toggleThreadArchiveView} onResume={(thread) => void resumeThread(thread)} onRead={(thread) => void readThread(thread)} onCloseDetail={() => setThreadDetail(null)} onPin={(thread) => void toggleThreadPin(thread)} onArchive={(thread) => void toggleThreadArchive(thread)} />}{searchResults.length > 0 && <div className="search-results">{searchResults.map((result) => <button key={`${result.kind}-${result.id}`} onClick={() => { setSearchResults([]); setSearchOpen(false); setActivity((items) => [`找到${result.kind}：${result.title}`, ...items].slice(0, 4)); }}>{result.kind} · {result.title}</button>)}</div>}
-{!accountOpen && activeView === "overview" && <Overview state={state} onSelectChapter={selectChapter} onRunTests={() => void runTests()} onFocusComposer={() => composerRef.current?.focus()} onOpenBrief={() => navigateView("brief")} onOpenChapters={() => navigateView("chapters")} testResult={testResult} />}
-{!accountOpen && (["brief", "outline", "plans", "chapters"] as ViewId[]).includes(activeView) && <CreativeWorkspaceView api={api} projectId={projectId} view={activeView as "brief" | "outline" | "plans" | "chapters"} state={state} selectedChapterId={selectedChapterId} onSelectChapter={selectChapter} onGeneratePlanning={(operation, prompt) => void generatePlanning(operation, prompt)} onGenerateWork={generateWork} onContinueWork={(runId) => continueWork(runId)} onRetryWork={(runId) => continueWork(runId, "retry")} onResolveFeedback={(runId, revisionId, choice, instruction) => continueWork(runId, choice === "repairDraft" ? "feedbackRepair" : "feedbackContinue", revisionId, instruction)} onReviewPlanning={reviewPlanning} onCancelPlanningReview={cancelPlanningReview} onGenerateChapter={generateChapter} onResumeKnowledge={resumeKnowledge} onOpenPlanningTarget={(kind) => navigateView(kind === "plan" ? "plans" : "outline")} onReturnToFeedback={() => navigateView("chapters")} onFormalChange={refreshFormalState} onDirtyChange={setCreativeDirty} onSaveHandlerChange={registerCreativeSaveHandler} onDiscardHandlerChange={registerCreativeDiscardHandler} agentAvailable={agentAvailable} agentRunning={agentRun.state === "running" || agentRun.state === "waiting"} refreshToken={creativeRefreshToken} planningIntentSeed={planningIntentSeed} conversationContinuation={conversationContinuation?.projectId === projectId && agentRun.prompt === conversationContinuation.intent ? conversationContinuation : null}
+  const creativeConversationOpen = conversationProjectReady && !accountOpen && (["brief", "outline", "plans", "chapters"] as ViewId[]).includes(activeView);
+  const renderCurrentConversation = (run: AgentRun, taskBound: boolean) => <EnhancedAgentTranscript projectId={projectId} run={run} taskBound={taskBound} userInputRequest={userInputQueue[0] ?? null} queuedUserInputCount={Math.max(0, userInputQueue.length - 1)} onResolveUserInput={resolveUserInput} onClear={() => { executionRetryRef.current = null; setTaskRecovery(null); setAgentRun(createAgentRun()); }} retryLabel={run.origin === "chapterStructure" ? "重新读取检查记录" : renderedRetry?.execution.kind === "discussion" ? "重试讨论" : "查看任务恢复"} onRetry={() => { if (run.origin === "chapterStructure") void taskList.refresh(); else retryExecution(renderedRetry, agentRun.history); }} onInterrupt={() => void interruptAgent()} onReview={() => void reviewAgent()} />;
+  const hasSelectedWorkTasks = Boolean(selectedConversation.id) && taskList.tasks.some(task => task.threadId === selectedConversation.id);
+  const showConversationReader = !viewingExecution || !agentRun.prompt && !agentRun.history.length && !hasSelectedWorkTasks;
+  const currentExecutionOwner = conversationExecutionRef.current;
+  const sameAuthorSource = currentExecutionOwner && currentExecutionOwner.api === api && currentExecutionOwner.scope === promptScopeRef.current
+    && currentExecutionOwner.owner.projectId === projectId && currentExecutionOwner.owner.originTaskId
+    && taskList.tasks.filter(task => task.projectId === projectId && task.threadId === currentExecutionOwner.owner.originalThreadId
+      && task.steps.some(step => step.attempts.some(attempt => attempt.id === currentExecutionOwner.owner.originTaskId
+        && attempt.threadId === currentExecutionOwner.owner.originalThreadId))).length === 1;
+  const localTurnIds = new Set([agentRun.turnId, ...agentRun.history.map(turn => turn.turnId)]);
+  const conversationTaskIds = new Set([agentRun.taskId, ...agentRun.history.map(turn => turn.taskId),
+    ...taskList.tasks.filter(task => task.threadId === selectedConversation.id
+      || task.steps.some(step => step.attempts.some(attempt => attemptContainsRun(attempt, agentRun))))
+      .flatMap(task => task.steps.flatMap(step => step.attempts.map(attempt => attempt.id)))]);
+  const selectedConversationActions = proposedActions.projectId === projectId && viewingExecution
+    ? proposedActions.actions.filter(action => conversationTaskIds.has(action.sourceTaskId)) : [];
+  const earlierConversationDetail = activeConversationDetail?.detail ? { ...activeConversationDetail.detail,
+    turns: activeConversationDetail.detail.turns.filter(turn => !localTurnIds.has(turn.id)
+      && !taskList.tasks.some(task => task.threadId === selectedConversation.id
+        && task.steps.some(step => step.attempts.some(attempt => attempt.turnId === turn.id)))) } : null;
+  const conversationContent: WorkConversationContent = { threadId: selectedConversation.id, run: agentRun,
+    renderCurrent: ({ taskBound }) => <>{renderCurrentConversation({ ...agentRun, history: [] }, taskBound || Boolean(sameAuthorSource))}
+      {agentRun.state === "completed" && agentRun.turnId && agentRun.threadId === selectedConversation.id && <button type="button" className="text-button" disabled={executionBusy || conversationChanging || Boolean(selectedThread?.isArchived)} onClick={() => void createConversation(undefined, agentRun.turnId!)}>从此回合新建分支对话</button>}
+      {api && generationHandoff?.scope === promptScopeRef.current && generationHandoff.proposal.projectId === projectId
+        && agentRun.state === "completed" && !agentRun.error && <ConversationGenerationHandoff key={generationHandoff.proposal.proposalId}
+          api={api} proposal={generationHandoff.proposal} scope={generationHandoff.scope}
+          blocked={executionBusy || creativeDirty || !agentAvailable} onCancel={() => {
+            if (generationHandoffRef.current !== generationHandoff) return;
+            setGenerationHandoff(null); composerRef.current?.focus({ preventScroll: true });
+          }} onConfirm={async () => {
+            if (generationHandoffRef.current !== generationHandoff || generationHandoff.scope !== promptScopeRef.current
+              || currentProjectRef.current !== projectId) return;
+            const proposal = generationHandoff.proposal;
+            await generateWork(proposal.authorIntent, proposal.targetChapters, proposal.expectedRevision,
+              proposal.baseSnapshotId, proposal.sourceDigest, null, proposal.proposalId);
+          }} />}</>,
+    renderHistory: (entry, { taskBound }) => <><EarlierTurn projectId={projectId} entry={entry} taskBound={taskBound} />{entry.state === "completed" && entry.turnId && entry.threadId === selectedConversation.id && <button type="button" className="text-button" disabled={executionBusy || conversationChanging || Boolean(selectedThread?.isArchived)} onClick={() => void createConversation(undefined, entry.turnId!)}>从此回合新建分支对话</button>}</> };
+
+  return <div className="app-shell"><header className="topbar"><div className="brand-lockup"><div className="brand-mark">✦</div><span>小说工坊</span><span className="beta-pill">本地</span></div><div className="topbar-center"><ProjectSwitcher projects={projects} activeProjectId={activeProjectId} busy={executionBusy} onInformation={conversationProjectReady ? () => setProjectInformationOpen(true) : undefined} onSelect={selectProject} onCreate={() => requestNavigation({ kind: "new-project" })} /><span className="save-state"><span className={`save-dot ${creativeDirty || discussionSyncNotice ? "pending" : ""}`} />{creativeDirty ? "创作修改未保存" : discussionSyncNotice ? "工作区待同步" : "工作区已同步"}</span></div><div className="topbar-actions">{search.open && <input autoFocus className="top-search" aria-label="搜索故事内容" value={search.query} onChange={(event) => search.setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void search.submit(); } }} placeholder="搜索角色、场景、章节" />}<button className="icon-button" title="搜索" onClick={search.toggle}>⌕</button><button className="icon-button" title="命令面板 ⌘⇧P" onClick={() => setCommandPaletteOpen(true)}>⌘</button><button className="icon-button theme-toggle" title={theme === "light" ? "切换深色主题" : "切换浅色主题"} aria-label={theme === "light" ? "切换深色主题" : "切换浅色主题"} onClick={() => setTheme(theme === "light" ? "dark" : "light")}>{theme === "light" ? "☾" : "☼"}</button><button type="button" className="avatar" title="用户设置" aria-label="打开用户设置" onClick={() => requestNavigation({ kind: "account" })}>{authorInitial(author.name)}</button></div></header><div className="workspace" style={layoutStyle}><Sidebar outlineDirectory={conversationProjectReady ? <OutlineVolumeNavigation key={projectId} catalog={workDirectory.catalog} error={workDirectory.error} busy={executionBusy || workDirectory.busy} active={activeView === "outline" && !accountOpen} selectedVolumeId={activeView === "outline" && !accountOpen ? outlineVolume?.id ?? null : null} onNavigate={() => navigateView("outline")} onSelect={volumeId => requestNavigation({ kind: "volume", projectId, volumeId })} onRetry={() => void workDirectory.refresh()} /> : null} directory={conversationProjectReady ? <SidebarWorkDirectory directory={workDirectory} titlePreview={currentChapterTitlePreview} key={projectId} api={api} projectId={projectId} chapters={state.novelEdition.chapters} selectedChapterId={selectedChapterId} refreshToken={creativeRefreshToken} enabled={conversationProjectReady} busy={executionBusy} dirty={creativeDirty} chapterDeletionDisabled={!taskList.loaded || Boolean(taskList.error) || taskList.activeCount > 0} onSelectChapter={selectChapter} onDeleteChapter={chapterId => requestNavigation({ kind: "delete-chapter", projectId, chapterId })} onCreateChapter={request => requestNavigation({ kind: "new-chapter", request })} /> : null} activeView={activeView} state={state} onNavigate={navigateView} onCreateProject={() => requestNavigation({ kind: "new-project" })} runtimeStatus={runtimeStatus} conversationNavigation={conversationProjectReady ? <ConversationNavigator key={projectId} threads={threads} selectedId={selectedConversation.id} runningId={executionBusy ? executionConversationId : null} busy={executionBusy || conversationChanging} loading={threadLoading} error={threadAction} archived={threadArchived} onSelect={selectConversation} onCreate={() => void createConversation()} onRename={renameConversation} onPin={thread => void toggleThreadPin(thread)} onArchive={thread => void toggleThreadArchive(thread)} onToggleArchived={toggleThreadArchiveView} onRetry={() => void refreshThreads()} /> : null} busy={executionBusy} /><PaneSash orientation="vertical" label="调整导航宽度" value={sidebarWidth} min={72} max={sidebarMax} nextValue={(start, dx) => start + dx} onResize={(sidebar) => setPanes((current) => ({ ...current, sidebar }))} /><main ref={mainPanelRef} data-discussion-document={conversationProjectReady && !accountOpen ? "" : undefined} data-discussion-project={projectId} data-discussion-view={activeView} data-discussion-label={activeLabel} data-discussion-dirty={creativeDirty} data-view={accountOpen ? "settings" : activeView} className={`main-panel${accountOpen ? " account-open" : activeView === "chapters" ? " chapter-main-panel" : ""}`}>{(accountOpen || activeView !== "chapters") && <div className="content-header"><div className="breadcrumbs"><h1>{accountOpen ? "用户设置" : activeLabel}</h1></div><div className="header-actions"><div className="module-records-toolbar-slot" ref={setModuleActionsContainer} />{accountOpen ? <button type="button" className="secondary-button" onClick={() => setAccountOpen(false)}>返回作品</button> : <button type="button" className="secondary-button" onClick={() => setExportOpen(true)}>导出</button>}</div></div>}{accountOpen ? <UserSettings profile={author} theme={theme} diagnostics={api && projectId ? <WorkspaceDiagnostics key={projectId} api={api} projectId={projectId} projectTitle={state.project.title} refreshToken={creativeRefreshToken} /> : undefined} onTheme={setTheme} onSaveProfile={saveProfile} onChangePassword={changePassword} onSignOut={signOut} onDeleteAccount={deleteAccount} /> : null}{(connectionState === "reconnecting" || connectionState === "error" || agentRun.state === "error" || agentRun.state === "waiting" || !agentStatus.configured) && <AgentStatusBar status={visibleAgentStatus} connectionState={connectionState} operationError={agentRun.error} threadId={agentRun.threadId} onReconnect={() => void reconnectAgent()} />}<div className="sr-only" role="status" aria-live="polite">{connectionState === "reconnecting" ? "正在恢复任务连接" : visibleAgentStatus.state === "running" ? "Agent 正在执行" : visibleAgentStatus.state === "waiting" ? "等待你的输入或授权" : ""}</div>{search.open && <SearchResults state={search.state} onRetry={() => void search.submit()} onSelect={(result) => {
+  const target = searchNavigation(result, state.novelEdition.chapters);
+  if (!target) { search.reportError("对应章节已不可用，请重新搜索。"); return; }
+  requestNavigation(target);
+  search.close();
+  setAccountOpen(false);
+}} />}
+{discussionSyncNotice && <DiscussionSyncNotice message={discussionSyncNotice} busy={discussionSyncBusy} blocked={creativeDirty || executionBusy} onRefresh={() => void refreshDiscussionWorkspace()} />}
+{!accountOpen && activeView === "chapters" && !projectId && !projectLoading && <div className="creative-empty project-empty-state"><strong>开始你的第一部作品</strong><p>创建作品后，可以在对话中讨论构想，也可以直接写第一章。</p><button className="primary-button" onClick={() => requestNavigation({ kind: "new-project" })}>新建作品</button></div>}
+{!accountOpen && activeView === "chapters" && (projectLoading && !projectId || projectId && !conversationProjectReady) && <p role="status">正在打开作品…</p>}
+{!accountOpen && activeView === "chapters" && conversationProjectReady && state.novelEdition.chapters.length === 0 && <div className="chapter-start"><p>还没有章节，可以先聊聊构想，也可以直接开始写作。</p><button type="button" className="secondary-button" onClick={() => composerRef.current?.focus()}>讨论小说构想</button></div>}
+{!accountOpen && taskRecovery?.projectId === projectId && taskRecovery.scope === promptScopeRef.current
+  && taskRecovery.execution.kind === "taskRecovery" && activeView === taskRecovery.execution.view
+  && <section className="execution-recovery-notice" role="status" aria-label="原任务恢复">
+    <strong>{taskRecovery.execution.operation} · 请恢复原任务</strong>
+    <p>在下方“创作任务”中核对已保存产物，再选择“核验并恢复”或“继续任务”。恢复保留原操作、目标及冻结输入；来源已变化时不能继续，请依据当前内容重新发起。此按钮没有再次调用模型。</p>
+    {recoveryChapterId && <p>目标章节：{state.novelEdition.chapters.find(chapter => chapter.id === recoveryChapterId)?.title ?? recoveryChapterId}</p>}
+    {taskRecovery.execution.intent && <details><summary>原始创作指令</summary><p>{taskRecovery.execution.intent}</p></details>}
+    <button type="button" className="secondary-button" onClick={() => setTaskRecovery(null)}>收起提示</button>
+  </section>}
+{conversationProjectReady && !accountOpen && (["brief", "outline", "plans", "chapters"] as ViewId[]).includes(activeView) && <CreativeWorkspaceView moduleActionsContainer={moduleActionsContainer} recordsOpen={recordsCurrent} onOpenVersions={openModuleRecords} onOutlineRecordScopeChange={syncOutlineRecordScope} outlineCatalogError={workDirectory.error} outlineVolume={activeView === "outline" ? outlineVolume : null} onCloseOutlineVolume={() => navigateView("outline")} onOpenOutlineNode={openOutlineNode} onLinkOutline={(volumeId, source) => workDirectory.update({ type: "linkOutline", volumeId, source })} onChapterCreationPrepared={requestId => setRequestedChapterCreation(current => current?.requestId === requestId ? null : current)} requestedChapterCreation={requestedChapterCreation?.projectId === projectId ? requestedChapterCreation : null} requestedCommitment={commitmentSelection?.request.projectId === projectId ? commitmentSelection : null} taskControls={taskControls} taskResultSelection={taskResultSelection?.result.projectId === projectId ? taskResultSelection : null} onOpenTaskResult={result => requestNavigation({ kind: "result", result })} onDiscuss={prepareConversation} onExport={() => setExportOpen(true)} onPrepareChapterWriting={prepareChapterWriting} taskList={taskList} conversation={conversationContent} taskConversationContainer={showConversationReader ? null : taskConversationContainer} api={api} projectId={projectId} view={activeView as "brief" | "outline" | "plans" | "chapters"} state={state} selectedChapterId={selectedChapterId} onSelectChapter={selectChapter} onGenerateWork={generateWork} onContinueWork={(runId) => continueWork(runId)} onRetryWork={(runId) => continueWork(runId, "retry")} onResolveFeedback={(runId, revisionId, choice, instruction) => continueWork(runId, choice === "repairDraft" ? "feedbackRepair" : "feedbackContinue", revisionId, instruction)} onReviewPlanning={reviewPlanning} onCancelPlanningReview={cancelPlanningReview} onGenerateChapter={generateChapter} onOpenPlanningTarget={(kind) => navigateView(kind === "plan" ? "plans" : "outline")} onReturnToFeedback={() => navigateView("chapters")} onFormalChange={refreshFormalState} onDirtyChange={setCreativeDirty} onChapterTitlePreview={syncChapterTitlePreview} onSaveHandlerChange={registerCreativeSaveHandler} onPlanningSaveHandlerChange={registerPlanningSaveHandler} onDiscardHandlerChange={registerCreativeDiscardHandler} agentAvailable={agentAvailable} agentRunning={baseExecutionBusy || taskControls.pending} refreshToken={creativeRefreshToken}
   revisionContinuation={revisionContinuation?.projectId === projectId ? revisionContinuation : null}
   onPrepareRevisionContinuation={setRevisionContinuation} onDismissRevisionContinuation={() => setRevisionContinuation(null)}
   onPrepareRevisionRepair={preparation => {
     if (!revisionRepair.prepare(preparation)) return;
+    composerDrafts.setSource(null); setPendingDiscussionSource(null);
+    selectChapterWriting(null);
     setSentRevisionRepair(null);
     setComposer(current => current.trim() ? current : "我想讨论下一次改稿的方向，请先和我核对需要调整的内容。");
     composerRef.current?.focus();
   }} />}
-{!accountOpen && activeView === "diffs" && <DiffView diffs={diffs} />}
-{!accountOpen && activeView !== "overview" && activeView !== "brief" && activeView !== "outline" && activeView !== "plans" && activeView !== "chapters" && activeView !== "diffs" && <><ViewPanel view={activeView} state={state} onAddCanonNote={openFactReview} />{activeView === "characters" && <IdentityDecisionPanel api={api} projectId={projectId} refreshToken={creativeRefreshToken} onFormalChange={refreshFormalState} />}{activeView === "world" && <PropertyRulesPanel api={api} projectId={projectId} refreshToken={creativeRefreshToken} onFormalChange={refreshFormalState} onDirtyChange={setCreativeDirty} onSaveHandlerChange={registerCreativeSaveHandler} onDiscardHandlerChange={registerCreativeDiscardHandler} />}</>}
-</main><PaneSash orientation="vertical" label="调整对话栏宽度" value={panes.rail} min={300} max={railMax} nextValue={(start, dx) => start - dx} onResize={(rail) => setPanes((current) => ({ ...current, rail }))} /><aside className="conversation-rail" aria-label="创作引擎协作栏"><div className="conversation-rail-scroll"><EnhancedAgentTranscript run={agentRun} userInputRequest={userInputQueue[0] ?? null} queuedUserInputCount={Math.max(0, userInputQueue.length - 1)} onResolveUserInput={(response) => void resolveUserInput(response)} onClear={() => setAgentRun(createAgentRun())} onRetry={() => void submitPrompt(agentRun.prompt)} onInterrupt={() => void interruptAgent()} onReview={() => void reviewAgent()} onCompact={() => void compactContext()} /><ActionProposalList actions={proposedActions.projectId === projectId ? proposedActions.actions : []} busy={Boolean(approvingActionId) || agentRun.state === "running" || agentRun.state === "waiting" || creativeDirty} onApprove={(action) => void approveProposedAction(action)} onDecline={(action) => void declineProposedAction(action)} onScope={(action) => setScopeAction({ projectId, action })} /></div>{currentSentRepair?.projectId === projectId && agentRun.state === "error" && <FailedRevisionRepair preparation={currentSentRepair} onStartOrdinaryDiscussion={() => { revisionRepair.cancel(); setSentRevisionRepair(null); }} />}{revisionRepair.prepared && <PreparedRevisionRepair preparation={revisionRepair.prepared} checking={revisionRepair.checking} error={revisionRepair.error} onCancel={revisionRepair.cancel} />}<Composer repairPrepared={Boolean(revisionRepair.prepared)} checkingRepair={revisionRepair.checking} composer={composer} setComposer={setComposer} onSubmit={() => void submitPrompt()} onInterrupt={() => void interruptAgent()} composerRef={composerRef} activity={activity} agentStatus={visibleAgentStatus} agentAvailable={agentAvailable} blockedByUnsavedChanges={creativeDirty} connections={agentConnections} agentConfigSaving={agentConfigSaving} onSelectConnection={(connection) => void selectAgentConnection(connection)} /><PaneSash orientation="horizontal" label="调整功能区高度" value={panes.inspector} min={88} max={inspectorMax} nextValue={(start, _dx, dy) => start - dy} onResize={(inspector) => setPanes((current) => ({ ...current, inspector }))} /><div className="conversation-context"><AgentInspector state={state} runtimeStatus={runtimeStatus} agentRun={agentRun} connections={agentConnections} contextTab={contextTab} onContextTabChange={setContextTab} onAddCanonNote={openFactReview} onReview={() => void reviewAgent()} onCompact={() => void compactContext()} backgroundTerminals={backgroundTerminals} backgroundTerminalLoading={backgroundTerminalLoading} onLoadBackgroundTerminals={() => void loadBackgroundTerminals()} onTerminateBackgroundTerminal={(processId) => void terminateBackgroundTerminal(processId)} onVerifyAgent={(provider, model) => void verifyAgent(provider, model)} onConfigureAgent={(provider, model) => void configureAgent(provider, model)} agentConfigSaving={agentConfigSaving} /></div></aside></div>{pendingNavigation && <UnsavedChangesDialog saving={savingBeforeLeave} onSave={() => void saveAndContinueNavigation()} onDiscard={discardAndContinueNavigation} onStay={() => { if (pendingNavigation.kind === "close") void api?.app.cancelClose(); setPendingNavigation(null); }} />}{commandPaletteOpen && <CommandPalette onClose={() => setCommandPaletteOpen(false)} onFocusComposer={() => { setCommandPaletteOpen(false); composerRef.current?.focus(); }} onReview={() => { setCommandPaletteOpen(false); void reviewAgent(); }} onCompact={() => { setCommandPaletteOpen(false); void compactContext(); }} onReconnect={() => { setCommandPaletteOpen(false); void reconnectAgent(); }} onTheme={() => { setCommandPaletteOpen(false); setTheme((current) => current === "light" ? "dark" : "light"); }} />}{exportOpen && <ExportDialog onClose={() => setExportOpen(false)} onExport={async (options) => { if (!api) throw new Error("Runtime 尚未连接，请稍后重试。"); return api.runtime.exportProject(activeProjectId, options); }} />}{scopeAction?.projectId === projectId && api && <ExecutionScopeDialog key={`${projectId}:${scopeAction.action.sourceTaskId}`} projectId={projectId} initialAction={scopeAction.action} actions={proposedActions.projectId === projectId ? proposedActions.actions : []} api={api.agent} blocked={creativeDirty} onClose={() => setScopeAction(null)} onStart={() => { const previous = summarizeAgentRun(agentRun); setAgentRun(createAgentRun("按确认的有限范围继续创作", previous ? [previous, ...agentRun.history] : agentRun.history)); }} onComplete={scopeExecutionFinished} onError={(message) => { if (currentProjectRef.current === projectId) setAgentRun(run => reduceAgentEvent(run, agentFailureEvent(message))); }} />}{projectCreateOpen && <ProjectCreateDialog onClose={() => setProjectCreateOpen(false)} onSubmit={createProject} />}</div>;
+{!accountOpen && activeView !== "brief" && activeView !== "outline" && activeView !== "plans" && activeView !== "chapters" && <>{activeView === "characters" ? <CharacterCatalog onDiscuss={prepareConversation} api={api} projectId={projectId} refreshToken={creativeRefreshToken} chapters={state.novelEdition.chapters} onOpenChapter={selectChapter} /> : <StoryReferenceView api={api} projectId={projectId} view={activeView} refreshToken={creativeRefreshToken} onDiscuss={prepareConversation} onOpenCommitment={request => requestNavigation({ kind: "commitment", request })} onOpenChapter={chapterId => { const chapter = state.novelEdition.chapters.find(item => item.id === chapterId); if (chapter) selectChapter(chapter); }} />}{activeView === "characters" && <details className="character-identity-tools"><summary>同名与身份管理</summary><IdentityDecisionPanel agentRunning={executionBusy} key={projectId} api={api} projectId={projectId} refreshToken={creativeRefreshToken} onFormalChange={refreshFormalState} /></details>}{activeView === "world" && <PropertyRulesPanel agentRunning={executionBusy} requestedResult={taskResultSelection?.result.kind === "propertyRules" ? { requestId: taskResultSelection.requestId, result: taskResultSelection.result } : null} api={api} projectId={projectId} refreshToken={creativeRefreshToken} onFormalChange={refreshFormalState} onDirtyChange={setCreativeDirty} onSaveHandlerChange={registerCreativeSaveHandler} onDiscardHandlerChange={registerCreativeDiscardHandler} />}</>}
+</main><PaneSash orientation="vertical" label="调整对话栏宽度" value={railWidth} min={300} max={railMax} nextValue={(start, dx) => start - dx} onResize={(rail) => setPanes((current) => ({ ...current, rail }))} /><aside className="conversation-rail" data-conversation-id={selectedConversation.id ?? ""} aria-label="创作引擎协作栏"><header className="conversation-shell-header"><strong title={selectedThread?.name ?? "新对话"}>{selectedThread?.name ?? "新对话"}</strong><button type="button" className="conversation-inspector-toggle" aria-expanded={inspectorOpen} aria-controls="conversation-inspector" onClick={() => setInspectorOpen(open => !open)}>{inspectorOpen ? "收起细节" : "任务细节"}</button></header><>{executionBusy && !viewingExecution && <div className="conversation-other-execution" role="status">另一对话“{threads.find(thread => thread.id === executionConversationId)?.name ?? "创作任务"}”{agentRun.state === "waiting" ? "等待回答" : "正在执行"}。可浏览和编辑草稿，执行结束后可发送。<button type="button" onClick={() => selectConversation(threads.find(thread => thread.id === executionConversationId) ?? null)}>返回处理</button></div>}{selectedThread?.isArchived && <p role="status">已归档对话 · 恢复后可继续发送</p>}</><div className="conversation-reading-area">{!showConversationReader && <div className="conversation-rail-scroll">{earlierConversationDetail?.turns.length ? <ConversationReader detail={earlierConversationDetail} loading={false} error={null} onRetry={() => {}} onFork={turnId => void createConversation(undefined, turnId)} busy={executionBusy || conversationChanging || Boolean(selectedThread?.isArchived)} showEmpty={false} /> : null}<ConversationRecovery key={projectId} runs={recoveryRuns.filter(run => run.projectId === projectId)} threadId={agentRun.threadId} busy={executionBusy} onInspect={inspectRecovery} onReconcile={reconcileRecovery} />{api && conversationProjectReady && <ChapterStructureNotice key={projectId} api={api} projectId={projectId} refreshToken={creativeRefreshToken} available={agentAvailable} busy={executionBusy} dirty={creativeDirty} failures={structureFailures} />}{conversationProjectReady && !creativeConversationOpen && <WorkTaskPanel key={projectId} conversation={conversationContent} api={api} projectId={projectId} tasks={taskList.tasks} activeCount={taskList.activeCount}
+      nextCursor={taskList.nextCursor} loadingMore={taskList.loadingMore} loaded={taskList.loaded} reading={taskList.reading} readError={taskList.error}
+      onRetry={() => void taskList.refresh()} onLoadMore={() => void taskList.loadMore()} revision={undefined} busy={taskControls.pending} interruptionBusy={taskControls.controlling}
+      agentRunning={executionBusy} agentAvailable={agentAvailable} dirty={creativeDirty}
+      onControl={(id, command) => {
+        if (!api || creativeDirty || ((command === "resume" || command === "recoverSavedResult") && executionBusy)) return;
+        const task = taskList.tasks.find(item => item.id === id && item.projectId === projectId);
+        if (!task || (command === "resume" && !agentAvailable)) return;
+        void taskControls.control(api, id, command);
+      }} onOpenResult={result => requestNavigation({ kind: "result", result })} />}{taskControlMessage?.scope === taskList.scope && taskControlMessage.error && <p className="dialog-error" role="alert">{taskList.tasks.find(task => task.id === taskControlMessage.error?.targetId)?.goal.slice(0, 60) ?? "任务操作"}：{taskControlMessage.error.message}</p>}{taskControlMessage?.scope === taskList.scope && taskControlMessage.notice && <p role="status">{taskList.tasks.find(task => task.id === taskControlMessage.notice?.targetId)?.goal.slice(0, 60) ?? "任务操作"}：{taskControlMessage.notice.message}</p>}{taskResultError && <p className="dialog-error" role="alert">{taskResultError}</p>}<div className="conversation-task-records" ref={setTaskConversationContainer} /><ActionProposalList actions={selectedConversationActions} busy={Boolean(approvingActionId) || executionBusy || creativeDirty} onApprove={(action) => void approveProposedAction(action)} onDecline={(action) => void declineProposedAction(action)} onScope={(action) => setScopeAction({ projectId, action })} /></div>}{showConversationReader && <div className="conversation-history-scroll"><ConversationReader detail={activeConversationDetail?.detail ?? null} loading={Boolean(activeConversationDetail?.loading)} error={activeConversationDetail?.error ?? null} onRetry={() => { if (selectedConversation.id) void readSelectedConversation(selectedConversation.id); }} onFork={turnId => void createConversation(undefined, turnId)} busy={executionBusy || conversationChanging || Boolean(selectedThread?.isArchived)} /></div>}</div>{viewingExecution && currentSentRepair?.projectId === projectId && agentRun.state === "error" && <FailedRevisionRepair preparation={currentSentRepair} onStartOrdinaryDiscussion={() => { revisionRepair.cancel(); setSentRevisionRepair(null); }} />}{revisionRepair.prepared && <PreparedRevisionRepair preparation={revisionRepair.prepared} checking={revisionRepair.checking} error={revisionRepair.error} onCancel={revisionRepair.cancel} />}{composerDrafts.error && <p className="dialog-error" role="alert">{composerDrafts.error}</p>}<>{reconnectNotice?.scope === promptScopeRef.current && agentRun.connectionState !== "ready" && <p className="dialog-error" role="status" aria-label="原任务连接核对">{reconnectNotice.message}</p>}</><ModelConnectionNotice progress={modelConnection.progress} busy={modelConnection.busy} onRetry={() => void modelConnection.retry()} /><DiscussionSourceChip source={composerDrafts.source} pending={pendingDiscussionSource?.focus.reference.projectId === projectId ? pendingDiscussionSource : null} disabled={executionBusy} onRemove={() => { composerDrafts.setSource(null); setPendingDiscussionSource(null); }} onKeep={() => setPendingDiscussionSource(null)} onReplace={() => {
+      if (!pendingDiscussionSource || pendingDiscussionSourceRef.current !== pendingDiscussionSource || currentProjectRef.current !== projectId || pendingDiscussionSource.focus.reference.projectId !== projectId || executionBusy) return;
+      composerDrafts.setSource(pendingDiscussionSource); setComposer(value => value.trim() ? value : pendingDiscussionSource.prompt); setPendingDiscussionSource(null); composerRef.current?.focus();
+    }} /><DiscussionExcerptCards excerpts={composerDrafts.excerpts} disabled={executionBusy && viewingExecution} readOnly={composerDrafts.excerpts.length > 0 && (creativeDirty || composerDrafts.excerpts.some(item => item.state === "unsaved"))} onRemove={composerDrafts.removeExcerpt} /><SelectionDiscussion projectId={projectId} view={activeView} disabled={!conversationProjectReady || accountOpen || conversationChanging || executionBusy} onAdd={addDiscussionExcerpt} onNew={excerpt => createConversation(excerpt)} /><Composer projectId={projectId} planningSaving={planningSubmission.pending} planningSaveOnSend={creativeDirty && planningSubmissionEligible && !composerDrafts.excerpts.length} choosingSource={pendingDiscussionSource?.focus.reference.projectId === projectId} canSteer={viewingExecution && currentRunCanSteer(agentRun) && !composerDrafts.excerpts.length} writing={currentChapterWriting} writingPending={chapterWritingPending} onCancelWriting={() => selectChapterWriting(null)} repairPrepared={Boolean(revisionRepair.prepared)} checkingRepair={revisionRepair.checking} composer={composer} setComposer={setComposer} onSubmit={() => void submitPrompt()} onInterrupt={() => { if (viewingExecution) void interruptAgent(); }} composerRef={composerRef} activity={activity} agentStatus={viewingExecution ? visibleAgentStatus : { ...visibleAgentStatus, state: "idle" }} agentAvailable={agentAvailable && !conversationChanging && !activeConversationDetail?.loading && !activeConversationDetail?.error && !selectedThread?.isArchived && (!executionBusy || viewingExecution)} blockedByUnsavedChanges={creativeDirty && !composerDrafts.excerpts.length && !planningSubmissionEligible && (!currentChapterWriting || executionBusy)} projectReady={Boolean(projectId && projectId === activeProjectId)} connections={agentConnections} agentConfigSaving={agentConfigSaving} onSelectConnection={(connection) => void selectAgentConnection(connection)} />{inspectorOpen && viewingExecution && <PaneSash orientation="horizontal" label="调整功能区高度" value={panes.inspector} min={88} max={inspectorMax} nextValue={(start, _dx, dy) => start - dy} onResize={(inspector) => setPanes((current) => ({ ...current, inspector }))} />}<div className="conversation-context" id="conversation-inspector" hidden={!inspectorOpen || !viewingExecution}><AgentInspector state={state} runtimeStatus={runtimeStatus} agentRun={agentRun} connections={agentConnections} contextTab={contextTab} onContextTabChange={setContextTab} onAddCanonNote={openFactReview} onReview={() => void reviewAgent()} backgroundTerminals={backgroundTerminals} backgroundTerminalLoading={backgroundTerminalLoading} onLoadBackgroundTerminals={() => void loadBackgroundTerminals()} onTerminateBackgroundTerminal={(processId) => void terminateBackgroundTerminal(processId)} onVerifyAgent={(provider, model) => void verifyAgent(provider, model)} onConfigureAgent={(provider, model) => void configureAgent(provider, model)} agentConfigSaving={agentConfigSaving} /></div></aside></div>{recordsCurrent && moduleRecords && <ModuleRecordsPopover key={moduleRecords.requestId} source={moduleRecords}
+      api={moduleRecords.api} chapter={state.novelEdition.chapters.find(chapter => chapter.id === moduleRecords.chapterId)}
+      dirty={creativeDirty} blocked={executionBusy} opener={moduleRecords.opener} container={mainPanelRef.current}
+      onClose={() => setModuleRecords(current => current?.requestId === moduleRecords.requestId ? null : current)} onFormalChange={refreshFormalState} />}{chapterDeletion.state && <ChapterDeleteDialog deletion={chapterDeletion} />}{pendingNavigation && <UnsavedChangesDialog saving={savingBeforeLeave || planningSubmission.pending} onSave={() => void saveAndContinueNavigation()} onDiscard={discardAndContinueNavigation} onStay={() => { if (pendingNavigation.kind === "close") void api?.app.cancelClose(); setPendingNavigation(null); }} />}{commandPaletteOpen && <CommandPalette onClose={() => setCommandPaletteOpen(false)} onFocusComposer={() => { setCommandPaletteOpen(false); composerRef.current?.focus(); }} onReview={() => { setCommandPaletteOpen(false); void reviewAgent(); }} onReconnect={() => { setCommandPaletteOpen(false); void reconnectAgent(); }} onTheme={() => { setCommandPaletteOpen(false); setTheme((current) => current === "light" ? "dark" : "light"); }} />}{savedAnalysis && <SavedAnalysisDialog analysis={savedAnalysis} onClose={() => setSavedAnalysis(null)} />}{exportOpen && <ExportDialog onClose={() => setExportOpen(false)} onExport={async (options) => { if (!api) throw new Error("Runtime 尚未连接，请稍后重试。"); return api.runtime.exportProject(activeProjectId, options); }} />}{scopeAction?.projectId === projectId && api && <ExecutionScopeDialog key={`${projectId}:${scopeAction.action.sourceTaskId}`} projectId={projectId} initialAction={scopeAction.action} actions={proposedActions.projectId === projectId ? proposedActions.actions : []} api={api.agent} blocked={creativeDirty} onClose={() => setScopeAction(null)} onStart={() => { scopeExecutionRef.current = { projectId, scope: beginExecutionScope() }; const previous = summarizeAgentRun(agentRun); setAgentRun(createAgentRun("按确认的有限范围继续创作", previous ? [previous, ...agentRun.history] : agentRun.history)); }} onComplete={scopeExecutionFinished} onError={(message) => { if (currentProjectRef.current === projectId && scopeExecutionRef.current?.scope === promptScopeRef.current) void reportExecutionFailure(message, scopeExecutionRef.current.scope, "有限范围执行失败"); }} />}{projectInformationOpen && conversationProjectReady && <ProjectInformation key={projectId} api={api} project={state.project} onClose={() => setProjectInformationOpen(false)} onOpenBrief={() => { setProjectInformationOpen(false); navigateView("brief"); }} />}{projectCreateOpen && <ProjectCreateDialog onClose={() => setProjectCreateOpen(false)} onSubmit={createProject} />}</div>;
 }
 
-function Sidebar({ activeView, state, onNavigate, onDiffs, onCreateProject, runtimeStatus, threads, currentThreadId, onResume, busy }: { activeView: ViewId; state: RuntimeState; onNavigate: (view: ViewId) => void; onDiffs: () => void; onCreateProject: () => void; runtimeStatus: RuntimeStatus; threads: ThreadSummary[]; currentThreadId: string | null; onResume: (thread: ThreadSummary) => void; busy: boolean }) {
-  return <aside className="sidebar"><div className="sidebar-heading"><span>作品</span><button className="tiny-button" title="新建作品" onClick={onCreateProject} disabled={busy}>＋</button></div><div className="project-card"><div className="book-icon">▧</div><div><strong>{state.project.title}</strong><span>小说工作区</span></div><span className="more">•••</span></div><div className="sidebar-task-section"><div className="nav-label">任务 <small>{threads.length}</small></div>{threads.slice(0, 5).map((thread) => { const label = thread.name ?? thread.preview ?? "未命名任务"; const current = thread.id === currentThreadId; return <button className={`sidebar-task ${current ? "current" : ""}`} key={thread.id} onClick={() => onResume(thread)} disabled={current || busy} title={label}><span className="sidebar-task-marker">{current ? "✓" : "·"}</span><span>{label}</span></button>; })}{threads.length === 0 && <span className="sidebar-task-empty">发送指令后，任务会显示在这里</span>}</div><nav className="nav-groups">{navGroups.map((group) => <div className="nav-group" key={group.label}><div className="nav-label">{group.label}</div>{group.items.map((item) => <button className={`nav-item ${activeView === item.id ? "active" : ""}`} key={item.id} onClick={() => onNavigate(item.id)}><span className="nav-icon">{item.icon}</span><span>{item.label}</span>{item.id === "chapters" && <span className="nav-count">{state.novelEdition.chapters.length}</span>}{item.id === "scenes" && <span className="nav-count">{state.narrativeIr.scenes.length}</span>}</button>)}</div>)}</nav><div className="sidebar-footer"><button className={`nav-item ${activeView === "diffs" ? "active" : ""}`} onClick={onDiffs}><span className="nav-icon">⌁</span><span>版本与变更</span></button><button className="nav-item" onClick={() => onNavigate("overview")}><span className="nav-icon">?</span><span>帮助</span></button><div className="runtime-card"><span className={`online-dot ${runtimeStatus.state === "online" ? "" : "offline"}`} /> 创作运行时 <span>{runtimeStatus.state === "online" ? "本地在线" : "不可用"}</span></div></div></aside>;
+function Sidebar({ conversationNavigation, outlineDirectory, directory, activeView, state, onNavigate, onCreateProject, runtimeStatus, busy }: { conversationNavigation?: ReactNode; outlineDirectory?: ReactNode; directory?: ReactNode; activeView: ViewId; state: RuntimeState; onNavigate: (view: ViewId) => void; onCreateProject: () => void; runtimeStatus: RuntimeStatus; busy: boolean }) {
+  return <aside className="sidebar"><div className="sidebar-heading"><span>作品</span><button className="tiny-button" title="新建作品" onClick={onCreateProject} disabled={busy}>＋</button></div><div className="project-card"><div className="book-icon">▧</div><div><strong>{state.project.title}</strong><span>小说工作区</span></div><span className="more">•••</span></div>{conversationNavigation}<nav className="nav-groups">{navGroups.map((group) => <div className="nav-group" key={group.label}><div className="nav-label">{group.label}</div>{group.items.map((item) => item.id === "outline" && outlineDirectory ? <div key={item.id}>{outlineDirectory}</div> : item.id === "chapters" && directory ? <div key={item.id} className="sidebar-chapter-navigation">{directory}</div> : <button className={`nav-item ${activeView === item.id ? "active" : ""}`} key={item.id} aria-label={item.label} aria-current={activeView === item.id ? "page" : undefined} title={item.label} onClick={() => onNavigate(item.id)}><span className="nav-icon">{item.icon}</span><span>{item.label}</span>{item.id === "chapters" && <span className="nav-count">{state.novelEdition.chapters.length}</span>}</button>)}</div>)}</nav><div className="sidebar-footer"><div className="runtime-card"><span className={`online-dot ${runtimeStatus.state === "online" ? "" : "offline"}`} /> 创作运行时 <span>{runtimeStatus.state === "online" ? "本地在线" : "不可用"}</span></div></div></aside>;
 }
 
-function ProjectSwitcher({ projects, activeProjectId, busy, onSelect, onCreate }: { projects: ProjectSummary[]; activeProjectId: string; busy: boolean; onSelect: (projectId: string) => void; onCreate: () => void }) {
+function ProjectSwitcher({ projects, activeProjectId, busy, onSelect, onCreate, onInformation }: { projects: ProjectSummary[]; activeProjectId: string; busy: boolean; onSelect: (projectId: string) => void; onCreate: () => void; onInformation?: () => void }) {
   const [open, setOpen] = useState(false);
   const active = projects.find((project) => project.id === activeProjectId);
   useEffect(() => {
@@ -952,37 +1816,7 @@ function ProjectSwitcher({ projects, activeProjectId, busy, onSelect, onCreate }
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
   useEffect(() => { if (busy) setOpen(false); }, [busy]);
-  return <div className="project-switcher-wrap"><button className="project-switcher" aria-expanded={open} disabled={busy} onClick={() => setOpen((value) => !value)}><span className="project-dot" /><span>{active?.title ?? "选择作品"}</span><span className="muted">⌄</span></button>{open && <div className="project-menu" role="menu" aria-label="选择作品"><div className="project-menu-heading"><span>我的作品</span><button className="project-create-menu" onClick={() => { setOpen(false); onCreate(); }}>＋ 新建</button></div>{projects.map((project) => <button className={`project-menu-item ${project.id === activeProjectId ? "selected" : ""}`} role="menuitem" key={project.id} onClick={() => { setOpen(false); onSelect(project.id); }}><span className="project-menu-mark">{project.id === activeProjectId ? "✓" : "▧"}</span><span><strong>{project.title}</strong><small>{project.logline || "暂无简介"}</small></span></button>)}</div>}</div>;
-}
-
-function ProjectCreateDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (title: string, logline: string) => Promise<void> }) {
-  const [title, setTitle] = useState("");
-  const [logline, setLogline] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  async function submit() {
-    const normalizedTitle = title.trim();
-    if (!normalizedTitle) { setError("请填写作品名称。"); return; }
-    if (normalizedTitle.length > 120) { setError("作品名称不能超过 120 个字符。"); return; }
-    if (logline.trim().length > 500) { setError("作品简介不能超过 500 个字符。"); return; }
-    setSaving(true);
-    setError(null);
-    try {
-      await onSubmit(normalizedTitle, logline);
-      onClose();
-    } catch (reason) {
-      const message = reason instanceof Error
-        ? reason.message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, "")
-        : "作品创建失败，请稍后重试。";
-      setError(message || "作品创建失败，请稍后重试。");
-    } finally { setSaving(false); }
-  }
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && !saving) onClose(); };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose, saving]);
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}><form className="project-dialog" role="dialog" aria-modal="true" aria-labelledby="project-dialog-title" aria-describedby="project-dialog-description" onSubmit={(event) => { event.preventDefault(); void submit(); }}><div className="project-dialog-header"><div><span className="eyebrow">新作品</span><h2 id="project-dialog-title">新建作品</h2></div><button className="dialog-close" type="button" aria-label="关闭" onClick={onClose} disabled={saving}>×</button></div><p id="project-dialog-description" className="project-dialog-description">创建一个独立的小说工作区，之后可以在右侧继续创作。</p><label className="dialog-field"><span>作品名称 <em>必填</em></span><input autoFocus value={title} maxLength={120} placeholder="例如：雾中的回声" onChange={(event) => { setTitle(event.target.value); setError(null); }} /></label><label className="dialog-field"><span>一句话简介 <small>可选</small></span><textarea value={logline} maxLength={500} placeholder="描述这部作品的核心冲突或气质" onChange={(event) => { setLogline(event.target.value); setError(null); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void submit(); } }} /></label>{error && <div className="dialog-error" role="alert">{error}</div>}<div className="project-dialog-actions"><button className="secondary-button" type="button" onClick={onClose} disabled={saving}>取消</button><button className="primary-button" type="submit" disabled={saving}>{saving ? "创建中…" : "创建作品"}</button></div></form></div>;
+  return <div className="project-switcher-wrap"><button className="project-switcher" data-project-information-trigger aria-expanded={open} disabled={busy} onClick={() => setOpen((value) => !value)}><span className="project-dot" /><span title={active?.title}>{active?.title ?? "选择作品"}</span><span className="muted">⌄</span></button>{open && <div className="project-menu" role="menu" aria-label="选择作品">{onInformation && <button type="button" className="project-menu-item" role="menuitem" onClick={() => { setOpen(false); onInformation(); }}>作品信息</button>}<div className="project-menu-heading"><span>我的作品</span><button className="project-create-menu" onClick={() => { setOpen(false); onCreate(); }}>＋ 新建</button></div>{projects.map((project) => <button className={`project-menu-item ${project.id === activeProjectId ? "selected" : ""}`} role="menuitem" key={project.id} onClick={() => { setOpen(false); onSelect(project.id); }}><span className="project-menu-mark">{project.id === activeProjectId ? "✓" : "▧"}</span><span><strong>{project.title}</strong><small>{project.logline || "暂无简介"}</small></span></button>)}</div>}</div>;
 }
 
 function UnsavedChangesDialog({ saving, onSave, onDiscard, onStay }: { saving: boolean; onSave: () => void; onDiscard: () => void; onStay: () => void }) {
@@ -991,83 +1825,65 @@ function UnsavedChangesDialog({ saving, onSave, onDiscard, onStay }: { saving: b
   return <div className="modal-backdrop" role="presentation"><section className="project-dialog unsaved-dialog" role="dialog" aria-modal="true" aria-labelledby="unsaved-dialog-title" aria-describedby="unsaved-dialog-description"><div className="project-dialog-header"><div><span className="eyebrow">尚未保存</span><h2 id="unsaved-dialog-title">当前创作修改还没有确认保存</h2></div></div><p id="unsaved-dialog-description" className="project-dialog-description">保存会写入当前创作编辑内容；也可以明确放弃本地输入，或留在当前页面继续处理。放弃不会撤回可能已经保存的候选。</p><div className="project-dialog-actions three-way-actions"><button className="text-button danger" type="button" disabled={saving} onClick={onDiscard}>放弃修改并离开</button><button ref={stayRef} className="secondary-button" type="button" disabled={saving} onClick={onStay}>留在当前页面</button><button className="primary-button" type="button" disabled={saving} onClick={onSave}>{saving ? "正在保存…" : "保存并继续"}</button></div></section></div>;
 }
 
-function Overview({ state, onSelectChapter, onRunTests, onFocusComposer, onOpenBrief, onOpenChapters, testResult }: { state: RuntimeState; onSelectChapter: (chapter: Chapter) => void; onRunTests: () => void; onFocusComposer: () => void; onOpenBrief: () => void; onOpenChapters: () => void; testResult: StoryTestResult | null }) {
-  const chapter = state.novelEdition.chapters[0];
-  if (!chapter) return <div className="overview-content"><div className="empty-state project-empty-state"><span>✦</span><strong>从构想、规划或第一章开始</strong><p>可以先讨论题材和冲突，整理正式创作简报；有明确开场时，也可以直接创建独立章节开始写作。</p><div><button className="primary-button" onClick={onFocusComposer}>讨论小说构想</button><button className="secondary-button" onClick={onOpenBrief}>整理创作简报</button><button className="secondary-button" onClick={onOpenChapters}>直接写第一章</button></div></div></div>;
-  const passage = chapter.passages[0];
-  const scene = state.narrativeIr.scenes.find((item) => item.id === passage?.scene_id);
-  return <div className="overview-content"><div className="editor-card"><div className="editor-toolbar"><div><span className="editor-file-icon">▤</span><strong>第 {String(chapter.number).padStart(2, "0")} 章</strong><span className="muted">·</span><span>{chapter.title}</span></div><div className="toolbar-actions"><button onClick={() => onSelectChapter(chapter)}>编辑</button><button onClick={onRunTests}>故事检查</button></div></div><div className="chapter-editor"><div className="chapter-meta"><span>第 {chapter.number} 章</span><span>{passage?.body.length ?? 0} 字</span><span>最近编辑：{formatDate(chapter.updated_at)}</span></div><h2>{chapter.title}</h2>{passage?.body.split("\n\n").map((paragraph) => <p key={paragraph}>{paragraph}</p>)}{scene && <button className="scene-anchor" onClick={() => onSelectChapter(chapter)}><span className="anchor-dot" /><span><strong>{scene.title}</strong><small>{scene.beats.length} 个节拍 · {scene.participants.map((participant) => participant.name).join(" / ")} · {scene.status}</small></span><b>编辑章节</b></button>}</div></div><p className="work-summary">{state.novelEdition.chapters.length} 章 · {state.narrativeIr.scenes.length} 个场景 · {state.canon.characters.length} 个角色 · {state.canon.plotThreads.length} 条故事线</p>{testResult && <TestPanel result={testResult} />}</div>;
-}
 
-function ViewPanel({ view, state, onAddCanonNote }: { view: Exclude<ViewId, "overview" | "chapters" | "diffs">; state: RuntimeState; onAddCanonNote: () => void }) {
-  const copy: Record<typeof view, { title: string; description: string }> = { brief: { title: "创作简报", description: "固定作品承诺与边界。" }, outline: { title: "长篇大纲", description: "管理故事阶段与转折。" }, plans: { title: "近章规划", description: "滚动规划接下来的章节。" }, characters: { title: "角色", description: "故事里的人物，写作和审阅都会用到。" }, scenes: { title: "场景", description: "场景和节拍，是章节正文的结构。" }, plot: { title: "情节线", description: "追踪冲突、伏笔和未解决的问题。" }, timeline: { title: "时间线", description: "用事件与状态变化组织故事时间。" }, world: { title: "世界与规则", description: "写作前会查阅、写完后会核对的世界规则。" } };
-  const content = copy[view]; return <div className="view-panel"><div className="view-intro"><div className="view-symbol">{view === "characters" ? "♙" : view === "scenes" ? "◈" : "⌁"}</div><div><h2>{content.title}</h2><p>{content.description}</p></div>{view === "world" && <button className="primary-button" onClick={onAddCanonNote}>＋ 新建</button>}</div>{view === "characters" && <div className="character-grid">{state.canon.characters.map((character) => <div className="big-character-card" key={character.id}><div className="character-avatar large" style={{ background: character.color }}>{character.name.slice(0, 1)}</div><h3>{character.name}</h3><p>{character.role}</p><span>{character.status}</span></div>)}</div>}{view === "scenes" && <div className="list-card">{state.narrativeIr.scenes.map((scene) => <SceneRow scene={scene} key={scene.id} />)}</div>}{view === "plot" && (state.canon.plotThreads.length === 0 ? <div className="empty-state"><span>⌁</span><strong>还没有情节线</strong><p>冲突、伏笔和没写完的问题会出现在这里。</p></div> : <div className="list-card planning-list">{state.canon.plotThreads.map((thread) => <div className="list-row" key={thread.id}><span className={`thread-line ${thread.tone}`} /><span><strong>{thread.title}</strong><small className="list-sub">{thread.state}</small></span></div>)}</div>)}{view === "timeline" && (state.narrativeIr.scenes.length === 0 ? <div className="empty-state"><span>◷</span><strong>还没有时间线</strong><p>场景写下来之后，会按故事时间排在这里。</p></div> : <div className="list-card planning-list">{state.narrativeIr.scenes.map((scene) => <div className="list-row" key={scene.id}><span className="list-index">{scene.time}</span><span><strong>{scene.title}</strong><small className="list-sub">{scene.location} · {scene.summary}</small></span></div>)}</div>)}{view === "world" && <div className="list-card">{state.canon.worldRules.map((rule) => <div className="list-row" key={rule.id}><span className="status-dot" /><span><strong>{rule.statement}</strong><small className="list-sub">{rule.severity}</small></span></div>)}</div>}</div>; }
-function SceneRow({ scene }: { scene: Scene }) { return <div className="scene-row"><div className="list-row"><span className="status-dot" data-status={scene.status} /><span><strong>{scene.title}</strong><small className="list-sub">{scene.location} · {scene.time} · {scene.beats.length} 个节拍</small></span><span className="list-sub">{scene.status}</span></div><div className="beat-list">{scene.beats.map((beat) => <span key={beat.id}>{beat.position}. {beat.description}</span>)}</div></div>; }
-function DiffView({ diffs }: { diffs: ChapterDiff[] }) { return <div className="view-panel"><div className="view-intro"><div className="view-symbol">⌁</div><div><h2>版本与变更</h2><p>每次保存章节，前后正文都会留在这里。</p></div></div>{diffs.length === 0 ? <div className="empty-state"><span>✓</span><strong>还没有章节变更</strong><p>编辑并保存章节后，变更记录会出现在这里。</p></div> : <div className="diff-list">{diffs.map((diff) => <details className="diff-card" key={diff.id}><summary>{diff.summary} · {formatDate(diff.createdAt)}</summary><div><del>{diff.fromText}</del><ins>{diff.toText}</ins></div></details>)}</div>}</div>; }
-function ContextPanel({ state, runtimeStatus, onAddCanonNote }: { state: RuntimeState; runtimeStatus: RuntimeStatus; onAddCanonNote: () => void }) { return <aside className="context-panel"><div className="panel-tabs"><button className="selected">Story Context</button><button>Activity</button></div><div className="context-section"><div className="section-title"><span>设定笔记</span><button onClick={onAddCanonNote}>＋</button></div><div className="canon-list">{state.canon.notes.map((note) => <div className="canon-note" key={note}><span className="note-pin">•</span>{note}</div>)}</div></div><div className="context-section"><div className="section-title"><span>出场角色</span><span className="section-count">{state.canon.characters.length}</span></div><div className="character-list">{state.canon.characters.map((character) => <div className="character-row" key={character.id}><div className="character-avatar" style={{ background: character.color }}>{character.name.slice(0, 1)}</div><div><strong>{character.name}</strong><span>{character.role}</span></div><span className="character-status">{character.status}</span></div>)}</div></div><div className="context-section"><div className="section-title"><span>未收的线</span><span className="section-count">{state.canon.plotThreads.length}</span></div>{state.canon.plotThreads.map((thread) => <div className="thread-row" key={thread.id}><span className={`thread-line ${thread.tone}`} /><span>{thread.title}</span><small>{thread.state}</small></div>)}</div><div className="context-footer"><span>{runtimeStatus.state === "online" ? "Context synchronized" : "Local fallback"}</span><span className={`online-dot ${runtimeStatus.state === "online" ? "" : "offline"}`} /></div></aside>; }
-function phaseStatusLabel(status: AgentPhaseStatus): string { return status === "running" ? "进行中" : status === "waiting" ? "等待确认" : status === "failed" ? "失败" : status === "completed" ? "完成" : status === "skipped" ? "未使用" : "待处理"; }
-function phaseIcon(status: AgentPhaseStatus): string { return status === "completed" ? "✓" : status === "failed" ? "×" : status === "running" ? "•" : status === "waiting" ? "!" : status === "skipped" ? "–" : "·"; }
-function agentStateLabel(state: AgentRun["state"]): string { return state === "running" ? "执行中" : state === "waiting" ? "等待确认" : state === "error" ? "执行失败" : state === "cancelled" ? "已停止" : state === "completed" ? "已完成" : "暂无执行"; }
-function AgentPhaseRail({ run }: { run: AgentRun }) { return <div className="agent-phase-rail" aria-label="Agent 执行阶段">{run.phases.map((phase) => <div className={`agent-phase ${phase.status}`} key={phase.id}><span className="phase-marker" aria-hidden="true">{phaseIcon(phase.status)}</span><div><strong>{phase.label}</strong><small>{phaseStatusLabel(phase.status)}</small></div></div>)}</div>; }
 function planStatusLabel(status: AgentRun["plan"][number]["status"]): string { return status === "inProgress" ? "进行中" : status === "completed" ? "已完成" : "待处理"; }
 function AgentPlan({ run }: { run: AgentRun }) { if (run.plan.length === 0) return null; const completed = run.plan.filter((step) => step.status === "completed").length; return <section className="agent-plan" aria-label="Agent 执行计划"><div className="agent-plan-heading"><strong>执行计划</strong><span>{completed}/{run.plan.length} 已完成</span></div><ol>{run.plan.map((step) => <li className={step.status} key={step.id}><span className="plan-marker" aria-hidden="true">{step.status === "completed" ? "✓" : step.status === "inProgress" ? "•" : "·"}</span><span>{step.label}</span><small>{planStatusLabel(step.status)}</small></li>)}</ol></section>; }
-function AgentDiff({ run }: { run: AgentRun }) { if (!run.diff) return null; return <details className="agent-diff"><summary>统一变更摘要 · 1</summary><pre>{run.diff}</pre></details>; }
-function ContextPhaseList({ run }: { run: AgentRun }) { const currentPhase = run.phases.find((phase) => phase.status === "running" || phase.status === "waiting"); const completedSteps = run.steps.filter((step) => step.status === "completed").length; const completedPlan = run.plan.filter((step) => step.status === "completed").length; return <><div className="context-phase-list" aria-label="Agent 阶段摘要">{run.phases.map((phase) => <div className={`context-phase ${phase.status}`} key={phase.id}><span aria-hidden="true">{phaseIcon(phase.status)}</span><strong>{phase.label}</strong><small>{phaseStatusLabel(phase.status)}</small></div>)}</div><div className="context-metrics"><span>{currentPhase ? `当前：${currentPhase.label}` : `已完成：${completedSteps} 步`}</span><span>{run.plan.length > 0 ? `计划：${completedPlan}/${run.plan.length}` : "暂无计划"}</span><span>{run.diff ? "统一 diff：1" : run.artifacts.length > 0 ? `产物：${run.artifacts.length}` : "暂无变更"}</span></div></>; }
-function OptimizedContextPanel({ state, runtimeStatus, agentRun, contextTab, onContextTabChange, onAddCanonNote }: { state: RuntimeState; runtimeStatus: RuntimeStatus; agentRun: AgentRun; contextTab: "story" | "activity"; onContextTabChange: (tab: "story" | "activity") => void; onAddCanonNote: () => void }) { const runState = agentRun.state === "running" ? "执行中" : agentRun.state === "waiting" ? "等待确认" : agentRun.state === "error" ? "执行失败" : agentRun.state === "cancelled" ? "已停止" : agentRun.state === "completed" ? "已完成" : "暂无执行"; return <aside className="context-panel"><div className="panel-tabs" role="tablist" aria-label="项目侧栏"><button className={contextTab === "story" ? "selected" : ""} role="tab" aria-selected={contextTab === "story"} onClick={() => onContextTabChange("story")}>Story Context</button><button className={contextTab === "activity" ? "selected" : ""} role="tab" aria-selected={contextTab === "activity"} onClick={() => onContextTabChange("activity")}>Activity{agentRun.state === "running" && <span className="activity-badge">●</span>}</button></div>{contextTab === "story" ? <><div className="context-section"><div className="section-title"><span>设定笔记</span><button onClick={onAddCanonNote}>＋</button></div><div className="canon-list">{state.canon.notes.map((note) => <div className="canon-note" key={note}><span className="note-pin">•</span>{note}</div>)}</div></div><div className="context-section"><div className="section-title"><span>出场角色</span><span className="section-count">{state.canon.characters.length}</span></div><div className="character-list">{state.canon.characters.map((character) => <div className="character-row" key={character.id}><div className="character-avatar" style={{ background: character.color }}>{character.name.slice(0, 1)}</div><div><strong>{character.name}</strong><span>{character.role}</span></div><span className="character-status">{character.status}</span></div>)}</div></div><div className="context-section"><div className="section-title"><span>未收的线</span><span className="section-count">{state.canon.plotThreads.length}</span></div>{state.canon.plotThreads.map((thread) => <div className="thread-row" key={thread.id}><span className={`thread-line ${thread.tone}`} /><span>{thread.title}</span><small>{thread.state}</small></div>)}</div></> : <div className="context-activity"><div className="activity-summary"><span className={`online-dot ${agentRun.state === "running" ? "activity-live" : ""}`} /><div><strong>Agent {runState}</strong><small>{agentRun.prompt || "还没有执行记录"}</small></div></div>{agentRun.steps.length === 0 ? <div className="context-empty">发送一条创作指令后，执行过程会显示在这里。</div> : <><ContextPhaseList run={agentRun} /><div className="context-steps">{agentRun.steps.slice(-8).map((step) => <div className={`context-step ${step.status}`} key={step.id}><span>{step.kind === "tool" ? "›" : step.kind === "assistant" ? "✦" : step.kind === "error" ? "×" : "·"}</span><div><strong>{step.title}</strong><small>{step.status === "running" ? "进行中" : step.status === "waiting" ? "等待中" : step.status === "failed" ? "失败" : "完成"}</small></div></div>)}</div></>}<button className="context-focus" onClick={() => document.getElementById("agent-transcript")?.scrollIntoView({ behavior: "smooth", block: "nearest" })}>查看完整执行轨迹 →</button></div>}<div className="context-footer"><span>{runtimeStatus.state === "online" ? "Context synchronized" : "Local fallback"}</span><span className={`online-dot ${runtimeStatus.state === "online" ? "" : "offline"}`} /></div></aside>; }
-function AgentTranscript({ run, onClear, onRetry, onInterrupt }: { run: AgentRun; onClear: () => void; onRetry: () => void; onInterrupt: () => void }) { if (run.state === "idle") return null; const stateLabel = run.state === "running" ? "执行中" : run.state === "waiting" ? "等待确认" : run.state === "error" ? "执行失败" : run.state === "cancelled" ? "已停止" : "已完成"; return <section className="agent-transcript" id="agent-transcript" aria-live="polite"><div className="transcript-header"><div><span className="section-title">AGENT ACTIVITY</span><span className={`run-mode ${run.mode}`}>Codex App Server</span><span className={`run-state ${run.state}`}>{stateLabel}</span></div><div className="transcript-actions">{run.state === "running" && <button className="transcript-stop" onClick={onInterrupt}>停止</button>}{(run.state === "error" || run.state === "completed" || run.state === "cancelled") && <button className="transcript-retry" onClick={onRetry}>重试</button>}<button className="transcript-clear" onClick={onClear}>清除</button></div></div><div className="transcript-prompt"><span className="transcript-avatar user">你</span><div><small>你的创作指令</small><p>{run.prompt}</p></div></div><AgentPhaseRail run={run} /><AgentPlan run={run} /><div className="transcript-steps" role="log" aria-label="Codex Agent 执行过程">{run.steps.map((step) => <div className={`transcript-step ${step.kind} ${step.status}`} key={step.id}><span className="step-marker" aria-hidden="true">{step.kind === "assistant" ? "✦" : step.kind === "tool" ? "›" : step.kind === "approval" ? "!" : step.kind === "error" ? "×" : "·"}</span><div className="step-content"><div className="step-heading"><strong>{step.title}</strong><span>{step.status === "running" ? "进行中" : step.status === "waiting" ? "等待中" : step.status === "failed" ? "失败" : "完成"}</span></div>{step.text && <p className="step-text">{step.text}{step.status === "running" && <span className="stream-cursor" aria-label="正在接收内容">▋</span>}</p>}{step.detail && <details className="step-detail-disclosure"><summary>查看执行详情</summary><pre className="step-detail">{step.detail}</pre></details>}</div></div>)}</div>{run.diff && <AgentDiff run={run} />}{run.artifacts.length > 0 && <details className="agent-artifacts"><summary>产物变更 · {run.artifacts.length}</summary>{run.artifacts.map((artifact) => <div className="artifact-row" key={artifact.id}><span className="artifact-icon" aria-hidden="true">{artifact.kind === "chapter-change" ? "▤" : "◇"}</span><div><strong>{artifact.title}</strong>{artifact.detail && <pre>{artifact.detail}</pre>}</div><small>{artifact.status === "applied" ? "已应用" : "待确认"}</small></div>)}</details>}{run.summary && <div className="agent-summary"><strong>完成总结</strong><p>{run.summary}</p></div>}{run.history.length > 0 && <details className="run-history"><summary>本次会话的其他执行 · {run.history.length}</summary>{run.history.map((entry) => <div className={`history-row ${entry.state}`} key={entry.id}><div className="history-row-icon" aria-hidden="true">{entry.state === "completed" ? "✓" : entry.state === "cancelled" ? "–" : "×"}</div><div className="history-row-content"><div className="history-row-heading"><strong>{entry.prompt}</strong><span className={`history-status ${entry.state}`}>{agentStateLabel(entry.state)}</span></div><small>Codex App Server · {formatDate(new Date(entry.createdAt).toISOString())}{entry.artifactCount > 0 ? ` · 产物 ${entry.artifactCount}` : ""}</small><p>{entry.summary}</p></div></div>)}</details>}{run.error && <div className="transcript-error">{run.error}</div>}</section>; }
-function threadStatusLabel(status: string | null): string { return status === "waiting" ? "等待授权" : status === "active" ? "执行中" : status === "systemError" ? "异常" : status === "notLoaded" ? "可继续" : "空闲"; }
-function formatThreadDate(timestamp: number | null): string { return timestamp ? formatDate(new Date(timestamp * 1000).toISOString()) : "—"; }
-function ThreadHistory({ threads, loading, action, currentThreadId, archived, busy, nextCursor, detail, detailLoading, onRefresh, onLoadMore, onToggleArchived, onResume, onRead, onCloseDetail, onPin, onArchive }: { threads: ThreadSummary[]; loading: boolean; action: string | null; currentThreadId: string | null; archived: boolean; busy: boolean; nextCursor: string | null; detail: ThreadDetail | null; detailLoading: boolean; onRefresh: () => void; onLoadMore: () => void; onToggleArchived: () => void; onResume: (thread: ThreadSummary) => void; onRead: (thread: ThreadSummary) => void; onCloseDetail: () => void; onPin: (thread: ThreadSummary) => void; onArchive: (thread: ThreadSummary) => void }) {
-  return <section className="thread-history-panel" aria-label="创作任务"><div className="thread-history-toolbar"><span className="thread-history-title">创作任务 <small>{loading ? "加载中…" : `${threads.length} 个${archived ? "已归档任务" : "活动任务"}`}</small></span><div className="thread-history-toolbar-actions"><button className="thread-history-view-toggle" onClick={onToggleArchived}>{archived ? "活动" : "已归档"}</button><button className="thread-history-refresh" aria-label="刷新任务历史" onClick={onRefresh} disabled={loading}>↻</button></div></div><details className="thread-history-disclosure"><summary>{archived ? "查看已归档任务" : "查看任务历史"}</summary><div className="thread-history-list">{loading && <div className="thread-history-empty">正在读取任务…</div>}{!loading && threads.length === 0 && <div className="thread-history-empty">{archived ? "暂无已归档任务。归档后的创作任务会出现在这里。" : "暂无活动任务。发送第一条指令后，这里会出现可恢复的任务。"}</div>}{threads.map((thread) => { const label = thread.name ?? thread.preview ?? "未命名任务"; const current = thread.id === currentThreadId; return <div className={`thread-history-row ${current ? "current" : ""}`} key={thread.id}><button className="thread-history-open" onClick={() => onResume(thread)} disabled={current || busy} aria-label={`${archived ? "恢复并打开" : "打开并恢复"}任务：${label}`}><span className="thread-history-marker" aria-hidden="true">{current ? "✓" : "·"}</span><span className="thread-history-copy"><strong>{label}</strong><small>{thread.preview && thread.name ? thread.preview : "继续这个故事"} · {formatThreadDate(thread.updatedAt ?? thread.createdAt)}</small></span><span className="thread-history-status">{current ? "当前" : threadStatusLabel(thread.status)}</span></button><div className="thread-history-row-actions"><button className="thread-history-action-button" onClick={() => onRead(thread)} disabled={detailLoading} aria-label={`查看任务详情：${label}`} title="查看详情">▤</button><button className={`thread-history-action-button ${thread.isPinned ? "pinned" : ""}`} onClick={() => onPin(thread)} disabled={busy} aria-label={thread.isPinned ? `取消置顶任务：${label}` : `置顶任务：${label}`} aria-pressed={thread.isPinned} title={thread.isPinned ? "取消置顶" : "置顶"}>{thread.isPinned ? "★" : "☆"}</button><button className="thread-history-action-button" onClick={() => onArchive(thread)} disabled={busy} aria-label={`${archived ? "恢复" : "归档"}任务：${label}`} title={archived ? "恢复到活动任务" : "归档任务"}>{archived ? "↩" : "▱"}</button></div></div>; })}</div>{nextCursor && <button className="thread-history-load-more" onClick={onLoadMore} disabled={loading}>{loading ? "加载中…" : "加载更多任务"}</button>}</details>{detailLoading && <div className="thread-detail-loading" role="status">正在读取任务详情…</div>}{detail && <ThreadDetailView detail={detail} onClose={onCloseDetail} />}{action && <div className="thread-history-action" role="status">{action}</div>}</section>;
-}
 const QUIET_RECOVERY_OPERATIONS = new Set(["read_context"]);
 function authorFacingRecoveryRun(run: RecoveryRun): boolean { return run.requests.some((request) => request.recovery === "manual-reconciliation" && !QUIET_RECOVERY_OPERATIONS.has(request.operation ?? "")); }
-function RecoveryPanel({ runs, busy, onInspect, onAcknowledge }: { runs: RecoveryRun[]; busy: boolean; onInspect: (run: RecoveryRun) => void; onAcknowledge: (run: RecoveryRun) => void }) { if (runs.length === 0) return null; return <section className="recovery-panel" aria-label="尚未确认的保存"><div><strong>{runs.length} 轮保存结果还没确认</strong><p>这一轮可能已经写入作品，系统不会自动再保存一次。对话里可以继续，确认稿子后再结束这条记录。</p></div><div className="recovery-list">{runs.map((run) => <div className="recovery-row" key={run.runId}><span><strong>{run.operation ?? "创作任务"}</strong><small>{run.runtimeStatus ? `Runtime：${run.runtimeStatus}` : "Runtime 状态未知"}</small></span><button className="secondary-button" disabled={busy} onClick={() => onInspect(run)}>打开任务</button><button className="secondary-button" disabled={busy} onClick={() => onAcknowledge(run)}>已人工核对</button></div>)}</div></section>; }
-function threadTurnStatusLabel(status: string | null): string { return status === "completed" ? "已完成" : status === "inProgress" || status === "active" ? "进行中" : status === "failed" ? "失败" : status === "interrupted" ? "已停止" : "历史记录"; }
-function threadItemLabel(type: string | null): string { return type === "userMessage" ? "你的指令" : type === "agentMessage" ? "引擎回复" : type === "commandExecution" ? "工具执行" : type === "fileChange" ? "文件变更" : type === "reasoning" ? "思考摘要" : "执行项"; }
-function ThreadDetailView({ detail, onClose }: { detail: ThreadDetail; onClose: () => void }) { const label = detail.thread.name ?? detail.thread.preview ?? "未命名任务"; return <section className="thread-detail" aria-label={`任务详情：${label}`}><div className="thread-detail-header"><div><strong>{label}</strong><small>只读任务详情 · {detail.turns.length} 个轮次</small></div><button className="thread-detail-close" onClick={onClose} aria-label="收起任务详情">收起</button></div>{detail.turns.length === 0 ? <div className="thread-detail-empty">该任务暂无可展示的历史内容。</div> : <div className="thread-detail-turns">{detail.turns.map((turn, index) => <article className="thread-detail-turn" key={turn.id}><div className="thread-detail-turn-heading"><strong>第 {index + 1} 轮</strong><span>{threadTurnStatusLabel(turn.status)}</span></div>{turn.items.length === 0 ? <p>本轮暂无可展示内容。</p> : <div className="thread-detail-items">{turn.items.map((item) => <div className="thread-detail-item" key={item.id}><span>{threadItemLabel(item.type)}</span><p>{item.text ?? "无文本摘要"}</p>{item.status && <small>{threadTurnStatusLabel(item.status)}</small>}</div>)}</div>}</article>)}</div>}</section>; }
-function AgentStatusBar({ status, connectionState, threadId, onReconnect }: { status: { configured: boolean; state: string; error: string | null; provider?: string; model?: string }; connectionState: AgentRun["connectionState"]; threadId: string | null; onReconnect: () => void }) { const online = status.configured && status.state !== "error" && connectionState !== "error"; const providerLabel = status.provider && status.model ? `${status.provider} · ${status.model}` : "Novel Agent Engine"; const statusText = connectionState === "reconnecting" ? "任务连接已断开，等待恢复…" : status.state === "running" ? "正在生成事件…" : status.state === "waiting" ? "等待作者回答…" : status.error ?? (online ? "创作引擎已就绪" : "创作引擎未连接，编辑和本地命令仍可用"); return <div className={`agent-status-bar ${online ? "agent-ready" : "agent-local"}`}><span className={`online-dot ${connectionState === "ready" ? "" : "offline"}`} /><strong>{online ? providerLabel : "本地 Runtime"}</strong><span>{statusText}</span>{threadId && (connectionState === "reconnecting" || connectionState === "error") && <button className="status-reconnect" onClick={onReconnect}>恢复连接</button>}</div>; }
-function UserInputCard({ questions, queuedCount, onResolve }: { questions: UserInputQuestion[]; queuedCount: number; onResolve: ResolveUserInput }) { const [answers, setAnswers] = useState<Record<string, string>>({}); const [otherQuestions, setOtherQuestions] = useState<Record<string, boolean>>({}); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState<string | null>(null); const setAnswer = (id: string, value: string) => setAnswers((current) => ({ ...current, [id]: value })); const canSubmit = questions.length > 0 && questions.every((question) => Boolean(answers[question.id]?.trim())); async function submit() { if (!canSubmit || submitting) return; setSubmitting(true); setError(null); const accepted = await onResolve({ answers }); if (accepted === false) { setError("回答未能发送，请重试。"); } else { setAnswers({}); } setSubmitting(false); } return <div className="approval-card user-input-card"><div className="user-input-heading"><strong>创作引擎需要你的回答</strong><span>回答后继续当前任务{queuedCount > 0 ? ` · 还有 ${queuedCount} 个问题` : ""}</span></div>{questions.length === 0 ? <div className="user-input-empty">当前请求没有可展示的问题。</div> : <div className="approval-questions">{questions.map((question, index) => { const other = otherQuestions[question.id] === true; const selected = answers[question.id] ?? ""; return <fieldset className="approval-question" key={question.id}><legend>{question.header ?? `问题 ${index + 1}`}</legend><p>{question.question}</p>{question.options.length > 0 && <div className="approval-question-options">{question.options.map((option) => <label className="approval-option" key={option.label}><input type="radio" name={`user-input-${question.id}`} value={option.label} checked={!other && selected === option.label} onChange={() => { setOtherQuestions((current) => ({ ...current, [question.id]: false })); setAnswer(question.id, option.label); }} /><span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span></label>)}{question.isOther && <label className="approval-option"><input type="radio" name={`user-input-${question.id}`} checked={other} onChange={() => { setOtherQuestions((current) => ({ ...current, [question.id]: true })); setAnswer(question.id, ""); }} /><span><strong>其他</strong><small>填写自定义回答</small></span></label>}</div>}{(question.options.length === 0 || (question.isOther && other)) && <textarea className="approval-input" value={selected} maxLength={240} rows={2} onChange={(event) => setAnswer(question.id, event.target.value)} placeholder="输入你的回答" aria-label={question.question} />}</fieldset>; })}</div>}{error && <div className="user-input-error" role="alert">{error}</div>}<div className="approval-card-actions"><button className="primary-button" disabled={!canSubmit || submitting} onClick={() => void submit()}>{submitting ? "发送中…" : "提交回答"}</button></div></div>; }
+function UserInputCard({ questions, queuedCount, onResolve }: { questions: UserInputQuestion[]; queuedCount: number; onResolve: ResolveUserInput }) { const [answers, setAnswers] = useState<Record<string, string>>({}); const [otherQuestions, setOtherQuestions] = useState<Record<string, boolean>>({}); const [submitting, setSubmitting] = useState(false); const submittingRef = useRef(false); const [error, setError] = useState<string | null>(null); const setAnswer = (id: string, value: string) => setAnswers((current) => ({ ...current, [id]: value })); const canSubmit = questions.length > 0 && questions.every((question) => Boolean(answers[question.id]?.trim())); async function submit() { if (!canSubmit || submittingRef.current) return; submittingRef.current = true; setSubmitting(true); setError(null); try { const accepted = await onResolve({ answers }); if (accepted === false) { setError("回答未能发送，请重试。"); } else { setAnswers({}); } } catch { setError("回答未能发送，请重试。"); } finally { submittingRef.current = false; setSubmitting(false); } } return <div className="approval-card user-input-card"><div className="user-input-heading"><strong>创作引擎需要你的回答</strong><span>回答后继续当前任务{queuedCount > 0 ? ` · 还有 ${queuedCount} 个问题` : ""}</span></div>{questions.length === 0 ? <div className="user-input-empty">当前请求没有可展示的问题。</div> : <div className="approval-questions">{questions.map((question, index) => { const other = otherQuestions[question.id] === true; const selected = answers[question.id] ?? ""; return <fieldset className="approval-question" key={question.id} disabled={submitting}><legend>{question.header ?? `问题 ${index + 1}`}</legend><p>{question.question}</p>{question.options.length > 0 && <div className="approval-question-options">{question.options.map((option) => <label className="approval-option" key={option.label}><input type="radio" name={`user-input-${question.id}`} value={option.label} checked={!other && selected === option.label} onChange={() => { setOtherQuestions((current) => ({ ...current, [question.id]: false })); setAnswer(question.id, option.label); }} /><span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span></label>)}{question.isOther && <label className="approval-option"><input type="radio" name={`user-input-${question.id}`} checked={other} onChange={() => { setOtherQuestions((current) => ({ ...current, [question.id]: true })); setAnswer(question.id, ""); }} /><span><strong>其他</strong><small>填写自定义回答</small></span></label>}</div>}{(question.options.length === 0 || (question.isOther && other)) && <textarea className="approval-input" value={selected} maxLength={240} rows={2} onChange={(event) => setAnswer(question.id, event.target.value)} placeholder="输入你的回答" aria-label={question.question} />}</fieldset>; })}</div>}{error && <div className="user-input-error" role="alert">{error}</div>}<div className="approval-card-actions"><button className="primary-button" disabled={!canSubmit || submitting} onClick={() => void submit()}>{submitting ? "发送中…" : "提交回答"}</button></div></div>; }
 export function ActionProposalList({ actions, busy, onApprove, onDecline, onScope }: { actions: ProposedAction[]; busy: boolean; onApprove: (action: ProposedAction) => void; onDecline: (action: ProposedAction) => void; onScope: (action: ProposedAction) => void }) {
   if (!actions.length) return null;
   const labels: Record<string, string> = {
     generateBrief: "创作简报", generateOutline: "全书大纲", generatePlan: "章节规划",
-    generateChapter: "章节正文", extractCommitments: "叙事承诺", reviseCommitment: "修订承诺",
+    generateChapter: "章节正文", modelKnowledge: "本章设定分析", extractCommitments: "叙事承诺", reviseCommitment: "修订承诺",
     generatePropertyRules: "世界规则",
   };
   return <section className="conversation-proposals" aria-label="待确认的创作建议">
     <header><strong>待确认的候选修改</strong><span>模型建议不会自行修改作品</span></header>
     {actions.map((action) => <article key={action.id} className="conversation-proposal">
       <div><strong>{labels[action.operation] ?? "候选修改"}</strong>{typeof action.target.chapterNumber === "number" && <small>第 {action.target.chapterNumber} 章</small>}</div>
-      <p>{action.instruction}</p>
+      <ConversationPrompt text={action.instruction} detailKey={`proposal:${action.sourceTaskId}:${action.id}:instruction`} proposal />
       {action.operation === "generateChapter" && <DesiredOutcomes outcomes={action.target.desiredOutcomes} />}
       <div className="conversation-proposal-actions"><button type="button" disabled={busy} onClick={() => onDecline(action)}>拒绝建议</button><button type="button" disabled={busy} onClick={() => onScope(action)}>设置本轮范围</button><button type="button" disabled={busy} onClick={() => onApprove(action)}>批准生成候选</button></div>
     </article>)}
     <p className="conversation-proposals-note">批准只允许生成可审阅候选，不会正式采用正文或事实。</p>
   </section>;
 }
-function ChevronDownIcon() { return <svg className="composer-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4.5 6 3.5 3.5L11.5 6" /></svg>; }
 function SendArrowIcon() { return <svg className="composer-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 12V4m0 0L4.5 7.5M8 4l3.5 3.5" /></svg>; }
 function StopIcon() { return <svg className="composer-icon composer-stop-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5" y="5" width="6" height="6" rx="1" /></svg>; }
-function Composer({ repairPrepared, checkingRepair, composer, setComposer, onSubmit, onInterrupt, composerRef, activity, agentStatus, agentAvailable, blockedByUnsavedChanges, connections, agentConfigSaving, onSelectConnection }: { repairPrepared: boolean; checkingRepair: boolean; composer: string; setComposer: (value: string) => void; onSubmit: () => void; onInterrupt: () => void; composerRef: RefObject<HTMLTextAreaElement | null>; activity: string[]; agentStatus: { configured: boolean; state: string; model?: string | null; provider?: string | null }; agentAvailable: boolean; blockedByUnsavedChanges: boolean; connections: AgentConnection[]; agentConfigSaving: boolean; onSelectConnection: (connection: AgentConnection) => void }) {
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+function Composer({ projectId, planningSaving, planningSaveOnSend, choosingSource, canSteer, writing, writingPending, onCancelWriting, repairPrepared, checkingRepair, composer, setComposer, onSubmit, onInterrupt, composerRef, activity, agentStatus, agentAvailable, blockedByUnsavedChanges, projectReady, connections, agentConfigSaving, onSelectConnection }: { projectId: string; planningSaving: boolean; planningSaveOnSend: boolean; choosingSource: boolean; canSteer: boolean; writing: ChapterWritingRequest | null; writingPending: boolean; onCancelWriting: () => void; repairPrepared: boolean; checkingRepair: boolean; composer: string; setComposer: (value: string) => void; onSubmit: () => void; onInterrupt: () => void; composerRef: RefObject<HTMLTextAreaElement | null>; activity: string[]; agentStatus: { configured: boolean; state: string; model?: string | null; provider?: string | null }; agentAvailable: boolean; blockedByUnsavedChanges: boolean; projectReady: boolean; connections: AgentConnection[]; agentConfigSaving: boolean; onSelectConnection: (connection: AgentConnection) => void }) {
+  useLayoutEffect(() => {
+    const node = composerRef.current;
+    if (!node) return;
+    const fit = () => {
+      const top = node.scrollTop;
+      node.style.height = "0px";
+      node.style.height = `${Math.min(144, Math.max(48, node.scrollHeight))}px`;
+      node.scrollTop = top;
+    };
+    fit();
+    let width = node.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (node.clientWidth !== width) { width = node.clientWidth; fit(); }
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [composer, composerRef]);
   const inputError = useMemo(() => composer.trim() ? authorIntentError(composer) : null, [composer]);
   const active = agentStatus.state === "running";
   const waiting = agentStatus.state === "waiting";
-  const disabled = waiting || blockedByUnsavedChanges || checkingRepair || (repairPrepared && active) || (!active && !agentAvailable);
+  const disabled = planningSaving || choosingSource || (active && !canSteer) || !projectReady || (writingPending && !active) || waiting || blockedByUnsavedChanges || checkingRepair || (repairPrepared && active) || (!active && !agentAvailable);
+  const inputDisabled = !projectReady || checkingRepair || (repairPrepared && active);
+  const draftReason = !projectReady ? null : planningSaving ? "正在保存并核对规划，完成后发送本条指令。" : choosingSource ? "请先选择保留或替换讨论来源，再发送。" : active && !canSteer ? "本轮结束后可发送；输入内容不会自动发送。" : blockedByUnsavedChanges ? "中央文档有未保存修改。保存后即可发送；可以先写下对话草稿。" : planningSaveOnSend ? "发送时先保存规划修改，再处理你的要求；不会自动采用。" : waiting ? "请先处理本轮需要回答的问题；可以先写下下一条指令。" : !agentAvailable && !active ? "模型连接尚不可用。请在设置中配置或验证连接；对话草稿可以先写。" : null;
   const latestActivity = activity[0];
   const modelLabel = agentStatus.model ?? (agentStatus.configured ? "已配置模型" : "未配置模型");
-  const modelSelectionDisabled = active || waiting || agentConfigSaving;
-  const placeholder = blockedByUnsavedChanges ? "请先保存当前页面上还没写入的修改……" : !agentAvailable ? "请在设置中配置可用模型……" : active ? "追加指令，会在当前这一轮里处理……" : waiting ? "等待回答完成后继续……" : "想如何继续这个故事……";
-  return <><div className="composer-card composer-global"><div className="composer-body"><textarea ref={composerRef} aria-label="创作指令" disabled={disabled} value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); onSubmit(); } }} placeholder={placeholder} /><div className="composer-bottom"><div><div className="composer-model-picker"><button type="button" className="composer-option" aria-haspopup="menu" aria-expanded={modelMenuOpen} disabled={modelSelectionDisabled} onClick={() => setModelMenuOpen((open) => !open)}>{agentConfigSaving ? "正在配置…" : modelLabel}<small><ChevronDownIcon /></small></button>{modelMenuOpen && <div className="composer-model-menu" role="menu" aria-label="选择模型连接">{connections.length === 0 ? <span className="composer-model-empty">没有已配置的模型连接</span> : connections.map((connection) => { const selected = connection.provider === agentStatus.provider && connection.model === agentStatus.model; const status = connection.status === "verified" ? "可用" : connection.status === "failed" ? "验证失败" : "需要验证"; return <button type="button" role="menuitem" key={connection.id} className={selected ? "selected" : ""} onClick={() => { setModelMenuOpen(false); onSelectConnection(connection); }}><span><strong>{connection.model}</strong><small>{connection.provider} · {connection.selectedProtocol ?? connection.protocol}</small></span><em className={`model-status ${connection.status}`}>{selected && connection.status === "verified" ? "当前" : status}</em></button>; })}</div>}</div>{active ? <><button className="composer-steer" disabled={repairPrepared || checkingRepair || blockedByUnsavedChanges || Boolean(inputError) || !composer.trim()} aria-label="追加创作指令" onClick={onSubmit}><SendArrowIcon /></button><button className="composer-stop" aria-label="停止 Codex 执行" onClick={onInterrupt}><StopIcon /></button></> : waiting ? <><span className="composer-waiting">等待交互</span><button className="composer-stop" aria-label="停止 Codex 执行" onClick={onInterrupt}><StopIcon /></button></> : <button className="composer-send" disabled={disabled || !composer.trim() || Boolean(inputError)} aria-label="发送创作指令" onClick={onSubmit}><SendArrowIcon /></button>}</div></div></div></div>{inputError && <p className="dialog-error" role="alert">{inputError}</p>}{latestActivity && <div className="activity-strip" role="status" aria-live="polite"><div><span className="activity-spark">✦</span>{latestActivity}</div></div>}</>;
+  const modelSelectionDisabled = active || waiting || writingPending || planningSaving || agentConfigSaving;
+  const placeholder = !projectReady ? "请先创建或打开作品……" : active ? canSteer ? "追加指令，会在当前这一轮里处理……" : "先写下下一条指令，本轮结束后可发送……" : "想如何继续这个故事……";
+  return <><div className="composer-card composer-global">{writing && <div className="chapter-writing-mode" role="status"><span>本章上下文 · 第 {writing.chapterNumber} 章 · {Array.from(writing.title).slice(0, 80).join("")}</span><button type="button" className="text-button" disabled={writingPending || active || waiting} onClick={onCancelWriting}>取消定位</button></div>}<ComposerDraftNotice reason={draftReason} /><div className="composer-body"><textarea ref={composerRef} aria-label="创作指令" aria-describedby={draftReason ? "composer-draft-notice composer-keyboard-hint" : "composer-keyboard-hint"} disabled={inputDisabled} value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!disabled && !inputError) onSubmit(); } }} placeholder={placeholder} /><div id="composer-keyboard-hint" className="composer-keyboard-hint">{!disabled && !inputError ? active && canSteer ? "Enter 追加指令 · " : "Enter 发送 · " : ""}Shift+Enter 换行</div><div className="composer-bottom"><div><ComposerModelPicker key={projectId} connections={connections} provider={agentStatus.provider} model={agentStatus.model} label={agentConfigSaving ? "正在配置…" : modelLabel} disabled={modelSelectionDisabled} onSelect={onSelectConnection} />{active ? <><button className="composer-steer" disabled={disabled || Boolean(inputError) || !composer.trim()} aria-label={canSteer ? "追加创作指令" : "发送创作指令"} onClick={onSubmit}><SendArrowIcon /></button><button className="composer-stop" aria-label="停止当前执行" onClick={onInterrupt}><StopIcon /></button></> : waiting ? <><span className="composer-waiting">等待交互</span><button className="composer-stop" aria-label="停止当前执行" onClick={onInterrupt}><StopIcon /></button></> : <button className="composer-send" disabled={disabled || !composer.trim() || Boolean(inputError)} aria-label="发送创作指令" onClick={onSubmit}><SendArrowIcon /></button>}</div></div></div></div>{inputError && <p className="dialog-error" role="alert">{inputError}</p>}{latestActivity && <div className="activity-strip" role="status" aria-live="polite"><div><span className="activity-spark">✦</span>{latestActivity}</div></div>}</>;
 }
-function searchKindLabel(kind: SearchResult["kind"]): string { return { draft: "章节", brief: "作品简报", outline: "大纲", plan: "近章规划" }[kind]; }
-function TestPanel({ result }: { result: StoryTestResult }) { return <div className={`test-panel ${result.passed ? "passed" : "failed"}`}><strong>故事检查 · {result.passed ? "全部通过" : "发现问题"}</strong>{result.checks.map((check) => <span key={check.id} title={check.details}>{check.passed ? "✓" : "!"} {check.label}{!check.passed && ` · ${check.details}`}</span>)}</div>; }
-function updateLocalChapter(current: RuntimeState, chapterId: string, body: string): RuntimeState { const chapters = current.novelEdition.chapters.map((chapter) => chapter.id === chapterId ? { ...chapter, updated_at: new Date().toISOString(), passages: chapter.passages.map((item, index) => index === 0 ? { ...item, body } : item) } : chapter); return { ...current, novelEdition: { ...current.novelEdition, chapters } }; }
 function formatDate(value?: string) { return value ? new Date(value).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "—"; }
 
-function AgentInspector({ state, runtimeStatus, agentRun, connections, contextTab, onContextTabChange, onAddCanonNote, onReview, onCompact, backgroundTerminals, backgroundTerminalLoading, onLoadBackgroundTerminals, onTerminateBackgroundTerminal, onVerifyAgent, onConfigureAgent, agentConfigSaving }: { state: RuntimeState; runtimeStatus: RuntimeStatus; agentRun: AgentRun; connections: AgentConnection[]; contextTab: "story" | "task" | "changes" | "usage" | "diagnostics" | "settings"; onContextTabChange: (tab: "story" | "task" | "changes" | "usage" | "diagnostics" | "settings") => void; onAddCanonNote: () => void; onReview: () => void; onCompact: () => void; backgroundTerminals: BackgroundTerminal[]; backgroundTerminalLoading: boolean; onLoadBackgroundTerminals: () => void; onTerminateBackgroundTerminal: (processId: string) => void; onVerifyAgent: (provider: string, model: string) => void; onConfigureAgent: (provider: string, model: string) => void; agentConfigSaving: boolean }) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
+function AgentInspector({ state, runtimeStatus, agentRun, connections, contextTab, onContextTabChange, onAddCanonNote, onReview, backgroundTerminals, backgroundTerminalLoading, onLoadBackgroundTerminals, onTerminateBackgroundTerminal, onVerifyAgent, onConfigureAgent, agentConfigSaving }: { state: RuntimeState; runtimeStatus: RuntimeStatus; agentRun: AgentRun; connections: AgentConnection[]; contextTab: "story" | "task" | "changes" | "usage" | "diagnostics" | "settings"; onContextTabChange: (tab: "story" | "task" | "changes" | "usage" | "diagnostics" | "settings") => void; onAddCanonNote: () => void; onReview: () => void; backgroundTerminals: BackgroundTerminal[]; backgroundTerminalLoading: boolean; onLoadBackgroundTerminals: () => void; onTerminateBackgroundTerminal: (processId: string) => void; onVerifyAgent: (provider: string, model: string) => void; onConfigureAgent: (provider: string, model: string) => void; agentConfigSaving: boolean }) {
   const tabs: { id: typeof contextTab; label: string }[] = [{ id: "story", label: "故事" }, { id: "task", label: "任务" }, { id: "changes", label: "变更" }, { id: "usage", label: "用量" }, { id: "diagnostics", label: "诊断" }, { id: "settings", label: "设置" }];
   const status = agentRun.state === "running" ? "执行中" : agentRun.state === "waiting" ? "等待确认" : agentRun.state === "error" ? "执行失败" : agentRun.state === "completed" ? "已完成" : "暂无执行";
   const model = agentRun.model ?? "未指定";
@@ -1076,79 +1892,22 @@ function AgentInspector({ state, runtimeStatus, agentRun, connections, contextTa
   const [connectionDraft, setConnectionDraft] = useState("");
   useEffect(() => { if (currentConnection) setConnectionDraft(currentConnection.id); }, [currentConnection?.id]);
   const selectedConnection = connections.find((connection) => connection.id === connectionDraft) ?? currentConnection;
-  const renderSettings = <div className="inspector-stack"><div className="inspector-summary-line"><strong>模型</strong><span>只用于这部作品</span></div><label className="settings-field"><span>模型连接</span><select value={connectionDraft} onChange={(event) => setConnectionDraft(event.target.value)}>{connections.map((connection) => <option value={connection.id} key={connection.id}>{connection.provider} · {connection.model}</option>)}</select></label>{selectedConnection && <><div className="inspector-facts"><span><small>协议</small><strong>{selectedConnection.selectedProtocol ?? selectedConnection.protocol}</strong></span><span><small>状态</small><strong>{selectedConnection.status === "verified" ? "基础能力已验证" : selectedConnection.status === "failed" ? "验证失败" : "等待验证"}</strong></span><span><small>声明能力</small><strong>{selectedConnection.declaredCapabilities.length} 项</strong></span><span><small>验证能力</small><strong>{selectedConnection.verifiedCapabilities.length} 项</strong></span></div>{selectedConnection.status !== "verified" && <button className="primary-button" onClick={() => onVerifyAgent(selectedConnection.provider, selectedConnection.model)} disabled={agentConfigSaving}>{agentConfigSaving ? "验证中…" : "验证连接"}</button>}<button className="secondary-button" onClick={() => onConfigureAgent(selectedConnection.provider, selectedConnection.model)} disabled={agentConfigSaving || selectedConnection.status !== "verified"}>{agentConfigSaving ? "处理中…" : "应用配置"}</button></>}<small className="inspector-note">目录只声明可能能力；应用配置前必须取得当前端点的基础探测证据。API Key 只在主进程读取，不共享 Codex 桌面版账号。</small></div>;
+  const renderSettings = <div className="inspector-stack"><div className="inspector-summary-line"><strong>模型</strong><span>只用于这部作品</span></div><label className="settings-field"><span>模型连接</span><select value={connectionDraft} onChange={(event) => setConnectionDraft(event.target.value)}>{connections.map((connection) => <option value={connection.id} key={connection.id}>{connection.provider} · {connection.model}</option>)}</select></label>{selectedConnection && <><div className="inspector-facts"><span><small>协议</small><strong>{selectedConnection.selectedProtocol ?? selectedConnection.protocol}</strong></span><span><small>状态</small><strong>{selectedConnection.status === "verified" ? "基础能力已验证" : selectedConnection.status === "failed" ? "验证失败" : "等待验证"}</strong></span><span><small>声明能力</small><strong>{selectedConnection.declaredCapabilities.length} 项</strong></span><span><small>验证能力</small><strong>{selectedConnection.verifiedCapabilities.length} 项</strong></span></div>{selectedConnection.status !== "verified" && <button className="primary-button" onClick={() => onVerifyAgent(selectedConnection.provider, selectedConnection.model)} disabled={agentConfigSaving}>{agentConfigSaving ? "验证中…" : "验证连接"}</button>}<button className="secondary-button" onClick={() => onConfigureAgent(selectedConnection.provider, selectedConnection.model)} disabled={agentConfigSaving || selectedConnection.status !== "verified"}>{agentConfigSaving ? "处理中…" : "应用配置"}</button></>}<small className="inspector-note">目录只声明可能能力；应用配置前必须取得当前端点的基础探测证据。模型连接使用独立的 API Key，不会使用其他桌面应用的登录状态。密钥仅由本机读取。</small></div>;
   const renderStory = <><div className="context-section"><div className="section-title"><span>设定笔记</span><button onClick={onAddCanonNote}>＋</button></div><div className="canon-list">{state.canon.notes.map((note) => <div className="canon-note" key={note}><span className="note-pin">•</span>{note}</div>)}</div></div><div className="context-section"><div className="section-title"><span>出场角色</span><span className="section-count">{state.canon.characters.length}</span></div><div className="character-list">{state.canon.characters.map((character) => <div className="character-row" key={character.id}><div className="character-avatar" style={{ background: character.color }}>{character.name.slice(0, 1)}</div><div><strong>{character.name}</strong><span>{character.role}</span></div><span className="character-status">{character.status}</span></div>)}</div></div><div className="context-section"><div className="section-title"><span>未收的线</span><span className="section-count">{state.canon.plotThreads.length}</span></div>{state.canon.plotThreads.map((thread) => <div className="thread-row" key={thread.id}><span className={`thread-line ${thread.tone}`} /><span>{thread.title}</span><small>{thread.state}</small></div>)}</div></>;
-  const renderTask = <div className="inspector-stack"><div className="inspector-status-card"><span className={`online-dot ${agentRun.connectionState === "ready" ? "" : "offline"}`} /><div><strong>{status}</strong><small>创作引擎</small></div></div><AgentPlan run={agentRun}/><div className="inspector-facts"><span><small>服务</small><strong>{provider}</strong></span><span><small>模型</small><strong>{model}</strong></span><span><small>连接</small><strong>{connectionLabel(agentRun.connectionState)}</strong></span><span><small>会话</small><strong>{agentRun.threadId ? "已连接" : "未创建"}</strong></span></div><div className="inspector-actions"><button className="secondary-button" onClick={onReview} disabled={!agentRun.threadId || agentRun.review === "running"}>{agentRun.review === "running" ? "审查中…" : "审查变更"}</button><button className="secondary-button" onClick={onCompact} disabled={!agentRun.threadId}>压缩上下文</button></div><div className="inspector-subsection"><div className="section-title"><span>后台终端</span><button onClick={onLoadBackgroundTerminals} disabled={!agentRun.threadId || backgroundTerminalLoading}>{backgroundTerminalLoading ? "…" : "↻"}</button></div>{backgroundTerminals.length === 0 ? <small className="inspector-empty">没有已登记的后台终端</small> : backgroundTerminals.map((terminal) => <div className="terminal-row" key={terminal.processId}><div><strong>{terminal.command ?? `进程 ${terminal.processId}`}</strong><small>{terminal.cwd ?? "工作目录未知"} · {terminal.status ?? "运行中"}</small></div><button onClick={() => onTerminateBackgroundTerminal(terminal.processId)}>终止</button></div>)}</div></div>;
+  const renderTask = <div className="inspector-stack"><div className="inspector-status-card"><span className={`online-dot ${agentRun.connectionState === "ready" ? "" : "offline"}`} /><div><strong>{status}</strong><small>创作引擎</small></div></div><AgentPlan run={agentRun}/><div className="inspector-facts"><span><small>服务</small><strong>{provider}</strong></span><span><small>模型</small><strong>{model}</strong></span><span><small>连接</small><strong>{connectionLabel(agentRun.connectionState)}</strong></span><span><small>会话</small><strong>{agentRun.threadId ? "已连接" : "未创建"}</strong></span></div><div className="inspector-actions"><button className="secondary-button" onClick={onReview}>查看章节</button></div><div className="inspector-subsection"><div className="section-title"><span>后台终端</span><button onClick={onLoadBackgroundTerminals} disabled={!agentRun.threadId || backgroundTerminalLoading}>{backgroundTerminalLoading ? "…" : "↻"}</button></div>{backgroundTerminals.length === 0 ? <small className="inspector-empty">没有已登记的后台终端</small> : backgroundTerminals.map((terminal) => <div className="terminal-row" key={terminal.processId}><div><strong>{terminal.command ?? `进程 ${terminal.processId}`}</strong><small>{terminal.cwd ?? "工作目录未知"} · {terminal.status ?? "运行中"}</small></div><button onClick={() => onTerminateBackgroundTerminal(terminal.processId)}>终止</button></div>)}</div></div>;
   const renderChanges = <div className="inspector-stack"><div className="inspector-summary-line"><strong>文件与内容变更</strong><span>{agentRun.artifacts.length} 项</span></div>{agentRun.artifacts.length === 0 && !agentRun.diff ? <div className="context-empty">当前任务还没有报告变更。</div> : <>{agentRun.artifacts.map((artifact) => <div className="change-row" key={artifact.id}><span className={`change-status ${artifact.status}`}>{artifact.status === "applied" ? "✓" : artifact.status === "declined" ? "–" : artifact.status === "failed" ? "×" : "·"}</span><div><strong>{artifact.title}</strong><small>{artifactStatusLabel(artifact.status)}</small>{artifact.detail && <pre>{artifact.detail}</pre>}</div></div>)}{agentRun.diff && <details className="agent-diff"><summary>统一 diff</summary><pre>{agentRun.diff}</pre></details>}</>}</div>;
   const renderUsage = <div className="inspector-stack"><div className="usage-card"><span>本轮 Token</span><strong>{formatTokenCount(agentRun.tokenUsage?.totalTokens)}</strong><small>输入 {formatTokenCount(agentRun.tokenUsage?.inputTokens)} · 输出 {formatTokenCount(agentRun.tokenUsage?.outputTokens)}</small></div><div className="inspector-facts"><span><small>上下文窗口</small><strong>{formatTokenCount(agentRun.tokenUsage?.contextWindow)}</strong></span><span><small>压缩</small><strong>{agentRun.contextCompactions} 次</strong></span><span><small>开始时间</small><strong>{agentRun.startedAt ? formatDate(new Date(agentRun.startedAt).toISOString()) : "—"}</strong></span></div><small className="inspector-note">用量来自当前这一轮创作会话。</small></div>;
   const renderDiagnostics = <div className="inspector-stack"><div className="inspector-summary-line"><strong>运行诊断</strong><span>{agentRun.diagnostics.length} 条</span></div><div className="diagnostic-row"><span className={`online-dot ${runtimeStatus.state === "online" ? "" : "offline"}`} /><span>创作运行时：{runtimeStatus.state === "online" ? "在线" : "离线"}</span></div><div className="diagnostic-row"><span className={`online-dot ${agentRun.connectionState === "ready" ? "" : "offline"}`} /><span>引擎连接：{connectionLabel(agentRun.connectionState)}</span></div>{agentRun.diagnostics.length === 0 ? <div className="context-empty">暂无诊断信息。</div> : <div className="diagnostic-list">{agentRun.diagnostics.map((message, index) => <p key={`${message}-${index}`}>{message}</p>)}</div>}</div>;
   const content = contextTab === "story" ? renderStory : contextTab === "task" ? renderTask : contextTab === "changes" ? renderChanges : contextTab === "usage" ? renderUsage : contextTab === "diagnostics" ? renderDiagnostics : <>{renderSettings}{window.novelCodex && <MetricsPanel api={window.novelCodex} />}</>;
-  return <aside className={`context-panel${detailsOpen ? " inspector-open" : ""}`}><button type="button" className="inspector-toggle" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}>{detailsOpen ? "收起细节" : "任务细节"}</button>{detailsOpen && <><div className="panel-tabs inspector-tabs" role="tablist" aria-label="任务检查器">{tabs.map((tab) => <button key={tab.id} className={contextTab === tab.id ? "selected" : ""} role="tab" aria-selected={contextTab === tab.id} onClick={() => onContextTabChange(tab.id)}>{tab.label}</button>)}</div><div className="inspector-content">{content}</div><div className="context-footer"><span>{runtimeStatus.state === "online" ? "本地运行时在线" : "本地运行时未连接"}</span><span className={`online-dot ${runtimeStatus.state === "online" ? "" : "offline"}`} /></div></>}</aside>;
+  return <aside className="context-panel inspector-open"><div className="panel-tabs inspector-tabs" role="tablist" aria-label="任务检查器">{tabs.map((tab) => <button key={tab.id} className={contextTab === tab.id ? "selected" : ""} role="tab" aria-selected={contextTab === tab.id} onClick={() => onContextTabChange(tab.id)}>{tab.label}</button>)}</div><div className="inspector-content">{content}</div><div className="context-footer"><span>{runtimeStatus.state === "online" ? "本地运行时在线" : "本地运行时未连接"}</span><span className={`online-dot ${runtimeStatus.state === "online" ? "" : "offline"}`} /></div></aside>;
 }
 
 function connectionLabel(state: AgentRun["connectionState"]): string { return state === "ready" ? "已连接" : state === "connecting" ? "连接中" : state === "reconnecting" ? "恢复中" : state === "error" ? "异常" : "离线"; }
 function artifactStatusLabel(status: AgentRun["artifacts"][number]["status"]): string { return status === "applied" ? "已应用" : status === "declined" ? "已拒绝" : status === "failed" ? "失败" : "待确认"; }
 function formatTokenCount(value: number | null | undefined): string { return value === null || value === undefined ? "—" : value.toLocaleString("zh-CN"); }
 
-function stepStatusLabel(status: AgentRun["steps"][number]["status"]): string { return status === "running" ? "进行中" : status === "waiting" ? "等待中" : status === "failed" ? "失败" : "完成"; }
-function stepMarker(kind: AgentRun["steps"][number]["kind"]): string { return kind === "tool" ? ">" : kind === "interaction" ? "?" : kind === "error" ? "×" : kind === "assistant" ? "✦" : "·"; }
-function workSteps(run: AgentRun): AgentRun["steps"] {
-  return run.steps.filter((step) => {
-    if (step.kind === "assistant" || step.id === "agent-message" || step.id === "request" || step.id.startsWith("turn:") || step.id.startsWith("stderr:") || step.id.startsWith("user-input-resolved:")) return false;
-    return step.title !== "运行 Hook" && step.title !== "运行时提示" && step.title !== "作者回答已提交";
-  });
-}
-
-function runDuration(run: AgentRun): string { if (!run.startedAt) return "—"; const seconds = Math.max(0, Math.round(((run.completedAt ?? Date.now()) - run.startedAt) / 1000)); return seconds < 1 ? "<1s" : seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`; }
-function runDurationLabel(run: AgentRun): string { if (!run.startedAt) return "—"; const seconds = Math.max(0, Math.round(((run.completedAt ?? Date.now()) - run.startedAt) / 1000)); return seconds < 60 ? `${seconds}秒` : `${Math.floor(seconds / 60)}分钟 ${seconds % 60}秒`; }
 function messageClock(run: AgentRun): string { return new Date(run.startedAt ?? Date.now()).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }); }
 function renderConversationAnswer(text: string) { return <MarkdownContent text={text}/>; }
-function ConversationWorkItem({ step }: { step: AgentRun["steps"][number] }) {
-  const content = step.text || step.detail;
-  const expandable = Boolean(content) && content !== step.title;
-  const failed = step.status === "failed";
-  const status = step.status === "completed" ? null : stepStatusLabel(step.status);
-  const heading = <><span className={`conversation-work-marker ${step.kind}`} aria-hidden="true">{stepMarker(step.kind)}</span><span className="conversation-work-copy"><strong>{step.title}</strong>{status && <small>{status}</small>}</span></>;
-  if (!expandable) return <div className={`conversation-work-item ${step.kind} ${step.status}`}>{heading}</div>;
-  return <details className={`conversation-work-item ${step.kind} ${step.status}`} open={failed}><summary>{heading}</summary><div className="conversation-work-detail">{step.text && <p>{step.text}{step.status === "running" && <span className="stream-cursor" aria-label="正在接收内容">▋</span>}</p>}{step.detail && <pre>{step.detail}</pre>}</div></details>;
-}
-
-function ConversationTimeline({ run }: { run: AgentRun }) {
-  const steps = workSteps(run);
-  const visible = run.state === "running" || run.state === "waiting" || run.state === "error" || steps.length > 0;
-  const current = [...steps].reverse().find((step) => step.status === "running" || step.status === "waiting");
-  const failed = [...steps].reverse().find((step) => step.status === "failed");
-  const activeId = current?.id ?? failed?.id ?? null;
-  const [, setClock] = useState(0);
-  const [expanded, setExpanded] = useState(run.state === "error");
-  const activeRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (run.state !== "running") return;
-    const timer = window.setInterval(() => setClock((value) => value + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [run.state]);
-  useEffect(() => {
-    setExpanded(run.state === "error");
-  }, [run.startedAt, run.state]);
-  useEffect(() => {
-    if (!expanded) return;
-    const node = activeRef.current;
-    const scroller = node?.closest(".transcript-steps");
-    if (!node || !(scroller instanceof HTMLElement)) return;
-    const top = node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-    const bottom = top + node.offsetHeight;
-    if (top < scroller.scrollTop) scroller.scrollTop = top;
-    else if (bottom > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = bottom - scroller.clientHeight;
-  }, [activeId, expanded]);
-  if (!visible) return null;
-  const duration = runDurationLabel(run);
-  const timed = duration !== "—";
-  const countLabel = steps.length > 0 ? ` · ${steps.length} 步` : "";
-  const liveTitle = current && current.id !== "request" ? current.title : run.answer.trim() ? "正在写回复" : "正在处理";
-  const headline = run.state === "running" ? liveTitle : run.state === "waiting" ? `等待回答${countLabel}` : run.state === "cancelled" ? `已停止 · ${duration}${countLabel}` : run.state === "error" ? (failed?.title ?? "执行失败") : `用时 ${duration}${countLabel}`;
-  const aside = run.state === "running" || run.state === "error" ? (timed ? duration : null) : null;
-  return <details className={`conversation-timeline is-${run.state}`} open={expanded} onToggle={(event) => { const next = event.currentTarget.open; setExpanded((value) => value === next ? value : next); }}><summary><span>{headline}</span>{aside && <small>{aside}</small>}</summary>{steps.length > 0 && <div className="transcript-steps" role="log" aria-label="执行步骤">{steps.map((step) => <div className="conversation-work-slot" key={step.id} ref={step.id === activeId ? activeRef : undefined}><ConversationWorkItem step={step} /></div>)}</div>}</details>;
-}
 
 type ChangeStats = { added: number; removed: number; known: boolean };
 
@@ -1179,34 +1938,25 @@ function ConversationChanges({ run, onReview }: { run: AgentRun; onReview: () =>
   const pending = run.artifacts.some((artifact) => artifact.status === "proposed");
   const stats = totalChangeStats(run);
   const fileLabel = run.artifacts.length > 0 ? `${run.artifacts.length} 个文件已更改` : "内容已更改";
-  return <section className={`conversation-changes ${pending ? "pending" : ""}`} aria-label="文件变更"><div className="conversation-change-header"><div className="conversation-change-title"><span className="conversation-change-icon" aria-hidden="true">▧</span><div><strong>{fileLabel}</strong><ChangeStatsLabel stats={stats} /></div></div><div className="conversation-change-actions"><button className="conversation-change-review" onClick={onReview}>{run.review === "running" ? "审查中" : "审查"}</button></div></div>{open && <div className="conversation-change-list">{run.artifacts.map((artifact) => { const artifactStats = changeStats(artifact.detail ?? ""); return <article className="artifact-row" key={artifact.id}><span className="artifact-icon" aria-hidden="true">{artifact.kind === "chapter-change" ? "▤" : "◇"}</span><div className="artifact-copy"><div className="artifact-heading"><strong>{artifact.title}</strong><ChangeStatsLabel stats={artifactStats} /></div>{artifact.detail && <details className="change-detail"><summary>{artifactStatusLabel(artifact.status)} · 查看详情</summary><pre>{artifact.detail}</pre></details>}</div></article>; })}{run.diff && <details className="agent-diff"><summary>查看统一 diff</summary><pre>{run.diff}</pre></details>}</div>}<button className="conversation-change-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? "⌃" : "⌄"}</button></section>;
+  return <section className={`conversation-changes ${pending ? "pending" : ""}`} aria-label="文件变更"><div className="conversation-change-header"><div className="conversation-change-title"><span className="conversation-change-icon" aria-hidden="true">▧</span><div><strong>{fileLabel}</strong><ChangeStatsLabel stats={stats} /></div></div><div className="conversation-change-actions"><button className="conversation-change-review" onClick={onReview}>查看章节</button></div></div>{open && <div className="conversation-change-list">{run.artifacts.map((artifact) => { const artifactStats = changeStats(artifact.detail ?? ""); return <article className="artifact-row" key={artifact.id}><span className="artifact-icon" aria-hidden="true">{artifact.kind === "chapter-change" ? "▤" : "◇"}</span><div className="artifact-copy"><div className="artifact-heading"><strong>{artifact.title}</strong><ChangeStatsLabel stats={artifactStats} /></div>{artifact.detail && <details className="change-detail"><summary>{artifactStatusLabel(artifact.status)} · 查看详情</summary><pre>{artifact.detail}</pre></details>}</div></article>; })}{run.diff && <details className="agent-diff"><summary>查看统一 diff</summary><pre>{run.diff}</pre></details>}</div>}<button className="conversation-change-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>{open ? "⌃" : "⌄"}</button></section>;
 }
 
-function EarlierTurn({ entry }: { entry: AgentRun["history"][number] }) {
+function EarlierTurn({ projectId, entry, taskBound }: { projectId: string; entry: AgentRun["history"][number] & { commentary?: string }; taskBound: boolean }) {
   const text = entry.answer.trim();
   const clock = new Date(entry.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-  return <div className="conversation-turn is-earlier"><article className="conversation-message user-message"><div className="conversation-message-body"><p>{entry.prompt}</p><div className="conversation-user-meta"><span>{clock}</span><button className="conversation-copy" title="复制我的创作指令" aria-label="复制我的创作指令" onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(entry.prompt).catch(() => undefined); }}>▢</button></div></div></article><article className="conversation-message assistant-message"><div className="conversation-message-body">{text ? <div className="conversation-answer">{renderConversationAnswer(text)}</div> : <div className="conversation-answer-empty">{entry.summary}</div>}</div></article></div>;
+  return <div className="conversation-turn is-earlier">{!taskBound && <article className={`conversation-message ${entry.origin === "chapterStructure" ? "system-message" : "user-message"}`}><div className="conversation-message-body">{entry.origin === "chapterStructure" && <strong>自动检查</strong>}{entry.prompt && <ConversationPrompt text={entry.prompt} detailKey={`turn:${entry.id}:prompt`} />}<div className="conversation-user-meta">{entry.createdAt > 0 && <span>{clock}</span>}<button className="conversation-copy" title={entry.origin === "chapterStructure" ? "复制检查说明" : "复制我的创作指令"} aria-label={entry.origin === "chapterStructure" ? "复制检查说明" : "复制我的创作指令"} onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(entry.prompt).catch(() => undefined); }}>▢</button></div></div></article>}<DiscussionExcerptCards excerpts={entry.excerpts ?? []} disabled={false} readOnly={false} />{entry.displayExecution && <ConversationTimeline key={`${entry.threadId}:${entry.turnId ?? entry.id}`} run={{ ...entry, ...entry.displayExecution }} retained={entry.displayExecution} />}{entry.displayExecution === null && <small>较早的执行过程未保留。</small>}<article className="conversation-message assistant-message"><div className="conversation-message-body">{text ? <div className="conversation-answer">{renderConversationAnswer(text)}</div> : <div className="conversation-answer-empty">{entry.summary}</div>}{text && <ConversationReplyActions identity={`${projectId}:${entry.threadId}:${entry.id}`} text={entry.answer} />}{entry.commentary && !entry.displayExecution && <details className="execution-steps"><summary>查看过程记录</summary><MarkdownContent text={entry.commentary} /></details>}</div></article></div>;
 }
 
-function EnhancedAgentTranscript({ run, userInputRequest, queuedUserInputCount, onResolveUserInput, onRetry, onReview }: { run: AgentRun; userInputRequest: UserInputRequest | null; queuedUserInputCount: number; onResolveUserInput: ResolveUserInput; onClear: () => void; onRetry: () => void; onInterrupt: () => void; onReview: () => void; onCompact: () => void }) {
-  const turnRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (run.state === "idle") return;
-    const node = turnRef.current;
-    const scroller = node?.closest(".conversation-rail-scroll");
-    if (!node || !(scroller instanceof HTMLElement)) return;
-    const top = node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-    scroller.scrollTop = Math.max(0, top - 12);
-  }, [run.prompt, run.startedAt]);
-  if (run.state === "idle") return null;
+function EnhancedAgentTranscript({ projectId, run, taskBound, userInputRequest, queuedUserInputCount, onResolveUserInput, onRetry, retryLabel, onReview }: { projectId: string; run: AgentRun; taskBound: boolean; userInputRequest: UserInputRequest | null; queuedUserInputCount: number; onResolveUserInput: ResolveUserInput; onClear: () => void; onRetry: () => void; retryLabel: string; onInterrupt: () => void; onReview: () => void }) {
+  if (run.state === "idle") return run.history.length ? <section className="agent-transcript conversation-panel" aria-label="恢复的创作对话">{[...run.history].reverse().map(entry => <EarlierTurn projectId={projectId} entry={entry} taskBound={false} key={entry.id} />)}</section> : null;
   const answer = run.answer.trim();
   const showAssistant = Boolean(answer) || (run.state !== "running" && !(run.state === "waiting" && userInputRequest));
   const earlier = [...run.history].reverse();
-  return <section className="agent-transcript conversation-panel" id="agent-transcript" aria-label="创作引擎对话">{earlier.map((entry) => <EarlierTurn entry={entry} key={entry.id} />)}<div ref={turnRef} className={`conversation-turn is-${run.state}`}><article className="conversation-message user-message"><span className="transcript-avatar user">你</span><div className="conversation-message-body"><div className="conversation-message-meta"><strong>你的创作指令</strong><span>本轮输入</span></div><p>{run.prompt}</p><div className="conversation-user-meta"><span>{messageClock(run)}</span><button className="conversation-copy" title="复制我的创作指令" aria-label="复制我的创作指令" onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(run.prompt).catch(() => undefined); }}>▢</button></div></div></article><ConversationTimeline run={run}/>{showAssistant && <article className="conversation-message assistant-message"><span className="conversation-avatar assistant" aria-hidden="true">✦</span><div className="conversation-message-body"><div className="conversation-message-meta"><strong>Novel Engine</strong><span>{answer ? "回复" : run.state === "running" ? "正在处理" : "暂无文本回复"}</span>{answer && <button className="conversation-copy" title="复制创作引擎回复" aria-label="复制创作引擎回复" onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(answer).catch(() => undefined); }}>复制</button>}</div>{answer ? <div className="conversation-answer" aria-live="polite">{renderConversationAnswer(answer)}{run.state === "running" && <span className="stream-cursor" aria-label="正在接收内容">▋</span>}</div> : <div className="conversation-answer-empty" aria-live="polite"><span className="conversation-answer-pulse" aria-hidden="true">•</span>{run.state === "waiting" ? "等待你的回答后继续。" : run.state === "running" ? "正在读取故事上下文并生成回复……" : "本轮没有文本回复。"}</div>}</div></article>}{userInputRequest && <div className="conversation-interaction"><div className="conversation-interaction-heading"><span>需要你的回答</span><small>回答后创作引擎会继续当前回合{queuedUserInputCount > 0 ? ` · 之后还有 ${queuedUserInputCount} 个问题` : ""}</small></div><UserInputCard questions={userInputQuestions(userInputRequest.params)} queuedCount={queuedUserInputCount} onResolve={onResolveUserInput}/></div>}{run.error && <div className="transcript-error" role="alert"><strong>本轮未完成</strong><span>{run.error}</span><button type="button" onClick={onRetry}>重试</button></div>}<ConversationChanges run={run} onReview={onReview}/>{run.summary && !answer && <div className="conversation-result"><strong>{run.state === "completed" ? "本轮完成" : "本轮状态"}</strong><p>{run.summary}</p></div>}</div></section>;
+  return <section className="agent-transcript conversation-panel" id="agent-transcript" aria-label="创作引擎对话">{earlier.map((entry) => <EarlierTurn projectId={projectId} entry={entry} taskBound={false} key={entry.id} />)}<div className={`conversation-turn is-${run.state}`}>{!taskBound && <article className={`conversation-message ${run.origin === "chapterStructure" ? "system-message" : "user-message"}`}><span className="transcript-avatar user">{run.origin === "chapterStructure" ? "·" : "你"}</span><div className="conversation-message-body"><div className="conversation-message-meta"><strong>{run.origin === "chapterStructure" ? "自动检查" : "你的创作指令"}</strong><span>{run.origin === "chapterStructure" ? "故事衔接" : "本轮输入"}</span></div><ConversationPrompt text={run.prompt} detailKey={`turn:${run.threadId}:${run.turnId ?? run.startedAt}:prompt`} /><div className="conversation-user-meta"><span>{messageClock(run)}</span><button className="conversation-copy" title={run.origin === "chapterStructure" ? "复制检查说明" : "复制我的创作指令"} aria-label={run.origin === "chapterStructure" ? "复制检查说明" : "复制我的创作指令"} onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(run.prompt).catch(() => undefined); }}>▢</button></div></div></article>}<DiscussionExcerptCards excerpts={run.excerpts ?? []} disabled={false} readOnly={false} /><ConversationTimeline key={`${run.threadId}:${run.turnId ?? run.startedAt}`} run={run}/>{showAssistant && <article className="conversation-message assistant-message"><span className="conversation-avatar assistant" aria-hidden="true">✦</span><div className="conversation-message-body"><div className="conversation-message-meta"><strong>Novel Engine</strong><span>{answer ? "回复" : run.state === "running" ? "正在处理" : "暂无文本回复"}</span></div>{answer ? <div className="conversation-answer">{renderConversationAnswer(answer)}{run.state === "running" && <span className="stream-cursor" aria-label="正在接收内容">▋</span>}</div> : <div className="conversation-answer-empty" aria-live="polite"><span className="conversation-answer-pulse" aria-hidden="true">•</span>{run.state === "waiting" ? "等待你的回答后继续。" : run.state === "running" ? "正在读取故事上下文并生成回复……" : "本轮没有文本回复。"}</div>}{answer && <ConversationReplyActions identity={`${projectId}:${run.threadId}:${run.turnId ?? run.startedAt}`} text={run.answer} />}</div></article>}{userInputRequest && <div className="conversation-interaction"><div className="conversation-interaction-heading"><span>需要你的回答</span><small>回答后创作引擎会继续当前回合{queuedUserInputCount > 0 ? ` · 之后还有 ${queuedUserInputCount} 个问题` : ""}</small></div><UserInputCard questions={userInputQuestions(userInputRequest.params)} queuedCount={queuedUserInputCount} onResolve={onResolveUserInput}/></div>}{run.error && <div className="transcript-error" role="alert"><strong>本轮未完成</strong><span>{describeAgentError(run.error)}</span>{describeAgentError(run.error) !== run.error && <details><summary>查看错误详情</summary><pre>{run.error}</pre></details>}<button type="button" onClick={onRetry}>{retryLabel}</button></div>}<ConversationChanges run={run} onReview={onReview}/>{run.summary && !answer && <div className="conversation-result"><strong>{run.state === "completed" ? "本轮完成" : "本轮状态"}</strong><p>{run.summary}</p></div>}</div></section>;
 }
 
-function CommandPalette({ onClose, onFocusComposer, onReview, onCompact, onReconnect, onTheme }: { onClose: () => void; onFocusComposer: () => void; onReview: () => void; onCompact: () => void; onReconnect: () => void; onTheme: () => void }) {
-  const commands = [{ label: "聚焦创作输入", hint: "⌘↵", action: onFocusComposer }, { label: "审查当前变更", hint: "", action: onReview }, { label: "压缩上下文", hint: "", action: onCompact }, { label: "恢复创作引擎连接", hint: "", action: onReconnect }, { label: "切换主题", hint: "", action: onTheme }];
+function CommandPalette({ onClose, onFocusComposer, onReview, onReconnect, onTheme }: { onClose: () => void; onFocusComposer: () => void; onReview: () => void; onReconnect: () => void; onTheme: () => void }) {
+  const commands = [{ label: "聚焦创作输入", hint: "⌘↵", action: onFocusComposer }, { label: "查看作品目录", hint: "", action: onReview }, { label: "恢复创作引擎连接", hint: "", action: onReconnect }, { label: "切换主题", hint: "", action: onTheme }];
   return <div className="command-palette-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="command-palette" role="dialog" aria-modal="true" aria-label="命令面板"><div className="command-palette-heading"><strong>命令面板</strong><button onClick={onClose} aria-label="关闭命令面板">Esc</button></div><div className="command-palette-list">{commands.map((command) => <button key={command.label} onClick={command.action}><span>✦</span><strong>{command.label}</strong><small>{command.hint}</small></button>)}</div></section></div>;
 }
 

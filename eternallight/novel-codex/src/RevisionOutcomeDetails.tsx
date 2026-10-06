@@ -69,7 +69,7 @@ export function RevisionOutcomeDetails({ api, projectId, writerTaskId, chapterId
         <p role="status">{visible.receipt.state === "current" ? "当前来源 · 候选判断" : "已过期 · 来源已变化，以下判断不能代表当前正文"}</p>
         <dl><dt>原正文版本</dt><dd>{visible.receipt.assessment.originalRevisionId}</dd>
           <dt>候选正文版本</dt><dd>{visible.receipt.assessment.draftRevisionId}</dd>
-          <dt>知识批次</dt><dd>{visible.receipt.assessment.knowledgeBatchId}</dd>
+          <dt>知识批次</dt><dd>{visible.receipt.assessment.knowledgeBatchId ?? "直接对照正文"}</dd>
           <dt>判断记录</dt><dd>{visible.receipt.revisionId}</dd></dl>
         <ul aria-label="逐项修改结果">{desiredOutcomes.map(criterion => {
           const outcome = visible.receipt!.assessment.outcomes.find(item => item.id === criterion.id)!;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { LocalMetricsSummary, NovelCodexApi } from "./types";
 
-const stages = { brief: "创作方向", outline: "层级大纲", plan: "近章规划", draft: "正文" };
+const stages = { brief: "创作方向", outline: "全书大纲", plan: "近章规划", draft: "正文" };
 const pendingKey = "novel-codex:pending-metric-action";
 type PendingAction = { stage: keyof typeof stages; key: string };
 function readPending(): PendingAction | null {
@@ -49,7 +49,7 @@ export function MetricsPanel({ api }: { api: NovelCodexApi }) {
   const exportSummary = () => {
     if (!summary) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify(summary, null, 2)], { type: "application/json" }));
-    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "novel-codex-local-metrics.json"; anchor.click();
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "小说工坊-本地创作统计.json"; anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     setMessage("已发起匿名汇总下载。");
   };

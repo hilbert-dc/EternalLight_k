@@ -1,0 +1,51 @@
+exports[`actual App connection journey: app-model-connection-ui.tsx 1`] = `
+[
+  {
+    "name": "keyboard-and-narrow-menu",
+    "text": "当前项语义 · 上下/Home/End · Escape · 外点 · 300px滚动",
+    "draft": "验证后继续讨论，先保留构思"
+  },
+  {
+    "name": "verifying",
+    "text": "fixture-provider · fixture-model正在验证账号与模型能力 · 已等待 N 秒正在请求模型服务，创作草稿会保留。",
+    "draft": "验证后继续讨论，先保留构思"
+  },
+  {
+    "name": "reading",
+    "text": "fixture-provider · fixture-model正在读取验证结果 · 已等待 N 秒",
+    "draft": "验证后继续讨论，先保留构思"
+  },
+  {
+    "name": "applying",
+    "text": "fixture-provider · fixture-model正在应用模型连接 · 已等待 N 秒",
+    "draft": "验证后继续讨论，先保留构思"
+  },
+  {
+    "name": "failed",
+    "text": "fixture-provider · fixture-model模型连接未完成受控配置失败重试此连接",
+    "draft": "验证后继续讨论，先保留构思"
+  },
+  {
+    "name": "ready",
+    "text": "fixture-provider · fixture-model模型连接已就绪",
+    "draft": "验证后继续讨论，先保留构思"
+  },
+  {
+    "name": "ready-keyboard-exit",
+    "text": "Tab自然离开 · 当前已配置项 · 输入焦点快捷键",
+    "draft": "验证后继续讨论，先保留构思"
+  },
+  {
+    "name": "live-list-boundaries",
+    "text": "删除焦点项重定位 · 空列表无选择 · 禁用关菜单 · Enter精确一次",
+    "draft": ""
+  }
+]
+`;
+
+exports[`actual App connection journey: app-turn-recovery-ui.tsx 1`] = `
+[
+  "连接核对未完成：受控状态读取失败。原任务仍保留，可等待或停止；不会重新生成。",
+  "连接核对未完成：终态任务不能恢复为普通对话。请在创作任务中核对交付状态并继续；此次核对没有重新生成。"
+]
+`;

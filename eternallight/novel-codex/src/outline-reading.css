@@ -1,0 +1,13 @@
+:root :is(.main-panel, .module-records-popover) .outline-reading-tree { min-width: 0; }
+:root :is(.main-panel, .module-records-popover) .outline-reading-node { min-width: 0; border-bottom: 1px solid var(--nc-border); }
+:root :is(.main-panel, .module-records-popover) .outline-reading-tree .outline-reading-node > summary { display: list-item; width: auto; max-width: 100%; padding-block: 12px; cursor: pointer; color: var(--nc-ink); font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; }
+:root :is(.main-panel, .module-records-popover) .outline-reading-kind { margin-right: 10px; color: var(--nc-ink-muted); font-size: 12px; }
+:root :is(.main-panel, .module-records-popover) .outline-reading-title { font-weight: 550; }
+:root :is(.main-panel, .module-records-popover) .outline-reading-protected { display: inline-block; margin-left: 10px; color: var(--nc-ink-soft); font-size: 11px; font-weight: 400; }
+:root :is(.main-panel, .module-records-popover) .outline-reading-node > .planning-reading-card { padding: 0 0 16px; border-bottom: 0; }
+:root :is(.main-panel, .module-records-popover) .outline-reading-children { display: grid; gap: 8px; min-width: 0; margin: 8px 0 0; padding-left: 16px; list-style: none; }
+:root :is(.main-panel, .module-records-popover) .outline-reading-unlinked { margin-top: 24px; }
+:root :is(.main-panel, .module-records-popover) .outline-reading-unlinked h3 { font-size: 14px; }
+:root :is(.main-panel, .module-records-popover) .outline-reading-node > summary:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+
+:root :is(.main-panel, .module-records-popover) .outline-reading-tree dd { white-space: pre-line; }

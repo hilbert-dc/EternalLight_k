@@ -1,0 +1,190 @@
+exports[`chapter editing and publication preserve scene identity, bookmarks and preview recovery 1`] = `
+{
+  "dirtyRoundTrip": [
+    {
+      "label": "loaded baseline",
+      "dirty": false
+    },
+    {
+      "label": "same length changed prose",
+      "dirty": true
+    },
+    {
+      "label": "prose restored",
+      "dirty": false
+    },
+    {
+      "label": "title changed",
+      "dirty": true
+    },
+    {
+      "label": "prose restored with changed title",
+      "dirty": true
+    },
+    {
+      "label": "title restored",
+      "dirty": false
+    },
+    {
+      "label": "protection changed",
+      "dirty": true
+    },
+    {
+      "label": "prose restored with protection",
+      "dirty": true
+    },
+    {
+      "label": "protection restored",
+      "dirty": false
+    },
+    {
+      "label": "scene order changed",
+      "dirty": true
+    },
+    {
+      "label": "scene order restored",
+      "dirty": false
+    }
+  ],
+  "generationPhaseChecks": [
+    {
+      "phase": "same chapter analysis",
+      "action": "正文已保存，正在分析…",
+      "status": "正在分析本章的故事设定…"
+    },
+    {
+      "phase": "other chapter",
+      "action": "正在处理当前任务…当前操作结束后可继续编辑。"
+    }
+  ],
+  "publication": [
+    "未发布",
+    "有未发布修改",
+    "有未发布修改",
+    "已发布"
+  ],
+  "diff": [
+    {
+      "id": "scene-a",
+      "kind": "修改"
+    },
+    {
+      "id": "scene-d",
+      "kind": "新增"
+    },
+    {
+      "id": "scene-b",
+      "kind": "删除"
+    }
+  ],
+  "metadata": {
+    "title": "章节标题修改已发布标题正式雾港 A本次标题工作雾港 B",
+    "sourcePlan": "章纲关联变化章节关联方式已变化；关联的章纲章节已变化；章纲版本已变化。已发布关联独立章节本次关联关联章纲"
+  },
+  "adoption": [
+    "本次发布整章，包括标题、场景顺序和删除的内容。"
+  ],
+  "reviewProgress": [
+    "确认本章无需写入新的故事事实。",
+    "已完成检查，可以发布这一章。",
+    "还有 1 项事实未决定；发布前检查尚未通过。",
+    "完成保护冲突处理决定；发布前检查尚未通过。",
+    "已完成检查，可以发布这一章。",
+    "已完成检查，可按决定返回编辑。",
+    "先保存章节。"
+  ],
+  "generationStatuses": [
+    "内容已保存已保存 2 个本章正文修订",
+    "内容已保存已保存 1 个本章正文修订",
+    "生成部分完成已保存 2 个本章正文修订",
+    "生成失败没有保存本章正文修订",
+    "生成已停止没有保存本章正文修订"
+  ],
+  "journey": {
+    "saveCalls": 2,
+    "generationCalls": 0,
+    "acceptanceCalls": 3,
+    "formalRevision": "saved-2"
+  },
+  "planning": {
+    "accepted": "已采用",
+    "saved": "已保存，待采用",
+    "working": "当前后续创作依据 · 尚未正式采用",
+    "versionRequests": 2,
+    "inlineControls": 0
+  },
+  "bookmark": {
+    "scene": "scene-c",
+    "positionAfterReorder": 2,
+    "start": 43,
+    "end": 51,
+    "viewportOffset": -170
+  },
+  "layout": [
+    {
+      "theme": "light",
+      "width": 980,
+      "autoGrowing": true,
+      "mainOnlyScroll": true,
+      "endReachable": true,
+      "continuousSurface": true,
+      "focusedProse": {
+        "shadow": "none",
+        "outline": "none",
+        "caretMatchesText": true,
+        "selectionPreserved": true
+      }
+    },
+    {
+      "theme": "light",
+      "width": 540,
+      "autoGrowing": true,
+      "mainOnlyScroll": true,
+      "endReachable": true,
+      "continuousSurface": true,
+      "focusedProse": {
+        "shadow": "none",
+        "outline": "none",
+        "caretMatchesText": true,
+        "selectionPreserved": true
+      }
+    },
+    {
+      "theme": "dark",
+      "width": 980,
+      "autoGrowing": true,
+      "mainOnlyScroll": true,
+      "endReachable": true,
+      "continuousSurface": true,
+      "focusedProse": {
+        "shadow": "none",
+        "outline": "none",
+        "caretMatchesText": true,
+        "selectionPreserved": true
+      }
+    },
+    {
+      "theme": "dark",
+      "width": 540,
+      "autoGrowing": true,
+      "mainOnlyScroll": true,
+      "endReachable": true,
+      "continuousSurface": true,
+      "focusedProse": {
+        "shadow": "none",
+        "outline": "none",
+        "caretMatchesText": true,
+        "selectionPreserved": true
+      }
+    },
+    {
+      "reading": "unfocused",
+      "restoredAfterReflow": true
+    },
+    {
+      "reading": "locked",
+      "restoredAfterReflow": true
+    }
+  ]
+}
+`;

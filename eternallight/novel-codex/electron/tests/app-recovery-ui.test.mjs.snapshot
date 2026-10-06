@@ -1,0 +1,146 @@
+exports[`App retains execution results and restores isolated thread history with read-only recovery 1`] = `
+[
+  {
+    "operation": "work",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "continue",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "retry",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "feedbackContinue",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "feedbackRepair",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "chapter",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "review",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "stopReview",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  }
+]
+`;
+
+exports[`App retains execution results and restores isolated thread history with read-only recovery 2`] = `
+{
+  "isolatedThreads": true,
+  "readonlyHistoryRetry": true,
+  "zeroHostSelection": true,
+  "isolatedProjects": true,
+  "pendingSaves": {
+    "singleRailEntry": true,
+    "initiallyCollapsed": true,
+    "summary": "2 项保存待核对",
+    "viewingDoesNotChangeCurrentThread": true,
+    "narrowRail": "300px",
+    "publicReadOnlyPreview": true,
+    "zeroResume": true,
+    "busyControlsDisabled": true,
+    "failedReconciliationRetained": true,
+    "unknownRetained": true,
+    "authoritativeReconciliation": true,
+    "tasksRefreshedReadOnly": true,
+    "projectIsolated": true
+  }
+}
+`;
+
+exports[`actual App uses one composer for chapter writing with fresh edits and safe input ownership 1`] = `
+[
+  {
+    "case": "startup refresh retains selected chapter",
+    "selectedChapterPreserved": true
+  },
+  {
+    "case": "document layout light",
+    "mainOnlyScroll": true,
+    "continuousSurface": true,
+    "footerReachable": true
+  },
+  {
+    "case": "document layout dark",
+    "mainOnlyScroll": true,
+    "continuousSurface": true,
+    "footerReachable": true
+  },
+  {
+    "case": "existing chapter ordinary conversation",
+    "noForcedWritingMode": true,
+    "draftPreserved": true,
+    "implicitChapterContext": true
+  },
+  {
+    "case": "fresh discussion single flight",
+    "saves": 1,
+    "discussionCalls": 1,
+    "writerCalls": 0,
+    "conversationFocus": {
+      "view": "chapters",
+      "chapterId": "chapter-01",
+      "chapterNumber": 1
+    },
+    "nextDraftRetained": true
+  },
+  {
+    "case": "failed prepare preserves input",
+    "modelNotStarted": true,
+    "inputAndBodyRetained": true
+  },
+  {
+    "case": "new chapter natural goal delegation",
+    "naturalGoalDelegated": true,
+    "noAutomaticStart": true,
+    "noOriginalGoalReplay": true
+  },
+  {
+    "case": "writer buffers next input",
+    "stopAvailable": true,
+    "writerSteerCalls": 0,
+    "nextDraftRetained": true,
+    "clearedDraftNotRestored": true
+  },
+  {
+    "case": "edited default becomes discussion",
+    "writerCalls": 3,
+    "discussionCalls": 6,
+    "conversationFocus": {
+      "view": "chapters",
+      "chapterId": "chapter-02",
+      "chapterNumber": 2
+    },
+    "nextChapterInstructionPreserved": true
+  },
+  {
+    "case": "delayed preparation project isolation",
+    "lateWriterCalls": 0,
+    "isolatedDraft": "B作品独立草稿"
+  },
+  {
+    "case": "success preserves new draft",
+    "nextDraftRetained": true,
+    "savedBodyVisible": true
+  }
+]
+`;

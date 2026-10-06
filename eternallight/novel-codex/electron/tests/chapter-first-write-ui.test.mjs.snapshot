@@ -1,0 +1,26 @@
+exports[`fresh empty chapter starts writing without a fabricated checkpoint and preserves source and recovery boundaries 1`] = `
+[
+  {
+    "writingIntent": "根据已发布前文和章节计划，首次起草约2500字的完整中文章节；推进情节、人物行动和场景，不写梗概，不为凑字重复内容。作者明确指定的篇幅、正文语言和字或词计数单位优先；保留已有悬念和人物信息边界。保留章节标题《first-write 第一章》。",
+    "chapterBodyEditors": 1
+  },
+  {
+    "titleProtection": "章节标题尚未保存，当前正文为空。首次生成将使用已创建章节的标题“first-write 第一章”；本地标题仍保留。可以恢复章节标题后开始，或先手写正文并一起保存。恢复章节标题"
+  },
+  {
+    "result": "第 1 章生成执行已结束；正文状态待重新读取，不会自动重跑模型。",
+    "recovery": "重新读取章节内容"
+  },
+  {
+    "manualOpening": "保存后使用普通对话",
+    "forcedWriterEntry": false,
+    "modelCalls": 1
+  },
+  {
+    "savedEmpty": "保留已保存来源",
+    "defaultIntent": "根据已发布前文和章节计划，首次起草约2500字的完整中文章节；推进情节、人物行动和场景，不写梗概，不为凑字重复内容。作者明确指定的篇幅、正文语言和字或词计数单位优先；保留已有悬念和人物信息边界。保留章节标题《saved-empty 第一章》。",
+    "sourceRevisionId": "empty-saved",
+    "noFirstWriteBypass": true
+  }
+]
+`;

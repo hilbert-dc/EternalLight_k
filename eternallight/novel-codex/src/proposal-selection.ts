@@ -1,6 +1,6 @@
 import type { CreativeWorkspace, ProposalSetDetail } from "./types";
 
-export const proposalKindLabels: Record<string, string> = { brief: "创作简报", outline: "长篇大纲", plan: "近章规划", draft: "章节正文", identity: "身份决议" };
+export const proposalKindLabels: Record<string, string> = { brief: "创作简报", outline: "全书大纲", plan: "近章规划", draft: "章节正文", identity: "身份决议" };
 
 export function proposalReviewCandidates(workspace: CreativeWorkspace) {
   const candidates = [

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CreativeWorkspace, NovelCodexApi, PropertyRuleDefinition, PropertyRulesSaveRequest, EventRuleDefinition } from "./types";
 import { EventRuleSummary } from "./EventRuleFields";
 import { PropertyRuleFields, PropertyRuleSummary, ruleInputError } from "./PropertyRuleFields";
+import type { TaskResultDestination } from "./task-results";
 import "./property-rules.css";
 
 type Props = {
@@ -9,6 +10,8 @@ type Props = {
   onDirtyChange: (dirty: boolean) => void;
   onSaveHandlerChange: (handler: (() => Promise<boolean>) | null) => void;
   onDiscardHandlerChange: (handler: (() => boolean) | null) => void;
+  requestedResult?: { requestId: string; result: Extract<TaskResultDestination, { kind: "propertyRules" }> } | null;
+  agentRunning?: boolean;
 };
 type Edit = { rules: PropertyRuleDefinition[]; eventRules: EventRuleDefinition[]; revision: number; candidateId: string | null; request: PropertyRulesSaveRequest | null; savedId: string | null };
 
@@ -16,9 +19,9 @@ export function PropertyRulesPanel(props: Props) {
   return <PropertyRulesSession key={props.projectId} {...props} />;
 }
 
-function PropertyRulesSession({ api, projectId, refreshToken, onFormalChange, onDirtyChange, onSaveHandlerChange, onDiscardHandlerChange }: Props) {
+function PropertyRulesSession({ api, projectId, refreshToken, onFormalChange, onDirtyChange, onSaveHandlerChange, onDiscardHandlerChange, requestedResult, agentRunning = false }: Props) {
   const owner = useMemo(() => ({ active: false, writing: false, read: null as Promise<boolean> | null, queued: false,
-    workspace: null as CreativeWorkspace | null, readError: null as string | null }), [api]);
+    workspace: null as CreativeWorkspace | null, readError: null as string | null, epoch: 0, preparation: null as object | null }), [api]);
   const [data, setData] = useState<{ owner: typeof owner; workspace: CreativeWorkspace } | null>(null);
   const [reading, setReading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -27,6 +30,9 @@ function PropertyRulesSession({ api, projectId, refreshToken, onFormalChange, on
   const [notice, setNotice] = useState<string | null>(null);
   const [edit, setEdit] = useState<Edit | null>(null);
   const editRef = useRef<Edit | null>(null);
+  const controls = useRef({ requestedResult, agentRunning });
+  controls.current = { requestedResult, agentRunning };
+  const preparationAttempts = useRef(new Map<string, string | null>());
 
   function changeEdit(next: Edit | null) { editRef.current = next; setEdit(next); }
   function reload(): Promise<boolean> {
@@ -40,6 +46,7 @@ function PropertyRulesSession({ api, projectId, refreshToken, onFormalChange, on
         try {
           const workspace = await api.runtime.getCreativeWorkspace(projectId);
           if (!owner.active) return false;
+          if (workspace.project.id !== projectId) throw new Error("读取结果属于其他作品，不能判断当前规则。");
           const artifact = workspace.artifacts.propertyRules;
           if (!artifact) throw new Error("工作区缺少当前规则契约，不能判断规则状态。");
           for (const revision of [artifact.candidate, artifact.accepted]) {
@@ -64,16 +71,74 @@ function PropertyRulesSession({ api, projectId, refreshToken, onFormalChange, on
     return owner.read;
   }
   useLayoutEffect(() => {
-    owner.active = true;
+    owner.active = true; owner.epoch += 1;
     changeEdit(null); setBusy(false); setReadError(null); setError(null); setNotice(null);
     void reload();
-    return () => { owner.active = false; };
+    return () => { owner.active = false; owner.epoch += 1; if (owner.preparation) { owner.preparation = null; owner.writing = false; } };
   }, [owner]);
   const signal = useRef({ owner, refreshToken });
   useEffect(() => {
     const before = signal.current; signal.current = { owner, refreshToken };
     if (before.owner === owner && before.refreshToken !== refreshToken) void reload();
   }, [owner, refreshToken]);
+
+  async function prepareRequestedReview() {
+    const request = controls.current.requestedResult;
+    if (!api || !request || !owner.active || owner.writing) return;
+    if (controls.current.agentRunning || editRef.current) { setError("请等待当前创作结束，并保存或放弃规则编辑后，再检查这份规则结果。"); return; }
+    const epoch = owner.epoch; const token = {};
+    const current = () => owner.active && owner.epoch === epoch && owner.preparation === token
+      && controls.current.requestedResult?.requestId === request.requestId;
+    const available = () => current() && !controls.current.agentRunning && !editRef.current;
+    owner.preparation = token; owner.writing = true; setBusy(true); setError(null); setNotice(null);
+    try {
+      if (!await reload() || !current()) return;
+      if (!available()) throw new Error("创作或规则编辑状态已变化，请结束后重新检查。");
+      const workspace = owner.workspace!;
+      if (request.result.kind !== "propertyRules" || request.result.projectId !== projectId
+        || workspace.artifacts.propertyRules.candidate?.id !== request.result.referenceId) {
+        throw new Error("这份对话结果已不是当前规则候选，请从对话打开最新结果。");
+      }
+      if (workspace.artifacts.propertyRules.locked) throw new Error("当前规则已锁定，不能建立检查。");
+      const revisionId = request.result.referenceId;
+      const attemptKey = `${workspace.revision}:${revisionId}`;
+      let reviewId = workspace.reviews.find(review => review.artifactKind === "propertyRules"
+        && review.artifactRevisionId === revisionId && review.projectRevision === workspace.revision && review.status === "ready")?.id;
+      if (!reviewId) {
+        if (preparationAttempts.current.has(attemptKey)) throw new Error("检查请求已提交，但尚未读到对应检查。请核对结果，不要重复建立检查。");
+        if (!available()) return;
+        preparationAttempts.current.set(attemptKey, null);
+        if (preparationAttempts.current.size > 8) preparationAttempts.current.delete(preparationAttempts.current.keys().next().value!);
+        const receipt = await api.runtime.createReview(projectId, "propertyRules", revisionId, [], {});
+        if (!current()) return;
+        if (receipt.artifactKind !== "propertyRules" || receipt.artifactRevisionId !== revisionId
+          || receipt.projectRevision !== workspace.revision || receipt.status !== "ready") throw new Error("检查回执与当前规则不一致，请重新核对。");
+        reviewId = receipt.id; preparationAttempts.current.set(attemptKey, reviewId);
+      }
+      if (!await reload() || !current()) return;
+      if (!available()) throw new Error("创作或规则编辑状态已变化，请结束后重新检查。");
+      const fresh = owner.workspace!;
+      if (fresh.artifacts.propertyRules.locked || fresh.artifacts.propertyRules.candidate?.id !== revisionId || !fresh.reviews.some(review => review.id === reviewId
+        && review.artifactKind === "propertyRules" && review.artifactRevisionId === revisionId
+        && review.projectRevision === fresh.revision && review.status === "ready")) throw new Error("规则或作品版本已变化，请重新打开当前结果检查。");
+      setNotice("规则检查已准备，请查看检查结果后决定是否采用；尚未修改正式规则或确认事实。");
+    } catch (reason) {
+      if (current()) setError(reason instanceof Error ? reason.message : "规则检查结果未确认，请重新核对。");
+    } finally {
+      if (owner.preparation === token) { owner.preparation = null; owner.writing = false; if (owner.active && owner.epoch === epoch) setBusy(false); }
+    }
+  }
+  useEffect(() => {
+    const before = owner.preparation;
+    if (requestedResult) void prepareRequestedReview();
+    const token = owner.preparation;
+    return () => {
+      if (token && token !== before && owner.preparation === token) {
+        owner.preparation = null; owner.writing = false;
+        if (owner.active) setBusy(false);
+      }
+    };
+  }, [owner, requestedResult?.requestId]);
 
   function discard(): boolean {
     if (!owner.active || owner.writing) return false;
@@ -83,7 +148,7 @@ function PropertyRulesSession({ api, projectId, refreshToken, onFormalChange, on
   }
   async function save(): Promise<boolean> {
     const session = editRef.current;
-    if (!api || !owner.active || owner.writing) return false;
+    if (!api || !owner.active || owner.writing || controls.current.agentRunning) return false;
     if (!session) return true;
     const validation = ruleInputError(session.rules, session.eventRules);
     if (validation) { setError(validation); return false; }
@@ -122,7 +187,7 @@ function PropertyRulesSession({ api, projectId, refreshToken, onFormalChange, on
   }, [owner, edit, busy, onDirtyChange, onSaveHandlerChange, onDiscardHandlerChange]);
 
   async function mutate(action: () => Promise<unknown>, success: string, formal: boolean) {
-    if (!api || !owner.active || owner.writing || owner.read || owner.readError || editRef.current || !owner.workspace || owner.workspace.artifacts.propertyRules.locked) return;
+    if (!api || !owner.active || owner.writing || controls.current.agentRunning || owner.read || owner.readError || editRef.current || !owner.workspace || owner.workspace.artifacts.propertyRules.locked) return;
     owner.writing = true; setBusy(true); setError(null); setNotice(null);
     let succeeded = false;
     try {
@@ -150,15 +215,17 @@ function PropertyRulesSession({ api, projectId, refreshToken, onFormalChange, on
   const latest = workspace?.commits.reduce<CreativeWorkspace["commits"][number] | null>((best, item) => !best || item.result_revision > best.result_revision ? item : best, null);
   const undo = latest?.operation_kind === "accept" && latest.receipt.artifactKind === "propertyRules"
     && latest.result_revision === workspace?.revision && !latest.proposalApplicationId ? latest : null;
-  const blocked = !api || !workspace || reading || !!readError || busy || !!artifact?.locked || !!edit;
+  const blocked = !api || !workspace || reading || !!readError || busy || agentRunning || !!artifact?.locked || !!edit;
   const changed = !!edit && (workspace?.revision !== edit.revision || (candidate?.id ?? null) !== edit.candidateId);
-  return <section className="property-rules-panel" aria-label="作者属性规则">
+  return <section className="property-rules-panel" aria-label="作者属性规则" data-discussion-snapshot={workspace?.headSnapshotId}
+    data-discussion-revision={candidate?.id ?? ""} data-discussion-object="artifact-propertyRules">
     <header><div><h3>世界属性与事件规则</h3><p>可选的作者裁决。结构规则不确认事实；说明不是可执行约束，例外仍需解释。</p></div>
       <button type="button" disabled={!api || reading || busy} onClick={() => void reload()}>重新读取规则</button></header>
     {!api ? <p role="alert">本地 Runtime 尚未连接。</p> : !workspace && !readError ? <p role="status">正在读取规则…</p> : null}
     {readError && <p role="alert">读取失败：{readError}。{workspace ? "保留上次结果，不能据此继续采用。" : "尚不能判断是否有规则。"}</p>}
+    {requestedResult && <p><button type="button" disabled={!api || busy || agentRunning || !!edit} onClick={() => void prepareRequestedReview()}>核对对话中的规则检查</button></p>}
     {artifact?.locked && <p>规则已锁定，不能修改或采用。</p>}
-    {accepted ? <details open><summary>已采用 · v{accepted.version}</summary><PropertyRuleSummary rules={accepted.payload.definitions} /><EventRuleSummary rules={accepted.payload.eventRules} /></details>
+    {accepted ? <details open data-discussion-revision={accepted.id}><summary>已采用 · v{accepted.version}</summary><PropertyRuleSummary rules={accepted.payload.definitions} /><EventRuleSummary rules={accepted.payload.eventRules} /></details>
       : workspace && <p>尚无已采用规则。模型的属性声明不等于作者规则。</p>}
     {candidate && candidate.id !== accepted?.id && <details open><summary>待审阅候选 · v{candidate.version}</summary>
       <PropertyRuleSummary rules={candidate.payload.definitions} />
@@ -173,7 +240,7 @@ function PropertyRulesSession({ api, projectId, refreshToken, onFormalChange, on
     </details>}
     {undo && <button type="button" disabled={blocked} onClick={() => void mutate(() => api!.runtime.undoCommit(projectId, undo.id, workspace!.revision), "已撤销最近一次规则采用。", true)}>撤销最近规则采用</button>}
     {!edit ? <button type="button" disabled={blocked} onClick={() => {
-      if (owner.writing || owner.read || owner.readError || !owner.workspace || owner.workspace.artifacts.propertyRules.locked) return;
+      if (owner.writing || controls.current.agentRunning || owner.read || owner.readError || !owner.workspace || owner.workspace.artifacts.propertyRules.locked) return;
       const current = owner.workspace.artifacts.propertyRules;
       const payload = (current.candidate ?? current.accepted)?.payload;
       changeEdit({ rules: payload ? structuredClone(payload.definitions) : [], eventRules: payload ? structuredClone(payload.eventRules) : [], revision: owner.workspace.revision,

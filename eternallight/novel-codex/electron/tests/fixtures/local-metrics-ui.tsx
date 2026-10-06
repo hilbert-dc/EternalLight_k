@@ -37,7 +37,7 @@ async function run() {
   check(actionKeys.length === 2 && actionKeys[0] === actionKeys[1], "Retry after remount did not reuse nonce");
   check(abandoned === "plan" && document.querySelector('[role="status"]').textContent.includes("已记录一次放弃"), "Abandonment failed");
   button("导出匿名汇总").click(); await tick();
-  check(downloaded === "novel-codex-local-metrics.json" && JSON.stringify(JSON.parse(await exportedBlob.text())) === JSON.stringify(summary), "Export differs from anonymous summary");
+  check(downloaded === "小说工坊-本地创作统计.json" && JSON.stringify(JSON.parse(await exportedBlob.text())) === JSON.stringify(summary), "Export differs from anonymous summary");
   window.uiReady = true;
   return { passed: true };
 }

@@ -50,6 +50,7 @@ const group = () => document.querySelector(".workspace-diagnostics");
 const startButton = () => [...document.querySelectorAll("button")].find((item) => item.textContent === "开始全量校验");
 const openSearch = async () => {
   if (!group().open) summary().click();
+  await tick();
   const panel = document.querySelector('[aria-label="检索索引校验"]');
   if (!panel.open) panel.querySelector("summary").click();
   await tick();
@@ -57,9 +58,12 @@ const openSearch = async () => {
 
 async function run() {
   await render();
-  check(!group().open && summary().textContent.includes("读取中"), "A missing read was presented as a completed diagnosis");
-  check(group().querySelectorAll(".workspace-diagnostic-panels > details").length === 6, "Diagnostic scopes were dropped");
+  check(!group().open && summary().textContent.includes("排查检索或资料显示异常"), "Advanced diagnosis did not start collapsed");
+  check(readCalls === 0 && group().querySelectorAll(".diagnostic-check").length === 0, "Opening settings eagerly loaded diagnostic jobs");
   await openSearch();
+  check(group().querySelectorAll(".diagnostic-check").length === 6, "Diagnostic scopes were dropped");
+  check(summary().textContent.includes("读取中"), "A pending read was presented as a completed diagnosis");
+  check([...group().querySelectorAll(".diagnostic-check")].every(panel => getComputedStyle(panel).borderLeftWidth === "0px"), "Technical checks still render as alert cards");
   const start = startButton(); start.click(); start.click(); await tick();
   check(startCalls === 1 && releaseStart, "Same-frame duplicate clicks launched multiple operations");
   await render("a", 1);
@@ -73,14 +77,14 @@ async function run() {
   summary().click();
   jobs.set("a", { ...jobs.get("a"), status: "completed", verifiedConsistent: false,
     audit: { ...jobs.get("a").audit, revision_count: 12, mismatch_count: 1 } });
-  await waitFor(() => summary().textContent.includes("1 项需处理"), "Collapsed diagnostics stopped polling or hid a mismatch");
+  await waitFor(() => summary().textContent.includes("1 项诊断异常"), "Collapsed diagnostics stopped polling or hid a mismatch");
   check(!group().open && document.activeElement === editor && editor.value === "作者未保存的独立输入", "Background diagnosis stole focus or discarded author input");
   check(summary().querySelector('[role="alert"]'), "Collapsed attention was not accessible");
   failRead = true; await render("a", 2);
-  check(document.body.textContent.includes("状态读取断开") && summary().textContent.includes("需处理"), "Read failure was invisible");
+  check(document.body.textContent.includes("状态读取断开") && summary().textContent.includes("诊断异常"), "Read failure was invisible");
   failRead = false; jobs.set("a", { ...jobs.get("a"), verifiedConsistent: true }); await render("a", 3);
-  check(!document.body.textContent.includes("状态读取断开") && !summary().textContent.includes("需处理"), "Recovered read retained a stale transport error");
-  check(summary().textContent.includes("六类按需校验") && !summary().textContent.includes("一致"), "Partial local checks were promoted to a global certificate");
+  check(!document.body.textContent.includes("状态读取断开") && !summary().textContent.includes("诊断异常"), "Recovered read retained a stale transport error");
+  check(summary().textContent.includes("按需排查") && !summary().textContent.includes("一致"), "Partial local checks were promoted to a global certificate");
   failRead = true; await render("a", 30);
   check(!document.querySelector('[aria-label="检索索引校验"] > summary').textContent.includes("一致"), "Read failure still presented the previous result as current consistency");
   const startsBeforeRetry = startCalls;
@@ -89,24 +93,26 @@ async function run() {
   await waitFor(() => !document.body.textContent.includes("状态读取断开"), "Read-only retry did not recover the connection");
   check(startCalls === startsBeforeRetry, "Reading status unexpectedly started a new audit");
   jobs.set("a", { ...jobs.get("a"), status: "stale" }); await render("a", 31);
-  check(summary().textContent.includes("需处理") && document.querySelector('[aria-label="检索索引校验"] > summary').textContent.includes("来源已变化"), "Old consistent job was still current after source change");
+  check(!summary().textContent.includes("诊断异常") && document.querySelector('[aria-label="检索索引校验"] > summary').textContent.includes("报告已过期"), "A source change was presented as an author obligation or a current consistency result");
   jobs.set("a", { ...jobs.get("a"), status: "completed", verifiedConsistent: null }); await render("a", 32);
-  check(summary().textContent.includes("需处理") && document.body.textContent.includes("未完成核验"), "Unverified completion was certified");
+  check(summary().textContent.includes("诊断异常") && document.body.textContent.includes("未完成核验"), "Unverified completion was certified");
   jobs.set("a", { ...jobs.get("a"), verifiedConsistent: true }); await render("a", 33);
   failStart = true; await openSearch(); startButton().click(); await tick(); await tick();
   await render("a", 4);
-  check(document.body.textContent.includes("开始操作被拒绝") && summary().textContent.includes("需处理"), "Successful state reads concealed an operation failure");
+  check(document.body.textContent.includes("开始操作被拒绝") && summary().textContent.includes("诊断异常"), "Successful state reads concealed an operation failure");
   failStart = false; startButton().click(); await tick();
   const oldOperation = releaseStart;
   await render("b", 5);
+  check(!group().open, "Project switch exposed diagnostics without author intent");
+  await openSearch();
   check(startButton() && !startButton().disabled && !document.body.textContent.includes("开始操作被拒绝"), "Project switch inherited old busy/error state");
   oldOperation(); await tick(); await tick();
-  check(!summary().textContent.includes("进行中") && !summary().textContent.includes("需处理"), "Late operation crossed project scopes");
+  check(!summary().textContent.includes("进行中") && !summary().textContent.includes("诊断异常"), "Late operation crossed project scopes");
   foreign = true; await render("b", 6);
-  check(document.body.textContent.includes("校验报告不属于当前作品") && summary().textContent.includes("需处理"), "Foreign report was displayed as a valid diagnosis");
+  check(document.body.textContent.includes("校验报告不属于当前作品") && summary().textContent.includes("诊断异常"), "Foreign report was displayed as a valid diagnosis");
   check(!document.body.textContent.includes("已核对 0 / 12"), "Foreign report leaked its progress");
   foreign = false; await render("b", 7);
-  check(!summary().textContent.includes("需处理"), "Scoped state did not recover");
+  check(!summary().textContent.includes("诊断异常"), "Scoped state did not recover");
   window.uiReady = true; await new Promise((resolve) => setTimeout(resolve, 200));
   window.testResult = { passed: true };
 }

@@ -1,0 +1,7 @@
+.impact-analysis-panel > details > summary { cursor: pointer; padding-block: 8px; color: var(--nc-ink); font-size: 13px; font-weight: 650; }
+.impact-analysis-panel > details > p { color: var(--nc-ink-soft); font-size: 13px; line-height: 1.6; }
+.impact-analysis-panel > .impact-analysis-controls { margin-bottom: 8px; }
+.impact-analysis-panel > .impact-analysis-controls small { color: var(--nc-ink-muted); line-height: 1.6; }
+.planning-review-panel > details[open] { display: grid; gap: 16px; }
+.planning-review-panel > div > p { margin-top: 8px; color: var(--nc-ink-muted); font-size: 13px; }
+.impact-analysis-panel :is(button, summary):focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 3px; }

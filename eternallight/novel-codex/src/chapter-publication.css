@@ -1,0 +1,6 @@
+.chapter-publication-dialog { width: min(1000px, calc(100vw - 48px)); max-height: calc(100vh - 48px); overflow-y: auto; }
+.chapter-publication-dialog .review-panel { margin-top: 16px; }
+.publication-bulk-decisions { margin: 16px 0; padding: 12px; border: 1px solid var(--nc-border); border-radius: 8px; }
+.publication-bulk-decisions > p { margin: 0 0 8px; }
+.publication-bulk-decisions > div { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.publication-bulk-decisions > small { color: var(--nc-ink-soft); line-height: 1.7; }

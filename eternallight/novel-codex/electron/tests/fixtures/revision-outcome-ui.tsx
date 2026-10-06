@@ -1,9 +1,10 @@
+import { chapterRuntimeReads } from "../helpers/chapter-runtime";
 import "../../../src/styles.css";
 import React from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import App, { ActionProposalList } from "../../../src/App";
-import { clearAuthor, saveAuthor } from "../../../src/author-session";
+import { clearAuthor, saveAuthor } from "../helpers/author-session";
 import { ExecutionScopeDialog } from "../../../src/ExecutionScopeDialog";
 import { WorkTaskPanel } from "../../../src/WorkTaskPanel";
 import { RevisionOutcomeDetails } from "../../../src/RevisionOutcomeDetails";
@@ -32,8 +33,9 @@ const unexpectedCalls: string[] = [];
 const forbidden = (path: string): object => new Proxy(() => {
   unexpectedCalls.push(path); throw new Error(`Unexpected API call: ${path}`);
 }, { get: (_target, property) => forbidden(`${path}.${String(property)}`) });
-const runtime = new Proxy({ getRevisionOutcome: (...args: string[]) => new Promise<RevisionOutcome | null>((resolve, reject) => pending.push({ args, resolve, reject })) }, {
-  get: (target, property) => property === "getRevisionOutcome" ? target.getRevisionOutcome : forbidden(`runtime.${String(property)}`),
+const runtime = new Proxy({ getTaskFinalReply: async () => null,
+  getRevisionOutcome: (...args: string[]) => new Promise<RevisionOutcome | null>((resolve, reject) => pending.push({ args, resolve, reject })) }, {
+  get: (target, property) => property in target ? target[property as keyof typeof target] : forbidden(`runtime.${String(property)}`),
 });
 const api = new Proxy({}, { get: (_target, property) => property === "runtime" ? runtime : forbidden(String(property)) }) as NovelCodexApi;
 const receipt = (writerTaskId = writerA, state: RevisionOutcome["state"] = "current"): RevisionOutcome => ({
@@ -128,7 +130,7 @@ void (async () => {
     dependsOnStepId: null, currentAttemptId: writerA, readingProgress: null, outputRefs: [], changes: [],
     attempts: [attempt(writerA, "completed"), attempt(writerB, "failed"), attempt(writerC, "cancelled"), attempt("running-attempt", "running")] };
   const task: WorkTaskSummary = { id: "work-a", projectId: "project-a", threadId: "thread-a", goal: proposal.instruction,
-    kind: "conversation", status: "completed", deliveryStatus: "pending", version: 2, error: null, resumeBlockReason: null,
+    kind: "conversation", status: "completed", deliveryStatus: "pending", version: 2, error: null, resumeBlockReason: null, resumeMode: null,
     deliveryReport: { evidence: [], pendingActionIds: [], unsettledAttemptIds: [] },
     steps: [step, { ...step, id: "no-goal", target: { chapterId: "chapter-2" } }, { ...step, id: "analysis", operation: "assessRevisionOutcome" }] };
   flushSync(() => root.render(<WorkTaskPanel api={api} projectId="project-a" tasks={[task]} activeCount={0} nextCursor={null}
@@ -136,7 +138,7 @@ void (async () => {
     agentRunning={false} agentAvailable dirty={false} onControl={() => {}} onUndo={() => {}} onLoadMore={() => {}} />));
   await tick();
   check(document.querySelectorAll(".revision-outcome-details").length === 3 && pending.length === 0, "Work panel assessed a no-goal, non-writer or nonterminal step, or read eagerly");
-  snapshots.workPanel = [...document.querySelectorAll(".work-task-row > ol > li")].map(node => ({
+  snapshots.workPanel = [...document.querySelectorAll(".work-task-execution > ol > li")].map(node => ({
     operation: node.querySelector("span")!.textContent, judgments: node.querySelectorAll(".revision-outcome-details").length,
   }));
   let read = await request("project-a", writerA, () => details().querySelector<HTMLElement>("summary")!.click());
@@ -223,10 +225,11 @@ void (async () => {
   const approvalMessages: Record<string, string | null> = {};
   saveAuthor({ name: "测试作者", email: "author@example.test", passwordSalt: "local-salt", passwordHash: "local-hash" });
   localStorage.setItem("novel-codex-active-project", project.id);
-  for (const status of ["pending", "paused", "recorded"] as const) {
+  for (const status of ["savedFailure", "failure", "recorded"] as const) {
     let available = true;
     const approvedIds: string[][] = [];
     const appRuntime = {
+      ...chapterRuntimeReads(() => project),
       status: async () => ({ state: "online", mode: "local", error: null }),
       listProjects: async () => ({ projects: [project] }),
       getState: async () => ({ project, canon: { characters: [], relationships: [], events: [], locations: [], plotThreads: [], worldRules: [], notes: [] },
@@ -236,12 +239,13 @@ void (async () => {
       onEvent: () => () => {}, onUserInputRequest: () => () => {},
       status: async () => ({ configured: false, state: "idle", mode: "novel-agent-engine", error: null }),
       listConnections: async () => ({ connections: [] }), recoveryReport: async () => [],
-      listThreads: async () => ({ threads: [], nextCursor: null }), setModelingContext: async () => ({ selected: true }),
+      listThreads: async () => ({ threads: [], nextCursor: null }), setWorkspaceContext: async () => ({ selected: true }),
       listProposedActions: async () => ({ actions: available ? [proposal] : [] }),
       approveAction: async (...args: string[]) => {
         approvedIds.push(args); available = false;
-        return { action: proposal, taskId: writerA, modeling: { status: "ready" }, outcome: { status },
-          followup: status === "recorded" ? null : { status: "pending" } };
+        return { action: proposal, taskId: writerA,
+          candidateResults: status === "failure" ? [] : [{ kind: "draft", revisionId: "draft-2" }],
+          executionFailure: status === "recorded" ? null : { message: "修改效果检查尚未完成；没有生成检查结论。" } };
       },
     };
     const trap = (target: object, path: string) => new Proxy(target, { get: (value, property) =>
@@ -253,11 +257,11 @@ void (async () => {
     await wait(() => !document.querySelector('[aria-label="待确认的创作建议"]') && document.querySelector(".activity-strip"), "App approval did not settle");
     const activity = document.querySelector(".activity-strip")!.textContent;
     check(JSON.stringify(approvedIds) === JSON.stringify([[project.id, proposal.sourceTaskId, proposal.id]]), "Approval failed to bind exact action identity");
-    check(!activity!.includes("知识建模待继续"), "Ready knowledge was mislabeled as pending");
-    if (status === "pending") check(activity!.includes("知识已就绪，作者结果核验待继续"), "Pending result assessment was hidden by generic followup");
-    if (status === "paused") check(activity!.includes("作者结果核验已暂停"), "Paused result assessment was hidden");
-    if (status === "recorded") check(activity!.includes("尚未正式采用"), "Recorded assessment implied Canon adoption");
-    approvalMessages[status] = activity;
+    if (status !== "recorded") {
+      await wait(() => document.querySelector(".activity-strip")!.textContent!.includes("修改效果检查尚未完成"), "Execution failure hid the incomplete requested assessment");
+      check(!document.querySelector(".activity-strip")!.textContent!.includes("处理已完成"), "Failed requested assessment was labeled complete");
+    } else check(activity!.includes("尚未正式采用"), "Recorded assessment implied Canon adoption");
+    approvalMessages[status] = document.querySelector(".activity-strip")!.textContent;
     flushSync(() => root.render(null));
   }
   snapshots.approvalMessages = approvalMessages;

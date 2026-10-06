@@ -1,0 +1,9 @@
+.composer-model-picker .composer-option { min-width: 0; max-width: 100%; }
+.composer-model-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-rail .composer-model-picker .composer-model-menu { max-height: min(300px, 45vh); max-width: min(320px, calc(var(--nc-rail, 420px) - 48px)); overflow-y: auto; overscroll-behavior: contain; }
+.composer-model-picker .composer-model-menu > button:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: -3px; background: var(--nc-surface-subtle); }
+.composer-model-picker .composer-model-menu > button > span { min-width: 0; }
+.composer-model-picker .composer-model-menu > button strong { overflow-wrap: anywhere; white-space: normal; }
+.composer-model-picker .composer-model-menu .model-status { flex-shrink: 0; }
+.composer-keyboard-hint { display: none; margin: 4px 0 0; color: var(--nc-ink-muted); font-size: 10px; line-height: 16px; }
+.composer-body > textarea:focus ~ .composer-keyboard-hint { display: block; }

@@ -1,0 +1,107 @@
+exports[`saved analysis opens exact historical reports read-only without disturbing author work 1`] = `
+[
+  {
+    "case": "exact historical partial report",
+    "headings": [
+      "已保存的规划深审",
+      "结构与因果 · 报告部分完成",
+      "值得保留",
+      "可参考的建议",
+      "信任来源不够明确",
+      "本轮仍有分歧",
+      "检查覆盖"
+    ],
+    "scope": "原指定卷大纲 · 作品版本 v4 · 结构与因果",
+    "warning": "本轮尚未完成全部检查；保留已交付意见，不把未覆盖范围判作没有问题。",
+    "sourceCollapsed": true
+  },
+  {
+    "case": "missing report",
+    "headings": [
+      "已保存的规划深审"
+    ],
+    "warning": "这份报告未能唯一对应本次评审；不能用其他报告替代。请关闭后重新读取任务结果。",
+    "sourceCollapsed": true
+  },
+  {
+    "case": "duplicate report",
+    "headings": [
+      "已保存的规划深审"
+    ],
+    "warning": "这份报告未能唯一对应本次评审；不能用其他报告替代。请关闭后重新读取任务结果。",
+    "sourceCollapsed": true
+  },
+  {
+    "case": "foreign run report",
+    "headings": [
+      "已保存的规划深审"
+    ],
+    "warning": "这份报告未能唯一对应本次评审；不能用其他报告替代。请关闭后重新读取任务结果。",
+    "sourceCollapsed": true
+  },
+  {
+    "case": "foreign seat report",
+    "headings": [
+      "已保存的规划深审"
+    ],
+    "warning": "这份报告未能唯一对应本次评审；不能用其他报告替代。请关闭后重新读取任务结果。",
+    "sourceCollapsed": true
+  },
+  {
+    "case": "hypothesis distinct from story",
+    "headings": [
+      "已保存的假设分析",
+      "假设条件与临时排除",
+      "分析发现",
+      "相反主张可能冲突 · 收到警告",
+      "人物认知存在分歧 · epistemicState",
+      "同一时段的属性值存在冲突 · 年龄",
+      "属性解释规则存在分歧 · 师傅",
+      "分析范围"
+    ],
+    "scope": "固定历史快照 · 独立假设记录",
+    "warning": null,
+    "sourceCollapsed": true
+  },
+  {
+    "case": "empty findings remain uncertain",
+    "headings": [
+      "已保存的假设分析",
+      "假设条件与临时排除",
+      "分析发现",
+      "分析范围"
+    ],
+    "scope": "固定历史快照 · 独立假设记录",
+    "warning": null,
+    "sourceCollapsed": true
+  },
+  {
+    "case": "light 330",
+    "inViewport": true,
+    "sourceReachable": true,
+    "text": "rgb(31, 41, 55)",
+    "background": "rgb(255, 255, 255)"
+  },
+  {
+    "case": "light 740",
+    "inViewport": true,
+    "sourceReachable": true,
+    "text": "rgb(31, 41, 55)",
+    "background": "rgb(255, 255, 255)"
+  },
+  {
+    "case": "dark 330",
+    "inViewport": true,
+    "sourceReachable": true,
+    "text": "rgb(238, 240, 244)",
+    "background": "rgb(25, 27, 32)"
+  },
+  {
+    "case": "dark 740",
+    "inViewport": true,
+    "sourceReachable": true,
+    "text": "rgb(238, 240, 244)",
+    "background": "rgb(25, 27, 32)"
+  }
+]
+`;

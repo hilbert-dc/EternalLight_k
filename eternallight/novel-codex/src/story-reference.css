@@ -1,0 +1,16 @@
+.story-reference { min-width: 0; }
+.story-reference .view-intro { display: flex; align-items: start; flex-wrap: wrap; gap: 12px; }
+.story-reference .view-intro > p { flex: 1; min-width: 180px; }
+.story-reference-list, .story-reference-group { display: grid; gap: 12px; min-width: 0; }
+.story-reference-group { margin-block: 20px; }
+.story-reference-group h3 { margin: 0; font-size: 16px; }
+.story-reference-card { display: grid; gap: 10px; padding: 16px 0; border-bottom: 1px solid var(--nc-border); min-width: 0; overflow-wrap: anywhere; }
+.story-reference-card header, .story-reference-actions, .story-reference-source { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.story-reference-card header strong { font-size: 14px; }
+.story-reference-card header span, .story-reference-source { font-size: 12px; color: var(--nc-ink-soft); }
+.story-reference p { margin: 0; line-height: 1.7; color: var(--nc-ink-soft); }
+.story-reference-card > button { justify-self: start; }
+.story-reference blockquote { margin: 0; padding-inline-start: 12px; border-inline-start: 2px solid var(--nc-border); white-space: pre-wrap; line-height: 1.8; }
+.story-reference-value { white-space: pre-wrap; }
+.story-reference [role="alert"] { color: var(--nc-red); }
+.story-reference button:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 3px; }

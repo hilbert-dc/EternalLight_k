@@ -1,0 +1,13 @@
+.composer-draft-notice {
+  margin: 0 0 10px;
+  padding: 0 6px;
+  color: var(--text-secondary, #62666f);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+:root[data-theme="dark"] .composer-draft-notice { color: #b3b5bc; }
+
+.composer-global { flex-direction: column; }
+.composer-send:disabled, .composer-steer:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }

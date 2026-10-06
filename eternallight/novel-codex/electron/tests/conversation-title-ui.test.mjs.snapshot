@@ -1,0 +1,46 @@
+exports[`actual App keeps conversation titles author-facing across naming, restore and project scopes 1`] = `
+{
+  "initial": {
+    "sidebar": [
+      "创作对话",
+      "已命名的创作对话"
+    ],
+    "history": [
+      "创作对话",
+      "已命名的创作对话"
+    ],
+    "subtitle": "只读对话记录 · —"
+  },
+  "namingWindow": {
+    "sidebar": [
+      "请检查这一章的线索",
+      "创作对话",
+      "已命名的创作对话"
+    ],
+    "history": [
+      "请检查这一章的线索",
+      "创作对话",
+      "已命名的创作对话"
+    ],
+    "detail": "请检查这一章的线索"
+  },
+  "named": {
+    "sidebar": "线索检查",
+    "history": "线索检查",
+    "detail": "线索检查"
+  },
+  "historyView": {
+    "detail": "创作对话",
+    "current": "线索检查"
+  },
+  "otherProject": {
+    "sidebar": [
+      "创作对话"
+    ],
+    "history": [
+      "创作对话"
+    ],
+    "detail": "创作对话"
+  }
+}
+`;
