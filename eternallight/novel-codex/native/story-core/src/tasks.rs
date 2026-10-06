@@ -124,6 +124,13 @@ impl SqliteStoryRepository {
         &mut self,
         request: CreateTaskRequest,
     ) -> Result<TaskRecord, RepositoryError> {
+        if request.operation == "assessChapterStructure" {
+            let target: serde_json::Value = serde_json::from_str(&request.target_json)
+                .map_err(|_| RepositoryError::TaskBindingInvalid)?;
+            if target.get("resumeStepId").is_none() {
+                return Err(RepositoryError::TaskOutputForbidden);
+            }
+        }
         let transaction = self
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -219,6 +226,7 @@ impl SqliteStoryRepository {
         task_id: &str,
         thread_id: &str,
         summary: String,
+        delivery_review: Option<serde_json::Value>,
         now: i64,
     ) -> Result<TaskRecord, RepositoryError> {
         let transaction = self
@@ -250,9 +258,14 @@ impl SqliteStoryRepository {
             task.input_revision,
         )?;
         crate::task_input::assert_task_inputs_current(&transaction, &task)?;
-        if task.operation == "advisory" {
+        if matches!(
+            task.operation.as_str(),
+            "advisory" | "assessChapterStructure"
+        ) {
             crate::task_intents::assert_no_pending_intent(&transaction, task_id)?;
         }
+        crate::work_decision_status::complete(&transaction, &task, delivery_review.as_ref())?;
+        crate::quality_notebook::complete_reader(&transaction, &task)?;
         if let Some(required) = &task.required_output_kind {
             let output = transaction
                 .query_row(
@@ -267,6 +280,19 @@ impl SqliteStoryRepository {
                 || (required == "draft" && output.2.as_deref() != Some("chapterComplete"))
             {
                 return Err(RepositoryError::TaskOutputMissing);
+            }
+            if task.operation == "generateChapter" {
+                let content: String = transaction.query_row(
+                    "SELECT content_json FROM story_revisions_v2 WHERE project_id=?1 AND revision_id=?2",
+                    params![project_id.as_str(), output.1],
+                    |row| row.get(/*idx*/0),
+                ).map_err(storage_error)?;
+                crate::planned_scene_mapping::validate(
+                    &transaction,
+                    &task,
+                    &content,
+                    output.2.as_deref(),
+                )?;
             }
         }
         if task.operation == "modelKnowledge" {
@@ -401,8 +427,13 @@ pub(crate) fn create_task_record(
             "task target and manifest must be objects".into(),
         ));
     }
+    // Retry diagnostics are derived from this step's persisted failure only.
+    manifest.as_object_mut().unwrap().remove("previousToolValidation");
     // Reject ambiguous lineage before looking up or freezing any author source.
     crate::task_attempts::validate_origin(&target)?;
+    if request.operation == "assessChapterStructure" {
+        crate::chapter_structure::validate(connection, request)?;
+    }
     if request.operation == "extractCommitments" {
         crate::commitment_extraction::validate_target(connection, &request.project_id, &target)?;
     }
@@ -476,6 +507,9 @@ pub(crate) fn create_task_record(
         }
     }
     crate::task_author_intent::freeze(connection, request, &target, &mut manifest)?;
+    if request.operation == "assessChapterStructure" {
+        crate::chapter_structure::freeze(connection, request, &mut manifest)?;
+    }
     crate::revision_repair::freeze(connection, request, &target, &mut manifest)?;
     crate::creative_methods::freeze(connection, request, &target, &mut manifest)?;
     connection
@@ -485,6 +519,7 @@ pub(crate) fn create_task_record(
         )
         .map_err(storage_error)?;
     crate::task_input::capture_task_inputs(connection, &request.task_id, &request.project_id)?;
+    crate::quality_notebook::bind_reader(connection, request)?;
     crate::task_attempts::attach_attempt(connection, request)?;
     if request.operation == "reviewPlanningSeat" {
         crate::planning_review_work::bind_claim(connection, request)?;
@@ -510,6 +545,12 @@ pub(crate) fn validate_task_write(
         project_revision,
     )?;
     crate::task_input::assert_task_inputs_current(connection, &task)?;
+    crate::planned_scene_mapping::validate(
+        connection,
+        &task,
+        content_json,
+        binding.completeness.as_deref(),
+    )?;
     crate::task_scope::validate_scoped_write(connection, &task, content_json)?;
     let Some(required) = &task.required_output_kind else {
         return Err(RepositoryError::TaskOutputForbidden);
@@ -583,6 +624,8 @@ pub(crate) fn operation_contract(
 ) -> Result<(&'static str, &'static str, Option<&'static str>), RepositoryError> {
     match operation {
         "advisory" => Ok(("advisory", "planner", None)),
+        "reviewQuality" => Ok(("qualityReading", "critic", None)),
+        "assessChapterStructure" => Ok(("chapterStructureAssessment", "critic", None)),
         "reviseCommitment" => Ok(("commitment", "critic", Some("commitment"))),
         "generateBrief" => Ok(("brief", "planner", Some("brief"))),
         "generatePropertyRules" => Ok(("propertyRules", "planner", Some("propertyRules"))),

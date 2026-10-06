@@ -101,6 +101,7 @@ pub fn build(
                 &task_id,
                 &thread_id,
                 "fixture published".into(),
+                None,
                 /*now*/ 4,
             )
             .unwrap();

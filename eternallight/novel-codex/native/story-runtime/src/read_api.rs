@@ -33,6 +33,9 @@ use crate::server::candidate_task;
 use crate::server::error;
 use crate::server::repository_error;
 
+#[path = "chapter_diff.rs"]
+mod chapter_diff;
+
 #[derive(Deserialize)]
 pub(crate) struct SearchQueryRequest {
     #[serde(default)]
@@ -635,75 +638,15 @@ pub(crate) async fn chapter_diffs(
     let accepted = head
         .accepted_revision_id
         .as_ref()
-        .and_then(|id| revision_body(&repository, id))
-        .unwrap_or_default();
+        .and_then(|id| revision_json(&repository, id))
+        .unwrap_or(Value::Null);
     let candidate = head
         .candidate_revision_id
         .as_ref()
-        .and_then(|id| revision_body(&repository, id))
-        .unwrap_or_default();
-    let diffs = if accepted == candidate || candidate.is_empty() {
-        vec![]
-    } else {
-        vec![json!({
-            "id": format!("diff-{chapter_id}"), "chapter_id": chapter_id,
-            "fromText": accepted, "toText": candidate,
-            "summary": "候选正文与正式正文不同",
-            "createdAt": null,
-            "addedChars": candidate.chars().count().saturating_sub(accepted.chars().count()),
-            "removedChars": accepted.chars().count().saturating_sub(candidate.chars().count())
-        })]
-    };
+        .and_then(|id| revision_json(&repository, id))
+        .unwrap_or(Value::Null);
+    let diffs = chapter_diff::diff(&chapter_id, &accepted, &candidate);
     Json(json!({"diffs": diffs})).into_response()
-}
-
-pub(crate) async fn story_tests(
-    State(state): State<RuntimeState>,
-    Path(project_id): Path<String>,
-) -> Response {
-    let (repository, project_id) = match open(&state, project_id) {
-        Ok(value) => value,
-        Err(response) => return *response,
-    };
-    let heads = match repository.object_heads(&project_id) {
-        Ok(value) => value,
-        Err(source) => return repository_error(source),
-    };
-    let chapters = match repository.chapters(&project_id) {
-        Ok(value) => value,
-        Err(source) => return repository_error(source),
-    };
-    let has_brief = find_head(&heads, "artifact-brief")
-        .and_then(selected_revision)
-        .is_some();
-    let has_outline = find_head(&heads, "artifact-outline")
-        .and_then(selected_revision)
-        .is_some();
-    let has_drafts = !chapters.is_empty();
-    let checks = vec![
-        check(
-            "brief-exists",
-            "作品简报已建立",
-            has_brief,
-            "先生成或保存 Brief。",
-            "warning",
-        ),
-        check(
-            "outline-exists",
-            "故事大纲已建立",
-            has_outline,
-            "先生成或保存 Outline。",
-            "warning",
-        ),
-        check(
-            "draft-exists",
-            "至少存在一个章节草稿",
-            has_drafts,
-            "生成章节后可执行正文检查。",
-            "warning",
-        ),
-    ];
-    Json(json!({"passed": checks.iter().all(|check| check["passed"] == true), "projectId": project_id.as_str(), "checks": checks})).into_response()
 }
 
 pub(crate) async fn export_project(
@@ -821,15 +764,4 @@ fn revision_json(repository: &SqliteStoryRepository, revision_id: &RevisionId) -
         .ok()
         .flatten()
         .and_then(|content| serde_json::from_str(&content).ok())
-}
-
-fn revision_body(repository: &SqliteStoryRepository, revision_id: &RevisionId) -> Option<String> {
-    revision_json(repository, revision_id)?
-        .get("body")?
-        .as_str()
-        .map(str::to_owned)
-}
-
-fn check(id: &str, label: &str, passed: bool, details: &str, severity: &str) -> Value {
-    json!({"id": id, "label": label, "passed": passed, "severity": severity, "details": details})
 }

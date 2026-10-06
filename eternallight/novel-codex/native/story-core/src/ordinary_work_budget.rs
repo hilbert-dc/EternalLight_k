@@ -42,7 +42,8 @@ impl SqliteStoryRepository {
         ).optional().map_err(storage_error)?;
         pending
             .map(|(task, status)| {
-                deadline(&read, project, work_id, &task)?.ok_or(RepositoryError::CorruptState)?;
+                authorization(&read, project, work_id, &task)?
+                    .ok_or(RepositoryError::CorruptState)?;
                 Ok(PendingProviderUsage {
                     task_id: task,
                     status,
@@ -63,7 +64,8 @@ impl SqliteStoryRepository {
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(storage_error)?;
-        deadline(&tx, project, work_id, task_id)?.ok_or(RepositoryError::TaskBindingInvalid)?;
+        authorization(&tx, project, work_id, task_id)?
+            .ok_or(RepositoryError::TaskBindingInvalid)?;
         let task = crate::tasks::load_task(&tx, task_id)?;
         if !matches!(task.status.as_str(), "completed" | "failed" | "cancelled") {
             return Err(RepositoryError::TaskBindingInvalid);
@@ -85,12 +87,12 @@ impl SqliteStoryRepository {
 
 /// Resolves the frozen authorization for an ordinary attempt after its allowance cutoff.
 /// An absent allowance is not permission to allocate a shared budget.
-pub(crate) fn deadline(
+pub(crate) fn authorization(
     db: &Connection,
     project: &ProjectId,
     work_id: &str,
     task_id: &str,
-) -> Result<Option<i64>, RepositoryError> {
+) -> Result<Option<WorkBudgetAuthorization>, RepositoryError> {
     let authorization: Option<(String, i64)> = db.query_row(
         "SELECT authorization_json,after_attempt_sequence FROM story_work_budget_authorizations_v1 WHERE work_task_id=?1",
         [work_id], |row| Ok((row.get(0)?,row.get(1)?)),
@@ -124,5 +126,5 @@ pub(crate) fn deadline(
     {
         return Err(RepositoryError::CorruptState);
     }
-    Ok(Some(authorization.deadline_at))
+    Ok(Some(authorization))
 }

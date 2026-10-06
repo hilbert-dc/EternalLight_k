@@ -117,7 +117,7 @@ fn recovery_commit_receipt_survives_reopen_and_replay_without_body_or_author_acc
         &project(),
         "task",
         "root",
-        "not persisted in recovery".into(),
+        "not persisted in recovery".into(), None,
         /*now*/ 30,
     )
     .unwrap();
@@ -189,7 +189,7 @@ fn recovery_pages_freeze_operation_states_task_status_and_scope_across_reopen() 
         )
         .unwrap();
     assert_eq!(first["complete"], false);
-    repo.complete_task(&project(), "task", "root", String::new(), /*now*/ 30)
+    repo.complete_task(&project(), "task", "root", String::new(), None, /*now*/ 30)
         .unwrap();
     drop(repo);
     let mut repo = SqliteStoryRepository::open(&path).unwrap();
@@ -459,9 +459,9 @@ fn planning_report_proof_is_stable_on_exact_replay_and_not_a_formal_acceptance()
             expected_version: 0,
             expected_project_revision: 0,
             expected_source_digest: source["digest"].as_str().unwrap().into(),
-            max_requests: 3,
-            max_tokens: 1000,
-            deadline_at: now + 600,
+            max_requests: Some(3),
+            max_tokens: Some(1000),
+            deadline_at: Some(now + 600),
         },
         now,
     )

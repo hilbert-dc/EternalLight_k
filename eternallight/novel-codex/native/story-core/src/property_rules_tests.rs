@@ -276,10 +276,6 @@ fn rule_authority_requires_a_formal_receipt_and_uncorrupted_accepted_content() {
         repository.task_property_rule_input(&input_task),
         Err(RepositoryError::CorruptState)
     );
-    assert_eq!(
-        repository.task_property_rule_page(&input_task, /*cursor*/ None),
-        Err(RepositoryError::CorruptState)
-    );
     repository
         .connection
         .execute(

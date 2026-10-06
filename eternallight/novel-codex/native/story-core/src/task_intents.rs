@@ -179,6 +179,11 @@ pub(crate) fn assert_action_intent(
     expected_intent_revision: i64,
 ) -> Result<(), RepositoryError> {
     let (current, pending) = intent_head(connection, task_id)?;
+    if !pending && expected_intent_revision > current {
+        return Err(RepositoryError::InvalidContent(format!(
+            "expectedIntentRevision {expected_intent_revision} has not been issued. Read authorIntentState.expectedIntentRevision from read_context (currently {current}); this is separate from the project revision."
+        )));
+    }
     if pending || current != expected_intent_revision {
         return Err(RepositoryError::TaskInputStale);
     }

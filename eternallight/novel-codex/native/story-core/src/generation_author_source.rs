@@ -36,7 +36,7 @@ fn history(state: &Value) -> Result<Vec<CreativeIntentRevision>, RepositoryError
         .ok_or(RepositoryError::CorruptState)?;
     if start < 1
         || end < start
-        || end - start > 2
+        || end - start >= crate::MAX_GENERATION_CHAPTERS
         || history.iter().any(|intent| {
             intent.effective_from_chapter < start || intent.effective_from_chapter > end
         })
@@ -61,9 +61,6 @@ fn source_messages<'a>(
     history: &'a [CreativeIntentRevision],
     decisions: &'a [GenerationFeedbackDecision],
 ) -> Result<Vec<SourceMessage<'a>>, RepositoryError> {
-    if decisions.len() > 9 {
-        return Err(RepositoryError::TaskBindingInvalid);
-    }
     for (index, decision) in decisions.iter().enumerate() {
         let has_author_note = !decision.instruction.trim().is_empty();
         if !crate::author_message::valid_id(&decision.id)
@@ -292,7 +289,13 @@ pub(crate) fn freeze(
     if request.operation == "generateChapter"
         && let Some(prompt) = state["feedbackRepairPrompt"].as_str()
     {
-        manifest["candidateInstruction"] = json!(prompt);
+        let instruction = manifest["candidateInstruction"].as_str().unwrap_or("");
+        manifest["candidateInstruction"] =
+            json!(if instruction.is_empty() || instruction == prompt {
+                prompt.to_owned()
+            } else {
+                format!("作者修订要求：{prompt}\n\n本次执行范围与方法：{instruction}")
+            });
     }
     Ok(())
 }
@@ -328,13 +331,18 @@ pub(crate) fn validate_task(
     let state: Value = serde_json::from_str(&payload).map_err(|_| RepositoryError::CorruptState)?;
     let history = validate_run(db, &task.project_id, &binding.run_id, &state)?;
     let chapter = match task.operation.as_str() {
+        "advisory" | "reviewQuality" => binding.chapter_number,
         "generateBrief" | "generateOutline" => state["startChapterNumber"]
             .as_i64()
             .ok_or(RepositoryError::CorruptState)?,
         "generatePlan" => target["planFromChapter"]
             .as_i64()
             .ok_or(RepositoryError::TaskBindingInvalid)?,
-        "generateChapter" | "modelKnowledge" | "extractCommitments" | "assessSceneOutcome" => {
+        "generateChapter"
+        | "modelKnowledge"
+        | "extractCommitments"
+        | "assessSceneOutcome"
+        | "assessRevisionOutcome" => {
             let id = target["chapterId"]
                 .as_str()
                 .ok_or(RepositoryError::TaskBindingInvalid)?;

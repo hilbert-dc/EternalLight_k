@@ -99,7 +99,10 @@ pub(crate) async fn request(
         }
         json!({"type": "chapter", "chapterId": chapter_id, "chapterNumber": chapter_number,
             "readingChapter": chapter_number, "sceneOrder": 1, "scope": scope})
-    } else if request.operation == "extractCommitments" {
+    } else if matches!(
+        request.operation.as_str(),
+        "extractCommitments" | "modelKnowledge"
+    ) {
         json!({"type":"chapter","chapterId":request.target["chapterId"],
             "chapterNumber":request.target["chapterNumber"],"sourceRevisionId":request.target["sourceRevisionId"]})
     } else if request.operation == "reviseCommitment" {
@@ -305,24 +308,6 @@ pub(crate) async fn decline(
         request.expected_intent_revision,
     ) {
         Ok(action) => Json(json!(action)).into_response(),
-        Err(source) => repository_error(source),
-    }
-}
-
-pub(crate) async fn next_step(
-    State(state): State<RuntimeState>,
-    Path((project_id, task_id)): Path<(String, String)>,
-) -> Response {
-    let project_id = match ProjectId::parse(project_id) {
-        Ok(id) => id,
-        Err(source) => return bad_request("invalid_project_id", source),
-    };
-    let repository = match SqliteStoryRepository::open(&state.database_path) {
-        Ok(repo) => repo,
-        Err(source) => return repository_error(source),
-    };
-    match repository.task_followup(&project_id, &task_id) {
-        Ok(action) => Json(json!({"action": action})).into_response(),
         Err(source) => repository_error(source),
     }
 }

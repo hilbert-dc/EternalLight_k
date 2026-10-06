@@ -244,6 +244,13 @@ pub(crate) async fn publish_batch(
                 "recovery": {"nextAction": "complete_task", "retryPublication": false}
             }})),
         ).into_response(),
+        Err(novel_codex_story_core::RepositoryError::InvalidContent(reason)) => {
+            if let Some(feedback) = evidence_feedback(&reason) {
+                (StatusCode::BAD_REQUEST, Json(feedback)).into_response()
+            } else {
+                repository_error(novel_codex_story_core::RepositoryError::InvalidContent(reason))
+            }
+        }
         Err(source) => repository_error(source),
     }
 }
@@ -358,4 +365,57 @@ fn open(
     let repository = SqliteStoryRepository::open(&state.database_path)
         .map_err(|source| Box::new(repository_error(source)))?;
     Ok((repository, project_id))
+}
+
+// These errors originate before publication, after checking the task's source.
+// Give the agent a repair contract without modifying its requested evidence.
+fn evidence_feedback(reason: &str) -> Option<Value> {
+    let (field, code) = reason.split_once(": ")?;
+    let instruction = match code {
+        "evidence_anchor_mismatch" | "evidence_anchor_invalid" | "evidence_anchor_incomplete" => {
+            "Use a verbatim unique quote with only {quote}; Runtime resolves its offsets. If the quote repeats, call resolve_story_evidence and use one exact returned match. Offsets count Unicode characters, not bytes or UTF-16 units."
+        }
+        "evidence_quote_not_found" => {
+            "Read the bound source and copy a verbatim quote, including punctuation and whitespace. Do not paraphrase evidence or reuse another revision's offsets."
+        }
+        "evidence_quote_ambiguous" => {
+            "Extend the verbatim quote until unique, or call resolve_story_evidence and choose the intended exact match. Do not guess offsets."
+        }
+        "evidence_shape_invalid" | "evidence_quote_invalid" => {
+            "Evidence requires a nonempty verbatim quote of at most 2000 Unicode characters. Only quote and optional paired start/end fields are allowed."
+        }
+        _ => return None,
+    };
+    Some(json!({"error": {
+        "code": "invalid_source_evidence", "message": reason,
+        "details": {"field": field, "reason": code, "publicationState": "rejected"},
+        "recovery": {"nextAction": "correct_evidence", "instruction": instruction,
+            "preserveValidEntries": true, "retryUnchanged": false}
+    }}))
+}
+
+#[cfg(test)]
+mod evidence_feedback_tests {
+    use super::*;
+
+    #[test]
+    fn evidence_error_identifies_the_failed_field_and_a_local_repair() {
+        let feedback =
+            evidence_feedback("assertions[3].evidence: evidence_anchor_mismatch").unwrap();
+        assert_eq!(
+            feedback["error"]["details"]["field"],
+            "assertions[3].evidence"
+        );
+        assert_eq!(feedback["error"]["details"]["publicationState"], "rejected");
+        assert_eq!(feedback["error"]["recovery"]["retryUnchanged"], false);
+        assert!(
+            feedback["error"]["recovery"]["instruction"]
+                .as_str()
+                .unwrap()
+                .contains("{quote}")
+        );
+        assert!(evidence_feedback("entities[0].evidence: evidence_quote_ambiguous").is_some());
+        assert!(evidence_feedback("task_input_stale").is_none());
+        assert!(evidence_feedback("assertions[3]: unknown_error").is_none());
+    }
 }

@@ -2044,7 +2044,7 @@ async fn confirmed_fact_creates_and_resolves_planning_impact() {
         &review_uri,
         Some(json!({
             "artifactKind": "draft", "revisionId": draft["revisionId"],
-            "proposals": [{"predicate": "lampDurationSeconds", "value": 47, "evidence": "Chapter 1"}],
+            "proposals": [{"sceneGroupId":draft["sceneGroups"][0]["id"],"predicate": "lampDurationSeconds", "value": 47, "evidence": "Forty-seven seconds."}],
             "selections": {}, "idempotencyKey": "impact-draft-review-1"
         })),
     )
@@ -2060,7 +2060,7 @@ async fn confirmed_fact_creates_and_resolves_planning_impact() {
         &accept_uri,
         Some(json!({
             "expectedRevision": 1, "idempotencyKey": "impact-draft-accept-1",
-            "selections": {"factDecisions": {fact_id: "confirmed"}}
+            "selections": {"sceneGroupIds":[draft["sceneGroups"][0]["id"]],"factDecisions": {fact_id: "confirmed"}}
         })),
     )
     .await;

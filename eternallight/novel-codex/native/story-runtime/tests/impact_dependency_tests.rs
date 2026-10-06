@@ -143,7 +143,7 @@ fn build(repository: &mut SqliteStoryRepository) -> (ProjectId, SnapshotId) {
                 &project,
                 &task,
                 &thread,
-                "published dependency evidence".into(),
+                "published dependency evidence".into(), None,
                 /*now*/ 4,
             )
             .unwrap();

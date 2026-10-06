@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -17,8 +17,64 @@ pub(crate) fn step_report(step: &QueryStep, mut value: Value) -> Result<Value, R
         QueryOperation::State { .. } => ("entries", value["coverage"].clone()),
         QueryOperation::Text { .. }
         | QueryOperation::Passages { .. }
+        | QueryOperation::WriterBaselinePassages { .. }
         | QueryOperation::Relations { .. } => ("results", value["coverage"].clone()),
     };
+    if matches!(step.operation, QueryOperation::ResolveEntity { .. }) {
+        let mut related = value["entries"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|entry| [entry["id"].as_str(), entry["canonicalId"].as_str()])
+            .flatten()
+            .collect::<BTreeSet<_>>();
+        let decisions = value["identityDecisions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        // Preserve the accepted same-identity chain, never infer identity from a name.
+        loop {
+            let before = related.len();
+            for decision in &decisions {
+                if decision["kind"] == "same" {
+                    let from = decision["fromId"]
+                        .as_str()
+                        .ok_or(RepositoryError::CorruptState)?;
+                    let to = decision["toId"]
+                        .as_str()
+                        .ok_or(RepositoryError::CorruptState)?;
+                    if related.contains(from) || related.contains(to) {
+                        related.extend([from, to]);
+                    }
+                }
+            }
+            if before == related.len() {
+                break;
+            }
+        }
+        coverage["identityDecisions"] = json!(
+            decisions
+                .into_iter()
+                .filter(|decision| {
+                    let (left, right) = if decision["kind"] == "same" {
+                        ("fromId", "toId")
+                    } else {
+                        ("leftId", "rightId")
+                    };
+                    decision[left]
+                        .as_str()
+                        .is_some_and(|id| related.contains(id))
+                        && decision[right]
+                            .as_str()
+                            .is_some_and(|id| related.contains(id))
+                })
+                .collect::<Vec<_>>()
+        );
+        coverage["identityDecisionScope"] = json!("returnedEntityClosure");
+        coverage["ambiguousNames"] = value["ambiguousNames"].clone();
+        coverage["ambiguityScanComplete"] = json!(value["truncated"] == false);
+    }
     if coverage["requiresDisambiguation"] == true {
         coverage["complete"] = json!(false);
     }

@@ -15,6 +15,7 @@ pub(crate) fn scene_plan_draft_links(
     drafts: &[Value],
     plan_from_chapter: i64,
     working_knowledge: Option<&Value>,
+    source_task: Option<&novel_codex_story_core::TaskRecord>,
 ) -> Result<ScenePlanLinks, RepositoryError> {
     let mut links = Vec::new();
     let mut event_limit_reached = false;
@@ -95,7 +96,7 @@ pub(crate) fn scene_plan_draft_links(
             })
             .collect::<Result<Vec<_>, RepositoryError>>()?;
         for scene in scenes {
-            if links.len() == 24 {
+            if source_task.is_none() && links.len() == 24 {
                 return Ok(ScenePlanLinks {
                     links,
                     scene_limit_reached: true,

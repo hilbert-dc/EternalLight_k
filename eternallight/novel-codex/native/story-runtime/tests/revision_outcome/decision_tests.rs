@@ -408,7 +408,8 @@ async fn stale_sources_reject_new_decisions_but_preserve_history_and_exact_repla
         assert!(status.is_client_error(), "{source}: {error}");
         assert_eq!(decide(&flow, request).await, saved);
         assert_eq!(database_snapshot(f), before);
-        let (_, report) = f.request("GET", &flow.path(), AUTHOR, Value::Null).await;
+        let (status, report) = f.request("GET", &flow.path(), AUTHOR, Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{source}: {report}");
         assert_eq!(
             report,
             json!({"revisionId":receipt["revisionId"],"authority":"candidateAnalysis",
@@ -444,4 +445,27 @@ async fn report_bounds_decision_history_to_twenty_newest_without_losing_replay_r
     assert_eq!(status, StatusCode::CREATED, "{replay}");
     assert_eq!(replay, decisions[0]);
     assert_eq!(database_snapshot(&flow.fixture), before);
+}
+
+#[tokio::test]
+async fn historical_report_requires_published_provenance_even_after_head_replacement() {
+    let (flow, _) = completed_outcome().await;
+    let f = &flow.fixture;
+    remodel(&flow).await;
+    let (status, report) = f.request("GET", &flow.path(), AUTHOR, Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+    assert_eq!(report["state"], "stale");
+
+    // A published batch may lose its current head, but an unpublished batch
+    // must never become valid historical evidence merely by sharing its IDs.
+    f.db()
+        .execute(
+            "UPDATE story_modeling_batches_v2 SET published_at=NULL WHERE batch_id=?1",
+            [flow.batch["id"].as_str().unwrap()],
+        )
+        .unwrap();
+    let before = database_snapshot(f);
+    let (status, error) = f.request("GET", &flow.path(), AUTHOR, Value::Null).await;
+    assert!(status.is_client_error(), "{error}");
+    assert_eq!(database_snapshot(f), before);
 }

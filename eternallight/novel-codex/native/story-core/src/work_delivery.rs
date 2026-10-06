@@ -28,6 +28,7 @@ pub struct WorkDeliveryEvidence {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkDeliveryReport {
+    pub delivery_review: Option<serde_json::Value>,
     pub evidence: Vec<WorkDeliveryEvidence>,
     pub pending_action_ids: Vec<String>,
     pub unsettled_attempt_ids: Vec<String>,
@@ -112,8 +113,13 @@ pub(crate) fn load(
 ) -> Result<WorkDeliveryReport, RepositoryError> {
     let mut evidence = Vec::new();
     for step in steps.iter().filter(|step| step.status != "superseded") {
-        let kind = if step.operation == "advisory" {
+        let kind = if matches!(
+            step.operation.as_str(),
+            "advisory" | "assessChapterStructure"
+        ) {
             "completionReport".to_owned()
+        } else if step.operation == "reviewPlanningSeat" {
+            "planningReview".to_owned()
         } else {
             step.expected_output_kind
                 .clone()
@@ -141,12 +147,48 @@ pub(crate) fn load(
             }
             item.state = WorkEvidenceState::Missing;
             if step.operation == "advisory" {
+                for id in crate::task_hypothesis::saved_evidence(db, &task)? {
+                    evidence.push(WorkDeliveryEvidence {
+                        step_id: step.id.clone(),
+                        attempt_id: Some(attempt_id.clone()),
+                        kind: "hypothesis".into(),
+                        reference_id: Some(id),
+                        state: WorkEvidenceState::Recorded,
+                    });
+                }
                 // complete_task(summary) is a completion declaration, not a stored
                 // final Agent reply. Never present it as verified reply delivery.
                 if task.status == "completed" && !task.result_summary.trim().is_empty() {
-                    item.reference_id = Some(task.task_id);
+                    item.reference_id = Some(task.task_id.clone());
                     item.state = WorkEvidenceState::Recorded;
                 }
+            } else if step.operation == "assessChapterStructure" {
+                crate::chapter_structure::assert_task(db, &task)?;
+                if task.status == "completed" && !task.result_summary.trim().is_empty() {
+                    item.reference_id = Some(task.task_id.clone());
+                    item.state = WorkEvidenceState::Recorded;
+                }
+            } else if step.operation == "reviewPlanningSeat" {
+                let manifest = serde_json::from_str(&task.input_manifest_json)
+                    .map_err(|_| RepositoryError::CorruptState)?;
+                let target = serde_json::from_str(&task.target_json)
+                    .map_err(|_| RepositoryError::CorruptState)?;
+                crate::planning_review_author_source::validate_task(db, &task, &manifest, &target)?;
+                item.reference_id = db.query_row("SELECT p.report_id FROM story_planning_review_reports_v2 p
+                    JOIN story_planning_review_runs_v2 r ON r.run_id=p.run_id AND r.project_id=?2 AND r.work_task_id=?3
+                    JOIN story_planning_review_seats_v2 seat ON seat.run_id=p.run_id AND seat.role=p.role AND seat.task_id=p.task_id
+                    WHERE p.task_id=?1 AND p.run_id=json_extract(?4,'$.reviewRunId') AND p.role=json_extract(?4,'$.role')
+                    AND r.revision_id=json_extract(?4,'$.revisionId') AND r.artifact_kind=json_extract(?4,'$.artifactKind')",
+                    params![attempt_id,project.as_str(),work_id,task.target_json], |row|row.get(0)).optional().map_err(storage_error)?;
+                if item.reference_id.is_some() {
+                    item.state = WorkEvidenceState::Recorded;
+                }
+            } else if step.operation == "reviewQuality" {
+                item.reference_id = db.query_row(
+                    "SELECT id FROM story_quality_packets_v1 WHERE project_id=?1 AND task_id=?2 AND id=json_extract(?3,'$.qualityPacketId') AND report_json IS NOT NULL AND json_extract(report_json,'$.taskId')=task_id",
+                    params![project.as_str(),attempt_id,task.target_json], |row| row.get(0),
+                ).optional().map_err(storage_error)?;
+                if item.reference_id.is_some() { item.state = WorkEvidenceState::Recorded; }
             } else if step.operation == "modelKnowledge" {
                 let batch: Option<(String, bool)> = db.query_row(
                     "SELECT b.batch_id,EXISTS(SELECT 1 FROM story_knowledge_heads_v2 k
@@ -219,7 +261,10 @@ pub(crate) fn load(
         .map_err(storage_error)?
         .map(|row| row.map_err(storage_error))
         .collect::<Result<_, _>>()?;
+    let delivery_review: Option<String> = db.query_row("SELECT r.content_json FROM story_work_delivery_reviews_v1 r JOIN story_work_steps_v1 s ON s.current_attempt_id=r.decision_task_id WHERE r.work_task_id=?1 ORDER BY s.ordinal DESC LIMIT 1", [work_id], |row| row.get(0)).optional().map_err(storage_error)?;
+    let delivery_review = delivery_review.map(|raw| serde_json::from_str(&raw).map_err(|_| RepositoryError::CorruptState)).transpose()?;
     Ok(WorkDeliveryReport {
+        delivery_review,
         evidence,
         pending_action_ids,
         unsettled_attempt_ids,

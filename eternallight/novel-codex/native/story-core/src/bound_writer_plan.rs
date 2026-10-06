@@ -79,14 +79,33 @@ pub(crate) fn validate_generation_writer_scope(
     let chapter_id = target["chapterId"]
         .as_str()
         .ok_or(RepositoryError::TaskBindingInvalid)?;
-    let plan = bound_chapter_plan_for_chapter(db, project_id, chapter_id)?
+    let number: i64 = db
+        .query_row(
+            "SELECT number FROM story_chapters_v2 WHERE project_id=?1 AND chapter_id=?2",
+            params![project_id.as_str(), chapter_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?
         .ok_or(RepositoryError::TaskBindingInvalid)?;
-    if target["chapterNumber"] != plan["chapterNumber"]
-        || target["readingChapter"] != plan["chapterNumber"]
+    let plan = bound_chapter_plan_for_chapter(db, project_id, chapter_id)?;
+    let expected_pov = plan
+        .as_ref()
+        .map(|p| &p["povCharacterId"])
+        .unwrap_or(&Value::Null);
+    let expected_time = plan
+        .as_ref()
+        .map(|p| &p["storyTime"])
+        .unwrap_or(&Value::Null);
+    let valid_scope = target["scope"] == serde_json::json!({"type":"wholeChapter"})
+        || (target["scope"]["type"] == "selectedScenes"
+            && crate::scene_revision::selection(target).is_ok());
+    if target["chapterNumber"] != number
+        || target["readingChapter"] != number
         || target["sceneOrder"] != 1
-        || target["scope"] != serde_json::json!({"type":"wholeChapter"})
-        || target["povCharacterId"] != plan["povCharacterId"]
-        || target["storyTime"] != plan["storyTime"]
+        || !valid_scope
+        || &target["povCharacterId"] != expected_pov
+        || &target["storyTime"] != expected_time
     {
         return Err(RepositoryError::TaskBindingInvalid);
     }
@@ -95,4 +114,62 @@ pub(crate) fn validate_generation_writer_scope(
 
 fn storage_error(error: rusqlite::Error) -> RepositoryError {
     RepositoryError::Storage(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{BranchId, ProjectRecord, SnapshotId};
+    use serde_json::json;
+
+    #[test]
+    fn optional_plan_never_hides_a_broken_binding_or_changes_a_bound_position() {
+        let mut repo = SqliteStoryRepository::in_memory().unwrap();
+        let project = ProjectId::parse("optional-plan-scope").unwrap();
+        repo.create_project(
+            ProjectRecord {
+                project_id: project.clone(),
+                title: "白塔".into(),
+                logline: String::new(),
+                created_at: 1,
+                updated_at: 1,
+            },
+            BranchId::parse("main").unwrap(),
+            SnapshotId::parse("initial").unwrap(),
+        )
+        .unwrap();
+        repo.connection.execute("INSERT INTO story_chapters_v2(chapter_id,project_id,number,title,status,summary) VALUES('chapter-one',?1,1,'来信','draft','')", [project.as_str()]).unwrap();
+        let mut target = json!({"chapterId":"chapter-one","chapterNumber":1,"readingChapter":1,
+            "sceneOrder":1,"scope":{"type":"wholeChapter"},"povCharacterId":null,"storyTime":null});
+        assert!(validate_generation_writer_scope(&repo.connection, &project, &target).is_ok());
+        target["scope"] = json!({"type":"selectedScenes","sourceRevisionId":"current-draft","groupIds":["letter"]});
+        assert!(validate_generation_writer_scope(&repo.connection, &project, &target).is_ok());
+        target["scope"]["groupIds"] = json!(["letter", "letter"]);
+        assert_eq!(
+            validate_generation_writer_scope(&repo.connection, &project, &target),
+            Err(RepositoryError::TaskBindingInvalid)
+        );
+        target["scope"] = json!({"type":"wholeChapter"});
+        target["chapterNumber"] = json!(2);
+        assert_eq!(
+            validate_generation_writer_scope(&repo.connection, &project, &target),
+            Err(RepositoryError::TaskBindingInvalid)
+        );
+        target["chapterNumber"] = json!(1);
+        let plan = json!({"payload":{"chapters":[{"chapterPlanId":"planned-one","chapterNumber":1,"povCharacterId":"lin","storyTime":7}]}});
+        repo.connection.execute("INSERT INTO story_revisions_v2(revision_id,project_id,object_id,object_kind,content_digest,content_json) VALUES('bound-plan',?1,'artifact-plan','plan','fixture',?2)", params![project.as_str(), plan.to_string()]).unwrap();
+        repo.connection.execute("INSERT INTO story_chapter_plan_bindings_v2(project_id,plan_revision_id,chapter_plan_id,chapter_id,created_at) VALUES(?1,'bound-plan','planned-one','chapter-one',1)", [project.as_str()]).unwrap();
+        assert_eq!(
+            validate_generation_writer_scope(&repo.connection, &project, &target),
+            Err(RepositoryError::TaskBindingInvalid)
+        );
+        target["povCharacterId"] = json!("lin");
+        target["storyTime"] = json!(7);
+        assert!(validate_generation_writer_scope(&repo.connection, &project, &target).is_ok());
+        repo.connection.execute("UPDATE story_chapter_plan_bindings_v2 SET chapter_plan_id='missing-entry' WHERE project_id=?1", [project.as_str()]).unwrap();
+        assert_eq!(
+            validate_generation_writer_scope(&repo.connection, &project, &target),
+            Err(RepositoryError::CorruptState)
+        );
+    }
 }

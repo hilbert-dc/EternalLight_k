@@ -45,6 +45,88 @@ async fn next_action(f: &Fixture, run: &Value) -> Value {
     next["action"].clone()
 }
 
+// Generation always asks the coordinator to choose the next authorized action.
+// Use the public protocol here so provenance and finite budgets cover the
+// coordinator as well as the selected plan/writer task.
+async fn settle_and_advance(f: &Fixture, run: &Value, task: &Value, grant: &Value) -> Value {
+    let mut budget = PersistentBudget::new(
+        &f.path().with_extension("engine.sqlite3"),
+        task["id"].as_str().unwrap(),
+        json!({"options":{"id":grant["budgetId"],
+            "maxRequests":grant["maxRequests"],"maxTokens":grant["maxTokens"],"startedAt":1000},
+            "now":1000}),
+    )
+    .unwrap();
+    budget.complete("completed").unwrap();
+    let (status, charged) = f
+        .request(
+            "POST",
+            &format!("{}/provider-usage", run_path(run)),
+            AUTHOR,
+            json!({"taskId":task["id"]}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{charged}");
+    let (status, advanced) = f
+        .request(
+            "POST",
+            &format!("{}/advance-task", run_path(run)),
+            AUTHOR,
+            json!({"expectedVersion":charged["version"],"taskId":task["id"]}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{advanced}");
+    advanced
+}
+
+async fn select_action(f: &Fixture, run: &Value, operation: &str) -> Value {
+    let action = next_action(f, run).await;
+    assert_eq!(action["operation"], "advisory");
+    let (_, workspace) = f
+        .request("GET", "/creative-workspace", AUTHOR, Value::Null)
+        .await;
+    let mut request = f.task_request("advisory", action["target"].clone());
+    request["inputRevision"] = workspace["revision"].clone();
+    let (status, parent) = f.request("POST", "/tasks", AUTHOR, request).await;
+    assert_eq!(status, StatusCode::CREATED, "{parent}");
+    let grant = f.grant(&parent).await;
+    let id = parent["id"].as_str().unwrap();
+    let thread = parent["threadId"].as_str().unwrap();
+    let revision = parent["inputRevision"].as_i64().unwrap();
+    let (status, read) = f
+        .request(
+            "GET",
+            &format!("/tasks/{id}/work-decision?threadId={thread}&expectedRevision={revision}"),
+            CANDIDATE,
+            Value::Null,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{read}");
+    let key = read["readyActions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["operation"] == operation)
+        .unwrap_or_else(|| panic!("missing {operation}: {read}"))["actionKey"]
+        .clone();
+    let (status, selected) = f
+        .request(
+            "POST",
+            &format!("/tasks/{id}/work-decision/actions"),
+            CANDIDATE,
+            json!({"taskId":id,"threadId":thread,"expectedRevision":revision,
+            "expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],
+            "actionKey":key,"instruction":"按作者授权继续一章，保持当前预算。",
+            "idempotencyKey":format!("choose-{operation}")}),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{selected}");
+    let (status, completed) = f.complete(&parent).await;
+    assert_eq!(status, StatusCode::OK, "{completed}");
+    settle_and_advance(f, run, &parent, &grant).await;
+    next_action(f, run).await
+}
+
 #[tokio::test]
 async fn accepted_origin_requires_separate_author_start_and_fresh_finite_budget() {
     let (flow, receipt) = completed_outcome().await;
@@ -283,7 +365,8 @@ async fn stale_source_blocks_creation_and_first_claim_but_keeps_the_frozen_relat
     // The current chapter remains ready for ordinary generation, but the report
     // refers to a superseded knowledge batch.
     remodel(&flow).await;
-    let (_, report) = f.request("GET", &flow.path(), AUTHOR, Value::Null).await;
+    let (status, report) = f.request("GET", &flow.path(), AUTHOR, Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{report}");
     assert_eq!(report["state"], "stale");
     assert_eq!(report["decisions"], json!([decision]));
     let before = database_snapshot(f);
@@ -357,7 +440,7 @@ async fn origin_and_author_bounds_are_immutable_and_history_survives_own_progres
         );
         assert_eq!(database_snapshot(f), before);
     }
-    let action = next_action(f, &run).await;
+    let action = select_action(f, &run, "generatePlan").await;
     assert_eq!(action["operation"], "generatePlan");
     let (status, task) = f
         .create_task(
@@ -385,35 +468,7 @@ async fn origin_and_author_bounds_are_immutable_and_history_survives_own_progres
     assert_eq!(status, StatusCode::CREATED, "{plan}");
     let (status, completed) = f.complete(&task).await;
     assert_eq!(status, StatusCode::OK, "{completed}");
-    // Generation usage is settled through its own Author endpoint, rather than
-    // the ordinary-work fixture's ledger transport.
-    let mut budget = PersistentBudget::new(
-        &f.path().with_extension("engine.sqlite3"),
-        task["id"].as_str().unwrap(),
-        json!({"options":{"id":grant["budgetId"],
-            "maxRequests":grant["maxRequests"],"maxTokens":grant["maxTokens"],"startedAt":1000},
-            "now":1000}),
-    )
-    .unwrap();
-    budget.complete("completed").unwrap();
-    let (status, charged) = f
-        .request(
-            "POST",
-            &format!("{}/provider-usage", run_path(&run)),
-            AUTHOR,
-            json!({"taskId":task["id"]}),
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK, "{charged}");
-    let (status, advanced) = f
-        .request(
-            "POST",
-            &format!("{}/advance-task", run_path(&run)),
-            AUTHOR,
-            json!({"expectedVersion":charged["version"],"taskId":task["id"]}),
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK, "{advanced}");
+    let advanced = settle_and_advance(f, &run, &task, &grant).await;
     assert_eq!(advanced["revisionPredecessor"], origin);
     assert_ne!(advanced["sourceDigest"], run["sourceDigest"]);
     assert_eq!(
@@ -421,18 +476,8 @@ async fn origin_and_author_bounds_are_immutable_and_history_survives_own_progres
         run["providerBudget"]["maxRequests"]
     );
     assert_eq!(advanced["maxTaskAttempts"], run["maxTaskAttempts"]);
-    assert_eq!(advanced["stage"], "materializeChapter");
-    let (status, materialized) = f
-        .request(
-            "POST",
-            &format!("{}/materialize", run_path(&run)),
-            AUTHOR,
-            json!({"expectedVersion":advanced["version"]}),
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK, "{materialized}");
-    assert_eq!(materialized["revisionPredecessor"], origin);
-    let action = next_action(f, &materialized).await;
+    assert_eq!(advanced["stage"], "coordinate");
+    let action = select_action(f, &advanced, "writeNextChapter").await;
     assert_eq!(action["operation"], "generateChapter");
     let (_, workspace) = f
         .request("GET", "/creative-workspace", AUTHOR, Value::Null)
@@ -446,7 +491,7 @@ async fn origin_and_author_bounds_are_immutable_and_history_survives_own_progres
     assert_eq!(status, StatusCode::CREATED, "{next}");
     let (_, persisted) = f.request("GET", &run_path(&run), AUTHOR, Value::Null).await;
     assert_eq!(persisted["revisionPredecessor"], origin);
-    assert_eq!(persisted["usedTaskAttempts"], 2);
+    assert_eq!(persisted["usedTaskAttempts"], 4);
     let (_, report) = f.request("GET", &flow.path(), AUTHOR, Value::Null).await;
     assert_eq!(report["decisions"], json!([changed, decision]));
     let (_, history) = f

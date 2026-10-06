@@ -1,9 +1,10 @@
 use serde_json::{Value, json};
 
 /// Remove only optional material. Frozen targets, plans, facts and modeling input stay intact;
-/// the caller rejects the pack if those mandatory items alone exceed the byte budget.
+/// the caller rejects the pack if mandatory items alone exceed its byte or model-item budget.
 pub(crate) fn fit_optional_context(pack: &mut Value, byte_limit: usize) {
-    while pack.to_string().len() + 200 > byte_limit {
+    while pack.to_string().len() + 200 > byte_limit || !crate::context_model_item_budget::fits(pack)
+    {
         if pack["candidateCommitmentProposals"]
             .as_array()
             .is_some_and(|entries| entries.len() > 1)

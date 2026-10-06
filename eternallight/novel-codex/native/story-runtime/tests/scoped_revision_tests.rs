@@ -167,6 +167,73 @@ async fn call(
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
+async fn read_context_source(
+    fixture: &Fixture,
+    task: &Value,
+    context: &Value,
+    path: &str,
+) -> Value {
+    assert_eq!(context["taskSources"]["readTool"], "read_task_source");
+    assert_eq!(context["taskSources"]["textDelivered"], false);
+    let source = context["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|source| source["sectionPath"] == path)
+        .expect("registered frozen source");
+    assert_eq!(
+        context.pointer(path).unwrap(),
+        &json!({"sourceId":source["sourceId"],"textDelivered":false})
+    );
+    let mut cursor = Value::Null;
+    let mut text = String::new();
+    loop {
+        let suffix = cursor
+            .as_str()
+            .map(|cursor| format!("&cursor={cursor}"))
+            .unwrap_or_default();
+        let (status, page) = call(
+            &fixture.app,
+            "GET",
+            &format!(
+                "{}/tasks/{}/task-source?threadId={}&expectedRevision={}&sourceId={}{suffix}",
+                fixture.root,
+                task["id"].as_str().unwrap(),
+                task["threadId"].as_str().unwrap(),
+                task["inputRevision"],
+                source["sourceId"].as_str().unwrap()
+            ),
+            CANDIDATE,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], source["sourceId"]);
+        assert_eq!(page["sectionPath"], path);
+        assert_eq!(page["contentHash"], source["contentHash"]);
+        assert_eq!(page["byteRange"]["start"], text.len());
+        let part = page["payloadPart"].as_str().unwrap();
+        assert!(!part.is_empty() && part.len() <= 2000);
+        assert!(page.to_string().len() <= 6500);
+        text.push_str(part);
+        assert_eq!(page["byteRange"]["end"], text.len());
+        cursor = page["nextCursor"].clone();
+        if cursor.is_null() {
+            assert_eq!(page["endOfInputFromCursor"], true);
+            assert_eq!(page["byteRange"]["total"], text.len());
+            break;
+        }
+        assert_eq!(page["endOfInputFromCursor"], false);
+        assert!(text.len() < source["payloadBytes"].as_u64().unwrap() as usize);
+    }
+    assert_eq!(source["payloadBytes"], text.len());
+    assert_eq!(
+        format!("{:x}", Sha256::digest(text.as_bytes())),
+        source["contentHash"].as_str().unwrap()
+    );
+    serde_json::from_str(&text).unwrap()
+}
+
 fn join_body(payload: &mut Value) {
     payload["body"] = json!(
         payload["sceneGroups"]
@@ -210,7 +277,10 @@ async fn modeling_reports_evidence_shape_and_allows_corrected_submission() {
     assert!(status.is_client_error());
     assert_eq!(
         error["error"],
-        json!({"code":"invalid_request", "message":"InvalidContent(\"evidence_shape_invalid\")", "details":{}, "recovery":null})
+        json!({"code":"invalid_source_evidence", "message":"entities[0].evidence: evidence_shape_invalid",
+            "details":{"field":"entities[0].evidence","reason":"evidence_shape_invalid","publicationState":"rejected"},
+            "recovery":{"nextAction":"correct_evidence","preserveValidEntries":true,"retryUnchanged":false,
+                "instruction":"Evidence requires a nonempty verbatim quote of at most 2000 Unicode characters. Only quote and optional paired start/end fields are allowed."}})
     );
     payload["entities"][0]["evidence"]
         .as_object_mut()
@@ -434,8 +504,9 @@ async fn conversation_local_revision_preserves_other_content_and_requests_modeli
     );
     let (status, context) = call(&fixture.app, "GET", &uri, CANDIDATE, /*body*/ None).await;
     assert_eq!(status, StatusCode::OK, "{context}");
+    let relevant_text = read_context_source(&fixture, &task, &context, "/relevantText").await;
     assert_eq!(
-        context["relevantText"][0]["content"]["sceneGroups"],
+        relevant_text[0]["content"]["sceneGroups"],
         fixture.original["sceneGroups"]
     );
     let before = fixture.workspace().await;
@@ -487,7 +558,7 @@ async fn conversation_local_revision_preserves_other_content_and_requests_modeli
     let (status, followup) = call(
         &fixture.app,
         "GET",
-        &format!("{}/tasks/{task_id}/next-step", fixture.root),
+        &format!("{}/chapters/chapter-one/next-step", fixture.root),
         AUTHOR,
         /*body*/ None,
     )
@@ -523,7 +594,7 @@ async fn conversation_local_revision_preserves_other_content_and_requests_modeli
     let (status, followup) = call(
         &fixture.app,
         "GET",
-        &format!("{}/tasks/{task_id}/next-step", fixture.root),
+        &format!("{}/chapters/chapter-one/next-step", fixture.root),
         AUTHOR,
         /*body*/ None,
     )

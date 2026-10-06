@@ -70,7 +70,10 @@ pub(crate) async fn control(
     Path((project_id, id)): Path<(String, String)>,
     Json(request): Json<ControlRequest>,
 ) -> Response {
-    if !matches!(request.command.as_str(), "pause" | "resume" | "cancel") {
+    if !matches!(
+        request.command.as_str(),
+        "pause" | "resume" | "cancel" | "recoverSavedResult"
+    ) {
         return error(
             StatusCode::BAD_REQUEST,
             "invalid_command",

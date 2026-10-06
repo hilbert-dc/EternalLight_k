@@ -382,6 +382,7 @@ async fn global_plan_cannot_be_used_by_a_writer_and_stales_after_source_change()
 
 #[tokio::test]
 async fn name_resolution_keeps_distinct_candidates_without_implicitly_querying_one() {
+    use pretty_assertions::assert_eq;
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("ambiguous-queries.sqlite3");
     let mut repository = SqliteStoryRepository::open(&path).unwrap();
@@ -435,16 +436,20 @@ async fn name_resolution_keeps_distinct_candidates_without_implicitly_querying_o
             &project,
             "ambiguity-modeling",
             "ambiguity-modeling",
-            "published".into(),
+            "published".into(), None,
             /*now*/ 7,
         )
         .unwrap();
-    let app = router(task_fixture::state(path, AUTHOR.into(), CANDIDATE.into()));
+    let app = router(task_fixture::state(
+        path.clone(),
+        AUTHOR.into(),
+        CANDIDATE.into(),
+    ));
     let id = task(&app, &project, "advisory", json!({"type":"project"})).await;
     let uri = format!("/api/projects/{project}/tasks/{id}/query");
     let body = json!({"threadId":"query-thread","expectedRevision":0,"plan":{"question":"同名人物是谁？","byteBudget":9000,"ranking":{"type":"literal"},
         "steps":[{"id":"identity","operation":{"type":"resolveEntity","name":name}}]}});
-    let (status, result) = call(&app, "POST", &uri, body, CANDIDATE).await;
+    let (status, result) = call(&app, "POST", &uri, body.clone(), CANDIDATE).await;
     assert_eq!(status, StatusCode::OK, "{result}");
     let ids = result["steps"][0]["results"]
         .as_array()
@@ -459,6 +464,149 @@ async fn name_resolution_keeps_distinct_candidates_without_implicitly_querying_o
     );
     assert_eq!(result["coverage"]["complete"], false);
     assert_eq!(result["steps"].as_array().unwrap().len(), 1);
+
+    assert_eq!(
+        result["steps"][0]["coverage"]["identityDecisions"],
+        json!([])
+    );
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 600;
+    let mut last_commit = String::new();
+    let mut identity_candidate = Value::Null;
+    for (revision, decisions) in [
+        (
+            0,
+            json!([{"kind":"distinct","leftId":"different-person","rightId":"person-0"}]),
+        ),
+        (
+            1,
+            json!([{"kind":"same","fromId":"different-person","toId":"person-0"}]),
+        ),
+    ] {
+        let (status, candidate) = call(&app,"POST",&format!("/api/projects/{project}/artifacts/identity"),
+            json!({"payload":{"decisions":decisions},"expectedRevision":revision,"expectedCandidateRevisionId":identity_candidate,
+                "idempotencyKey":format!("identity-{revision}")}),AUTHOR).await;
+        assert_eq!(status, StatusCode::CREATED, "{candidate}");
+        identity_candidate = candidate["revisionId"].clone();
+        let (status, review) = call(&app,"POST",&format!("/api/projects/{project}/reviews"),
+            json!({"artifactKind":"identity","revisionId":candidate["revisionId"],"proposals":[],"selections":{},
+                "idempotencyKey":format!("identity-review-{revision}")}),AUTHOR).await;
+        assert_eq!(status, StatusCode::CREATED, "{review}");
+        let (status, accepted) = call(&app,"POST",&format!("/api/projects/{project}/reviews/{}/accept",review["id"].as_str().unwrap()),
+            json!({"expectedRevision":revision,"idempotencyKey":format!("identity-accept-{revision}"),"selections":{}}),AUTHOR).await;
+        assert_eq!(status, StatusCode::OK, "{accepted}");
+        last_commit = accepted["commitId"].as_str().unwrap().to_owned();
+        let (status, fresh) = call(&app,"POST",&format!("/api/projects/{project}/tasks"),json!({
+            "operation":"advisory","inputRevision":revision+1,"threadId":"query-thread","target":{"type":"project"},
+            "authorIntent":"这两个同名人物是不是同一人？只核对，不修改",
+            "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":expires}),AUTHOR).await;
+        assert_eq!(status, StatusCode::CREATED, "{fresh}");
+        let query_uri = format!(
+            "/api/projects/{project}/tasks/{}/query",
+            fresh["id"].as_str().unwrap()
+        );
+        let mut request = body.clone();
+        request["expectedRevision"] = json!(revision + 1);
+        let before = repository
+            .branch_head(&project, &BranchId::parse("main").unwrap())
+            .unwrap();
+        let (status, answer) = call(&app, "POST", &query_uri, request, CANDIDATE).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        let coverage = &answer["steps"][0]["coverage"];
+        assert_eq!(coverage["identityDecisions"], decisions);
+        assert_eq!(coverage["identityRevisionId"], candidate["revisionId"]);
+        if revision == 0 {
+            assert_eq!(coverage["ambiguousNames"][0]["authorDecidedDistinct"], true);
+        } else {
+            assert_eq!(coverage["ambiguousNames"], json!([]));
+        }
+        assert_eq!(
+            repository
+                .branch_head(&project, &BranchId::parse("main").unwrap())
+                .unwrap(),
+            before
+        );
+        assert_eq!(
+            repository
+                .task(&project, fresh["id"].as_str().unwrap())
+                .unwrap()
+                .unwrap()
+                .output_refs_json,
+            "[]"
+        );
+        if revision == 1 {
+            let (status, writer) = call(&app,"POST",&format!("/api/projects/{project}/tasks"),json!({
+                "operation":"generateChapter","inputRevision":2,"threadId":"query-thread",
+                "target":{"chapterId":"chapter-2","chapterNumber":2,"readingChapter":2},
+                "authorIntent":"只续写第二章", "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":expires}),AUTHOR).await;
+            assert_eq!(status, StatusCode::CREATED, "{writer}");
+            let mut bounded = body.clone();
+            bounded["expectedRevision"] = json!(2);
+            let (status, answer) = call(
+                &app,
+                "POST",
+                &format!(
+                    "/api/projects/{project}/tasks/{}/query",
+                    writer["id"].as_str().unwrap()
+                ),
+                bounded,
+                CANDIDATE,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{answer}");
+            assert_eq!(
+                answer["steps"][0]["coverage"]["identityRevisionId"],
+                Value::Null
+            );
+            assert_eq!(
+                answer["steps"][0]["coverage"]["identityDecisions"],
+                json!([])
+            );
+            assert!(!answer.to_string().contains("different-person"));
+        }
+        assert_eq!(
+            call(&app, "POST", &uri, body.clone(), CANDIDATE).await.0,
+            StatusCode::CONFLICT
+        );
+    }
+    let (status, undone) = call(
+        &app,
+        "POST",
+        &format!("/api/projects/{project}/commits/{last_commit}/undo"),
+        json!({"expectedRevision":2,"idempotencyKey":"identity-query-undo"}),
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{undone}");
+    let (status, fresh) = call(&app,"POST",&format!("/api/projects/{project}/tasks"),json!({
+        "operation":"advisory","inputRevision":3,"threadId":"query-thread","target":{"type":"project"},
+        "authorIntent":"撤销后核对这两个同名人物", "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":expires}),AUTHOR).await;
+    assert_eq!(status, StatusCode::CREATED, "{fresh}");
+    let mut request = body;
+    request["expectedRevision"] = json!(3);
+    let (status, answer) = call(
+        &app,
+        "POST",
+        &format!(
+            "/api/projects/{project}/tasks/{}/query",
+            fresh["id"].as_str().unwrap()
+        ),
+        request,
+        CANDIDATE,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    assert_eq!(
+        answer["steps"][0]["coverage"]["identityDecisions"],
+        json!([{"kind":"distinct","leftId":"different-person","rightId":"person-0"}])
+    );
+    assert_eq!(
+        answer["steps"][0]["coverage"]["ambiguousNames"][0]["authorDecidedDistinct"],
+        true
+    );
 }
 
 #[tokio::test]

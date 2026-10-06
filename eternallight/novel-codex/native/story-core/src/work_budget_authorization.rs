@@ -10,19 +10,25 @@ pub struct WorkBudgetAuthorization {
     pub expected_version: i64,
     pub expected_project_revision: i64,
     pub expected_source_digest: String,
-    pub max_requests: u64,
-    pub max_tokens: u64,
-    pub deadline_at: i64,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub max_requests: Option<u64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub max_tokens: Option<u64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub deadline_at: Option<i64>,
 }
 
 impl WorkBudgetAuthorization {
     pub(crate) fn validate_limits(&self, now: i64) -> Result<(), RepositoryError> {
-        if self.max_requests == 0
-            || self.max_requests > 1024
-            || self.max_tokens == 0
-            || self.max_tokens > 16_000_000
-            || self.deadline_at <= now
-            || self.deadline_at.saturating_sub(now) > 86_400
+        if self
+            .max_requests
+            .is_some_and(|limit| limit == 0 || limit > 1024)
+            || self
+                .max_tokens
+                .is_some_and(|limit| limit == 0 || limit > 16_000_000)
+            || self
+                .deadline_at
+                .is_some_and(|deadline| deadline <= now || deadline.saturating_sub(now) > 86_400)
         {
             return Err(RepositoryError::InvalidContent(
                 "invalid work budget limits".into(),

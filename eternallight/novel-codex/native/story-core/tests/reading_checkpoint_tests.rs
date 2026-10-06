@@ -208,7 +208,7 @@ fn progress_survives_reopen_and_resume_without_old_credentials_or_novel_outputs(
             &project(),
             "second",
             "thread-second",
-            "仅完成本轮讨论".into(),
+            "仅完成本轮讨论".into(), None,
             20,
         )
         .unwrap();

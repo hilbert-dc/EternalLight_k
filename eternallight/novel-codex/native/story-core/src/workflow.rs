@@ -173,10 +173,30 @@ impl SqliteStoryRepository {
         } else {
             request.proposals_json.clone()
         };
+        let selections_json = if request.object_kind == "draft" {
+            let mut selections: serde_json::Value = serde_json::from_str(&request.selections_json)
+                .map_err(|_| RepositoryError::InvalidContent("invalid review selections".into()))?;
+            let fields = selections.as_object_mut().ok_or_else(|| {
+                RepositoryError::InvalidContent("review selections must be an object".into())
+            })?;
+            if fields.get("modelingBatchId").is_some_and(|batch| {
+                batch.as_str().is_none() || batch.as_str() != request.modeling_batch_id.as_deref()
+            }) {
+                return Err(RepositoryError::InvalidContent(
+                    "发布检查的分析批次与请求不一致".into(),
+                ));
+            }
+            if let Some(batch_id) = &request.modeling_batch_id {
+                fields.insert("modelingBatchId".into(), serde_json::json!(batch_id));
+            }
+            selections.to_string()
+        } else {
+            request.selections_json.clone()
+        };
         transaction
             .execute(
                 "INSERT INTO story_reviews_v2(review_id, project_id, object_id, object_kind, revision_id, project_revision, checks_json, proposals_json, selections_json, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'ready')",
-                params![request.review_id, request.project_id.as_str(), request.object_id.as_str(), request.object_kind, request.revision_id.as_str(), revision, request.checks_json, proposals_json, request.selections_json],
+                params![request.review_id, request.project_id.as_str(), request.object_id.as_str(), request.object_kind, request.revision_id.as_str(), revision, request.checks_json, proposals_json, selections_json],
             )
             .map_err(storage_error)?;
         transaction

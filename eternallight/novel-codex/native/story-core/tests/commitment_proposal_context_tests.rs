@@ -119,7 +119,7 @@ fn report(
         project,
         &bound.task_id,
         &bound.thread_id,
-        String::new(),
+        String::new(), None,
         /*now*/ 10,
     )
     .unwrap();
@@ -472,7 +472,7 @@ fn generated_plan_binds_exact_current_commitments_and_proposals_and_rolls_back_i
             &project,
             &bound.task_id,
             &bound.thread_id,
-            String::new(),
+            String::new(), None,
             /*now*/ 15
         )
         .unwrap()

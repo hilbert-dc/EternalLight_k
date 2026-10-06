@@ -25,6 +25,7 @@ use novel_codex_story_core::CommitId;
 use novel_codex_story_core::ContextSourceScope;
 use novel_codex_story_core::CreateReviewRequest;
 use novel_codex_story_core::CreateTaskRequest;
+use novel_codex_story_core::DelegationTargetSelection;
 use novel_codex_story_core::IdempotencyKey;
 use novel_codex_story_core::KnowledgePerspective;
 use novel_codex_story_core::KnowledgeStateQuery;
@@ -172,6 +173,7 @@ struct UpdateTaskHttpRequest {
 #[serde(rename_all = "camelCase")]
 struct CompleteTaskHttpRequest {
     thread_id: String,
+    delivery_review: Option<Value>,
     #[serde(default)]
     summary: String,
 }
@@ -224,6 +226,11 @@ struct ProjectResponse {
 
 pub fn router(state: RuntimeState) -> Router {
     let author = Router::new()
+        .route("/api/projects/{project_id}/conversations", get(crate::conversation_api::list).post(crate::conversation_api::create))
+        .route("/api/projects/{project_id}/conversations/{thread_id}", get(crate::conversation_api::read).patch(crate::conversation_api::update))
+        .route("/api/projects/{project_id}/quality-notebook", get(crate::quality_api::get).post(crate::quality_api::change))
+        .route("/api/projects/{project_id}/quality-packets/{packet_id}", get(crate::quality_api::packet))
+        .route("/api/projects/{project_id}/quality-packets/{packet_id}/review", get(crate::quality_api::review))
         .route(
             "/api/projects/{project_id}/revision-outcomes/{writer_task_id}",
             get(crate::revision_outcome_api::get),
@@ -303,18 +310,6 @@ pub fn router(state: RuntimeState) -> Router {
             axum::routing::post(crate::authoring_api::charge_provider_usage),
         )
         .route(
-            "/api/projects/{project_id}/generation-runs/{run_id}/materialize",
-            axum::routing::post(crate::authoring_api::materialize),
-        )
-        .route(
-            "/api/projects/{project_id}/generation-runs/{run_id}/check",
-            axum::routing::post(crate::authoring_api::check),
-        )
-        .route(
-            "/api/projects/{project_id}/generation-runs/{run_id}/skip-ready-extract",
-            axum::routing::post(crate::authoring_api::skip_ready_extract),
-        )
-        .route(
             "/api/projects/{project_id}/generation-runs/{run_id}/retry-failed-task",
             axum::routing::post(crate::authoring_api::retry_failed_task),
         )
@@ -329,10 +324,6 @@ pub fn router(state: RuntimeState) -> Router {
         .route(
             "/api/projects/{project_id}/search",
             get(crate::read_api::search),
-        )
-        .route(
-            "/api/projects/{project_id}/story-tests",
-            axum::routing::post(crate::read_api::story_tests),
         )
         .route(
             "/api/projects/{project_id}/chapters/{chapter_id}/diffs",
@@ -431,10 +422,6 @@ pub fn router(state: RuntimeState) -> Router {
             get(crate::modeling_outbox_api::list),
         )
         .route(
-            "/api/projects/{project_id}/modeling-outbox/dispatch",
-            axum::routing::post(crate::modeling_outbox_api::dispatch),
-        )
-        .route(
             "/api/projects/{project_id}/impacts/{impact_id}/resolve",
             axum::routing::post(crate::impact_api::resolve_impact),
         )
@@ -496,12 +483,32 @@ pub fn router(state: RuntimeState) -> Router {
             axum::routing::post(crate::chapter_api::rebind_plan),
         )
         .route(
+            "/api/projects/{project_id}/chapters/{chapter_id}/delete",
+            axum::routing::post(crate::chapter_deletion_api::delete),
+        )
+        .route(
+            "/api/projects/{project_id}/chapter-structure-changes",
+            get(crate::chapter_structure_api::list),
+        )
+        .route(
+            "/api/projects/{project_id}/chapter-structure-changes/{change_id}",
+            get(crate::chapter_structure_api::get),
+        )
+        .route(
             "/api/projects/{project_id}/commits/{commit_id}/undo",
             axum::routing::post(undo_commit),
         )
         .route(
             "/api/projects/{project_id}/tasks",
             axum::routing::post(create_task),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/capability/renew",
+            axum::routing::post(crate::task_capability_api::renew),
+        )
+        .route(
+            "/api/projects/{project_id}/threads/{thread_id}/author-messages",
+            axum::routing::post(crate::thread_author_api::read),
         )
         .route(
             "/api/projects/{project_id}/task-actions/proposed",
@@ -629,6 +636,10 @@ pub fn router(state: RuntimeState) -> Router {
             get(crate::task_action_api::list),
         )
         .route(
+            "/api/projects/{project_id}/tasks/{task_id}/generation-handoff",
+            get(crate::generation_handoff_api::read),
+        )
+        .route(
             "/api/projects/{project_id}/tasks/{task_id}/intents",
             get(crate::task_intent_api::list).post(crate::task_intent_api::append),
         )
@@ -639,10 +650,6 @@ pub fn router(state: RuntimeState) -> Router {
         .route(
             "/api/projects/{project_id}/tasks/{task_id}/intents/{intent_revision}/delivered",
             axum::routing::post(crate::task_intent_api::deliver),
-        )
-        .route(
-            "/api/projects/{project_id}/tasks/{task_id}/next-step",
-            get(crate::task_action_api::next_step),
         )
         .route(
             "/api/projects/{project_id}/chapters/{chapter_id}/next-step",
@@ -661,6 +668,10 @@ pub fn router(state: RuntimeState) -> Router {
             get(crate::action_permission_api::read),
         )
         .route(
+            "/api/projects/{project_id}/work-tasks/{work_id}/decision",
+            axum::routing::post(crate::work_decision_api::prepare),
+        )
+        .route(
             "/api/projects/{project_id}/tasks/{task_id}/execution-scope/preview",
             axum::routing::post(crate::execution_scope_api::preview),
         )
@@ -669,27 +680,49 @@ pub fn router(state: RuntimeState) -> Router {
             get(crate::execution_scope_api::read).post(crate::execution_scope_api::confirm),
         )
         .route(
-            "/api/projects/{project_id}/work-tasks/{work_id}/execution-scope/continue",
-            axum::routing::post(crate::execution_scope_api::continue_work),
-        )
-        .route(
             "/api/projects/{project_id}/tasks/{task_id}/actions/{action_id}/decline",
             axum::routing::post(crate::task_action_api::decline),
         )
         .merge(crate::condition_evaluation_api::routes())
+        .route(
+            "/api/projects/{project_id}/catalog",
+            get(crate::catalog_api::read).post(crate::catalog_api::update),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_author,
         ));
     let writer = Router::new()
         .route(
+            "/api/projects/{project_id}/tasks/{task_id}/work-decision",
+            axum::routing::get(crate::work_decision_api::read),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/work-decision/actions",
+            axum::routing::post(crate::work_decision_api::select),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/planning-reviews",
+            axum::routing::get(crate::task_planning_review_api::list)
+                .post(crate::task_planning_review_api::register),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/hypothesis",
+            axum::routing::post(crate::task_hypothesis_api::run),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/source-evidence",
+            axum::routing::post(crate::task_evidence_api::resolve),
+        )
+        .route(
             "/api/projects/{project_id}/revision-outcomes/{writer_task_id}",
             axum::routing::post(crate::revision_outcome_api::submit),
         )
         .route(
-            "/api/projects/{project_id}/tasks/{task_id}/property-rule-input",
-            get(crate::property_rule_input_api::read),
+            "/api/projects/{project_id}/tasks/{task_id}/task-source",
+            get(crate::task_source_api::read),
         )
+        .route("/api/projects/{project_id}/tasks/{task_id}/quality", axum::routing::post(crate::quality_api::task))
         .route(
             "/api/projects/{project_id}/commitments/{commitment_id}/task-input",
             get(crate::commitment_revision_api::read),
@@ -722,6 +755,10 @@ pub fn router(state: RuntimeState) -> Router {
             "/api/projects/{project_id}/planning-reviews/{run_id}/reports",
             axum::routing::post(crate::planning_review_api::submit_report),
         )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/chapter-structure-source",
+            axum::routing::post(crate::chapter_structure_api::source),
+        )
         .route("/api/projects/{project_id}/context", get(read_context))
         .route(
             "/api/projects/{project_id}/tasks/{task_id}/search",
@@ -730,6 +767,10 @@ pub fn router(state: RuntimeState) -> Router {
         .route(
             "/api/projects/{project_id}/tasks/{task_id}/query",
             axum::routing::post(crate::query_plan_api::execute),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/impact-analysis",
+            axum::routing::post(crate::task_impact_api::analyze),
         )
         .route(
             "/api/projects/{project_id}/tasks/{task_id}/reading-progress",
@@ -742,6 +783,10 @@ pub fn router(state: RuntimeState) -> Router {
         .route(
             "/api/projects/{project_id}/tasks/{task_id}/actions",
             axum::routing::post(crate::task_action_api::request),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/generation-handoff",
+            axum::routing::post(crate::generation_handoff_api::propose),
         )
         .route(
             "/api/projects/{project_id}/modeling-batches/{batch_id}/publish",
@@ -907,14 +952,12 @@ async fn read_context(
     Path(project_id): Path<String>,
     Extension(actor): Extension<Actor>,
     headers: HeaderMap,
-    Query(query): Query<ContextQuery>,
+    Query(mut query): Query<ContextQuery>,
 ) -> Response {
     if !matches!(query.purpose.as_str(), "planner" | "writer" | "critic")
         || query.budget == 0
         || query.budget > 100_000
         || !(4_000..=60_000).contains(&query.byte_budget)
-        || (query.purpose == "writer"
-            && (query.reading_chapter.is_none() || query.scene_order.is_none()))
     {
         return error(
             StatusCode::BAD_REQUEST,
@@ -957,12 +1000,28 @@ async fn read_context(
     {
         return repository_error(source);
     }
+    let writer_baseline = match task
+        .as_ref()
+        .map(|task| repository.task_writer_baseline(task))
+        .transpose()
+    {
+        Ok(source) => source.flatten(),
+        Err(source) => return repository_error(source),
+    };
     let writer_scene_limit =
         if let Some(task) = task.as_ref().filter(|task| task.purpose == "writer") {
             let target: Value = match serde_json::from_str(&task.target_json) {
                 Ok(value) => value,
                 Err(_) => return internal_error("Writer task target is corrupt"),
             };
+            query.reading_chapter = query
+                .reading_chapter
+                .or_else(|| target["readingChapter"].as_i64());
+            query.scene_order = query.scene_order.or_else(|| target["sceneOrder"].as_i64());
+            query.story_time = query.story_time.or_else(|| target["storyTime"].as_i64());
+            query.pov_character_id = query
+                .pov_character_id
+                .or_else(|| target["povCharacterId"].as_str().map(str::to_owned));
             if target["readingChapter"].as_i64() != query.reading_chapter
                 || target["sceneOrder"].as_i64() != query.scene_order
                 || target["storyTime"].as_i64() != query.story_time
@@ -984,6 +1043,18 @@ async fn read_context(
     let commitment_source_task = task
         .as_ref()
         .is_some_and(|task| task.operation == "extractCommitments");
+    let scene_assessment_task = task
+        .as_ref()
+        .filter(|task| task.operation == "assessSceneOutcome");
+    let chapter_structure_input = match task
+        .as_ref()
+        .filter(|task| task.operation == "assessChapterStructure")
+        .map(|task| repository.chapter_structure_context(task, unix_now()))
+        .transpose()
+    {
+        Ok(value) => value,
+        Err(source) => return repository_error(source),
+    };
     let revision_outcome_task = task
         .as_ref()
         .filter(|task| task.operation == "assessRevisionOutcome");
@@ -1002,11 +1073,16 @@ async fn read_context(
         Ok(value) => value.flatten(),
         Err(source) => return repository_error(source),
     };
-    let mandatory_input_bytes = revision_outcome_input
-        .iter()
-        .chain(revision_repair_input.iter())
-        .map(|input| input.to_string().len())
-        .sum::<usize>();
+    let mandatory_input_bytes = if task.is_some() {
+        0
+    } else {
+        revision_outcome_input
+            .iter()
+            .chain(revision_repair_input.iter())
+            .chain(chapter_structure_input.iter())
+            .map(|input| input.to_string().len())
+            .sum::<usize>()
+    };
     let assessment_chapter = task
         .as_ref()
         .filter(|task| {
@@ -1085,11 +1161,16 @@ async fn read_context(
         }
         Err(source) => return repository_error(source),
     };
-    let heads = match repository.object_heads(&project_id) {
-        Ok(value) => value,
-        Err(source) => return repository_error(source),
-    };
-    let working_baselines = match repository.working_baselines(&project_id) {
+    let (heads, working_baselines) = match task
+        .as_ref()
+        .map(|task| repository.task_context_origins(task))
+        .unwrap_or_else(|| {
+            repository.object_heads(&project_id).and_then(|heads| {
+                repository
+                    .working_baselines(&project_id)
+                    .map(|baselines| (heads, baselines))
+            })
+        }) {
         Ok(value) => value,
         Err(source) => return repository_error(source),
     };
@@ -1183,7 +1264,8 @@ async fn read_context(
             artifacts.insert("plan".into(), plan);
         }
     }
-    if commitment_source_task || revision_outcome_task.is_some() {
+    if commitment_source_task || revision_outcome_task.is_some() || scene_assessment_task.is_some()
+    {
         for value in artifacts.values_mut() {
             *value = Value::Null;
         }
@@ -1214,7 +1296,12 @@ async fn read_context(
     } else {
         HashSet::new()
     };
-    let draft_limit = query.budget.min(80);
+    // Transport budgets cannot change the material registered for a bound source.
+    let draft_limit = if task.is_some() {
+        80
+    } else {
+        query.budget.min(80)
+    };
     let mut scoped_chapters = chapters
         .iter()
         .filter(|chapter| {
@@ -1272,8 +1359,36 @@ async fn read_context(
         {
             return repository_error(source);
         }
-        let visible_bytes = value.to_string().len();
-        if used_bytes + visible_bytes > query.byte_budget.saturating_sub(2_000) {
+        let draft = json!({
+            "objectId": head.object_id.as_str(),
+            "sourceRevisionId": source.revision_id.as_str(),
+            "content": value,
+            "authority": source.authority,
+            "workingSelectionRevision": source.selection_revision
+        });
+        let draft = writer_baseline
+            .as_ref()
+            .filter(|baseline| baseline["objectId"] == draft["objectId"])
+            .cloned()
+            .unwrap_or(draft);
+        // Budget the model projection while retaining canonical text for source linking.
+        let mut projected_draft = draft.clone();
+        if task.is_some() {
+            projected_draft = json!({"objectId":draft["objectId"],"sourceRevisionId":draft["sourceRevisionId"],"textDelivered":false});
+        } else if scene_assessment_task.is_some()
+            || writer_baseline
+                .as_ref()
+                .is_some_and(|baseline| baseline["objectId"] == draft["objectId"])
+        {
+            match crate::context_assessment_source::project(&mut projected_draft) {
+                Ok(_) => {}
+                Err(source) => return repository_error(source),
+            }
+        } else {
+            crate::context_model_item_budget::project_text(&mut projected_draft);
+        }
+        let visible_bytes = projected_draft.to_string().len();
+        if task.is_none() && used_bytes + visible_bytes > query.byte_budget.saturating_sub(2_000) {
             if query.purpose == "writer" && query.reading_chapter == Some(chapter.number) {
                 return error(
                     StatusCode::UNPROCESSABLE_ENTITY,
@@ -1285,13 +1400,7 @@ async fn read_context(
             break;
         }
         used_bytes += visible_bytes;
-        draft_context.push(json!({
-            "objectId": head.object_id.as_str(),
-            "sourceRevisionId": source.revision_id.as_str(),
-            "content": value,
-            "authority": source.authority,
-            "workingSelectionRevision": source.selection_revision
-        }));
+        draft_context.push(draft);
     }
     if commitment_source_task
         && !draft_context.iter().any(|draft| {
@@ -1487,32 +1596,44 @@ async fn read_context(
             Ok(None) => return internal_error("Modeling batch source revision is missing"),
             Err(source) => return repository_error(source),
         };
-        if content.len() + mandatory_input_bytes > query.byte_budget.saturating_sub(2_000) {
+        let draft = match serde_json::from_str::<Value>(&content) {
+            Ok(value) => json!({
+                "objectId": batch["objectId"],
+                "sourceRevisionId": revision_id.as_str(),
+                "content": value,
+                "authority": "candidate"
+            }),
+            Err(_) => return internal_error("Modeling source revision is corrupt"),
+        };
+        let mut projected_draft = draft.clone();
+        crate::context_model_item_budget::project_text(&mut projected_draft);
+        let source_bytes = if task.is_some() {
+            128
+        } else {
+            projected_draft.to_string().len()
+        };
+        if source_bytes + mandatory_input_bytes > query.byte_budget.saturating_sub(2_000) {
             return error(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "modeling_source_too_large",
                 "Source draft exceeds the modeling context budget",
             );
         }
-        draft_context = match serde_json::from_str::<Value>(&content) {
-            Ok(value) => vec![json!({
-                "objectId": batch["objectId"],
-                "sourceRevisionId": revision_id.as_str(),
-                "content": value,
-                "authority": "candidate"
-            })],
-            Err(_) => return internal_error("Modeling source revision is corrupt"),
-        };
-        used_bytes = content.len() + mandatory_input_bytes;
+        draft_context = vec![draft];
+        used_bytes = source_bytes + mandatory_input_bytes;
         drafts_truncated = false;
     }
     let entity_catalog = if modeling_batch.is_some() {
         let report_bytes = query_report
             .as_ref()
             .map_or(0, |report| report.to_string().len());
-        let available = query
-            .byte_budget
-            .saturating_sub(used_bytes + report_bytes + 2_000);
+        let available = if task.is_some() {
+            64 * 1024 * 1024
+        } else {
+            query
+                .byte_budget
+                .saturating_sub(used_bytes + report_bytes + 2_000)
+        };
         let catalog = match query_scope_policy
             .as_ref()
             .and_then(|policy| policy["structuredThroughChapter"].as_i64())
@@ -1590,7 +1711,7 @@ async fn read_context(
             let before = entries.len();
             entries.retain(|entry| {
                 let size = entry.to_string().len();
-                if retained_bytes + size > available {
+                if task.is_none() && retained_bytes + size > available {
                     return false;
                 }
                 retained_bytes += size;
@@ -1615,6 +1736,27 @@ async fn read_context(
     } else {
         None
     };
+    if let Some(task) = scene_assessment_task {
+        let target: Value = match serde_json::from_str(&task.target_json) {
+            Ok(target) => target,
+            Err(_) => return repository_error(RepositoryError::CorruptState),
+        };
+        let Some(draft) = draft_context
+            .iter()
+            .find(|draft| draft["sourceRevisionId"] == target["draftRevisionId"])
+        else {
+            return error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "context_budget_exceeded",
+                "The frozen assessment source exceeds byteBudget; no target chapter text was delivered",
+            );
+        };
+        if draft["content"]["chapterId"] != target["chapterId"]
+            || draft["content"]["sourcePlanRefs"]["planRevisionId"] != target["planRevisionId"]
+        {
+            return repository_error(RepositoryError::TaskBindingInvalid);
+        }
+    }
     let scene_links = if let Some(last_completed_chapter) = rolling_plan_position
         && revision_outcome_task.is_none()
     {
@@ -1624,6 +1766,7 @@ async fn read_context(
             &draft_context,
             last_completed_chapter + 1,
             working_knowledge.as_ref(),
+            task.as_ref(),
         ) {
             Ok(links) => links,
             Err(source) => return repository_error(source),
@@ -1681,6 +1824,47 @@ async fn read_context(
             &draft_sources,
         );
     }
+    let delegation_targets = match task
+        .as_ref()
+        .map(|task| {
+            repository.task_delegation_targets(
+                task,
+                unix_now(),
+                query.reading_chapter.map_or(
+                    DelegationTargetSelection::Project,
+                    DelegationTargetSelection::ChapterNumber,
+                ),
+            )
+        })
+        .transpose()
+    {
+        Ok(value) => value.flatten(),
+        Err(source) => return repository_error(source),
+    };
+    // Scene links consume canonical text before the final transport projection.
+    let mut required_source_read = None;
+    for draft in &mut draft_context {
+        let writer_source = writer_baseline
+            .as_ref()
+            .is_some_and(|baseline| baseline["objectId"] == draft["objectId"]);
+        if task.is_some() {
+            crate::context_model_item_budget::project_text(draft);
+        } else if scene_assessment_task.is_some() || writer_source {
+            match crate::context_assessment_source::project(draft) {
+                Ok(mut source) => {
+                    if writer_source {
+                        source["plan"]["steps"][0]["id"] = json!("writer-baseline");
+                        source["plan"]["steps"][0]["operation"]["type"] =
+                            json!("writerBaselinePassages");
+                    }
+                    required_source_read = Some(source);
+                }
+                Err(source) => return repository_error(source),
+            }
+        } else {
+            crate::context_model_item_budget::project_text(draft);
+        }
+    }
     let mut context =
         crate::context_pack::build_context_pack(crate::context_pack::ContextPackInput {
             query_report,
@@ -1703,6 +1887,7 @@ async fn read_context(
                 "povCharacterId": query.pov_character_id
             }),
             task_target,
+            delegation_targets,
             input_manifest,
             title: project.title,
             logline: project.logline,
@@ -1732,7 +1917,36 @@ async fn read_context(
             byte_limit: query.byte_budget,
             entry_limit: query.budget,
         });
-    let has_mandatory_input = revision_outcome_input.is_some() || revision_repair_input.is_some();
+    if let Some(task) = task.as_ref().filter(|task| task.operation == "advisory") {
+        let intents = match repository.task_intents(&project_id, &task.task_id) {
+            Ok(intents) => intents,
+            Err(source) => return repository_error(source),
+        };
+        let latest = intents.last();
+        let pending = latest.is_some_and(|intent| intent.status == "pending");
+        context["authorIntentState"] = json!({
+            "expectedIntentRevision": latest.map_or(0, |intent| intent.intent_revision),
+            "canRequestActions": !pending,
+            "status": if pending { "pendingDelivery" } else { "current" }
+        });
+    }
+    let has_mandatory_input = revision_outcome_input.is_some()
+        || revision_repair_input.is_some()
+        || chapter_structure_input.is_some()
+        || required_source_read.is_some();
+    if let Some(source) = required_source_read {
+        context["operationContext"]["requiredSourceReads"] = source;
+        context["coverage"]["complete"] = json!(false);
+        let missing = context["coverage"]["missingScope"]
+            .as_array_mut()
+            .expect("missing scope array");
+        if !missing.iter().any(|entry| entry == "chapterText") {
+            missing.push(json!("chapterText"));
+        }
+    }
+    if let Some(input) = chapter_structure_input {
+        context["operationContext"]["chapterStructureChange"] = input;
+    }
     if let Some(input) = revision_outcome_input {
         if input["coverage"]["complete"] != true {
             context["coverage"]["complete"] = json!(false);
@@ -1750,7 +1964,19 @@ async fn read_context(
     if let Some(input) = revision_repair_input {
         context["operationContext"]["revisionRepairInput"] = input;
     }
-    if has_mandatory_input {
+    if let Some(task) = task.as_ref() {
+        match repository.task_generation_scene_feedback(task) {
+            Ok(Some(feedback)) => context["operationContext"]["generationSceneFeedback"] = feedback,
+            Ok(None) => (),
+            Err(source) => return repository_error(source),
+        }
+    }
+    if let Some(task) = task.as_ref()
+        && let Err(source) = repository.project_task_sources(task, &mut context)
+    {
+        return repository_error(source);
+    }
+    if has_mandatory_input || task.is_some() {
         // Source-bound inputs are mandatory. Fit and hash once after inserting both.
         crate::context_budget::fit_optional_context(&mut context, query.byte_budget);
         loop {
@@ -1771,6 +1997,13 @@ async fn read_context(
     let final_size = context["budgetsUsed"]["byteSize"]
         .as_u64()
         .unwrap_or(u64::MAX);
+    if !crate::context_model_item_budget::fits(&context) {
+        return error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "context_model_item_budget_exceeded",
+            "Required scoped context exceeds the model-item budget; no chapter text was delivered. Reduce optional budget or read authorized passages with query_story in the same frozen scope. Do not infer missing facts or complete reading from this error.",
+        );
+    }
     if final_size > query.byte_budget as u64 {
         return error(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -2352,7 +2585,7 @@ async fn complete_task(
         Ok(value) => value,
         Err(error) => return internal_error(error),
     };
-    let task = match candidate_task(
+    let task = match candidate_task_with_reader(
         &repository,
         actor,
         &headers,
@@ -2377,7 +2610,7 @@ async fn complete_task(
         &project_id,
         &task_id,
         &request.thread_id,
-        request.summary.chars().take(4_000).collect(),
+        request.summary.chars().take(4_000).collect(), request.delivery_review,
         unix_now(),
     ) {
         Ok(task) => Json(task_json(&task)).into_response(),
@@ -2558,29 +2791,37 @@ async fn save_draft_checkpoint(
                 Ok(bindings) => bindings,
                 Err(source) => return repository_error(source),
             };
-            let Some(binding) = bindings.iter().find(|binding| {
-                binding.chapter_id == chapter_id && binding.chapter_number == chapter_number
-            }) else {
-                return repository_error(RepositoryError::TaskBindingInvalid);
-            };
-            let plan_content = match RevisionId::parse(binding.plan_revision_id.clone()) {
-                Ok(id) => match repository.revision_content(&id) {
-                    Ok(Some(content)) => content,
-                    Ok(None) => return internal_error("Bound plan revision is missing"),
-                    Err(source) => return repository_error(source),
-                },
-                Err(_) => return internal_error("Bound plan revision is invalid"),
-            };
-            let plan: Value = match serde_json::from_str(&plan_content) {
-                Ok(value) => value,
-                Err(_) => return internal_error("Bound plan revision is corrupt"),
-            };
-            source_plan_refs = json!({
-                "lineageStatus": "current", "localOnly": false,
-                "planRevisionId": binding.plan_revision_id,
-                "chapterPlanId": binding.chapter_plan_id,
-                "outlineRevisionId": plan.get("payload").unwrap_or(&plan).get("sourceOutlineRevisionId")
-            });
+            if let Some(binding) = bindings.iter().find(|binding| binding.chapter_id == chapter_id) {
+                if binding.chapter_number != chapter_number {
+                    return repository_error(RepositoryError::TaskBindingInvalid);
+                }
+                // A present binding is authoritative, including its immutable chapter entry.
+                // The absence of a plan is an equally valid agent-selected writing strategy.
+                if let Err(source) = repository.bound_chapter_plan(&project_id, binding) {
+                    return repository_error(source);
+                }
+                let plan_content = match RevisionId::parse(binding.plan_revision_id.clone()) {
+                    Ok(id) => match repository.revision_content(&id) {
+                        Ok(Some(content)) => content,
+                        Ok(None) => return internal_error("Bound plan revision is missing"),
+                        Err(source) => return repository_error(source),
+                    },
+                    Err(_) => return internal_error("Bound plan revision is invalid"),
+                };
+                let plan: Value = match serde_json::from_str(&plan_content) {
+                    Ok(value) => value,
+                    Err(_) => return internal_error("Bound plan revision is corrupt"),
+                };
+                source_plan_refs = json!({
+                    "lineageStatus": "current", "localOnly": false,
+                    "planRevisionId": binding.plan_revision_id,
+                    "chapterPlanId": binding.chapter_plan_id,
+                    "outlineRevisionId": plan.get("payload").unwrap_or(&plan).get("sourceOutlineRevisionId")
+                });
+            } else {
+                // Model-supplied references cannot invent a plan for an unbound chapter.
+                source_plan_refs = json!({"localOnly": true, "lineageStatus": "historical"});
+            }
         }
     }
     if body.chars().count() > 120_000 {
@@ -2898,11 +3139,14 @@ async fn accept_review(
         Ok(value) => value,
         Err(error) => return bad_request("invalid_idempotency_key", error),
     };
-    let selections = if request.selections.is_object() {
-        request.selections
-    } else {
-        json!({})
-    };
+    if !request.selections.is_object() {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "invalid_selections",
+            "Review selections must be an object",
+        );
+    }
+    let selections = request.selections;
     let request_digest = digest(&json!({
         "reviewId": review_id,
         "expectedRevision": request.expected_revision,
@@ -3071,6 +3315,11 @@ async fn save_artifact(
         Ok(task) => task,
         Err(response) => return *response,
     };
+    if kind == "brief"
+        && let Err(message) = crate::brief_payload::validate(&request.payload)
+    {
+        return error(StatusCode::BAD_REQUEST, "invalid_brief_payload", message);
+    }
     if kind == "propertyRules"
         && actor != Actor::Author
         && task
@@ -3102,7 +3351,13 @@ async fn save_artifact(
         Some(revision_id) => {
             let content = match repository.revision_content(revision_id) {
                 Ok(Some(content)) => content,
-                Ok(None) => return repository_error(RepositoryError::CandidateNotFound),
+                Ok(None) => {
+                    return error(
+                        StatusCode::CONFLICT,
+                        "candidate_revision_conflict",
+                        "expectedCandidateRevisionId does not identify a saved revision. Copy the frozen manifest CAS or the last successful save receipt exactly. For a first save, use JSON null, not the string \"null\"; do not invent an ID.",
+                    );
+                }
                 Err(source) => return repository_error(source),
             };
             let previous: Value = match serde_json::from_str(&content) {
@@ -3237,9 +3492,14 @@ fn draft_revision(
         .ok_or(RepositoryError::CorruptState)?;
     let envelope: Value = serde_json::from_str(&content)
         .map_err(|error| RepositoryError::InvalidContent(error.to_string()))?;
+    let title = envelope
+        .get("title")
+        .and_then(Value::as_str)
+        .ok_or(RepositoryError::CorruptState)?;
     Ok(json!({
         "id": revision_id.as_str(),
         "chapterId": envelope["chapterId"],
+        "title": title,
         "version": envelope["version"],
         "parentRevisionId": null,
         "sourcePlanRefs": envelope["sourcePlanRefs"],
@@ -3325,6 +3585,23 @@ async fn require_writer(
 }
 
 pub(crate) fn candidate_task(
+    repository: &SqliteStoryRepository,
+    actor: Actor,
+    headers: &HeaderMap,
+    project_id: &ProjectId,
+    task_id: Option<&str>,
+    thread_id: Option<&str>,
+    expected_revision: Option<i64>,
+) -> Result<Option<TaskRecord>, Box<Response>> {
+    let task = candidate_task_with_reader(repository, actor, headers, project_id, task_id, thread_id, expected_revision)?;
+    if task.as_ref().is_some_and(|task| task.operation == "reviewQuality") {
+        return Err(Box::new(error(StatusCode::FORBIDDEN, "reader_packet_only", "Independent readers may only read their packet, save its report and complete the task")));
+    }
+    Ok(task)
+}
+
+// Only the quality endpoint and task completion may accept packet-only readers.
+pub(crate) fn candidate_task_with_reader(
     repository: &SqliteStoryRepository,
     actor: Actor,
     headers: &HeaderMap,
@@ -3514,10 +3791,12 @@ pub(crate) fn repository_error(source: RepositoryError) -> Response {
         | RepositoryError::CandidateNotFound
         | RepositoryError::ReviewNotFound
         | RepositoryError::CommitNotFound
+        | RepositoryError::ConversationNotFound
         | RepositoryError::TaskNotFound => {
             error(StatusCode::NOT_FOUND, "not_found", &source.to_string())
         }
         RepositoryError::StaleProjectRevision { .. }
+        | RepositoryError::ConversationStale { .. }
         | RepositoryError::AuthoringRunStale
         | RepositoryError::StaleKnowledgeManifest
         | RepositoryError::StaleCandidate { .. }

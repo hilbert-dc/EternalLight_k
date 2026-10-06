@@ -33,6 +33,17 @@ impl TaskQueryScope {
             "advisory" if target["type"] == "project" => Ok(Self::Project {
                 operation: task.operation.clone(),
             }),
+            "advisory" if crate::work_decision::binding(&repo.connection, task)?.is_some() => {
+                Ok(Self::Project {
+                    operation: task.operation.clone(),
+                })
+            }
+            "assessChapterStructure" => {
+                crate::chapter_structure::assert_task(&repo.connection, task)?;
+                Ok(Self::Project {
+                    operation: task.operation.clone(),
+                })
+            }
             "generateBrief"
             | "generateOutline"
             | "reviewPlanningSeat"
@@ -102,17 +113,19 @@ impl TaskQueryScope {
                 if target["chapterNumber"].as_i64() != Some(chapter) {
                     return Err(RepositoryError::TaskBindingInvalid);
                 }
-                let knowledge = repo.chapter_knowledge(
-                    &task.project_id,
-                    target["chapterId"]
-                        .as_str()
-                        .ok_or(RepositoryError::TaskBindingInvalid)?,
-                )?;
-                if knowledge["status"] != "ready"
-                    || knowledge["batchId"] != target["knowledgeBatchId"]
-                    || knowledge["sourceRevisionId"] != target["draftRevisionId"]
-                {
-                    return Err(RepositoryError::TaskInputStale);
+                if task.operation == "assessSceneOutcome" || !target["knowledgeBatchId"].is_null() {
+                    let knowledge = repo.chapter_knowledge(
+                        &task.project_id,
+                        target["chapterId"]
+                            .as_str()
+                            .ok_or(RepositoryError::TaskBindingInvalid)?,
+                    )?;
+                    if knowledge["status"] != "ready"
+                        || knowledge["batchId"] != target["knowledgeBatchId"]
+                        || knowledge["sourceRevisionId"] != target["draftRevisionId"]
+                    {
+                        return Err(RepositoryError::TaskInputStale);
+                    }
                 }
                 Ok(bounded(
                     chapter,
@@ -158,7 +171,7 @@ impl TaskQueryScope {
     pub fn policy(&self) -> Value {
         match self {
             Self::Project { operation } => {
-                json!({"scope":if operation == "advisory" {"advisoryProject"} else {"creativeProject"}, "operation":operation})
+                json!({"scope":if operation == "advisory" {"advisoryProject"} else if operation=="assessChapterStructure" {"chapterStructureAssessment"} else {"creativeProject"}, "operation":operation})
             }
             Self::Bounded(scope) => scope.policy(),
         }

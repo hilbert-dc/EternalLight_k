@@ -186,11 +186,71 @@ async fn rebind_interrupted_chapter(run_state: RebindRunState) {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{task}");
     let id = task["id"].as_str().unwrap();
+    let (_, before_invalid) = call(
+        &app,
+        "GET",
+        &format!("{root}/creative-workspace"),
+        AUTHOR,
+        /*payload*/ None,
+    )
+    .await;
+    // A full planned chapter without explicit mapping is rejected before any save.
+    let invalid = json!({"payload":{"chapterId":materialized["currentChapterId"],"chapterNumber":1,
+        "title":"信","body":"他烧掉密函。","completeness":"chapterComplete"},
+        "expectedRevision":revision,"expectedCandidateRevisionId":null,"idempotencyKey":"unmapped",
+        "taskId":id,"threadId":"draft"});
+    let (status, rejected) = call(
+        &app,
+        "POST",
+        &format!("{root}/drafts/checkpoints"),
+        CANDIDATE,
+        Some(invalid),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{rejected}");
+    assert!(
+        rejected["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Planned chapterComplete requires explicit sceneGroups")
+    );
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            &format!("{root}/creative-workspace"),
+            AUTHOR,
+            /*payload*/ None
+        )
+        .await,
+        (StatusCode::OK, before_invalid)
+    );
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let proof: (String, Option<String>, i64) = connection.query_row(
+        "SELECT state,receipt_ref,(SELECT COUNT(*) FROM story_task_outputs_v2 WHERE task_id=?1) FROM story_tool_operations_v1 WHERE task_id=?1 AND call_id='fixture-unmapped'",
+        [id], |row| Ok((row.get(/*idx*/ 0)?,row.get(/*idx*/ 1)?,row.get(/*idx*/ 2)?))).unwrap();
+    assert_eq!(proof, ("rejected".into(), None, 0));
+    drop(connection);
     let (status,saved) = call(&app,"POST",&format!("{root}/drafts/checkpoints"),CANDIDATE,Some(json!({
         "payload":{"chapterId":materialized["currentChapterId"],"chapterNumber":1,"title":"信","body":"他烧掉密函。",
           "sceneGroups":[{"id":"group-1","sceneId":"scene-1","body":"他烧掉密函。","locked":false}]},
         "expectedRevision":revision,"expectedCandidateRevisionId":null,"idempotencyKey":"draft","taskId":id,"threadId":"draft"}))).await;
     assert_eq!(status, StatusCode::CREATED, "{saved}");
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let proof: (String, String) = connection.query_row(
+        "SELECT state,receipt_ref FROM story_tool_operations_v1 WHERE task_id=?1 AND call_id='fixture-draft'",
+        [id], |row| Ok((row.get(/*idx*/ 0)?,row.get(/*idx*/ 1)?))).unwrap();
+    assert_eq!(
+        proof,
+        (
+            "committed".into(),
+            format!(
+                "runtime:candidate:{}",
+                saved["revisionId"].as_str().unwrap()
+            )
+        )
+    );
+    drop(connection);
     let (_, failed) = call(
         &app,
         "PATCH",
@@ -814,15 +874,33 @@ async fn call(
         body["expectedBaseSnapshotId"] = workspace["headSnapshotId"].clone();
         body["expectedSourceDigest"] = workspace["sourceDigest"].clone();
     }
+    let mut request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("authorization", format!("Bearer {actor}"))
+        .header("x-novel-task-capability", CAPABILITY)
+        .header("content-type", "application/json");
+    if actor == CANDIDATE && uri.ends_with("/drafts/checkpoints") {
+        let body = payload.as_ref().unwrap();
+        let thread = body["threadId"].as_str().unwrap();
+        request = request
+            .header("x-novel-tool-name", "save_draft_checkpoint")
+            .header("x-novel-root-thread", thread)
+            .header("x-novel-caller-thread", thread)
+            .header("x-novel-turn", "draft-turn")
+            .header(
+                "x-novel-tool-call",
+                format!("fixture-{}", body["idempotencyKey"].as_str().unwrap()),
+            )
+            .header(
+                "x-novel-request-hash",
+                format!("{:x}", Sha256::digest(body.to_string().as_bytes())),
+            );
+    }
     let response = app
         .clone()
         .author_fixture_request(
-            Request::builder()
-                .method(method)
-                .uri(uri)
-                .header("authorization", format!("Bearer {actor}"))
-                .header("x-novel-task-capability", CAPABILITY)
-                .header("content-type", "application/json")
+            request
                 .body(payload.map_or_else(Body::empty, |body| Body::from(body.to_string())))
                 .unwrap(),
         )

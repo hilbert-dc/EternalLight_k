@@ -87,9 +87,6 @@ async fn propose(
     value
 }
 
-#[path = "execution_scope/continuation_tests.rs"]
-mod continuation;
-
 #[tokio::test]
 async fn finite_scope_queues_covered_actions_once_without_enlarging_budget_or_authority() {
     for limit in [1, 2] {
@@ -100,7 +97,7 @@ async fn finite_scope_queues_covered_actions_once_without_enlarging_budget_or_au
             "{base}/tasks/{}/execution-scope",
             task["id"].as_str().unwrap()
         );
-        let request = json!({"actionIds":[first["id"]],"maxActions":limit,"maxTaskAttempts":2,"maxAdvisoryRounds":0,"expectedIntentRevision":0});
+        let request = json!({"actionIds":[first["id"]],"maxActions":limit,"maxTaskAttempts":2,"expectedIntentRevision":0});
         assert_eq!(
             call(
                 &path,
@@ -326,7 +323,7 @@ async fn stale_scope_preview_and_late_queue_failure_never_leave_partial_authorit
         "{base}/tasks/{}/execution-scope",
         task["id"].as_str().unwrap()
     );
-    let request = json!({"actionIds":[first["id"]],"maxActions":2,"maxTaskAttempts":8,"maxAdvisoryRounds":0,"expectedIntentRevision":0});
+    let request = json!({"actionIds":[first["id"]],"maxActions":2,"maxTaskAttempts":8,"expectedIntentRevision":0});
     let (_, old) = call(
         &path,
         "POST",
@@ -402,7 +399,7 @@ async fn finite_scope_cannot_cross_project_or_reactivate_paused_or_cancelled_wor
         let (base, task, first) = setup(&path).await;
         let source = task["id"].as_str().unwrap();
         let uri = format!("{base}/tasks/{source}/execution-scope");
-        let request = json!({"actionIds":[first["id"]],"maxActions":2,"maxTaskAttempts":8,"maxAdvisoryRounds":0,"expectedIntentRevision":0});
+        let request = json!({"actionIds":[first["id"]],"maxActions":2,"maxTaskAttempts":8,"expectedIntentRevision":0});
         let (status, preview) = call(
             &path,
             "POST",

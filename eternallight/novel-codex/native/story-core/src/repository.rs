@@ -78,6 +78,8 @@ pub enum RepositoryError {
     BranchNotFound,
     CandidateNotFound,
     CommitNotFound,
+    ConversationNotFound,
+    ConversationStale { expected: i64, actual: i64 },
     CorruptState,
     CrossProjectReference,
     DuplicateObjectRevision(ObjectId),

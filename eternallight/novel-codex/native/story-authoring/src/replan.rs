@@ -79,15 +79,11 @@ impl AuthoringService<'_> {
             )?;
             vec![ReplanStage::CurrentChapter]
         } else {
-            let position = self.repository.generation_start_position(project_id)?;
-            let mut stages = vec![ReplanStage::Brief];
-            if position.first_stage != "brief" {
-                stages.push(ReplanStage::Outline);
-            }
-            if position.first_stage == "rollingPlan" {
-                stages.push(ReplanStage::RollingPlan);
-            }
-            stages
+            vec![
+                ReplanStage::Brief,
+                ReplanStage::Outline,
+                ReplanStage::RollingPlan,
+            ]
         };
         if self.get(project_id, run_id)?.version != run.version
             || source_digest(self.repository, project_id)? != digest
@@ -108,27 +104,13 @@ impl AuthoringService<'_> {
         let chapter_replan = request.restart_from == ReplanStage::CurrentChapter;
         if run.version != request.expected_version
             || !matches!(run.status, RunStatus::Paused | RunStatus::Blocked)
-            || (!chapter_replan
-                && !matches!(
-                    run.stage,
-                    RunStage::Brief
-                        | RunStage::Outline
-                        | RunStage::RollingPlan
-                        | RunStage::MaterializeChapter
-                ))
-            || (chapter_replan
-                && !matches!(
-                    run.stage,
-                    RunStage::Draft
-                        | RunStage::Extract
-                        | RunStage::Commitments
-                        | RunStage::Assess
-                        | RunStage::Check
-                ))
+            || run.stage != RunStage::Coordinate
             || (!chapter_replan
                 && (run.current_chapter_id.is_some() || run.current_chapter_number.is_some()))
             || run.completed_chapters >= run.target_chapters
-            || request.now >= run.deadline_at
+            || run
+                .deadline_at
+                .is_some_and(|deadline| request.now >= deadline)
             || run.replans.len() >= 8
         {
             return Err(RepositoryError::AuthoringRunStale);
@@ -152,7 +134,7 @@ impl AuthoringService<'_> {
         {
             return Err(RepositoryError::TaskInputStale);
         }
-        let (stage, preparation_calls) = if chapter_replan {
+        if chapter_replan {
             let chapter_id = run
                 .current_chapter_id
                 .as_deref()
@@ -165,39 +147,21 @@ impl AuthoringService<'_> {
                 chapter_id,
                 run.completed_chapters + 1,
             )?;
-            (RunStage::Draft, -1)
-        } else {
-            let position = self
-                .repository
-                .generation_start_position(request.project_id)?;
-            if position.completed_chapters != run.completed_chapters {
-                return Err(RepositoryError::InvalidContent(
-                    "replanning must reconcile unfinished or externally added chapters first"
-                        .into(),
-                ));
-            }
-            let (stage, preparation_calls) = match request.restart_from {
-                ReplanStage::Brief => (RunStage::Brief, 2),
-                ReplanStage::Outline if position.first_stage != "brief" => (RunStage::Outline, 1),
-                ReplanStage::RollingPlan if position.first_stage == "rollingPlan" => {
-                    (RunStage::RollingPlan, 0)
-                }
-                ReplanStage::Outline | ReplanStage::RollingPlan => {
-                    return Err(RepositoryError::InvalidContent(
-                        "replanning cannot skip missing prerequisite artifacts".into(),
-                    ));
-                }
-                ReplanStage::CurrentChapter => return Err(RepositoryError::TaskBindingInvalid),
-            };
-            (stage, preparation_calls)
-        };
-        let required = (run.target_chapters - run.completed_chapters) * 5 + preparation_calls;
-        if run.max_task_attempts - run.used_task_attempts < required
-            || run.provider_budget.remaining_requests() < required as u64
+        } else if self
+            .repository
+            .generation_start_position(request.project_id)?
+            .completed_chapters
+            != run.completed_chapters
+        {
+            return Err(RepositoryError::TaskInputStale);
+        }
+        if run
+            .max_task_attempts
+            .is_some_and(|limit| run.used_task_attempts >= limit)
             || run.provider_budget.exhausted()
         {
             return Err(RepositoryError::InvalidContent(
-                "remaining generation budget cannot cover replanning".into(),
+                "remaining generation allowance is exhausted".into(),
             ));
         }
         let instruction = bounded_intent(&run, request.instruction)?;
@@ -229,7 +193,7 @@ impl AuthoringService<'_> {
                 created_at: request.now,
             },
         });
-        run.stage = stage;
+        run.stage = RunStage::Coordinate;
         run.active_task_id = None;
         run.pending_current_intent_generation = None;
         run.accepted_feedback_revision_id = None;

@@ -261,3 +261,28 @@ fn fields_and_positions_are_part_of_source_identity() {
     fit_report(&mut report, /*budget*/ 9000).unwrap();
     assert_eq!(report["evidence"].as_object().unwrap().len(), 4);
 }
+
+#[test]
+fn identity_projection_retains_only_related_accepted_chains_and_never_drops_decisions_for_budget() {
+    let definition: QueryStep = serde_json::from_value(
+        json!({"id":"identity","operation":{"type":"resolveEntity","name":"老周"}}),
+    )
+    .unwrap();
+    let accepted = json!([
+        {"kind":"same","fromId":"first","toId":"middle"},
+        {"kind":"same","fromId":"middle","toId":"last"},
+        {"kind":"distinct","leftId":"last","rightId":"other"}
+    ]);
+    let mut all = accepted.as_array().unwrap().clone();
+    all.push(json!({"kind":"distinct","leftId":"unrelated-one","rightId":"unrelated-two"}));
+    let projected = step_report(&definition,json!({"entries":[{"id":"first","canonicalId":"last","claims":[]},
+        {"id":"other","canonicalId":"other","claims":[]}],"identityRevisionId":"accepted-identity","identityDecisions":all,
+        "ambiguousNames":[{"name":"老周","authorDecidedDistinct":true}],"truncated":false})).unwrap();
+    assert_eq!(projected["coverage"]["identityDecisions"], accepted);
+    let mut result = report(vec![projected]);
+    assert!(fit_report(&mut result, /*budget*/ 1).is_err());
+    assert_eq!(
+        result["steps"][0]["coverage"]["identityDecisions"],
+        accepted
+    );
+}

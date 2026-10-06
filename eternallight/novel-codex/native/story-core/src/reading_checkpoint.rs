@@ -127,6 +127,9 @@ impl SqliteStoryRepository {
         request: &CheckpointReadingRequest,
         now: i64,
     ) -> Result<Value, RepositoryError> {
+        if task.operation == "assessChapterStructure" {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
         let cursor = passage_cursor(&request.plan)?;
         if request.summary.len() > 512
             || !(0..10000).contains(&request.expected_version)

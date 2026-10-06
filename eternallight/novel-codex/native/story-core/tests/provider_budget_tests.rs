@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 
 fn budget() -> ProviderBudget {
     ProviderBudget {
-        max_requests: 10,
-        max_tokens: 100,
+        max_requests: Some(10),
+        max_tokens: Some(100),
         used_requests: 0,
         used_tokens: 0,
         unknown_tokens: 0,
@@ -43,7 +43,7 @@ fn cumulative_usage_survives_reload_and_replay_without_refunding_unknown_cost() 
             account.remaining_tokens(),
             account.exhausted()
         ),
-        (9, 50, false)
+        (Some(9), Some(50), false)
     );
     account
         .charge_receipt("task-b", &receipt("task-b", "budget-b", 51, 0))
@@ -55,7 +55,7 @@ fn cumulative_usage_survives_reload_and_replay_without_refunding_unknown_cost() 
             account.exhausted(),
             account.overrun
         ),
-        (8, 0, true, true)
+        (Some(8), Some(0), true, true)
     );
     // A late terminal receipt must still be accounted after exhaustion.
     account
@@ -150,10 +150,11 @@ fn reloading_rejects_balance_refunds_and_duplicate_or_nonterminal_evidence() {
 }
 
 #[test]
-fn bounded_receipt_capacity_blocks_new_execution_before_cost_can_go_unrecorded() {
+fn metered_usage_survives_many_attempts_and_replay_without_an_execution_cap() {
     let mut account = budget();
-    account.max_requests = 100;
-    for index in 0..32 {
+    account.max_requests = None;
+    account.max_tokens = None;
+    for index in 0..40 {
         assert!(!account.exhausted());
         let task = format!("task-{index}");
         let id = format!("budget-{index}");
@@ -161,10 +162,10 @@ fn bounded_receipt_capacity_blocks_new_execution_before_cost_can_go_unrecorded()
             .charge_receipt(&task, &receipt(&task, &id, 0, 0))
             .unwrap();
     }
-    assert!(account.exhausted());
+    assert!(!account.exhausted());
     assert_eq!(
         (account.remaining_requests(), account.remaining_tokens()),
-        (68, 100)
+        (None, None)
     );
     let saved = account.clone();
     assert_eq!(

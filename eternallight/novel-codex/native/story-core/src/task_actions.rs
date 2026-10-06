@@ -25,6 +25,31 @@ impl SqliteStoryRepository {
         project_id: &ProjectId,
         source_task_id: &str,
         idempotency_key: &str,
+        action: TaskActionRequest,
+    ) -> Result<TaskActionRequest, RepositoryError> {
+        let task = crate::tasks::load_task(&self.connection, source_task_id)?;
+        let outcome = self.record_task_action_transaction(
+            project_id,
+            source_task_id,
+            idempotency_key,
+            action,
+        );
+        // A rejected proposal wrote neither a candidate nor an executable action.
+        // Settle that known result after rollback; storage failures remain unknown.
+        crate::recovery_operations::settle_prewrite_rejection(
+            self,
+            &task,
+            "request_candidate_task",
+            &outcome,
+        )?;
+        outcome
+    }
+
+    fn record_task_action_transaction(
+        &mut self,
+        project_id: &ProjectId,
+        source_task_id: &str,
+        idempotency_key: &str,
         mut action: TaskActionRequest,
     ) -> Result<TaskActionRequest, RepositoryError> {
         let tx = self
@@ -45,6 +70,12 @@ impl SqliteStoryRepository {
         ).optional().map_err(storage_error)?.ok_or(RepositoryError::TaskNotFound)?;
         if source.0 != "advisory" {
             return Err(RepositoryError::TaskBindingInvalid);
+        }
+        let source_task = crate::tasks::load_task(&tx, source_task_id)?;
+        let source_target: Value = serde_json::from_str(&source_task.target_json)
+            .map_err(|_| RepositoryError::CorruptState)?;
+        if source_target["conversationFocus"]["readOnly"].as_bool() == Some(true) {
+            return Err(RepositoryError::TaskOutputForbidden);
         }
         let requested_target_json = action.target.to_string();
         let existing = tx.query_row(
@@ -120,10 +151,22 @@ impl SqliteStoryRepository {
         if action.operation == "extractCommitments" {
             crate::commitment_extraction::validate_target(&tx, project_id, &action.target)?;
         }
+        if action.operation == "modelKnowledge" {
+            crate::modeling_action::validate_target(&tx, project_id, &action.target)?;
+        }
         if action.operation == "generateChapter" {
             crate::task_scope::writer_scene_limit(&action.target)?;
             crate::scene_revision::validate_target(&tx, project_id, &action.target)?;
             crate::revision_outcome::desired_outcomes(&action.target)?;
+        }
+        if crate::work_decision::binding(&tx, &task)?.is_some() {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
+        if action.operation == "modelKnowledge" {
+            let writer_pending: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM story_task_action_requests_v1 WHERE source_task_id=?1 AND operation='generateChapter' AND json_extract(target_json,'$.chapterId')=?2 AND status IN ('proposed','queued','running'))", params![source_task_id, action.target["chapterId"].as_str()], |row| row.get(/*idx*/0)).map_err(storage_error)?;
+            if writer_pending {
+                return Err(RepositoryError::InvalidContent("A pending chapter revision already includes knowledge modeling of its actual saved output; do not bind another action to the old draft".into()));
+            }
         }
         let target_json = action.target.to_string();
         if action.operation == "reviseCommitment" {
@@ -186,6 +229,10 @@ impl SqliteStoryRepository {
         if action.intent_revision != expected_intent_revision {
             return Err(RepositoryError::TaskBindingInvalid);
         }
+        let source = crate::tasks::load_task(&tx, source_task_id)?;
+        if crate::work_decision::binding(&tx, &source)?.is_some() {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
         if crate::task_action_permit::granted(&tx, project_id, &action)? {
             tx.commit().map_err(storage_error)?;
             return Ok(action);
@@ -217,7 +264,7 @@ impl SqliteStoryRepository {
             return Err(RepositoryError::TaskInputStale);
         }
         crate::task_intents::assert_action_intent(&tx, source_task_id, expected_intent_revision)?;
-        crate::task_input::assert_task_inputs_current(&tx, &source)?;
+        crate::task_input::assert_action_inputs_current(&tx, &source)?;
         let (parent, parent_status): (String, String) = tx.query_row(
             "SELECT s.work_task_id,t.status FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id JOIN story_work_tasks_v1 t ON t.id=s.work_task_id WHERE a.attempt_id=?1",
             [source_task_id],

@@ -157,7 +157,7 @@ fn bound_revision_checkpoints_complete_without_accepting_and_keep_the_original_r
         &project(),
         "discussion",
         "thread-discussion",
-        "登记候选".into(),
+        "登记候选".into(), None,
         /*now*/ 2,
     )
     .unwrap();
@@ -172,7 +172,7 @@ fn bound_revision_checkpoints_complete_without_accepting_and_keep_the_original_r
             &project(),
             "revise",
             "thread-revise",
-            String::new(),
+            String::new(), None,
             /*now*/ 3
         ),
         Err(RepositoryError::TaskOutputMissing)
@@ -199,7 +199,7 @@ fn bound_revision_checkpoints_complete_without_accepting_and_keep_the_original_r
             &project(),
             "revise",
             "thread-revise",
-            "候选已保存".into(),
+            "候选已保存".into(), None,
             /*now*/ 4,
         )
         .unwrap();

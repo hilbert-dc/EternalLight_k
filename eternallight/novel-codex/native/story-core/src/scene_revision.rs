@@ -54,7 +54,9 @@ pub(crate) fn validate_target(
     if current.as_ref().map(|(id, _)| id.as_str()) != Some(scope.source_revision_id.as_str()) {
         return Err(RepositoryError::TaskInputStale);
     }
-    if current.is_some_and(|(_, locked)| locked) || target.get("runId").is_some() {
+    // Generation authority is checked by claim_generation_run_for_task against the
+    // persisted decision and current chapter; narrowing to selected scenes adds no authority.
+    if current.is_some_and(|(_, locked)| locked) {
         return Err(RepositoryError::TaskBindingInvalid);
     }
     let base = load_base(db, project, target, &scope)?;

@@ -6,6 +6,54 @@ use novel_codex_story_core::{
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
+#[test]
+fn unsaved_selection_discussion_rejects_candidate_and_generation_authority() {
+    let mut fixture = Fixture::proposed("generateBrief", json!({"type":"artifact"}));
+    let request = fixture.request("unrelated", "advisory", json!({"type":"project",
+        "conversationFocus":{"view":"chapters","readOnly":true,"excerpts":[{"state":"unsaved","text":"未保存正文"}]}}));
+    fixture.repo.create_task(request).unwrap();
+    let task = fixture
+        .repo
+        .task(&fixture.project, "unrelated")
+        .unwrap()
+        .unwrap();
+    let action = TaskActionRequest {
+        id: "local-edit-action".into(),
+        source_task_id: "unrelated".into(),
+        operation: "generateBrief".into(),
+        target: json!({"type":"artifact"}),
+        instruction: "修改正文".into(),
+        input_revision: 0,
+        intent_revision: 0,
+        status: "proposed".into(),
+        result_task_id: None,
+        error: None,
+    };
+    assert_eq!(
+        fixture
+            .repo
+            .record_task_action(&fixture.project, "unrelated", "unsaved-action", action),
+        Err(RepositoryError::TaskOutputForbidden)
+    );
+    assert!(
+        fixture
+            .repo
+            .task_actions(&fixture.project, "unrelated")
+            .unwrap()
+            .is_empty()
+    );
+    let result = fixture.repo.propose_generation_handoff(
+        &task,
+        &novel_codex_story_core::GenerationHandoffRequest {
+            target_chapters: 1,
+            instruction: "继续写下一章".into(),
+            expected_intent_revision: 0,
+            idempotency_key: "unsaved-generation".into(),
+        },
+    );
+    assert!(matches!(result, Err(RepositoryError::TaskOutputForbidden)));
+}
+
 struct Fixture {
     repo: SqliteStoryRepository,
     project: ProjectId,
@@ -79,6 +127,7 @@ impl Fixture {
                 "source",
                 "thread-binding",
                 "done".into(),
+                None,
                 10,
             )
             .unwrap();
@@ -534,6 +583,7 @@ fn queued_action_claim_uses_its_own_preceding_output_as_the_next_source() {
             "discussion",
             "thread-binding",
             "ready".into(),
+            None,
             /*now*/ 10,
         )
         .unwrap();
@@ -556,6 +606,7 @@ fn queued_action_claim_uses_its_own_preceding_output_as_the_next_source() {
             "first-attempt",
             "thread-binding",
             "saved".into(),
+            None,
             /*now*/ 11,
         )
         .unwrap();
@@ -704,6 +755,7 @@ fn domain_completion_requires_a_claimed_completed_attempt_and_preserves_receipts
             "unrelated",
             "thread-binding",
             "done".into(),
+            None,
             11,
         )
         .unwrap();
@@ -743,6 +795,7 @@ fn domain_completion_requires_a_claimed_completed_attempt_and_preserves_receipts
             "child",
             "thread-binding",
             "draft done".into(),
+            None,
             12,
         )
         .unwrap();
@@ -839,4 +892,101 @@ fn failed_attempts_and_invalid_results_cannot_rewrite_action_evidence() {
         Err(RepositoryError::TaskBindingInvalid)
     ));
     assert_eq!(fixture.action(), failed);
+}
+
+#[test]
+fn sequential_candidate_approval_consumes_only_completed_sibling_receipts_and_freezes_new_sources()
+{
+    let mut fixture = Fixture::proposed("generateBrief", json!({"type":"artifact"}));
+    let mut root = fixture.request("unrelated", "advisory", json!({"type":"project"}));
+    root.task_id = "chain-root".into();
+    fixture.repo.create_task(root).unwrap();
+    for (id, operation) in [
+        ("chain-brief", "generateBrief"),
+        ("chain-outline", "generateOutline"),
+    ] {
+        fixture
+            .repo
+            .record_task_action(
+                &fixture.project,
+                "chain-root",
+                id,
+                TaskActionRequest {
+                    id: id.into(),
+                    source_task_id: "chain-root".into(),
+                    operation: operation.into(),
+                    target: json!({"type":"artifact"}),
+                    instruction: "生成可审阅候选，不采用".into(),
+                    input_revision: 0,
+                    intent_revision: 0,
+                    status: "proposed".into(),
+                    result_task_id: None,
+                    error: None,
+                },
+            )
+            .unwrap();
+    }
+    fixture
+        .repo
+        .complete_task(
+            &fixture.project,
+            "chain-root",
+            "thread-binding",
+            "登记候选链".into(),
+            None,
+            10,
+        )
+        .unwrap();
+    fixture
+        .repo
+        .approve_task_action(&fixture.project, "chain-root", "chain-brief", 0, 11)
+        .unwrap();
+    let mut child = fixture.request("child", "generateBrief", json!({"type":"artifact"}));
+    child.target_json = json!({"type":"artifact","requestedByTaskId":"chain-root","requestedActionId":"chain-brief"}).to_string();
+    fixture.repo.create_task(child).unwrap();
+    fixture.save_brief("child");
+    assert_eq!(
+        fixture
+            .repo
+            .approve_task_action(&fixture.project, "chain-root", "chain-outline", 0, 12),
+        Err(RepositoryError::TaskInputStale),
+        "a checkpoint is not a completed sibling"
+    );
+    fixture
+        .repo
+        .complete_task(
+            &fixture.project,
+            "child",
+            "thread-binding",
+            "保存简报".into(),
+            None,
+            13,
+        )
+        .unwrap();
+    let original = fixture
+        .repo
+        .task(&fixture.project, "chain-root")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        fixture.repo.assert_task_inputs_current(&original),
+        Err(RepositoryError::TaskInputStale),
+        "original frozen inputs are never silently rewritten"
+    );
+    fixture
+        .repo
+        .approve_task_action(&fixture.project, "chain-root", "chain-outline", 0, 14)
+        .unwrap();
+    let mut next = fixture.request("next", "generateOutline", json!({"type":"artifact"}));
+    next.target_json = json!({"type":"artifact","requestedByTaskId":"chain-root","requestedActionId":"chain-outline"}).to_string();
+    let next = fixture.repo.create_task(next).unwrap();
+    let (heads, _) = fixture.repo.task_context_origins(&next).unwrap();
+    assert!(heads.iter().any(|head| {
+        head.object_id.as_str() == "artifact-brief"
+            && head
+                .candidate_revision_id
+                .as_ref()
+                .map(|revision| revision.as_str())
+                == Some("revision-binding")
+    }));
 }

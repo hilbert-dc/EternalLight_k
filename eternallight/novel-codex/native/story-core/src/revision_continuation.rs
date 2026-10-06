@@ -38,7 +38,7 @@ fn validate_decision(
         &predecessor.assessment_revision_id,
     )?;
     if report["draftRevisionId"] != decision.draft_revision_id
-        || report["knowledgeBatchId"] != decision.knowledge_batch_id
+        || report["knowledgeBatchId"] != serde_json::json!(decision.knowledge_batch_id)
     {
         return Err(RepositoryError::TaskBindingInvalid);
     }

@@ -22,11 +22,16 @@ pub(crate) struct StartRequest {
     expected_source_digest: String,
     author_intent: String,
     revision_predecessor: Option<RevisionPredecessor>,
+    generation_proposal_id: Option<String>,
     target_chapters: i64,
-    max_task_attempts: i64,
-    max_provider_requests: u64,
-    max_provider_tokens: u64,
-    deadline_at: i64,
+    #[serde(deserialize_with = "novel_codex_story_core::deserialize_execution_limit")]
+    max_task_attempts: Option<i64>,
+    #[serde(deserialize_with = "novel_codex_story_core::deserialize_execution_limit")]
+    max_provider_requests: Option<u64>,
+    #[serde(deserialize_with = "novel_codex_story_core::deserialize_execution_limit")]
+    max_provider_tokens: Option<u64>,
+    #[serde(deserialize_with = "novel_codex_story_core::deserialize_execution_limit")]
+    deadline_at: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -222,6 +227,7 @@ pub(crate) async fn start(
         expected_source_digest: &request.expected_source_digest,
         author_intent: &request.author_intent,
         revision_predecessor: request.revision_predecessor,
+        generation_proposal_id: request.generation_proposal_id.as_deref(),
         target_chapters: request.target_chapters,
         max_task_attempts: request.max_task_attempts,
         max_provider_requests: request.max_provider_requests,
@@ -346,66 +352,6 @@ pub(crate) async fn advance_task(
         &run_id,
         request.expected_version,
         &request.task_id,
-        unix_now(),
-    ) {
-        Ok(run) => Json(json!(run)).into_response(),
-        Err(source) => repository_error(source),
-    }
-}
-
-pub(crate) async fn materialize(
-    State(state): State<RuntimeState>,
-    Path((project_id, run_id)): Path<(String, String)>,
-    Json(request): Json<StepRequest>,
-) -> Response {
-    let (mut repository, project_id) = match open(&state, project_id) {
-        Ok(value) => value,
-        Err(response) => return *response,
-    };
-    match AuthoringService::new(&mut repository).materialize_chapter(
-        &project_id,
-        &run_id,
-        request.expected_version,
-        unix_now(),
-    ) {
-        Ok(run) => Json(json!(run)).into_response(),
-        Err(source) => repository_error(source),
-    }
-}
-
-pub(crate) async fn check(
-    State(state): State<RuntimeState>,
-    Path((project_id, run_id)): Path<(String, String)>,
-    Json(request): Json<StepRequest>,
-) -> Response {
-    let (mut repository, project_id) = match open(&state, project_id) {
-        Ok(value) => value,
-        Err(response) => return *response,
-    };
-    match AuthoringService::new(&mut repository).check_knowledge(
-        &project_id,
-        &run_id,
-        request.expected_version,
-        unix_now(),
-    ) {
-        Ok(run) => Json(json!(run)).into_response(),
-        Err(source) => repository_error(source),
-    }
-}
-
-pub(crate) async fn skip_ready_extract(
-    State(state): State<RuntimeState>,
-    Path((project_id, run_id)): Path<(String, String)>,
-    Json(request): Json<StepRequest>,
-) -> Response {
-    let (mut repository, project_id) = match open(&state, project_id) {
-        Ok(value) => value,
-        Err(response) => return *response,
-    };
-    match AuthoringService::new(&mut repository).skip_ready_extract(
-        &project_id,
-        &run_id,
-        request.expected_version,
         unix_now(),
     ) {
         Ok(run) => Json(json!(run)).into_response(),

@@ -27,7 +27,7 @@ fn generation_check_cannot_commit_after_its_evaluated_story_source_changes() {
         .unwrap();
     let budget = json!({"maxRequests":10,"maxTokens":100,"usedRequests":0,"usedTokens":0,"unknownTokens":0,"overrun":false,"charges":[]});
     let evaluated_source = project_source_digest(&repository.connection, &project_id).unwrap();
-    let initial = json!({"id":"run-check","projectId":project_id.as_str(),"version":0,"status":"running","stage":"brief",
+    let initial = json!({"id":"run-check","projectId":project_id.as_str(),"version":0,"status":"running","stage":"coordinate",
         "authorMessageId":"message-run-check","intentGeneration":0,
         "feedbackDecisions":[], "intentRevisions":[{"id":"intent-check","generation":0,"instruction":"生成故事","effectiveFromChapter":1,"source":{"type":"authorMessage","authorMessageId":"message-run-check","createdAt":1}}],
         "sourceDigest":evaluated_source,"baseSnapshotId":"initial-snapshot","startChapterNumber":1,"completedChapters":0,"chapterDeliveries":[],"targetChapters":1,"maxTaskAttempts":7,"usedTaskAttempts":0,"deadlineAt":600,"providerBudget":budget});
@@ -145,7 +145,7 @@ fn claiming_generation_uses_validated_ledger_and_never_claims_a_refunded_balance
         .unwrap()
         .as_secs() as i64;
     let mut state = json!({
-        "id":"run-budget","projectId":project.as_str(),"version":0,"stage":"brief",
+        "id":"run-budget","projectId":project.as_str(),"version":0,"stage":"coordinate",
         "status":"running","activeTaskId":null,"stepToken":"token","intentGeneration":0,
         "authorMessageId":"message-run-budget","completedChapters":0,"chapterDeliveries":[],"startChapterNumber":1,"targetChapters":1,
         "feedbackDecisions":[], "intentRevisions":[{"id":"intent-budget","generation":0,"instruction":"预算测试","effectiveFromChapter":1,"source":{"type":"authorMessage","authorMessageId":"message-run-budget","createdAt":now}}],
@@ -174,8 +174,13 @@ fn claiming_generation_uses_validated_ledger_and_never_claims_a_refunded_balance
     ).unwrap();
     crate::generation_author_source::record(&repository.connection, &project, "run-budget", &state)
         .unwrap();
-    let target =
-        json!({"runId":"run-budget","runVersion":0,"stepToken":"token","intentGeneration":0});
+    let next = repository
+        .next_generation_decision(&project, "run-budget")
+        .unwrap();
+    assert_eq!(next["action"]["operation"], "advisory");
+    let target = next["action"]["target"].clone();
+    assert!(target["resumeStepId"].is_string());
+    assert_eq!(target["workDecision"]["workTaskId"], "work-run-budget");
     for field in ["usedRequests", "usedTokens", "unknownTokens"] {
         let mut corrupted = budget.clone();
         corrupted[field] = json!(0);
@@ -192,7 +197,7 @@ fn claiming_generation_uses_validated_ledger_and_never_claims_a_refunded_balance
                 &project,
                 "run-budget",
                 "task-next",
-                "generateBrief",
+                "advisory",
                 &target
             ),
             Err(RepositoryError::CorruptState)
@@ -219,7 +224,7 @@ fn claiming_generation_uses_validated_ledger_and_never_claims_a_refunded_balance
         &project,
         "run-budget",
         "task-next",
-        "generateBrief",
+        "advisory",
         &target,
     )
     .unwrap();
@@ -259,7 +264,7 @@ fn claiming_generation_uses_validated_ledger_and_never_claims_a_refunded_balance
             &project,
             "work-run-budget",
             "task-later",
-            i64::MAX,
+            Some(i64::MAX),
         ),
         Err(RepositoryError::TaskBindingInvalid)
     ));

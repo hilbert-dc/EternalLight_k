@@ -419,7 +419,7 @@ async fn setup(path: &std::path::Path) -> (String, String, String, Value) {
 fn finish(path: &std::path::Path, project: &str, task: &str) -> i64 {
     let mut repo = SqliteStoryRepository::open(path).unwrap();
     let project = ProjectId::parse(project).unwrap();
-    repo.complete_task(&project, task, "budget-thread", "分析完成".into(), 1)
+    repo.complete_task(&project, task, "budget-thread", "分析完成".into(), None, 1)
         .unwrap();
     repo.work_task_for_attempt(&project, task).unwrap().version
 }

@@ -19,7 +19,7 @@ async fn author_resume_after_published_model_failure_survives_runtime_restart() 
         project["project"]["id"].as_str().unwrap()
     );
     let workspace_uri = format!("{root}/creative-workspace");
-    runtime
+    let saved_source = runtime
         .post(
             &format!("{root}/drafts/checkpoints"),
             json!({
@@ -28,44 +28,36 @@ async fn author_resume_after_published_model_failure_survives_runtime_restart() 
             }),
         )
         .await;
-    // Make the debounce due without a wall-clock sleep; all state transitions
-    // below still go through production HTTP handlers and durable SQLite.
-    rusqlite::Connection::open(&runtime.path)
-        .unwrap()
-        .execute(
-            "UPDATE story_modeling_outbox_v1 SET first_dirty_ms=0,last_dirty_ms=0",
-            [],
+    let batch = runtime
+        .post(
+            &format!("{root}/modeling-batches"),
+            json!({
+                "objectId":"draft-chapter-one","sourceRevisionId":saved_source["revisionId"],
+                "expectedRevision":0,"extractorVersion":"author-request"
+            }),
         )
-        .unwrap();
-    let action = runtime
-        .post(&format!("{root}/modeling-outbox/dispatch"), json!({}))
         .await;
-    let work_uri = format!(
-        "{root}/work-tasks/{}",
-        action["action"]["workTaskId"].as_str().unwrap()
-    );
-    let work = runtime.get(&work_uri).await;
-    let mut target = work["steps"][0]["target"].clone();
-    target["resumeStepId"] = work["steps"][0]["id"].clone();
+    let target = json!({"batchId":batch["id"],"chapterId":"chapter-one"});
     let expires = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs()
         + 600;
     let workspace = runtime.get(&workspace_uri).await;
-    runtime.post(&format!("{work_uri}/budget-authorization"), json!({
-        "expectedVersion":work["version"],"expectedProjectRevision":0,"expectedSourceDigest":workspace["sourceDigest"],
-        "maxRequests":3,"maxTokens":700,"deadlineAt":expires
-    })).await;
-    let authorization = runtime
-        .get(&format!("{work_uri}/budget-authorization"))
-        .await;
     let task = runtime.post(&format!("{root}/tasks"), json!({
         "operation":"modelKnowledge","target":target,"inputRevision":0,"threadId":"model-root",
         "authorIntent":"分析已保存章节的知识","capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),
-        "capabilityExpiresAt":expires
+        "capabilityExpiresAt":expires,"initialBudget":{
+            "authorizationId":"recovery-model-budget","authorMessageId":"recovery-model-message",
+            "expectedBaseSnapshotId":workspace["headSnapshotId"],"expectedSourceDigest":workspace["sourceDigest"],
+            "maxRequests":3,"maxTokens":700,"deadlineAt":expires}
     })).await;
     let task_uri = format!("{root}/tasks/{}", task["id"].as_str().unwrap());
+    let work = runtime.get(&format!("{task_uri}/work-task")).await;
+    let work_uri = format!("{root}/work-tasks/{}", work["id"].as_str().unwrap());
+    let authorization = runtime
+        .get(&format!("{work_uri}/budget-authorization"))
+        .await;
     let grant = runtime.get(&format!("{task_uri}/provider-budget")).await;
     let batch_uri = format!(
         "{root}/modeling-batches/{}",
@@ -92,6 +84,10 @@ async fn author_resume_after_published_model_failure_survives_runtime_restart() 
         )
         .await;
     let blocked = runtime.get(&work_uri).await;
+    assert_eq!(blocked["resumeMode"], "recoverSavedResult");
+    assert_eq!(runtime.get(&format!("{task_uri}/work-task")).await, blocked);
+    let listed = runtime.get(&format!("{root}/work-tasks")).await;
+    assert_eq!(listed["tasks"][0], blocked);
     assert_eq!(
         (
             blocked["status"].clone(),
@@ -108,11 +104,12 @@ async fn author_resume_after_published_model_failure_survives_runtime_restart() 
         .post(
             &format!("{work_uri}/control"),
             json!({
-                "command":"resume","expectedVersion":blocked["version"]
+                "command":"recoverSavedResult","expectedVersion":blocked["version"]
             }),
         )
         .await;
     assert_eq!(restored["status"], "completed");
+    assert_eq!(restored["resumeMode"], Value::Null);
     assert_eq!(
         restored["steps"][0]["attempts"].as_array().unwrap().len(),
         1
@@ -158,85 +155,60 @@ async fn author_resume_after_published_model_failure_survives_runtime_restart() 
 async fn pause_fences_active_writer_checkpoint_and_completion() {
     let runtime = Runtime::new().await;
     let (root, uri) = runtime.start().await;
-    let next = runtime.advance_until(&root, &uri, "draft", BODY).await;
-    let task = runtime.claim(&root, &next["action"], "paused-writer").await;
-    let workspace_uri = format!("{root}/creative-workspace");
-    let workspace = runtime.get(&workspace_uri).await;
-    let mut request = json!({"payload":draft(task["target"]["chapterId"].clone(), BODY),
-        "expectedRevision":workspace["revision"],"expectedCandidateRevisionId":null,
-        "idempotencyKey":"before-pause","taskId":task["id"],"threadId":"paused-writer"});
+    let writer = runtime.writer(&root, &uri, "paused-writer").await;
     let saved = runtime
-        .candidate(&format!("{root}/drafts/checkpoints"), request.clone())
+        .save_writer(&root, &writer, BODY, "before-pause")
         .await;
-    let claimed = runtime.get(&uri).await;
+    let active = runtime.get(&uri).await;
     let paused = runtime
         .post(
             &format!("{uri}/control"),
-            json!({"expectedVersion":claimed["version"],"command":"pause"}),
+            json!({"expectedVersion":active["version"],"command":"pause"}),
         )
         .await;
-    assert_eq!(paused["status"], "paused");
-    let before = runtime.get(&workspace_uri).await;
-    request["expectedCandidateRevisionId"] = saved["revisionId"].clone();
-    request["idempotencyKey"] = json!("late-paused-checkpoint");
-    request["payload"] = draft(task["target"]["chapterId"].clone(), "林夕烧掉密函。");
-    let write = runtime
-        .call(
-            "POST",
-            &format!("{root}/drafts/checkpoints"),
-            CANDIDATE,
-            Some(request),
-        )
-        .await;
+    let before = runtime.get(&format!("{root}/creative-workspace")).await;
+    let write=runtime.call("POST",&format!("{root}/drafts/checkpoints"),CANDIDATE,Some(json!({
+        "payload":draft(writer["target"]["chapterId"].clone(),"林夕烧掉密函。"),"expectedRevision":before["revision"],
+        "expectedCandidateRevisionId":saved["revisionId"],"idempotencyKey":"late-paused-write","taskId":writer["id"],"threadId":"paused-writer"
+    }))).await;
     let completion = runtime
         .call(
             "POST",
-            &format!("{root}/tasks/{}/complete", task["id"].as_str().unwrap()),
+            &format!("{root}/tasks/{}/complete", writer["id"].as_str().unwrap()),
             CANDIDATE,
             Some(json!({"threadId":"paused-writer","summary":"迟到交付"})),
         )
         .await;
     assert!(
         write.0.is_client_error() && completion.0.is_client_error(),
-        "paused writes and completion must be rejected: checkpoint={}; completion={}",
-        write.0,
-        completion.0
+        "write={write:?};completion={completion:?}"
     );
-    assert_eq!(runtime.get(&workspace_uri).await, before);
+    assert_eq!(
+        runtime.get(&format!("{root}/creative-workspace")).await,
+        before
+    );
     assert_eq!(runtime.get(&uri).await, paused);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn paused_check_author_edit_replan_reopen_continue_and_cancel_preserve_lineage() {
-    let mut runtime = Runtime::new().await;
-    let (root, uri) = runtime.start().await;
-    let next = runtime.advance_until(&root, &uri, "check", BODY).await;
-    assert_eq!(next["action"]["kind"], "checkKnowledge");
-    let old_check = json!({"expectedVersion":next["run"]["version"]});
-    let tasks = runtime.get(&format!("{root}/creative-workspace")).await;
-    let old_writer = tasks["tasks"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|task| task["operation"] == "generateChapter")
-        .unwrap()
-        .clone();
+async fn pause_edit_replan(
+    runtime: &Runtime,
+    root: &str,
+    uri: &str,
+    body: &str,
+) -> (Value, Value, Value) {
+    let run = runtime.get(uri).await;
     let paused = runtime
         .post(
             &format!("{uri}/control"),
-            json!({"expectedVersion":next["run"]["version"],"command":"pause"}),
+            json!({"expectedVersion":run["version"],"command":"pause"}),
         )
         .await;
-    let work_uri = format!("{root}/work-tasks/work-{}", paused["id"].as_str().unwrap());
-    let old_work = runtime.get(&work_uri).await;
-    let workspace_uri = format!("{root}/creative-workspace");
-    let workspace = runtime.get(&workspace_uri).await;
-    let chapter = paused["currentChapterId"].clone();
-    let edited = runtime.post(&format!("{root}/drafts/checkpoints"), json!({
-        "payload":draft(chapter.clone(), "林夕看见灯光，藏好密函。"),"expectedRevision":workspace["revision"],
-        "expectedCandidateRevisionId":workspace["chapters"][0]["candidate"]["id"],"idempotencyKey":"author-edited-checkpoint"
+    let workspace = runtime.get(&format!("{root}/creative-workspace")).await;
+    let saved=runtime.post(&format!("{root}/drafts/checkpoints"),json!({
+        "payload":draft(paused["currentChapterId"].clone(),body),"expectedRevision":workspace["revision"],
+        "expectedCandidateRevisionId":workspace["chapters"][0]["candidate"]["id"],"idempotencyKey":"author-revised-source"
     })).await;
-    let authored = runtime.get(&workspace_uri).await;
+    let authored = runtime.get(&format!("{root}/creative-workspace")).await;
     assert_ne!(authored["sourceDigest"], paused["sourceDigest"]);
     assert!(
         runtime
@@ -250,56 +222,53 @@ async fn paused_check_author_edit_replan_reopen_continue_and_cancel_preserve_lin
             .0
             .is_client_error()
     );
-    assert_eq!(
-        runtime
-            .call(
-                "POST",
-                &format!("{uri}/check"),
-                AUTHOR,
-                Some(old_check.clone())
-            )
-            .await
-            .0,
-        StatusCode::CONFLICT
-    );
-    assert_eq!(runtime.get(&uri).await, paused);
+    assert_eq!(runtime.get(uri).await, paused);
     let preview = runtime.get(&format!("{uri}/replan")).await;
     assert_eq!(preview["availableFrom"], json!(["currentChapter"]));
-    let request = json!({"expectedVersion":preview["run"]["version"],"expectedProjectRevision":preview["projectRevision"],
-        "expectedSourceDigest":preview["sourceDigest"],"restartFrom":"currentChapter","instruction":"保留藏信改稿，补全本章"});
-    let replanned = runtime
-        .post(&format!("{uri}/replan"), request.clone())
-        .await;
+    let replanned=runtime.post(&format!("{uri}/replan"),json!({"expectedVersion":preview["run"]["version"],
+        "expectedProjectRevision":preview["projectRevision"],"expectedSourceDigest":preview["sourceDigest"],
+        "restartFrom":"currentChapter","instruction":"保留藏信改稿，补全本章"})).await;
     assert_eq!(allowance(&replanned), allowance(&paused));
-    assert_eq!(replanned["providerBudget"]["usedRequests"], 7);
-    assert_eq!(replanned["providerBudget"]["usedTokens"], 49);
-    assert_eq!(replanned["currentChapterId"], chapter);
-    assert_eq!(replanned["stage"], "draft");
     assert_eq!(replanned["intentGeneration"], 1);
+    assert_eq!(replanned["currentChapterId"], paused["currentChapterId"]);
+    assert_eq!(replanned["stage"], "coordinate");
     assert_eq!(replanned["sourceDigest"], authored["sourceDigest"]);
     assert_eq!(replanned["baseSnapshotId"], authored["headSnapshotId"]);
     assert_eq!(
-        replanned["replans"],
-        json!([{
-            "previousVersion":paused["version"],"previousStage":"check","previousTaskId":null,"restartFrom":"currentChapter",
-            "previousSourceDigest":paused["sourceDigest"],"previousSnapshotId":paused["baseSnapshotId"],
-            "sourceDigest":authored["sourceDigest"],"baseSnapshotId":authored["headSnapshotId"],"intentGeneration":1,
-            "createdAt":replanned["replans"][0]["createdAt"]
-        }])
+        replanned["replans"][0]["previousSourceDigest"],
+        paused["sourceDigest"]
     );
-    assert_eq!(runtime.get(&work_uri).await["steps"], old_work["steps"]);
-    assert_eq!(runtime.get(&workspace_uri).await, authored);
+    assert_eq!(
+        replanned["replans"][0]["previousSnapshotId"],
+        paused["baseSnapshotId"]
+    );
+    (paused, replanned, saved)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn paused_author_edit_replan_reopen_continue_and_cancel_preserve_lineage() {
+    let mut runtime = Runtime::new().await;
+    let (root, uri) = runtime.start().await;
+    let (old_writer, _) = runtime.saved_chapter(&root, &uri, BODY).await;
+    let work_uri = format!("{root}/work-tasks/work-{}", uri.rsplit('/').next().unwrap());
+    let original_work = runtime.get(&work_uri).await;
+    let (paused, replanned, edited) =
+        pause_edit_replan(&runtime, &root, &uri, "林夕看见灯光，藏好密函。").await;
     let repaused = runtime
         .post(
             &format!("{uri}/control"),
             json!({"expectedVersion":replanned["version"],"command":"pause"}),
         )
         .await;
-    let work_before_restart = runtime.get(&work_uri).await;
+    let workspace = runtime.get(&format!("{root}/creative-workspace")).await;
+    let work = runtime.get(&work_uri).await;
     runtime.restart().await;
     assert_eq!(runtime.get(&uri).await, repaused);
-    assert_eq!(runtime.get(&work_uri).await, work_before_restart);
-    assert_eq!(runtime.get(&workspace_uri).await, authored);
+    assert_eq!(runtime.get(&work_uri).await, work);
+    assert_eq!(
+        runtime.get(&format!("{root}/creative-workspace")).await,
+        workspace
+    );
     let resumed = runtime
         .post(
             &format!("{uri}/control"),
@@ -307,187 +276,108 @@ async fn paused_check_author_edit_replan_reopen_continue_and_cancel_preserve_lin
         )
         .await;
     assert_eq!(allowance(&resumed), allowance(&paused));
-    let fresh = runtime.post(&format!("{uri}/next"), json!({})).await;
-    assert_eq!(fresh["action"]["target"]["intentGeneration"], 1);
+    let writer = runtime.writer(&root, &uri, "continued-writer").await;
     assert!(
-        fresh["action"]["authorIntent"]
+        writer["inputManifest"]["authorIntent"]
             .as_str()
             .unwrap()
             .contains("保留藏信改稿")
     );
-    let writer = runtime
-        .claim(&root, &fresh["action"], "continued-writer")
-        .await;
     assert_eq!(
         writer["inputManifest"]["expectedCandidateRevisionId"],
         edited["revisionId"]
     );
-    assert_eq!(
-        writer["inputManifest"]["authorIntent"],
-        fresh["action"]["authorIntent"]
-    );
-    let before_late = runtime.get(&uri).await;
-    let before_late_workspace = runtime.get(&workspace_uri).await;
-    assert_eq!(before_late["usedTaskAttempts"], 8);
-    let mut output = json!({"payload":draft(chapter.clone(), "林夕藏好密函，循灯光走向白塔。"),
-        "expectedRevision":authored["revision"],"expectedCandidateRevisionId":edited["revisionId"],
-        "idempotencyKey":"continued-output","taskId":writer["id"],"threadId":"continued-writer"});
-    let mut late = output.clone();
-    late["taskId"] = old_writer["id"].clone();
-    late["threadId"] = old_writer["threadId"].clone();
-    late["idempotencyKey"] = json!("old-writer-output");
+    let resumed_workspace = runtime.get(&format!("{root}/creative-workspace")).await;
+    let mut source_before = workspace.clone();
+    let mut source_after = resumed_workspace.clone();
+    source_before.as_object_mut().unwrap().remove("tasks");
+    source_after.as_object_mut().unwrap().remove("tasks");
+    assert_eq!(source_after, source_before);
+    let tasks = resumed_workspace["tasks"].as_array().unwrap();
+    assert_eq!(tasks.len(), workspace["tasks"].as_array().unwrap().len() + 2);
+    assert!(tasks.iter().any(|task| task["id"] == writer["id"]));
+    let mut request = json!({"payload":draft(writer["target"]["chapterId"].clone(),"林夕藏好密函，循灯光走向白塔。"),
+        "expectedRevision":workspace["revision"],"expectedCandidateRevisionId":edited["revisionId"],"idempotencyKey":"old-writer-rejected",
+        "taskId":old_writer["id"],"threadId":old_writer["threadId"]});
+    let before = runtime.get(&uri).await;
     assert!(
         runtime
             .call(
                 "POST",
                 &format!("{root}/drafts/checkpoints"),
                 CANDIDATE,
-                Some(late)
+                Some(request.clone())
             )
             .await
             .0
             .is_client_error()
     );
+    assert_eq!(runtime.get(&uri).await, before);
     assert_eq!(
-        runtime
-            .call(
-                "POST",
-                &format!("{uri}/check"),
-                AUTHOR,
-                Some(old_check.clone())
-            )
-            .await
-            .0,
-        StatusCode::CONFLICT
+        runtime.get(&format!("{root}/creative-workspace")).await,
+        resumed_workspace
     );
-    assert_eq!(runtime.get(&uri).await, before_late);
-    assert_eq!(runtime.get(&workspace_uri).await, before_late_workspace);
-    let saved = runtime
-        .candidate(&format!("{root}/drafts/checkpoints"), output.clone())
-        .await;
-    let continued = runtime.get(&workspace_uri).await;
-    assert_eq!(
-        continued["chapters"][0]["candidate"]["body"],
-        output["payload"]["body"]
-    );
-    assert_eq!(continued["chapters"][0]["accepted"], Value::Null);
     let grant = runtime
         .get(&format!(
             "{root}/tasks/{}/provider-budget",
             writer["id"].as_str().unwrap()
         ))
         .await;
-    assert_eq!(grant["deadlineAt"], paused["deadlineAt"]);
-    assert_eq!(grant["maxRequests"], 57);
-    assert_eq!(grant["maxTokens"], 999_951);
-    runtime
-        .candidate(
-            &format!("{root}/tasks/{}/complete", writer["id"].as_str().unwrap()),
-            json!({"threadId":"continued-writer","summary":"作者改稿后的新意图已交付"}),
-        )
-        .await;
-    let charged = runtime.settle(&uri, &writer, &grant).await;
-    assert_eq!(charged["usedTaskAttempts"], 8);
-    assert_eq!(charged["providerBudget"]["usedRequests"], 8);
-    assert_eq!(charged["providerBudget"]["usedTokens"], 56);
-    let advanced = runtime
-        .post(
-            &format!("{uri}/advance-task"),
-            json!({"expectedVersion":charged["version"],"taskId":writer["id"]}),
-        )
-        .await;
-    assert_eq!(advanced["stage"], "extract");
-    let pending = runtime.post(&format!("{uri}/next"), json!({})).await;
-    let mut cancelled_claim = pending["action"].clone();
-    let batch = runtime
-        .post(
-            &format!("{root}/modeling-batches"),
-            json!({
-                "objectId":format!("draft-{}", chapter.as_str().unwrap()),"sourceRevisionId":saved["revisionId"],
-                "expectedRevision":continued["revision"],"extractorVersion":"cancelled-test"
-            }),
-        )
-        .await;
-    cancelled_claim["target"]["batchId"] = batch["id"].clone();
-    let charged = runtime
+    let cancelled = runtime
         .post(
             &format!("{uri}/control"),
-            json!({"expectedVersion":advanced["version"],"command":"cancel"}),
+            json!({"expectedVersion":before["version"],"command":"cancel"}),
         )
         .await;
-    let cancelled_workspace = runtime.get(&workspace_uri).await;
-    assert_eq!(charged["status"], "cancelled");
-    assert_eq!(charged["usedTaskAttempts"], 8);
-    assert_eq!(charged["providerBudget"]["usedRequests"], 8);
-    assert_eq!(charged["providerBudget"]["usedTokens"], 56);
-    runtime.restart().await;
-    assert_eq!(runtime.get(&uri).await, charged);
-    assert_eq!(
-        runtime.post(&format!("{uri}/next"), json!({})).await,
-        json!({"run":charged,"action":null})
-    );
-    assert!(runtime.call("POST", &format!("{root}/tasks"), AUTHOR, Some(json!({
-        "operation":cancelled_claim["operation"],"target":cancelled_claim["target"],"inputRevision":continued["revision"],
-        "threadId":"cancelled-next","authorIntent":cancelled_claim["authorIntent"],
-        "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":charged["deadlineAt"]
-    }))).await.0.is_client_error());
-    for (endpoint, payload) in [
-        (
-            "control",
-            json!({"expectedVersion":charged["version"],"command":"resume"}),
-        ),
-        (
-            "replan",
-            json!({"expectedVersion":charged["version"],"expectedProjectRevision":continued["revision"],
-            "expectedSourceDigest":continued["sourceDigest"],"restartFrom":"currentChapter","instruction":"继续"}),
-        ),
-        ("check", old_check),
-    ] {
-        assert!(
-            runtime
-                .call("POST", &format!("{uri}/{endpoint}"), AUTHOR, Some(payload))
-                .await
-                .0
-                .is_client_error()
-        );
-    }
-    output["expectedCandidateRevisionId"] = saved["revisionId"].clone();
-    output["idempotencyKey"] = json!("cancelled-output");
+    request["taskId"] = writer["id"].clone();
+    request["threadId"] = writer["threadId"].clone();
+    request["idempotencyKey"] = json!("cancelled-writer-rejected");
     assert!(
         runtime
             .call(
                 "POST",
                 &format!("{root}/drafts/checkpoints"),
                 CANDIDATE,
-                Some(output)
+                Some(request)
             )
             .await
             .0
             .is_client_error()
     );
-    assert_eq!(runtime.get(&workspace_uri).await, cancelled_workspace);
+    let charged = runtime.settle(&uri, &writer, &grant).await;
+    assert_eq!(charged["status"], "cancelled");
+    assert_eq!(charged["usedTaskAttempts"], cancelled["usedTaskAttempts"]);
+    assert_eq!(charged["providerBudget"]["usedRequests"], 4);
+    assert_eq!(charged["providerBudget"]["usedTokens"], 28);
+    runtime.restart().await;
     assert_eq!(runtime.get(&uri).await, charged);
+    assert_eq!(
+        runtime.post(&format!("{uri}/next"), json!({})).await,
+        json!({"run":charged,"action":null,"stopReason":null})
+    );
+    assert!(
+        runtime
+            .call(
+                "POST",
+                &format!("{uri}/control"),
+                AUTHOR,
+                Some(json!({"expectedVersion":charged["version"],"command":"resume"}))
+            )
+            .await
+            .0
+            .is_client_error()
+    );
     let final_work = runtime.get(&work_uri).await;
-    let old_steps = old_work["steps"].as_array().unwrap();
-    assert_eq!(
-        &final_work["steps"].as_array().unwrap()[..old_steps.len()],
-        old_steps
-    );
     assert_eq!(final_work["status"], "cancelled");
-    assert_eq!(
-        final_work["steps"].as_array().unwrap().len(),
-        old_steps.len() + 1
-    );
+    let old = original_work["steps"].as_array().unwrap();
+    assert_eq!(&final_work["steps"].as_array().unwrap()[..old.len()], old);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_active_attempt_can_settle_spent_usage_without_reopening_run() {
     let mut runtime = Runtime::new().await;
     let (root, uri) = runtime.start().await;
-    let next = runtime.advance_until(&root, &uri, "draft", BODY).await;
-    let writer = runtime
-        .claim(&root, &next["action"], "cancelled-writer")
-        .await;
+    let writer = runtime.writer(&root, &uri, "cancelled-writer").await;
     let grant = runtime
         .get(&format!(
             "{root}/tasks/{}/provider-budget",
@@ -511,8 +401,8 @@ async fn cancelled_active_attempt_can_settle_spent_usage_without_reopening_run()
     assert_eq!(charged["status"], "cancelled");
     assert_eq!(charged["usedTaskAttempts"], cancelled["usedTaskAttempts"]);
     assert_eq!(charged["deadlineAt"], cancelled["deadlineAt"]);
-    assert_eq!(charged["providerBudget"]["usedRequests"], 4);
-    assert_eq!(charged["providerBudget"]["usedTokens"], 28);
+    assert_eq!(charged["providerBudget"]["usedRequests"], 2);
+    assert_eq!(charged["providerBudget"]["usedTokens"], 14);
     runtime.restart().await;
     assert_eq!(
         runtime
@@ -525,65 +415,83 @@ async fn cancelled_active_attempt_can_settle_spent_usage_without_reopening_run()
     );
     assert_eq!(
         runtime.post(&format!("{uri}/next"), json!({})).await,
-        json!({"run":charged,"action":null})
+        json!({"run":charged,"action":null,"stopReason":null})
     );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn replan_after_author_edit_delivers_only_the_new_draft_check() {
+async fn replan_after_author_edit_delivers_only_the_new_draft_receipt() {
     let mut runtime = Runtime::new().await;
     let (root, uri) = runtime.start().await;
-    let old = runtime.advance_until(&root, &uri, "check", BODY).await;
-    let paused = runtime
-        .post(
-            &format!("{uri}/control"),
-            json!({"expectedVersion":old["run"]["version"],"command":"pause"}),
+    let (_, old) = runtime.saved_chapter(&root, &uri, BODY).await;
+    let (paused, replanned, edited) =
+        pause_edit_replan(&runtime, &root, &uri, "林夕看见灯光，藏好密函。").await;
+    runtime.restart().await;
+    assert_eq!(runtime.get(&uri).await, replanned);
+    // A replan is not a blanket exemption for another chapter or an invented
+    // intent generation. Corrupt only the fixture store; HTTP must fail closed
+    // without creating a task or mutating the run, then recover after restoration.
+    let db = rusqlite::Connection::open(&runtime.path).unwrap();
+    let run_id = replanned["id"].as_str().unwrap();
+    let original: String = db.query_row("SELECT state_json FROM story_generation_runs_v1 WHERE run_id=?1",
+        [run_id], |r| r.get(0)).unwrap();
+    let task_count: i64 = db.query_row("SELECT COUNT(*) FROM story_tasks_v2", [], |r| r.get(0)).unwrap();
+    for (field, value) in [("currentChapterId", json!("another-chapter")),
+        ("currentChapterNumber", json!(2)), ("intentGeneration", json!(2))] {
+        let mut corrupt: Value = serde_json::from_str(&original).unwrap();
+        corrupt[field] = value;
+        let encoded = corrupt.to_string();
+        db.execute("UPDATE story_generation_runs_v1 SET state_json=?1 WHERE run_id=?2",
+            rusqlite::params![encoded, run_id]).unwrap();
+        let (status, response) = runtime.call("POST", &format!("{uri}/next"), AUTHOR, Some(json!({}))).await;
+        assert!(status.is_client_error(), "{field}: {response}");
+        assert_eq!(db.query_row("SELECT state_json FROM story_generation_runs_v1 WHERE run_id=?1",
+            [run_id], |r| r.get::<_, String>(0)).unwrap(), encoded);
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM story_tasks_v2", [], |r| r.get::<_, i64>(0)).unwrap(), task_count);
+        db.execute("UPDATE story_generation_runs_v1 SET state_json=?1 WHERE run_id=?2",
+            rusqlite::params![original, run_id]).unwrap();
+    }
+    drop(db);
+    let writer = runtime.writer(&root, &uri, "replanned-writer").await;
+    assert_eq!(
+        writer["inputManifest"]["expectedCandidateRevisionId"],
+        edited["revisionId"]
+    );
+    let saved = runtime
+        .save_writer(
+            &root,
+            &writer,
+            "林夕看见灯光，藏好密函，走向白塔。",
+            "replanned-prose",
         )
         .await;
-    let workspace_uri = format!("{root}/creative-workspace");
-    let before = runtime.get(&workspace_uri).await;
-    let body = "林夕看见灯光，藏好密函。";
-    runtime.post(&format!("{root}/drafts/checkpoints"), json!({
-        "payload":draft(paused["currentChapterId"].clone(), body),
-        "expectedRevision":before["revision"],"expectedCandidateRevisionId":before["chapters"][0]["candidate"]["id"],
-        "idempotencyKey":"edited-before-final-check"
-    })).await;
-    let preview = runtime.get(&format!("{uri}/replan")).await;
-    let replanned = runtime.post(&format!("{uri}/replan"), json!({
-        "expectedVersion":preview["run"]["version"],"expectedProjectRevision":preview["projectRevision"],
-        "expectedSourceDigest":preview["sourceDigest"],"restartFrom":"currentChapter","instruction":"保留藏信，核验灯光事件"
-    })).await;
-    assert_eq!(allowance(&replanned), allowance(&paused));
-    runtime.restart().await;
-    let current = runtime.advance_until(&root, &uri, "check", body).await;
-    let workspace = runtime.get(&workspace_uri).await;
-    assert_eq!(workspace["chapters"][0]["candidate"]["body"], body);
-    assert_ne!(
-        workspace["chapters"][0]["candidate"]["id"],
-        before["chapters"][0]["candidate"]["id"]
-    );
-    let checked = runtime
-        .post(
-            &format!("{uri}/check"),
-            json!({"expectedVersion":current["run"]["version"]}),
-        )
-        .await;
-    assert_eq!(checked["stage"], "finished");
-    assert_eq!(checked["status"], "completed");
-    assert_eq!(checked["completedChapters"], 1);
-    assert_eq!(checked["intentGeneration"], 1);
-    assert_eq!(checked["deadlineAt"], paused["deadlineAt"]);
-    assert_eq!(checked["usedTaskAttempts"], 11);
+    assert_ne!(saved["revisionId"], old["revisionId"]);
+    assert_ne!(saved["revisionId"], edited["revisionId"]);
+    runtime.complete_and_advance(&root, &uri, &writer).await;
+    let completed = runtime.finish_chapter(&root, &uri).await;
+    assert_eq!(completed["status"], "completed");
+    assert_eq!(completed["completedChapters"], 1);
+    assert_eq!(completed["intentGeneration"], 1);
+    assert_eq!(completed["deadlineAt"], paused["deadlineAt"]);
+    assert_eq!(completed["usedTaskAttempts"], 5);
+    assert_eq!(completed["providerBudget"]["usedRequests"], 5);
+    assert_eq!(completed["providerBudget"]["usedTokens"], 35);
     assert_eq!(
-        checked["chapterDeliveries"][0]["draftRevisionId"],
-        workspace["chapters"][0]["candidate"]["id"]
+        completed["chapterDeliveries"][0]["draftRevisionId"],
+        saved["revisionId"]
     );
-    assert_eq!(checked["providerBudget"]["usedRequests"], 11);
-    assert_eq!(checked["providerBudget"]["usedTokens"], 77);
-    runtime.restart().await;
-    assert_eq!(runtime.get(&uri).await, checked);
     assert_eq!(
-        runtime.get(&workspace_uri).await["chapters"][0]["accepted"],
+        completed["chapterDeliveries"][0]["knowledgeBatchId"],
+        Value::Null
+    );
+    assert_eq!(
+        completed["chapterDeliveries"][0]["assessmentRevisionId"],
+        Value::Null
+    );
+    runtime.restart().await;
+    assert_eq!(runtime.get(&uri).await, completed);
+    assert_eq!(
+        runtime.get(&format!("{root}/creative-workspace")).await["chapters"][0]["accepted"],
         Value::Null
     );
 }

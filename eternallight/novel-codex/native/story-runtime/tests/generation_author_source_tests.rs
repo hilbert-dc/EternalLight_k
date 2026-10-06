@@ -23,6 +23,9 @@ mod execution_scope;
 #[path = "generation_author_source/delivery_tests.rs"]
 mod delivery;
 
+#[path = "generation_author_source/materialization_tests.rs"]
+mod materialization;
+
 async fn call(
     path: &std::path::Path,
     method: &str,
@@ -194,13 +197,22 @@ async fn generation_tasks_rebuild_author_history_after_reopen_and_reject_source_
     );
     let (status, next) = call(&path, "POST", &format!("{uri}/next"), json!({}), AUTHOR).await;
     assert_eq!(status, StatusCode::OK, "{next}");
-    let claim = json!({"operation":"generateBrief","inputRevision":0,"threadId":"generation-thread","target":next["action"]["target"],"authorIntent":"篡改为删除白塔并泄露秘密",
+    let claim = json!({"operation":next["action"]["operation"],"inputRevision":0,"threadId":"generation-thread","target":next["action"]["target"],"authorIntent":"篡改为删除白塔并泄露秘密",
         "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":run["deadlineAt"]});
     let (status, task) = call(&path, "POST", &format!("{base}/tasks"), claim, AUTHOR).await;
     assert_eq!(status, StatusCode::CREATED, "{task}");
     assert_eq!(
         task["inputManifest"]["authorIntent"],
-        next["action"]["authorIntent"]
+        json!(
+            novel_codex_story_core::generation_author_intent(
+                &serde_json::from_value::<Vec<novel_codex_story_core::CreativeIntentRevision>>(
+                    updated["intentRevisions"].clone()
+                )
+                .unwrap(),
+                1
+            )
+            .unwrap()
+        )
     );
     assert_eq!(
         task["inputManifest"]["generationAuthorIntentBinding"],
@@ -529,9 +541,15 @@ async fn damaged_append_cannot_complete_a_real_saved_output_and_restoration_keep
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{updated}");
-    let (status, next) = call(&path, "POST", &format!("{uri}/next"), json!({}), AUTHOR).await;
-    assert_eq!(status, StatusCode::OK, "{next}");
-    let (status,task)=call(&path,"POST",&format!("{base}/tasks"),json!({"operation":"generateBrief","inputRevision":0,"threadId":"completion-source-thread","target":next["action"]["target"],"authorIntent":"untrusted wrapper",
+    let action = prepared_action(
+        &path,
+        &base,
+        &updated,
+        "generateBrief",
+        "completion-source-thread",
+    )
+    .await;
+    let (status,task)=call(&path,"POST",&format!("{base}/tasks"),json!({"operation":"generateBrief","inputRevision":0,"threadId":"completion-source-thread","target":action["target"],"authorIntent":"untrusted wrapper",
         "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":run["deadlineAt"]}),AUTHOR).await;
     assert_eq!(status, StatusCode::CREATED, "{task}");
     let task_id = task["id"].as_str().unwrap();
@@ -592,4 +610,91 @@ async fn damaged_append_cannot_complete_a_real_saved_output_and_restoration_keep
         .unwrap(),
         before.0
     );
+}
+
+async fn prepared_action(
+    path: &std::path::Path,
+    base: &str,
+    run: &Value,
+    operation: &str,
+    thread: &str,
+) -> Value {
+    let uri = format!("{base}/generation-runs/{}", run["id"].as_str().unwrap());
+    let (code, next) = call(path, "POST", &format!("{uri}/next"), json!({}), AUTHOR).await;
+    assert_eq!(code, StatusCode::OK, "{next}");
+    let (_, workspace) = call(
+        path,
+        "GET",
+        &format!("{base}/creative-workspace"),
+        Value::Null,
+        AUTHOR,
+    )
+    .await;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let (code,parent)=call(path,"POST",&format!("{base}/tasks"),json!({"operation":"advisory","inputRevision":workspace["revision"],"threadId":thread,"target":next["action"]["target"],"authorIntent":"wrapper","capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":now+600}),AUTHOR).await;
+    assert_eq!(code, StatusCode::CREATED, "{parent}");
+    let id = parent["id"].as_str().unwrap();
+    let revision = parent["inputRevision"].as_i64().unwrap();
+    let (code, status) = call(
+        path,
+        "GET",
+        &format!("{base}/tasks/{id}/work-decision?threadId={thread}&expectedRevision={revision}"),
+        Value::Null,
+        CANDIDATE,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{status}");
+    let key = status["readyActions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["operation"] == operation)
+        .unwrap_or_else(|| panic!("{operation}: {status}"))["actionKey"]
+        .clone();
+    let (code,selected)=call(path,"POST",&format!("{base}/tasks/{id}/work-decision/actions"),json!({"taskId":id,"threadId":thread,"expectedRevision":revision,"expectedWorkVersion":status["version"],"expectedSourceDigest":status["sourceDigest"],"actionKey":key,"instruction":"按原作者许可执行这项工作","idempotencyKey":format!("choose-{operation}")}),CANDIDATE).await;
+    assert_eq!(code, StatusCode::OK, "{selected}");
+    let (grant_status, grant) = call(
+        path,
+        "GET",
+        &format!("{base}/tasks/{id}/provider-budget"),
+        Value::Null,
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(grant_status, StatusCode::OK, "{grant}");
+    let (code, completed) = call(
+        path,
+        "POST",
+        &format!("{base}/tasks/{id}/complete"),
+        json!({"threadId":thread,"summary":"已选下一项工作"}),
+        CANDIDATE,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{completed}");
+    let mut budget=eternallight_engine_core::PersistentBudget::new(&path.with_extension("budget.sqlite3"),id,json!({"options":{"id":grant["budgetId"],"maxRequests":grant["maxRequests"],"maxTokens":grant["maxTokens"],"startedAt":1000},"now":1000})).unwrap();
+    budget.complete("completed").unwrap();
+    let (code, charged) = call(
+        path,
+        "POST",
+        &format!("{uri}/provider-usage"),
+        json!({"taskId":id}),
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{charged}");
+    let (code, advanced) = call(
+        path,
+        "POST",
+        &format!("{uri}/advance-task"),
+        json!({"expectedVersion":charged["version"],"taskId":id}),
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{advanced}");
+    let (code, next) = call(path, "POST", &format!("{uri}/next"), json!({}), AUTHOR).await;
+    assert_eq!(code, StatusCode::OK, "{next}");
+    next["action"].clone()
 }

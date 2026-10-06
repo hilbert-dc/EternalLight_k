@@ -18,19 +18,9 @@ async fn claimed(path: &Path) -> (String, Value, Value) {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{run}");
-    let (status, next) = call(
-        path,
-        "POST",
-        &format!(
-            "{base}/generation-runs/{}/next",
-            run["id"].as_str().unwrap()
-        ),
-        json!({}),
-        AUTHOR,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{next}");
-    let (status, task) = call(path,"POST",&format!("{base}/tasks"),json!({"operation":"generateBrief","inputRevision":0,"threadId":"generation-thread","target":next["action"]["target"],"authorIntent":"客户端不能替换授权","capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":run["deadlineAt"]}),AUTHOR).await;
+    let action =
+        super::prepared_action(path, &base, &run, "generateBrief", "generation-thread").await;
+    let (status, task) = call(path,"POST",&format!("{base}/tasks"),json!({"operation":"generateBrief","inputRevision":0,"threadId":"generation-thread","target":action["target"],"authorIntent":"客户端不能替换授权","capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":run["deadlineAt"]}),AUTHOR).await;
     assert_eq!(status, StatusCode::CREATED, "{task}");
     (base, run, task)
 }
@@ -259,7 +249,7 @@ async fn mutable_run_bounds_or_missing_scope_cannot_authorize_context_budget_or_
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{advanced}");
-    assert_eq!(advanced["stage"], "outline");
+    assert_eq!(advanced["stage"], "coordinate");
     assert_eq!(
         db.query_row(
             "SELECT scope_json FROM story_execution_scopes_v1 WHERE permit_id=?1",

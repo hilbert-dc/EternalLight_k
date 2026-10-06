@@ -30,7 +30,7 @@ async fn an_empty_generation_cannot_claim_delivery_or_complete_through_repositor
         json!({"status":"completed"}),
         json!({"stage":"finished"}),
         json!({"status":"completed","stage":"finished","completedChapters":1}),
-        json!({"completedChapters":1,"stage":"rollingPlan"}),
+        json!({"completedChapters":1,"stage":"coordinate"}),
         json!({"chapterDeliveries":[{"chapterId":"made-up-proof"}]}),
     ] {
         let mut next: Value = serde_json::from_str(&before.state_json).unwrap();

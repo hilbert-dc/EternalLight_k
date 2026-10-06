@@ -6,8 +6,8 @@ use axum::{
 };
 use novel_codex_story_core::{
     BranchId, CommitId, CommitmentExtractionOrigin, EstablishCommitment, IdempotencyKey, ObjectId,
-    ProjectId, RevisionId, SaveCandidateRequest, SnapshotId, SqliteStoryRepository,
-    TaskOutputBinding,
+    ProjectId, RepositoryError, RevisionId, SaveCandidateRequest, SnapshotId,
+    SqliteStoryRepository, TaskOutputBinding,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -169,17 +169,45 @@ pub(crate) async fn submit(
     let request_digest = digest(&json!({"taskId":task.task_id,"payload":request.payload,"expectedRevision":request.expected_revision,
         "expectedCandidateRevisionId":previous.as_ref().map(RevisionId::as_str)}).to_string());
     match repository.save_candidate(SaveCandidateRequest {
-        project_id:project,branch_id:branch,object_id:object,object_kind:"commitmentExtraction".into(),
-        revision_id:RevisionId::parse(format!("extraction-{suffix}")).expect("generated revision"),
-        commit_id:CommitId::parse(format!("candidate-{suffix}")).expect("generated commit"),idempotency_key:key,request_digest,
-        expected_project_revision:request.expected_revision,expected_snapshot_id:head.snapshot_id,
-        next_snapshot_id:SnapshotId::parse(format!("snapshot-{suffix}")).expect("generated snapshot"),
-        expected_candidate_revision_id:previous,content_digest:digest(&content),content_json:content,
-        chapter_projection:None,task_output:Some(TaskOutputBinding {
-            task_id:task.task_id,thread_id:task.thread_id,output_kind:"commitmentExtraction".into(),completeness:None,
-        }),linked_impact_ids:Vec::new(),
+        project_id: project,
+        branch_id: branch,
+        object_id: object,
+        object_kind: "commitmentExtraction".into(),
+        revision_id: RevisionId::parse(format!("extraction-{suffix}")).expect("generated revision"),
+        commit_id: CommitId::parse(format!("candidate-{suffix}")).expect("generated commit"),
+        idempotency_key: key,
+        request_digest,
+        expected_project_revision: request.expected_revision,
+        expected_snapshot_id: head.snapshot_id,
+        next_snapshot_id: SnapshotId::parse(format!("snapshot-{suffix}"))
+            .expect("generated snapshot"),
+        expected_candidate_revision_id: previous,
+        content_digest: digest(&content),
+        content_json: content,
+        chapter_projection: None,
+        task_output: Some(TaskOutputBinding {
+            task_id: task.task_id,
+            thread_id: task.thread_id,
+            output_kind: "commitmentExtraction".into(),
+            completeness: None,
+        }),
+        linked_impact_ids: Vec::new(),
     }) {
-        Ok(receipt)=>(StatusCode::CREATED,Json(json!({"revisionId":receipt.revision_id.as_str(),"chapterId":chapter,"status":"candidateProposalBatch"}))).into_response(),
-        Err(source)=>repository_error(source),
+        Ok(receipt) => {
+            let saved = match repository.revision_content(&receipt.revision_id) {
+                Ok(Some(content)) => serde_json::from_str::<Value>(&content).ok(),
+                Ok(None) => None,
+                Err(source) => return repository_error(source),
+            };
+            let Some(candidates) = saved
+                .as_ref()
+                .and_then(|report| report["payload"]["candidates"].as_array())
+            else {
+                return repository_error(RepositoryError::CorruptState);
+            };
+            (StatusCode::CREATED, Json(json!({"revisionId":receipt.revision_id.as_str(),
+                "chapterId":chapter,"status":"candidateProposalBatch","candidateCount":candidates.len()}))).into_response()
+        }
+        Err(source) => repository_error(source),
     }
 }

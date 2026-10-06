@@ -140,7 +140,15 @@ async fn context_budget_preserves_target_and_reports_scoped_optional_truncation(
     assert!(!pack.to_string().contains("revision-4"));
     assert!(!pack.to_string().contains(&fixture::marker(4)));
     let projection = &pack["operationContext"]["workingKnowledge"];
-    assert_eq!(projection["metadataTruncated"], true);
+    let item = json!({"type":"function_call_output","call_id":"budget-test","output":[
+        {"type":"input_text","text":"Tool result: novel_workspace.read_context"},
+        {"type":"input_text","text":pack.to_string()}
+    ]});
+    let tokens = eternallight_engine_core::dispatch("tokens.count", json!(item.to_string()))
+        .unwrap()
+        .as_u64()
+        .unwrap();
+    assert!(tokens <= 10_000, "actual model item has {tokens} tokens");
     assert_eq!(
         projection["propertyRulesPolicy"],
         "withheldForLimitedPerspective"

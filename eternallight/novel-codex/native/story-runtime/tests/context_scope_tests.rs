@@ -163,16 +163,48 @@ async fn author_controls_the_persisted_user_task_across_an_attempt() {
     .await;
     assert_eq!(status, StatusCode::OK, "{paused}");
     assert_eq!(paused["status"], "paused");
-    let (status, completed) = call(
+    let completion_path = format!("/api/projects/{project_id}/tasks/{attempt_id}/complete");
+    let completion = json!({"threadId":"thread-control","summary":"人物分析"});
+    let (status, rejected) = call(
         &path,
         "POST",
-        &format!("/api/projects/{project_id}/tasks/{attempt_id}/complete"),
-        Some(json!({"threadId":"thread-control","summary":"人物分析"})),
+        &completion_path,
+        Some(completion.clone()),
         true,
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{completed}");
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{rejected}");
+    assert_eq!(rejected["error"]["code"], "task_capability_invalid");
+    let (status, persisted) = call(&path, "GET", &work_path, None, false).await;
+    assert_eq!(status, StatusCode::OK, "{persisted}");
+    assert_eq!(persisted, paused);
+    let attempt_path = format!("/api/projects/{project_id}/tasks/{attempt_id}");
+    let (status, unchanged_attempt) = call(&path, "GET", &attempt_path, None, false).await;
+    assert_eq!(status, StatusCode::OK, "{unchanged_attempt}");
+    assert_eq!(unchanged_attempt, bound);
     let (status, stale) = call(
+        &path,
+        "POST",
+        &control_path,
+        Some(json!({"command":"resume","expectedVersion":work["version"]})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{stale}");
+    let (status, forbidden) = call(
+        &path,
+        "POST",
+        &control_path,
+        Some(json!({"command":"resume","expectedVersion":paused["version"]})),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{forbidden}");
+    assert_eq!(forbidden["error"]["code"], "unauthorized");
+    let (status, persisted) = call(&path, "GET", &work_path, None, false).await;
+    assert_eq!(status, StatusCode::OK, "{persisted}");
+    assert_eq!(persisted, paused);
+    let (status, resumed) = call(
         &path,
         "POST",
         &control_path,
@@ -180,25 +212,36 @@ async fn author_controls_the_persisted_user_task_across_an_attempt() {
         false,
     )
     .await;
-    assert_eq!(status, StatusCode::CONFLICT, "{stale}");
-    let (_, latest) = call(
-        &path,
-        "GET",
-        &format!("/api/projects/{project_id}/work-tasks/{work_id}"),
-        None,
-        false,
-    )
-    .await;
-    let (status, resumed) = call(
+    assert_eq!(status, StatusCode::OK, "{resumed}");
+    assert_eq!(resumed["status"], "running");
+    assert_eq!(resumed["steps"], paused["steps"]);
+    let (status, completed) = call(&path, "POST", &completion_path, Some(completion), true).await;
+    assert_eq!(status, StatusCode::OK, "{completed}");
+    assert_eq!(completed["status"], "completed");
+    let (status, persisted_attempt) = call(&path, "GET", &attempt_path, None, false).await;
+    assert_eq!(status, StatusCode::OK, "{persisted_attempt}");
+    assert_eq!(persisted_attempt, completed);
+    let (status, finished) = call(&path, "GET", &work_path, None, false).await;
+    assert_eq!(status, StatusCode::OK, "{finished}");
+    assert_eq!(finished["status"], "completed");
+    assert_eq!(finished["steps"][0]["status"], "completed");
+    assert_eq!(finished["steps"][0]["currentAttemptId"], attempt_id);
+    assert_eq!(
+        finished["steps"][0]["attempts"].as_array().unwrap().len(),
+        1
+    );
+    let (status, stale) = call(
         &path,
         "POST",
         &control_path,
-        Some(json!({"command":"resume","expectedVersion":latest["version"]})),
+        Some(json!({"command":"pause","expectedVersion":resumed["version"]})),
         false,
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{resumed}");
-    assert_eq!(resumed["status"], "completed");
+    assert_eq!(status, StatusCode::CONFLICT, "{stale}");
+    let (status, persisted) = call(&path, "GET", &work_path, None, false).await;
+    assert_eq!(status, StatusCode::OK, "{persisted}");
+    assert_eq!(persisted, finished);
 }
 
 #[tokio::test]
@@ -234,9 +277,6 @@ async fn completed_chapter_task_exposes_its_pending_knowledge_step() {
     })), false).await;
     assert_eq!(status, StatusCode::CREATED, "{task}");
     let task_id = task["id"].as_str().unwrap();
-    let next_uri = format!("/api/projects/{project_id}/tasks/{task_id}/next-step");
-    let (status, _) = call(&path, "GET", &next_uri, None, false).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, saved) = call(&path, "POST", &draft_uri, Some(json!({
         "payload": {"chapterId": chapter_id, "chapterNumber": 1, "title": "白塔", "body": "林夕记录白塔亮灯。"},
         "expectedRevision": 0, "expectedCandidateRevisionId": initial["revisionId"],
@@ -253,13 +293,6 @@ async fn completed_chapter_task_exposes_its_pending_knowledge_step() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{completed}");
-    let (status, next) = call(&path, "GET", &next_uri, None, false).await;
-    assert_eq!(status, StatusCode::OK, "{next}");
-    assert_eq!(
-        next["action"],
-        json!({"kind": "modelKnowledge", "chapterId": chapter_id,
-            "sourceRevisionId": saved["revisionId"], "sourceTaskId": task_id})
-    );
     let (status, resumable) = call(
         &path,
         "GET",
@@ -269,7 +302,11 @@ async fn completed_chapter_task_exposes_its_pending_knowledge_step() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(resumable, next);
+    assert_eq!(
+        resumable,
+        json!({"action":{"kind":"modelKnowledge","chapterId":chapter_id,
+        "sourceRevisionId":saved["revisionId"],"sourceTaskId":task_id}})
+    );
 }
 
 #[tokio::test]
@@ -335,7 +372,7 @@ async fn scene_scoped_writer_reads_and_changes_only_the_visible_prefix() {
     let (status, context) = call(&path, "GET", &context_uri, None, true).await;
     assert_eq!(status, StatusCode::OK, "{context}");
     assert_eq!(
-        context["relevantText"][0]["content"]["body"],
+        context["relevantText"][0]["content"]["sceneGroups"][0]["body"],
         "林夕发现密函。"
     );
     assert_eq!(
@@ -423,7 +460,7 @@ async fn scene_scoped_writer_reads_and_changes_only_the_visible_prefix() {
     let (status, current) = call(&path, "GET", &context_uri, None, true).await;
     assert_eq!(status, StatusCode::OK, "{current}");
     assert_eq!(
-        current["relevantText"][0]["content"]["body"],
+        current["relevantText"][0]["content"]["sceneGroups"][0]["body"],
         "林夕打开密函。"
     );
     assert!(!current.to_string().contains("叛徒"));
@@ -1324,6 +1361,7 @@ async fn author_steer_revisions_fence_candidate_actions_and_completion() {
     assert_eq!(status, StatusCode::CREATED, "{task}");
     let task_id = task["id"].as_str().unwrap();
     let base = format!("/api/projects/{project_id}/tasks/{task_id}");
+    let context_uri = format!("/api/projects/{project_id}/context?taskId={task_id}&threadId=intent-thread&projectRevision=0&purpose=planner&budget=24&byteBudget=60000");
     let action = |key: &str, revision: i64| {
         json!({
             "taskId":task_id, "threadId":"intent-thread", "expectedRevision":0,
@@ -1331,6 +1369,12 @@ async fn author_steer_revisions_fence_candidate_actions_and_completion() {
             "operation":"generateBrief", "target":{"type":"artifact"}, "instruction":"拟定简报"
         })
     };
+    let (status, initial_context) = call(&path,"GET",&context_uri,None,true).await;
+    assert_eq!(status,StatusCode::OK,"{initial_context}");
+    assert_eq!(initial_context["authorIntentState"],json!({"expectedIntentRevision":0,"canRequestActions":true,"status":"current"}));
+    let (status, unissued) = call(&path,"POST",&format!("{base}/actions"),Some(action("unissued",1)),true).await;
+    assert_eq!(status,StatusCode::BAD_REQUEST,"{unissued}");
+    assert!(unissued["error"]["message"].as_str().unwrap().contains("has not been issued"));
     let (status, original) = call(
         &path,
         "POST",
@@ -1364,6 +1408,9 @@ async fn author_steer_revisions_fence_candidate_actions_and_completion() {
     assert_eq!(status, StatusCode::OK, "{pending}");
     assert_eq!(pending["intentRevision"], 1);
     assert_eq!(pending["status"], "pending");
+    let (status, pending_context) = call(&path,"GET",&context_uri,None,true).await;
+    assert_eq!(status,StatusCode::OK,"{pending_context}");
+    assert_eq!(pending_context["authorIntentState"],json!({"expectedIntentRevision":1,"canRequestActions":false,"status":"pendingDelivery"}));
     let (status, earlier_actions) =
         call(&path, "GET", &format!("{base}/actions"), None, false).await;
     assert_eq!(status, StatusCode::OK);
@@ -1402,6 +1449,9 @@ async fn author_steer_revisions_fence_candidate_actions_and_completion() {
     .await;
     assert_eq!(status, StatusCode::OK, "{delivered}");
     assert_eq!(delivered["status"], "delivered");
+    let (status, updated_context) = call(&path,"GET",&context_uri,None,true).await;
+    assert_eq!(status,StatusCode::OK,"{updated_context}");
+    assert_eq!(updated_context["authorIntentState"],json!({"expectedIntentRevision":1,"canRequestActions":true,"status":"current"}));
     assert_eq!(
         call(
             &path,
@@ -1424,7 +1474,7 @@ async fn author_steer_revisions_fence_candidate_actions_and_completion() {
         )
         .await
         .0,
-        StatusCode::CONFLICT
+        StatusCode::BAD_REQUEST
     );
     let (status, current) = call(
         &path,
@@ -1636,10 +1686,19 @@ async fn writer_context_keeps_target_chapter_after_eighty_prior_chapters() {
     );
     let (status, context) = call(&path, "GET", &context_uri, None, true).await;
     assert_eq!(status, StatusCode::OK, "{context}");
-    assert_eq!(context["relevantText"].as_array().unwrap().len(), 24);
-    assert_eq!(context["relevantText"][0]["content"]["chapterNumber"], 58);
-    assert_eq!(context["relevantText"][23]["content"]["chapterNumber"], 81);
-    assert!(context["relevantText"][23]["sourceRevisionId"].is_string());
+    let drafts = context["relevantText"].as_array().unwrap();
+    assert!(!drafts.is_empty() && drafts.len() <= 24);
+    assert_eq!(drafts.last().unwrap()["content"]["chapterNumber"], 81);
+    assert!(drafts.last().unwrap()["sourceRevisionId"].is_string());
+    let wrapped = json!({"type":"function_call_output","call_id":"call-81","output":[
+        {"type":"input_text","text":"Tool result: novel_workspace.read_context"},
+        {"type":"input_text","text":context.to_string()}
+    ]});
+    let tokens = eternallight_engine_core::dispatch("tokens.count", json!(wrapped.to_string()))
+        .unwrap()
+        .as_u64()
+        .unwrap();
+    assert!(tokens <= 10_000, "model item has {tokens} tokens");
     assert_eq!(context["coverage"]["scannedScope"]["chaptersInScope"], 81);
     assert_eq!(
         context["coverage"]["missingScope"],
@@ -1690,12 +1749,16 @@ async fn writer_context_keeps_target_chapter_after_eighty_prior_chapters() {
     )
     .await;
     assert_eq!(latest_status, StatusCode::OK, "{latest_context}");
-    assert_eq!(
-        latest_context["operationContext"]["modeling"]
+    let included_sources = latest_context["operationContext"]["modeling"]
+        .as_array()
+        .unwrap()
+        .len();
+    assert!(included_sources > 0 && included_sources <= 100);
+    assert!(
+        latest_context["coverage"]["truncationReasons"]
             .as_array()
             .unwrap()
-            .len(),
-        100
+            .contains(&json!("contextSourceBudget"))
     );
     assert!(
         latest_context["operationContext"]["modeling"]

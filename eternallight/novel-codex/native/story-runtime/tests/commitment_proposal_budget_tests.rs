@@ -91,7 +91,7 @@ async fn planning_pack_trims_whole_proposals_and_rehashes_accurate_coverage() {
         &project,
         &bound.task_id,
         &bound.thread_id,
-        String::new(),
+        String::new(), None,
         /*now*/ 10,
     )
     .unwrap();

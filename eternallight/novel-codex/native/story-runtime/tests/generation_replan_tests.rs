@@ -94,7 +94,7 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
         /*body*/ None,
     )
     .await;
-    let create = json!({"operation":"generateBrief","inputRevision":0,"threadId":"brief","target":next["action"]["target"],
+    let create = json!({"operation":"advisory","inputRevision":0,"threadId":"brief","target":next["action"]["target"],
         "authorIntent":"写港城故事","capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":now+600});
     let (status, task) = call(&app, "POST", &format!("{root}/tasks"), AUTHOR, Some(create)).await;
     assert_eq!(status, StatusCode::CREATED, "{task}");
@@ -133,16 +133,32 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{resumed_active}");
-    let (status,brief) = call(&app,"POST",&format!("{root}/artifacts/brief"),CANDIDATE,
-        Some(json!({"payload":{"premise":"抄写员烧掉密函"},"expectedRevision":0,"expectedCandidateRevisionId":null,
-            "idempotencyKey":"brief","taskId":task_id,"threadId":"brief"}))).await;
-    assert_eq!(status, StatusCode::CREATED, "{brief}");
+    let (status, decision) = call(
+        &app,
+        "GET",
+        &format!("{root}/tasks/{task_id}/work-decision?threadId=brief&expectedRevision=0"),
+        CANDIDATE,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{decision}");
+    let action = decision["readyActions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["operation"] == "generateBrief")
+        .unwrap();
+    let (status, selected) = call(&app, "POST", &format!("{root}/tasks/{task_id}/work-decision/actions"), CANDIDATE,
+        Some(json!({"taskId":task_id,"threadId":"brief","expectedRevision":0,
+          "expectedWorkVersion":decision["version"],"expectedSourceDigest":decision["sourceDigest"],
+          "actionKey":action["actionKey"],"instruction":"先整理港城构想","idempotencyKey":"choose-brief"}))).await;
+    assert_eq!(status, StatusCode::OK, "{selected}");
     let (status, completed) = call(
         &app,
         "POST",
         &format!("{root}/tasks/{task_id}/complete"),
         CANDIDATE,
-        Some(json!({"threadId":"brief","summary":"简报候选已保存"})),
+        Some(json!({"threadId":"brief","summary":"已检查当前资料，等待作者调整方向"})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{completed}");
@@ -195,7 +211,7 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
     )
     .await;
     let (status,changed) = call(&app,"POST",&format!("{root}/artifacts/brief"),AUTHOR,
-        Some(json!({"payload":{"premise":"抄写员藏好密函"},"expectedRevision":0,"expectedCandidateRevisionId":brief["revisionId"],"idempotencyKey":"author-edit"}))).await;
+        Some(json!({"payload":{"premise":"抄写员藏好密函"},"expectedRevision":0,"expectedCandidateRevisionId":null,"idempotencyKey":"author-edit"}))).await;
     assert_eq!(status, StatusCode::CREATED, "{changed}");
     let (status, context) = call(
         &app,
@@ -222,7 +238,10 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
         paused
     );
     assert_eq!(context["run"], paused);
-    assert_eq!(context["availableFrom"], json!(["brief", "outline"]));
+    assert_eq!(
+        context["availableFrom"],
+        json!(["brief", "outline", "rollingPlan"])
+    );
     assert_eq!(
         call(&app, "GET", &uri, AUTHOR, /*body*/ None).await.1,
         paused
@@ -240,24 +259,6 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
         StatusCode::UNAUTHORIZED
     );
     request["expectedSourceDigest"] = context["sourceDigest"].clone();
-    let mut missing_outline = request.clone();
-    missing_outline["restartFrom"] = json!("rollingPlan");
-    assert!(
-        call(
-            &app,
-            "POST",
-            &format!("{uri}/replan"),
-            AUTHOR,
-            Some(missing_outline)
-        )
-        .await
-        .0
-        .is_client_error()
-    );
-    assert_eq!(
-        call(&app, "GET", &uri, AUTHOR, /*body*/ None).await.1,
-        paused
-    );
     assert_eq!(
         call(
             &app,
@@ -292,10 +293,10 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
         assert_eq!(replanned[field], paused[field], "{field}");
     }
     assert_eq!(replanned["usedTaskAttempts"], 1);
-    assert_eq!(replanned["stage"], "outline");
+    assert_eq!(replanned["stage"], "coordinate");
     assert_eq!(
         replanned["replans"],
-        json!([{"previousVersion":paused["version"],"previousStage":"outline","previousTaskId":null,
+        json!([{"previousVersion":paused["version"],"previousStage":"coordinate","previousTaskId":paused["activeTaskId"],
         "restartFrom":"outline","previousSourceDigest":paused["sourceDigest"],"previousSnapshotId":paused["baseSnapshotId"],"sourceDigest":request["expectedSourceDigest"],
         "baseSnapshotId":replanned["baseSnapshotId"],"intentGeneration":1,"createdAt":replanned["replans"][0]["createdAt"]}])
     );
@@ -315,10 +316,14 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{next}");
-    assert_eq!(next["action"]["operation"], "generateOutline");
+    assert_eq!(next["action"]["operation"], "advisory");
     assert_eq!(next["action"]["target"]["intentGeneration"], 1);
     assert!(
-        next["action"]["authorIntent"]
+        replanned["intentRevisions"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["instruction"]
             .as_str()
             .unwrap()
             .contains("藏信")

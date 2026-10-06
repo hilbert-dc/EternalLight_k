@@ -2,24 +2,61 @@ use crate::*;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-fn automatic_attempt() -> (SqliteStoryRepository, ProjectId, String) {
-    let (mut repo, project) = crate::modeling_dispatch::tests::source_repository();
-    repo.connection
-        .execute(
-            "UPDATE story_modeling_outbox_v1 SET first_dirty_ms=0,last_dirty_ms=0",
-            [],
-        )
-        .unwrap();
-    let action = repo
-        .dispatch_modeling_intent(&project, 1000)
+pub(crate) fn source_repository() -> (SqliteStoryRepository, ProjectId) {
+    let mut repo = SqliteStoryRepository::in_memory().unwrap();
+    let project = ProjectId::parse("model-recovery").unwrap();
+    repo.create_project(
+        ProjectRecord {
+            project_id: project.clone(),
+            title: "model recovery".into(),
+            logline: String::new(),
+            created_at: 1,
+            updated_at: 1,
+        },
+        BranchId::parse("main").unwrap(),
+        SnapshotId::parse("initial").unwrap(),
+    )
+    .unwrap();
+    repo.save_candidate(SaveCandidateRequest {
+        project_id: project.clone(),
+        branch_id: BranchId::parse("main").unwrap(),
+        object_id: ObjectId::parse("draft-chapter-1").unwrap(),
+        object_kind: "draft".into(),
+        revision_id: RevisionId::parse("source").unwrap(),
+        commit_id: CommitId::parse("save-source").unwrap(),
+        idempotency_key: IdempotencyKey::parse("save-source").unwrap(),
+        request_digest: "digest".into(),
+        content_digest: "digest".into(),
+        content_json: json!({"chapterNumber":1,"title":"正文","body":"信件被藏起来。"}).to_string(),
+        expected_project_revision: 0,
+        expected_snapshot_id: SnapshotId::parse("initial").unwrap(),
+        next_snapshot_id: SnapshotId::parse("saved").unwrap(),
+        expected_candidate_revision_id: None,
+        chapter_projection: Some(ChapterProjection {
+            chapter_id: "chapter-1".into(),
+            number: 1,
+            title: "正文".into(),
+        }),
+        task_output: None,
+        linked_impact_ids: Vec::new(),
+    })
+    .unwrap();
+    (repo, project)
+}
+
+fn modeling_attempt() -> (SqliteStoryRepository, ProjectId, String) {
+    let (mut repo, project) = source_repository();
+    let batch = repo
+        .begin_modeling_batch(BeginModelingBatch {
+            project_id: &project,
+            object_id: &ObjectId::parse("draft-chapter-1").unwrap(),
+            source_revision_id: &RevisionId::parse("source").unwrap(),
+            expected_revision: 0,
+            extractor_version: "test-author-request",
+            now: 1,
+        })
         .unwrap()
-        .unwrap();
-    let work = repo
-        .work_task(&project, action["workTaskId"].as_str().unwrap())
-        .unwrap();
-    let mut target = work.steps[0].target.clone();
-    let batch = target["batchId"].as_str().unwrap().to_owned();
-    target["resumeStepId"] = json!(work.steps[0].id);
+        .id;
     repo.create_task(CreateTaskRequest {
         task_id: "model".into(),
         project_id: project.clone(),
@@ -27,8 +64,8 @@ fn automatic_attempt() -> (SqliteStoryRepository, ProjectId, String) {
         operation: "modelKnowledge".into(),
         input_revision: 0,
         model: None,
-        target_json: target.to_string(),
-        input_manifest_json: "{}".into(),
+        target_json: json!({"batchId":batch,"chapterId":"chapter-1"}).to_string(),
+        input_manifest_json: json!({"authorIntent":"分析我保存的正文"}).to_string(),
         capability_hash: "a".repeat(64),
         capability_expires_at: i64::MAX,
     })
@@ -37,7 +74,7 @@ fn automatic_attempt() -> (SqliteStoryRepository, ProjectId, String) {
 }
 
 fn failed_publication() -> (SqliteStoryRepository, ProjectId, String, WorkTask) {
-    let (mut repo, project, batch) = automatic_attempt();
+    let (mut repo, project, batch) = modeling_attempt();
     repo.bind_recovery_operation(RecoveryOperationBinding {
         project_id: project.clone(),
         task_id: "model".into(),
@@ -83,9 +120,10 @@ fn author_resume_recovers_committed_modeling_without_republication_or_a_new_atte
         (work.status.as_str(), work.resume_block_reason.as_deref()),
         ("blocked", None)
     );
+    assert_eq!(work.resume_mode, Some(WorkResumeMode::RecoverSavedResult));
     let saved = repo.modeling_batch(&project, &batch).unwrap().as_json();
     let recovered = repo
-        .control_work_task(&project, &work.id, "resume", work.version, 4)
+        .control_work_task(&project, &work.id, "recoverSavedResult", work.version, 4)
         .unwrap();
     assert_eq!(
         (
@@ -128,7 +166,7 @@ fn author_resume_recovers_committed_modeling_without_republication_or_a_new_atte
 
 #[test]
 fn unpublished_failure_can_resume_as_a_new_attempt_without_changing_the_source() {
-    let (mut repo, project, batch) = automatic_attempt();
+    let (mut repo, project, batch) = modeling_attempt();
     repo.update_task(
         &project,
         "model",
@@ -142,6 +180,12 @@ fn unpublished_failure_can_resume_as_a_new_attempt_without_changing_the_source()
     )
     .unwrap();
     let work = repo.work_task_for_attempt(&project, "model").unwrap();
+    assert_eq!(work.resume_mode, Some(WorkResumeMode::ContinueExecution));
+    assert!(matches!(
+        repo.control_work_task(&project, &work.id, "recoverSavedResult", work.version, 3),
+        Err(RepositoryError::TaskInputStale)
+    ));
+    assert_eq!(repo.work_task_for_attempt(&project, "model").unwrap(), work);
     let resumed = repo
         .control_work_task(&project, &work.id, "resume", work.version, 3)
         .unwrap();
@@ -179,6 +223,7 @@ fn unpublished_failure_can_resume_as_a_new_attempt_without_changing_the_source()
         "second",
         "second-root",
         "已完成恢复建模".into(),
+        None,
         5,
     )
     .unwrap();
@@ -207,8 +252,9 @@ fn accepted_unknown_write_cannot_be_recovered_as_completed_knowledge() {
         before.resume_block_reason.as_deref(),
         Some("pendingRecovery")
     );
+    assert_eq!(before.resume_mode, None);
     assert!(matches!(
-        repo.control_work_task(&project, &work.id, "resume", work.version, 4),
+        repo.control_work_task(&project, &work.id, "recoverSavedResult", work.version, 4),
         Err(RepositoryError::TaskInputStale)
     ));
     assert_eq!(
@@ -251,7 +297,7 @@ fn stale_publication_does_not_bypass_author_resume_source_checks() {
 
 #[test]
 fn pausing_an_active_attempt_does_not_hide_an_unknown_write_on_resume() {
-    let (mut repo, project, _batch) = automatic_attempt();
+    let (mut repo, project, _batch) = modeling_attempt();
     repo.bind_recovery_operation(RecoveryOperationBinding {
         project_id: project.clone(),
         task_id: "model".into(),
@@ -293,6 +339,7 @@ fn a_ready_batch_without_its_active_knowledge_head_cannot_satisfy_resume() {
         .unwrap();
     let before = repo.work_task_for_attempt(&project, "model").unwrap();
     assert_eq!(before.resume_block_reason.as_deref(), Some("inputChanged"));
+    assert_eq!(before.resume_mode, None);
     assert!(matches!(
         repo.control_work_task(&project, &work.id, "resume", before.version, 4),
         Err(RepositoryError::TaskInputStale)
@@ -301,4 +348,59 @@ fn a_ready_batch_without_its_active_knowledge_head_cannot_satisfy_resume() {
         repo.work_task_for_attempt(&project, "model").unwrap(),
         before
     );
+}
+
+#[test]
+fn saved_result_recovery_leaves_unexecuted_follow_up_author_paused() {
+    let (mut repo, project, _batch, work) = failed_publication();
+    repo.connection.execute(
+        "INSERT INTO story_work_steps_v1(id,work_task_id,ordinal,operation,target_json,input_revision,depends_on_step_id,status) \
+         VALUES('follow-up',?1,2,'advisory','{}',0,?2,'queued')",
+        rusqlite::params![work.id,work.steps[0].id],
+    ).unwrap();
+    let before = repo.work_task(&project, &work.id).unwrap();
+    assert_eq!(before.resume_mode, Some(WorkResumeMode::RecoverSavedResult));
+    let recovered = repo
+        .control_work_task(&project, &work.id, "recoverSavedResult", before.version, 4)
+        .unwrap();
+    assert_eq!(
+        (
+            recovered.status.as_str(),
+            &recovered.resume_mode,
+            recovered.steps[0].status.as_str(),
+            recovered.steps[1].status.as_str()
+        ),
+        (
+            "paused",
+            &Some(WorkResumeMode::ContinueExecution),
+            "completed",
+            "queued"
+        )
+    );
+    assert!(recovered.steps[1].attempts.is_empty());
+    let resumed = repo
+        .control_work_task(&project, &work.id, "resume", recovered.version, 5)
+        .unwrap();
+    assert_eq!(resumed.status, "running");
+    assert!(resumed.steps[1].attempts.is_empty());
+}
+
+#[test]
+fn local_recovery_rechecks_publication_even_when_work_version_is_unchanged() {
+    let (mut repo, project, batch, work) = failed_publication();
+    assert_eq!(work.resume_mode, Some(WorkResumeMode::RecoverSavedResult));
+    repo.connection
+        .execute(
+            "DELETE FROM story_knowledge_heads_v2 WHERE batch_id=?1",
+            [batch],
+        )
+        .unwrap();
+    let before = repo.work_task(&project, &work.id).unwrap();
+    assert_eq!(before.version, work.version);
+    assert_eq!(before.resume_mode, None);
+    assert!(matches!(
+        repo.control_work_task(&project, &work.id, "recoverSavedResult", work.version, 4),
+        Err(RepositoryError::TaskInputStale)
+    ));
+    assert_eq!(repo.work_task(&project, &work.id).unwrap(), before);
 }

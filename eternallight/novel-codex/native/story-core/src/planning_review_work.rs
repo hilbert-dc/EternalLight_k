@@ -2,7 +2,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
 use crate::authoring_runs::storage_error;
-use crate::{CreatePlanningReview, CreateTaskRequest, RepositoryError};
+use crate::{CreatePlanningReview, CreateTaskRequest, ProjectId, RepositoryError};
 
 pub(crate) fn bind_claim(
     db: &Connection,
@@ -29,7 +29,7 @@ pub(crate) fn bind_claim(
     let expected: Option<(String, Option<String>)> = db.query_row(
         "SELECT s.target_json,seat.task_id FROM story_planning_review_runs_v2 r
          JOIN story_planning_review_seats_v2 seat ON seat.run_id=r.run_id AND seat.role=?3
-         JOIN story_work_steps_v1 s ON s.id=?4 AND s.work_task_id='work-'||r.run_id AND s.current_attempt_id=?5
+         JOIN story_work_steps_v1 s ON s.id=?4 AND s.work_task_id=r.work_task_id AND s.current_attempt_id=?5
          JOIN story_work_attempts_v1 a ON a.step_id=s.id AND a.attempt_id=?5
          JOIN story_task_provider_budgets_v1 g ON g.task_id=a.attempt_id AND g.work_task_id=s.work_task_id AND g.settled=0
          WHERE r.run_id=?1 AND r.project_id=?2 AND r.status='open' AND r.input_revision=?6
@@ -64,7 +64,7 @@ pub(crate) fn create(
     db: &Connection,
     request: &CreatePlanningReview<'_>,
     input_revision: i64,
-) -> Result<(), RepositoryError> {
+) -> Result<String, RepositoryError> {
     let work_id = format!("work-{}", request.run_id);
     db.execute(
         "INSERT INTO story_work_tasks_v1(id,project_id,thread_id,goal,kind,status,input_revision)
@@ -77,6 +77,23 @@ pub(crate) fn create(
         ],
     )
     .map_err(storage_error)?;
+    append_seats(db, &work_id, request, input_revision)?;
+    Ok(work_id)
+}
+
+pub(crate) fn append_seats(
+    db: &Connection,
+    work_id: &str,
+    request: &CreatePlanningReview<'_>,
+    input_revision: i64,
+) -> Result<(), RepositoryError> {
+    let offset: i64 = db
+        .query_row(
+            "SELECT COALESCE(MAX(ordinal),0) FROM story_work_steps_v1 WHERE work_task_id=?1",
+            [work_id],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
     for (ordinal, role) in request.roles.iter().enumerate() {
         let step_id = format!("review-seat-{}-{role}", request.run_id);
         let target = target(
@@ -88,7 +105,7 @@ pub(crate) fn create(
         db.execute(
             "INSERT INTO story_work_steps_v1(id,work_task_id,ordinal,operation,target_json,input_revision,status)
              VALUES(?1,?2,?3,'reviewPlanningSeat',?4,?5,'queued')",
-            params![step_id, work_id, ordinal as i64 + 1, target.to_string(), input_revision],
+            params![step_id, work_id, offset + ordinal as i64 + 1, target.to_string(), input_revision],
         ).map_err(storage_error)?;
     }
     Ok(())
@@ -101,44 +118,61 @@ pub(crate) enum ReviewEnd {
 
 pub(crate) fn close(
     db: &Connection,
+    project_id: &ProjectId,
     run_id: &str,
     end: ReviewEnd,
     now: i64,
 ) -> Result<(), RepositoryError> {
-    let work_id = format!("work-{run_id}");
+    crate::planning_review_author_source::root(db, project_id, run_id)?;
+    let (work_id, source_task_id): (String, Option<String>) = db.query_row(
+        "SELECT work_task_id,source_task_id FROM story_planning_review_runs_v2 WHERE run_id=?1 AND project_id=?2",
+        params![run_id, project_id.as_str()], |row| Ok((row.get(0)?,row.get(1)?)),
+    ).map_err(storage_error)?;
     let (step_status, work_status) = match end {
         ReviewEnd::Cancelled => ("cancelled", "cancelled"),
         ReviewEnd::Finished => {
             let ready: bool = db.query_row(
                 "SELECT EXISTS(SELECT 1 FROM story_work_tasks_v1 w WHERE w.id=?1
-                 AND (w.status IN ('running','completed') OR (w.status='blocked'
-                   AND NOT EXISTS(SELECT 1 FROM story_work_steps_v1 s WHERE s.work_task_id=w.id AND s.status!='completed')))
-                 AND NOT EXISTS(SELECT 1 FROM story_task_provider_budgets_v1 g WHERE g.work_task_id=w.id AND g.settled=0))",
-                [&work_id], |row| row.get(0),
+                 AND (w.status IN ('running','completed') OR (w.status='blocked' AND (?3=1 OR
+                   NOT EXISTS(SELECT 1 FROM story_work_steps_v1 s WHERE s.work_task_id=w.id AND s.status!='completed'))))
+                 AND NOT EXISTS(SELECT 1 FROM story_task_provider_budgets_v1 g
+                   JOIN story_work_attempts_v1 a ON a.attempt_id=g.task_id
+                   JOIN story_work_steps_v1 s ON s.id=a.step_id
+                   WHERE g.work_task_id=w.id AND g.settled=0 AND s.operation='reviewPlanningSeat'
+                     AND json_extract(s.target_json,'$.reviewRunId')=?2))",
+                params![work_id,run_id,source_task_id.is_some()], |row| row.get(0),
             ).map_err(storage_error)?;
-            if !ready {
-                return Err(RepositoryError::TaskNotWritable);
-            }
             let active: bool = db.query_row(
                 "SELECT EXISTS(SELECT 1 FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id
-                 JOIN story_tasks_v2 t ON t.task_id=a.attempt_id WHERE s.work_task_id=?1 AND t.status IN ('queued','running','waiting'))",
-                [&work_id], |row| row.get(0),
+                 JOIN story_tasks_v2 t ON t.task_id=a.attempt_id WHERE s.work_task_id=?1 AND s.operation='reviewPlanningSeat'
+                 AND json_extract(s.target_json,'$.reviewRunId')=?2 AND t.status IN ('queued','running','waiting'))",
+                params![work_id,run_id], |row| row.get(0),
             ).map_err(storage_error)?;
-            if active {
+            if !ready || active {
                 return Err(RepositoryError::TaskNotWritable);
             }
             // Unperformed seats are explicitly superseded, never marked successfully checked.
             ("superseded", "completed")
         }
     };
-    db.execute("UPDATE story_work_steps_v1 SET status=?2 WHERE work_task_id=?1 AND status IN ('queued','running','blocked')",
-        params![work_id, step_status]).map_err(storage_error)?;
-    db.execute("UPDATE story_work_attempts_v1 SET completed_at=?2 WHERE step_id IN (SELECT id FROM story_work_steps_v1 WHERE work_task_id=?1) AND completed_at IS NULL",
-        params![work_id, now]).map_err(storage_error)?;
+    db.execute("UPDATE story_work_steps_v1 SET status=?3 WHERE work_task_id=?1 AND operation='reviewPlanningSeat'
+        AND json_extract(target_json,'$.reviewRunId')=?2 AND status IN ('queued','running','blocked')",
+        params![work_id, run_id, step_status]).map_err(storage_error)?;
     db.execute(
-        "UPDATE story_work_tasks_v1 SET status=?2,version=version+1 WHERE id=?1",
-        params![work_id, work_status],
+        "UPDATE story_work_attempts_v1 SET completed_at=?3 WHERE step_id IN (
+        SELECT id FROM story_work_steps_v1 WHERE work_task_id=?1 AND operation='reviewPlanningSeat'
+          AND json_extract(target_json,'$.reviewRunId')=?2) AND completed_at IS NULL",
+        params![work_id, run_id, now],
     )
     .map_err(storage_error)?;
+    if source_task_id.is_some() {
+        crate::work_tasks::refresh_work_task(db, &work_id)?;
+    } else {
+        db.execute(
+            "UPDATE story_work_tasks_v1 SET status=?2,version=version+1 WHERE id=?1",
+            params![work_id, work_status],
+        )
+        .map_err(storage_error)?;
+    }
     Ok(())
 }

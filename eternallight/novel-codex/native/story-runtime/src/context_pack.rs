@@ -12,6 +12,7 @@ pub(crate) struct ContextPackInput {
     pub actor: String,
     pub position: Value,
     pub task_target: Value,
+    pub delegation_targets: Option<Value>,
     pub input_manifest: Option<Value>,
     pub title: String,
     pub logline: String,
@@ -204,6 +205,9 @@ pub(crate) fn build_context_pack(input: ContextPackInput) -> Value {
         "budgetsUsed": {"byteLimit": input.byte_limit, "byteSize": 0, "entryLimit": input.entry_limit},
         "contentHash": "0".repeat(64)
     });
+    if let Some(targets) = input.delegation_targets {
+        pack["operationContext"]["delegationTargets"] = targets;
+    }
     let mut scene_links_truncated = false;
     if let Some(baseline) = input.artifacts.get("propertyRules") {
         pack["operationContext"]["propertyRulesBase"] = baseline.clone();
@@ -225,7 +229,8 @@ pub(crate) fn build_context_pack(input: ContextPackInput) -> Value {
                 }))
                 .collect::<Vec<_>>()
         );
-        if pack.to_string().len() + 200 <= input.byte_limit
+        if input.task_id.is_some()
+            || pack.to_string().len() + 200 <= input.byte_limit
             || pack["operationContext"]["boundCommitmentInputs"]["scope"] == "frozenPlanReferences"
         {
             break;
@@ -249,7 +254,10 @@ pub(crate) fn build_context_pack(input: ContextPackInput) -> Value {
             .expect("truncation reasons array")
             .push(json!("sceneLinkBudget"));
     }
-    crate::context_budget::fit_optional_context(&mut pack, input.byte_limit);
+    // Bound tasks cache complete visible sections before applying transport budgets.
+    if input.task_id.is_none() {
+        crate::context_budget::fit_optional_context(&mut pack, input.byte_limit);
+    }
     loop {
         let size = pack.to_string().len();
         if pack["budgetsUsed"]["byteSize"] == json!(size) {

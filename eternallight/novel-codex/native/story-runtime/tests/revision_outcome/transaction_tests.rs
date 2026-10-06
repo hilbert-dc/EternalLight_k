@@ -7,30 +7,22 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 #[tokio::test]
-async fn modeling_completion_and_assessment_enqueue_are_atomic_and_replay_does_not_duplicate_steps()
-{
+async fn modeling_completion_does_not_enqueue_assessment_and_terminal_replay_is_author_only() {
     let flow = Flow::modeled(Goals::Approved).await;
     let f = &flow.fixture;
-    let before = f.ledger_counts();
-    let work = f.work().await;
-    let task_path = format!("/tasks/{}", flow.model["id"].as_str().unwrap());
-    let before_task = f.request("GET", &task_path, AUTHOR, Value::Null).await;
     let db = f.db();
-    db.execute_batch("CREATE TRIGGER reject_outcome_step BEFORE INSERT ON story_work_steps_v1
-        WHEN NEW.operation='assessRevisionOutcome' BEGIN SELECT RAISE(ABORT,'outcome enqueue failure'); END;").unwrap();
-    let (status, error) = f.complete(&flow.model).await;
-    assert!(status.is_server_error(), "{error}");
-    assert_eq!(f.ledger_counts(), before);
-    assert_eq!(f.work().await, work);
-    assert_eq!(
-        f.request("GET", &task_path, AUTHOR, Value::Null).await,
-        before_task
-    );
-    db.execute_batch("DROP TRIGGER reject_outcome_step;")
-        .unwrap();
+    db.execute_batch("CREATE TRIGGER reject_implicit_assessment BEFORE INSERT ON story_work_steps_v1
+        WHEN NEW.operation='assessRevisionOutcome' BEGIN SELECT RAISE(ABORT,'implicit assessment'); END;").unwrap();
     let (status, completed) = f.complete(&flow.model).await;
     assert_eq!(status, StatusCode::OK, "{completed}");
     let work = f.work().await;
+    assert!(
+        work["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|step| step["operation"] != "assessRevisionOutcome")
+    );
     let counts = f.ledger_counts();
     // Completion revokes Candidate capability; only the trusted Author transport
     // can reconcile the exact terminal result, without granting another execution.
@@ -47,7 +39,81 @@ async fn modeling_completion_and_assessment_enqueue_are_atomic_and_replay_does_n
     );
     assert_eq!(f.ledger_counts(), counts);
     assert_eq!(f.work().await, work);
-    assert_eq!(step(&work, "assessRevisionOutcome")["status"], "queued");
+}
+
+#[tokio::test]
+async fn agent_selected_assessment_rolls_back_late_failure_and_replays_without_duplicate_steps() {
+    let flow = Flow::modeled(Goals::Approved).await;
+    let f = &flow.fixture;
+    let (status, completed) = f.complete(&flow.model).await;
+    assert_eq!(status, StatusCode::OK, "{completed}");
+    f.settle(&flow.model);
+    let (parent, decision) = f.decision(&flow.model).await;
+    let action = decision["readyActions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["operation"] == "assessRevisionOutcome")
+        .unwrap_or_else(|| panic!("missing assessment action: {decision}"));
+    let path = format!(
+        "/tasks/{}/work-decision/actions",
+        parent["id"].as_str().unwrap()
+    );
+    let request = json!({"taskId":parent["id"],"threadId":parent["threadId"],
+        "expectedRevision":parent["inputRevision"],"expectedWorkVersion":decision["version"],
+        "expectedSourceDigest":decision["sourceDigest"],"actionKey":action["actionKey"],
+        "instruction":INTENT,"idempotencyKey":"assess-approved-outcomes"});
+    let before = f.ledger_counts();
+    let work = f.work().await;
+    let parent_path = format!("/tasks/{}", parent["id"].as_str().unwrap());
+    let before_parent = f.request("GET", &parent_path, AUTHOR, Value::Null).await;
+    let db = f.db();
+    let action_count = || {
+        db.query_row(
+            "SELECT COUNT(*) FROM story_work_decision_actions_v1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap()
+    };
+    let before_actions = action_count();
+    // Fail after the new step is inserted: selection and its receipt must roll back together.
+    db.execute_batch("CREATE TRIGGER reject_assessment_selection BEFORE INSERT ON story_work_decision_actions_v1
+        WHEN NEW.operation='assessRevisionOutcome' BEGIN SELECT RAISE(ABORT,'selection receipt failure'); END;").unwrap();
+    let (status, error) = f.request("POST", &path, CANDIDATE, request.clone()).await;
+    assert!(status.is_server_error(), "{error}");
+    assert_eq!(f.ledger_counts(), before);
+    assert_eq!(action_count(), before_actions);
+    assert_eq!(f.work().await, work);
+    assert_eq!(
+        f.request("GET", &parent_path, AUTHOR, Value::Null).await,
+        before_parent
+    );
+    db.execute_batch("DROP TRIGGER reject_assessment_selection;")
+        .unwrap();
+    let (status, selected) = f.request("POST", &path, CANDIDATE, request.clone()).await;
+    assert_eq!(status, StatusCode::OK, "{selected}");
+    let counts = f.ledger_counts();
+    let work = f.work().await;
+    assert_eq!(action_count(), before_actions + 1);
+    assert_eq!(
+        f.request("POST", &path, CANDIDATE, request.clone()).await,
+        (StatusCode::OK, selected.clone())
+    );
+    assert_eq!(f.ledger_counts(), counts);
+    assert_eq!(action_count(), before_actions + 1);
+    assert_eq!(f.work().await, work);
+    assert_eq!(
+        step(&work, "assessRevisionOutcome")["id"],
+        selected["step"]["id"]
+    );
+    let mut changed = request;
+    changed["instruction"] = json!("改变同一收据的作者范围");
+    let (status, error) = f.request("POST", &path, CANDIDATE, changed).await;
+    assert!(status.is_client_error(), "{error}");
+    assert_eq!(f.ledger_counts(), counts);
+    assert_eq!(action_count(), before_actions + 1);
+    assert_eq!(f.work().await, work);
 }
 
 #[tokio::test]

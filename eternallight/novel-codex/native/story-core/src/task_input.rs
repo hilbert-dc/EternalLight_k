@@ -36,6 +36,7 @@ pub(crate) fn capture_task_inputs(
             params![task_id, project_id.as_str()],
         )
         .map_err(storage_error)?;
+    crate::task_sources::capture(connection, task_id, project_id)?;
     Ok(())
 }
 
@@ -74,11 +75,40 @@ pub(crate) fn assert_task_inputs_current(
     connection: &rusqlite::Connection,
     task: &TaskRecord,
 ) -> Result<(), RepositoryError> {
+    assert_inputs(connection, task, false)
+}
+
+/// Approval of a sequential candidate may consume its completed siblings.
+/// This does not rewrite the source task's immutable captured inputs.
+pub(crate) fn assert_action_inputs_current(
+    connection: &rusqlite::Connection,
+    task: &TaskRecord,
+) -> Result<(), RepositoryError> {
+    assert_inputs(connection, task, true)
+}
+
+fn assert_inputs(
+    connection: &rusqlite::Connection,
+    task: &TaskRecord,
+    consume_siblings: bool,
+) -> Result<(), RepositoryError> {
     crate::author_message::validate_execution(connection, task)?;
+    if task.operation == "assessChapterStructure" {
+        let event = crate::chapter_structure::assert_task(connection, task)?;
+        let manifest: Value = serde_json::from_str(&task.input_manifest_json)
+            .map_err(|_| RepositoryError::CorruptState)?;
+        let mut immutable = event;
+        immutable
+            .as_object_mut()
+            .ok_or(RepositoryError::CorruptState)?
+            .remove("assessment");
+        if manifest["chapterStructureChange"] != immutable {
+            return Err(RepositoryError::TaskBindingInvalid);
+        }
+    }
     crate::revision_repair::assert_discussion_current(connection, task)?;
     let target: Value =
         serde_json::from_str(&task.target_json).map_err(|_| RepositoryError::CorruptState)?;
-    crate::scope_continuation::assert_current(connection, task, &target)?;
     if task.operation == "assessRevisionOutcome" {
         crate::revision_outcome::validate_target(connection, &task.project_id, &target)?;
         if !crate::revision_outcome::inputs_current(connection, &task.project_id, &target)? {
@@ -120,6 +150,38 @@ pub(crate) fn assert_task_inputs_current(
             );
         }
     }
+    let mut consumed = HashSet::new();
+    if consume_siblings {
+        let mut statement = connection.prepare(
+            "SELECT r.object_id,o.revision_id FROM story_task_outputs_v2 o
+             JOIN story_revisions_v2 r ON r.revision_id=o.revision_id
+             JOIN story_tasks_v2 child ON child.task_id=o.task_id AND child.status='completed'
+             JOIN story_work_attempts_v1 ca ON ca.attempt_id=child.task_id
+             JOIN story_work_steps_v1 cs ON cs.id=ca.step_id
+             JOIN story_work_attempts_v1 pa ON pa.attempt_id=?1
+             JOIN story_work_steps_v1 ps ON ps.id=pa.step_id AND ps.work_task_id=cs.work_task_id
+             JOIN story_task_action_requests_v1 action ON action.source_task_id=?1 AND action.result_task_id=child.task_id
+             WHERE child.project_id=?2 AND r.project_id=child.project_id
+               AND json_extract(child.target_json,'$.requestedByTaskId')=?1
+               AND json_extract(child.target_json,'$.requestedActionId')=action.action_id
+             ORDER BY ca.sequence,o.ordinal",
+        ).map_err(storage_error)?;
+        let rows = statement
+            .query_map(params![task.task_id, task.project_id.as_str()], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(storage_error)?;
+        for row in rows {
+            let (object, revision) = row.map_err(storage_error)?;
+            // Only candidate heads advance. Adoption and working selections
+            // remain the exact original author-controlled watermarks.
+            let entry = captured
+                .entry(object.clone())
+                .or_insert((None, None, None, None));
+            entry.0 = Some(revision);
+            consumed.insert(object);
+        }
+    }
     if captured != current {
         return Err(RepositoryError::TaskInputStale);
     }
@@ -133,6 +195,13 @@ pub(crate) fn assert_task_inputs_current(
         "SELECT object_id, batch_id FROM story_knowledge_heads_v2 WHERE project_id = ?1",
         task.project_id.as_str(),
     )?;
+    // Saving a sibling's new candidate invalidates that object's old knowledge.
+    // A newly published knowledge batch or any unrelated change is still stale.
+    for object in consumed {
+        if !current_knowledge.contains_key(&object) {
+            captured_knowledge.remove(&object);
+        }
+    }
     if task.output_refs_json != "[]"
         && let Some((target_id, _)) = expected_task_target(connection, task)?
         && !current_knowledge.contains_key(target_id.as_str())

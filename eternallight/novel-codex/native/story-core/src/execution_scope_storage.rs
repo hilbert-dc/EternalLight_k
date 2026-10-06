@@ -83,12 +83,7 @@ pub(crate) fn admit(
         return Ok(());
     }
     if action.source_task_id != scope.scope.source_task_id {
-        let source = crate::tasks::load_task(db, &action.source_task_id)?;
-        let target: serde_json::Value =
-            serde_json::from_str(&source.target_json).map_err(|_| RepositoryError::CorruptState)?;
-        if target["scopeContinuation"]["permitId"] != id {
-            return Ok(());
-        }
+        return Ok(());
     }
     let count: i64 = db
         .query_row(
@@ -111,7 +106,10 @@ pub(crate) fn admit(
         )
         .map_err(storage_error)?;
     if !matches!(state.as_str(), "running" | "completed")
-        || scope.scope.deadline_at <= now
+        || scope
+            .scope
+            .deadline_at
+            .is_some_and(|deadline| deadline <= now)
         || crate::work_budget_storage::load(db, project, parent)?.exhausted()
     {
         return Err(RepositoryError::TaskNotWritable);
@@ -134,16 +132,10 @@ pub(crate) fn validate(
     id: &str,
 ) -> Result<(), RepositoryError> {
     let scope = by_id(db, project, id)?;
-    if action.source_task_id == scope.scope.source_task_id {
-        if action.intent_revision != scope.scope.request.expected_intent_revision {
-            return Err(RepositoryError::TaskBindingInvalid);
-        }
-    } else {
-        let source = crate::tasks::load_task(db, &action.source_task_id)?;
-        if source.operation != "advisory" || action.intent_revision != 0 {
-            return Err(RepositoryError::TaskBindingInvalid);
-        }
-        crate::scope_continuation::validate_source(db, &source, id)?;
+    if action.source_task_id != scope.scope.source_task_id
+        || action.intent_revision != scope.scope.request.expected_intent_revision
+    {
+        return Err(RepositoryError::TaskBindingInvalid);
     }
     if !scope.scope.covers(action)
         || crate::author_message::identity(db, &action.source_task_id)?.as_deref()
@@ -205,7 +197,12 @@ pub(crate) fn assert_live(db: &Connection, scope: &ScopeRecord) -> Result<(), Re
     let now: i64 = db
         .query_row("SELECT unixepoch()", [], |row| row.get(0))
         .map_err(storage_error)?;
-    if scope.status != "active" || scope.scope.deadline_at <= now {
+    if scope.status != "active"
+        || scope
+            .scope
+            .deadline_at
+            .is_some_and(|deadline| deadline <= now)
+    {
         return Err(RepositoryError::TaskInputStale);
     }
     crate::task_intents::assert_action_intent(
@@ -227,7 +224,7 @@ pub(crate) fn assert_attempt_capacity(
                 let source = source.ok_or(RepositoryError::CorruptState)?;
                 let scope =
                     load(db, project, &source, &id)?.ok_or(RepositoryError::CorruptState)?;
-                i64::from(scope.scope.request.max_task_attempts)
+                Some(i64::from(scope.scope.request.max_task_attempts))
             }
             "generation" => {
                 let run = run.ok_or(RepositoryError::CorruptState)?;
@@ -242,7 +239,7 @@ pub(crate) fn assert_attempt_capacity(
             _ => return Err(RepositoryError::CorruptState),
         };
         let count: i64 = db.query_row("SELECT COUNT(*) FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE s.work_task_id=?1",[work],|row|row.get(0)).map_err(storage_error)?;
-        if count >= maximum {
+        if maximum.is_some_and(|maximum| count >= maximum) {
             return Err(RepositoryError::InvalidContent(
                 "author-confirmed work attempt limit reached".into(),
             ));

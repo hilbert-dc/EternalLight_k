@@ -130,7 +130,7 @@ fn extraction_is_a_frozen_multi_candidate_output_not_an_established_commitment()
             &project(),
             &task.task_id,
             &task.thread_id,
-            String::new(),
+            String::new(), None,
             /*now*/ 5
         ),
         Err(RepositoryError::TaskOutputMissing)
@@ -211,7 +211,7 @@ fn extraction_is_a_frozen_multi_candidate_output_not_an_established_commitment()
         &project(),
         &task.task_id,
         &task.thread_id,
-        "提案已保存".into(),
+        "提案已保存".into(), None,
         /*now*/ 6,
     )
     .unwrap();
@@ -337,7 +337,7 @@ fn source_edit_revokes_old_execution_without_rewriting_saved_proposals() {
             &project(),
             &task.task_id,
             &task.thread_id,
-            String::new(),
+            String::new(), None,
             /*now*/ 6
         ),
         Err(RepositoryError::TaskInputStale)

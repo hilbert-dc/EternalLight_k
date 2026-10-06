@@ -179,11 +179,58 @@ impl Fixture {
         .await
     }
     pub async fn complete(&self, task: &Value) -> (StatusCode, Value) {
+        let mut body = json!({"threadId":task["threadId"],"summary":"完成当前步骤"});
+        if task["inputManifest"]["workDecision"].is_object() {
+            let status_uri = format!(
+                "/tasks/{}/work-decision?threadId={}&expectedRevision={}",
+                task["id"].as_str().unwrap(),
+                task["threadId"].as_str().unwrap(),
+                task["inputRevision"]
+            );
+            let (code, first) = self
+                .request("GET", &status_uri, CANDIDATE, Value::Null)
+                .await;
+            assert_eq!(code, StatusCode::OK, "{first}");
+            // Mandatory work remains incomplete: do not fabricate a review to
+            // bypass the expected TaskOutputMissing rejection in negative tests.
+            if first["deliveryReviewRequired"] == true {
+                let mut page = first.clone();
+                let mut evidence = Vec::new();
+                loop {
+                    for receipt in page["receipts"]["items"].as_array().unwrap() {
+                        if receipt["status"] != "completed" {
+                            continue;
+                        }
+                        for output in receipt["outputs"].as_array().unwrap() {
+                            if output["revisionId"].is_string() {
+                                evidence.push(json!({"taskId":receipt["taskId"],"revisionId":output["revisionId"]}));
+                            }
+                        }
+                    }
+                    let Some(cursor) = page["pagination"]["nextCursor"].as_str() else {
+                        break;
+                    };
+                    let (code, next) = self
+                        .request(
+                            "GET",
+                            &format!("{status_uri}&cursor={}", cursor.replace(':', "%3A")),
+                            CANDIDATE,
+                            Value::Null,
+                        )
+                        .await;
+                    assert_eq!(code, StatusCode::OK, "{next}");
+                    assert_eq!(next["version"], first["version"]);
+                    assert_eq!(next["sourceDigest"], first["sourceDigest"]);
+                    page = next;
+                }
+                body["deliveryReview"] = json!({"expectedWorkVersion":first["version"],"expectedSourceDigest":first["sourceDigest"],"goalStatus":"fulfilled","goalAssessment":"已核对本次授权改稿和实际保存成果","checkedScope":"本Work已保存回执，不宣称额外文学质量检查","unresolved":[],"authorDecisions":[],"evidence":evidence});
+            }
+        }
         self.request(
             "POST",
             &format!("/tasks/{}/complete", task["id"].as_str().unwrap()),
             CANDIDATE,
-            json!({"threadId":task["threadId"],"summary":"完成当前步骤"}),
+            body,
         )
         .await
     }
@@ -233,6 +280,60 @@ impl Fixture {
         assert_eq!(writer["target"], target);
         assert_eq!(writer["inputManifest"]["authorIntent"], INTENT);
         writer
+    }
+    pub async fn decision(&self, source: &Value) -> (Value, Value) {
+        let (code, work) = self
+            .request(
+                "GET",
+                &format!("/tasks/{}/work-task", source["id"].as_str().unwrap()),
+                AUTHOR,
+                Value::Null,
+            )
+            .await;
+        assert_eq!(code, StatusCode::OK, "{work}");
+        let (code, workspace) = self
+            .request("GET", "/creative-workspace", AUTHOR, Value::Null)
+            .await;
+        assert_eq!(code, StatusCode::OK, "{workspace}");
+        let (code, continuation) = self.request("POST",&format!("/work-tasks/{}/decision",work["id"].as_str().unwrap()),AUTHOR,json!({"expectedWorkVersion":work["version"],"expectedRevision":workspace["revision"],"expectedSourceDigest":workspace["sourceDigest"]})).await;
+        assert_eq!(code, StatusCode::OK, "{continuation}");
+        let queued = &continuation["step"];
+        let mut target = queued["target"].clone();
+        target["resumeStepId"] = queued["id"].clone();
+        let mut request = self.task_request("advisory", target);
+        request["threadId"] = work["threadId"].clone();
+        request["inputRevision"] = queued["inputRevision"].clone();
+        let (code, parent) = self.request("POST", "/tasks", AUTHOR, request).await;
+        assert_eq!(code, StatusCode::CREATED, "{parent}");
+        let (code, status) = self
+            .request(
+                "GET",
+                &format!(
+                    "/tasks/{}/work-decision?threadId={}&expectedRevision={}",
+                    parent["id"].as_str().unwrap(),
+                    parent["threadId"].as_str().unwrap(),
+                    parent["inputRevision"]
+                ),
+                CANDIDATE,
+                Value::Null,
+            )
+            .await;
+        assert_eq!(code, StatusCode::OK, "{status}");
+        (parent, status)
+    }
+    pub async fn choose(&self, source: &Value, operation: &str) -> Value {
+        let (parent, status) = self.decision(source).await;
+        let action = status["readyActions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|action| action["operation"] == operation)
+            .unwrap_or_else(|| panic!("missing {operation}: {status}"));
+        let (code,selected)=self.request("POST",&format!("/tasks/{}/work-decision/actions",parent["id"].as_str().unwrap()),CANDIDATE,json!({"taskId":parent["id"],"threadId":parent["threadId"],"expectedRevision":parent["inputRevision"],"expectedWorkVersion":status["version"],"expectedSourceDigest":status["sourceDigest"],"actionKey":action["actionKey"],"instruction":INTENT,"idempotencyKey":"select-follow-up"})).await;
+        assert_eq!(code, StatusCode::OK, "{selected}");
+        assert_eq!(self.complete(&parent).await.0, StatusCode::OK);
+        self.settle(&parent);
+        selected["step"].clone()
     }
     pub async fn checkpoint(
         &self,
@@ -362,4 +463,71 @@ pub(super) async fn call(
         status,
         serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes))),
     )
+}
+
+/// Reassemble the immutable task source through the same HTTP route used by read_task_source.
+pub(super) async fn read_context_source(
+    f: &Fixture,
+    task: &Value,
+    pack: &Value,
+    path: &str,
+) -> Value {
+    assert_eq!(pack["taskSources"]["readTool"], "read_task_source");
+    assert_eq!(pack["taskSources"]["textDelivered"], false);
+    let entry = pack["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["sectionPath"] == path)
+        .expect("registered source");
+    assert_eq!(
+        pack.pointer(path).unwrap(),
+        &json!({"sourceId":entry["sourceId"],"textDelivered":false})
+    );
+    let mut cursor = Value::Null;
+    let mut text = String::new();
+    loop {
+        let suffix = cursor
+            .as_str()
+            .map(|value| format!("&cursor={value}"))
+            .unwrap_or_default();
+        let (status, page) = f
+            .request(
+                "GET",
+                &format!(
+                    "/tasks/{}/task-source?threadId={}&expectedRevision={}&sourceId={}{suffix}",
+                    task["id"].as_str().unwrap(),
+                    task["threadId"].as_str().unwrap(),
+                    task["inputRevision"],
+                    entry["sourceId"].as_str().unwrap()
+                ),
+                CANDIDATE,
+                Value::Null,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], entry["sourceId"]);
+        assert_eq!(page["sectionPath"], path);
+        assert_eq!(page["contentHash"], entry["contentHash"]);
+        assert_eq!(page["byteRange"]["start"], text.len());
+        let part = page["payloadPart"].as_str().unwrap();
+        assert!(!part.is_empty() && part.len() <= 2000);
+        assert!(page.to_string().len() <= 6500);
+        text.push_str(part);
+        assert_eq!(page["byteRange"]["end"], text.len());
+        cursor = page["nextCursor"].clone();
+        if cursor.is_null() {
+            assert_eq!(page["endOfInputFromCursor"], true);
+            assert_eq!(page["byteRange"]["total"], text.len());
+            break;
+        }
+        assert_eq!(page["endOfInputFromCursor"], false);
+        assert!(text.len() < entry["payloadBytes"].as_u64().unwrap() as usize);
+    }
+    assert_eq!(entry["payloadBytes"], text.len());
+    assert_eq!(
+        format!("{:x}", Sha256::digest(text.as_bytes())),
+        entry["contentHash"].as_str().unwrap()
+    );
+    serde_json::from_str(&text).unwrap()
 }

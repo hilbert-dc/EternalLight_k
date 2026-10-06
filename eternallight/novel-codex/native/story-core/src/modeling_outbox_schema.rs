@@ -8,14 +8,6 @@ CREATE TABLE IF NOT EXISTS story_modeling_outbox_v1 (
  FOREIGN KEY(project_id,object_id) REFERENCES story_object_heads_v2(project_id,object_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS story_modeling_outbox_pending_v1 ON story_modeling_outbox_v1(project_id,status);
-CREATE INDEX IF NOT EXISTS story_modeling_dispatch_work_tasks_v1 ON story_work_tasks_v1(project_id,status);
-CREATE TABLE IF NOT EXISTS story_modeling_dispatch_v1 (
- project_id TEXT NOT NULL, object_id TEXT NOT NULL, intent_generation INTEGER NOT NULL,
- step_id TEXT NOT NULL UNIQUE REFERENCES story_work_steps_v1(id) ON DELETE CASCADE,
- superseded INTEGER NOT NULL DEFAULT 0 CHECK(superseded IN (0,1)),
- PRIMARY KEY(project_id,object_id),
- FOREIGN KEY(project_id,object_id) REFERENCES story_modeling_outbox_v1(project_id,object_id) ON DELETE CASCADE
-);
 CREATE TABLE IF NOT EXISTS story_modeling_outbox_state_v1 (
  project_id TEXT PRIMARY KEY REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
  generation INTEGER NOT NULL

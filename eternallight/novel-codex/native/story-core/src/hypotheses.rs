@@ -51,79 +51,25 @@ impl SqliteStoryRepository {
         &mut self,
         request: CreateHypothesis<'_>,
     ) -> Result<Value, RepositoryError> {
-        if request.intent.trim().is_empty()
-            || request.intent.chars().count() > 1_000
-            || request.idempotency_key.is_empty()
-            || request.idempotency_key.len() > 160
-            || !(1..=MAX_ASSUMPTIONS).contains(&request.assumptions.len())
-        {
-            return Err(RepositoryError::InvalidContent(
-                "invalid hypothesis request".into(),
-            ));
-        }
-        let assumptions_json = serde_json::to_string(request.assumptions)
-            .map_err(|_| RepositoryError::CorruptState)?;
-        if assumptions_json.len() > MAX_ASSUMPTION_BYTES {
-            return Err(RepositoryError::InvalidContent(
-                "hypothesis assumptions are too large".into(),
-            ));
-        }
-        let digest = format!(
-            "{:x}",
-            Sha256::digest(
-                json!({
-                    "snapshotId": request.base_snapshot_id.as_str(),
-                    "intent": request.intent,
-                    "assumptions": request.assumptions
-                })
-                .to_string()
-                .as_bytes()
-            )
-        );
         let transaction = self
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(storage_error)?;
-        let existing = transaction.query_row(
-            "SELECT hypothesis_id, request_digest FROM story_hypotheses_v1 WHERE project_id = ?1 AND idempotency_key = ?2",
-            params![request.project_id.as_str(), request.idempotency_key],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        ).optional().map_err(storage_error)?;
-        if let Some((id, prior_digest)) = existing {
-            if prior_digest != digest {
-                return Err(RepositoryError::IdempotencyConflict);
-            }
-            return Ok(
-                json!({"id": id, "baseSnapshotId": request.base_snapshot_id.as_str(), "replayed": true}),
-            );
-        }
-        let valid_snapshot = transaction.query_row(
-            "SELECT 1 FROM story_snapshots_v2 WHERE project_id = ?1 AND snapshot_id = ?2 AND branch_id = 'main'",
-            params![request.project_id.as_str(), request.base_snapshot_id.as_str()],
-            |row| row.get::<_, i64>(0),
-        ).optional().map_err(storage_error)?;
-        if valid_snapshot.is_none() {
-            return Err(RepositoryError::CandidateNotFound);
-        }
-        validate_assumptions(
-            &transaction,
-            request.project_id,
-            request.base_snapshot_id,
-            request.assumptions,
-        )?;
-        let id = format!("hypothesis-{}", uuid::Uuid::new_v4().simple());
-        transaction.execute(
-            "INSERT INTO story_hypotheses_v1(hypothesis_id, project_id, base_snapshot_id, intent, assumptions_json, idempotency_key, request_digest, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![id, request.project_id.as_str(), request.base_snapshot_id.as_str(), request.intent, assumptions_json, request.idempotency_key, digest, request.now],
-        ).map_err(storage_error)?;
+        let result = create_in_transaction(&transaction, request)?;
         transaction.commit().map_err(storage_error)?;
-        Ok(
-            json!({"id": id, "baseSnapshotId": request.base_snapshot_id.as_str(), "replayed": false}),
-        )
+        Ok(result)
     }
 
     /// Replays assumptions over the pinned historical projection, never into a formal head.
     pub fn read_hypothesis(
+        &self,
+        project_id: &ProjectId,
+        hypothesis_id: &str,
+    ) -> Result<Value, RepositoryError> {
+        self.with_read_snapshot(|| self.read_hypothesis_in_snapshot(project_id, hypothesis_id))?
+    }
+
+    pub(crate) fn read_hypothesis_in_snapshot(
         &self,
         project_id: &ProjectId,
         hypothesis_id: &str,
@@ -141,7 +87,7 @@ impl SqliteStoryRepository {
         let snapshot_id = SnapshotId::parse(row.0).map_err(|_| RepositoryError::CorruptState)?;
         let assumptions: Vec<HypothesisAssumption> =
             serde_json::from_str(&row.2).map_err(|_| RepositoryError::CorruptState)?;
-        let baseline = self.knowledge_state(KnowledgeStateQuery {
+        let baseline = self.knowledge_state_in_snapshot(KnowledgeStateQuery {
             project_id,
             snapshot_id: Some(&snapshot_id),
             perspective: KnowledgePerspective::Author,
@@ -231,6 +177,82 @@ impl SqliteStoryRepository {
             "authority": "hypothesisOnly"
         }))
     }
+}
+
+pub(crate) fn create_in_transaction(
+    transaction: &Transaction<'_>,
+    request: CreateHypothesis<'_>,
+) -> Result<Value, RepositoryError> {
+    if request.intent.trim().is_empty()
+        || request.intent.chars().count() > 1_000
+        || request.idempotency_key.is_empty()
+        || request.idempotency_key.len() > 160
+        || !(1..=MAX_ASSUMPTIONS).contains(&request.assumptions.len())
+    {
+        return Err(RepositoryError::InvalidContent(
+            "invalid hypothesis request".into(),
+        ));
+    }
+    let assumptions_json =
+        serde_json::to_string(request.assumptions).map_err(|_| RepositoryError::CorruptState)?;
+    if assumptions_json.len() > MAX_ASSUMPTION_BYTES {
+        return Err(RepositoryError::InvalidContent(
+            "hypothesis assumptions are too large".into(),
+        ));
+    }
+    let digest = request_digest(
+        request.base_snapshot_id.as_str(),
+        request.intent,
+        request.assumptions,
+    );
+    let existing = transaction.query_row(
+            "SELECT hypothesis_id, request_digest FROM story_hypotheses_v1 WHERE project_id = ?1 AND idempotency_key = ?2",
+            params![request.project_id.as_str(), request.idempotency_key],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        ).optional().map_err(storage_error)?;
+    if let Some((id, prior_digest)) = existing {
+        if prior_digest != digest {
+            return Err(RepositoryError::IdempotencyConflict);
+        }
+        return Ok(
+            json!({"id": id, "baseSnapshotId": request.base_snapshot_id.as_str(), "replayed": true}),
+        );
+    }
+    let valid_snapshot = transaction.query_row(
+            "SELECT 1 FROM story_snapshots_v2 WHERE project_id = ?1 AND snapshot_id = ?2 AND branch_id = 'main'",
+            params![request.project_id.as_str(), request.base_snapshot_id.as_str()],
+            |row| row.get::<_, i64>(0),
+        ).optional().map_err(storage_error)?;
+    if valid_snapshot.is_none() {
+        return Err(RepositoryError::CandidateNotFound);
+    }
+    validate_assumptions(
+        transaction,
+        request.project_id,
+        request.base_snapshot_id,
+        request.assumptions,
+    )?;
+    let id = format!("hypothesis-{}", uuid::Uuid::new_v4().simple());
+    transaction.execute(
+            "INSERT INTO story_hypotheses_v1(hypothesis_id, project_id, base_snapshot_id, intent, assumptions_json, idempotency_key, request_digest, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, request.project_id.as_str(), request.base_snapshot_id.as_str(), request.intent, assumptions_json, request.idempotency_key, digest, request.now],
+        ).map_err(storage_error)?;
+    Ok(json!({"id": id, "baseSnapshotId": request.base_snapshot_id.as_str(), "replayed": false}))
+}
+
+pub(crate) fn request_digest(
+    snapshot: &str,
+    intent: &str,
+    assumptions: &[HypothesisAssumption],
+) -> String {
+    format!(
+        "{:x}",
+        Sha256::digest(
+            json!({"snapshotId":snapshot,"intent":intent,"assumptions":assumptions})
+                .to_string()
+                .as_bytes()
+        )
+    )
 }
 
 fn validate_assumptions(

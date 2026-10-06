@@ -39,7 +39,7 @@ pub struct RevisionOutcomeDecision {
     pub writer_task_id: String,
     pub assessment_revision_id: String,
     pub draft_revision_id: String,
-    pub knowledge_batch_id: String,
+    pub knowledge_batch_id: Option<String>,
     pub choice: RevisionOutcomeChoice,
     pub note: String,
     pub created_at: i64,
@@ -157,7 +157,8 @@ impl SqliteStoryRepository {
             writer_task_id: writer.into(),
             assessment_revision_id: request.expected_assessment_revision_id.clone(),
             draft_revision_id: text("draftRevisionId")?,
-            knowledge_batch_id: text("knowledgeBatchId")?,
+            knowledge_batch_id: serde_json::from_value(assessment["knowledgeBatchId"].clone())
+                .map_err(|_| RepositoryError::CorruptState)?,
             choice: request.choice,
             note: request.note,
             created_at,

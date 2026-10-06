@@ -1,36 +1,74 @@
 mod acceptance_shared;
+
+/// Maximum chapter count in one explicit author grant; execution remains incremental.
+pub const MAX_GENERATION_CHAPTERS: i64 = 100;
 mod author_intent_message;
 mod author_message;
 mod execution_scope;
 mod execution_scope_storage;
 mod generation_author_source;
 mod generation_execution_scope;
+mod generation_handoff;
 mod generation_intent;
-mod scope_continuation;
-mod scope_intent_adjustment;
+mod work_decision;
+mod work_decision_actions;
+mod work_action_proposal;
+pub use work_action_proposal::{WorkActionProposal, ProposalTarget};
+mod work_decision_delivery;
+mod work_decision_generation;
+mod work_decision_status;
+mod work_decision_recovery;
+mod work_delivery_review;
+pub use generation_handoff::GenerationHandoffRequest;
+pub use work_decision::{WorkDecisionContinuation, WorkDecisionRequest};
+pub use work_decision_actions::WorkActionRequest;
+mod conversation_receipts;
+mod conversations;
+pub use conversations::{ConversationRecord, CreateConversationRequest, UpdateConversationRequest};
 pub use generation_intent::{
     CreativeIntentRevision, CreativeIntentSource, GenerationFeedbackDecision,
     generation_author_intent,
 };
 mod task_action_queue;
+mod task_delegation_targets;
+pub use task_delegation_targets::DelegationTargetSelection;
+mod task_capability_renewal;
+mod thread_author_messages;
 pub use execution_scope::{ExecutionScopePreview, ExecutionScopeRequest};
+pub use task_capability_renewal::RenewTaskCapability;
 mod initial_work_budget;
 mod ordinary_work_budget;
 mod planning_review_author_source;
+mod planning_review_registration;
+mod planning_review_task_source;
 mod planning_review_work;
+mod task_planning_review;
 pub use initial_work_budget::InitialWorkBudget;
 pub use ordinary_work_budget::PendingProviderUsage;
+pub use task_planning_review::TaskPlanningReviewRequest;
 mod work_budget_authorization;
 pub use work_budget_authorization::WorkBudgetAuthorization;
 mod task_provider_budget;
 pub use task_provider_budget::TaskProviderBudget;
 mod provider_budget;
 mod work_budget_storage;
-pub use provider_budget::{ProviderBudget, ProviderUsageCharge, UsageChargeOutcome};
+pub use provider_budget::{
+    ProviderBudget, ProviderUsageCharge, UsageChargeOutcome, deserialize_execution_limit,
+};
 mod assertion_index_integrity;
 mod authoring_runs;
 mod bound_writer_plan;
+mod chapter_deletion;
+mod chapter_structure;
 mod chapters;
+mod planned_scene_mapping;
+mod task_chapter_structure;
+pub use chapter_deletion::{DeleteChapterRequest, DeletedChapterReceipt};
+pub use task_chapter_structure::{ChapterStructureSourceRequest, ChapterStructureSourceRole};
+mod manuscript_catalog;
+pub use manuscript_catalog::{
+    CatalogChapterDestination, CatalogOperation, CatalogRequest, ManuscriptCatalog, VolumeSource,
+};
 mod commitment_assessment;
 mod commitment_catalog;
 mod commitment_context;
@@ -41,6 +79,8 @@ mod commitment_revision;
 mod condition_evaluation_jobs;
 mod context_sources;
 mod creative_methods;
+mod quality_notebook;
+pub use quality_notebook::{QualityAction, QualityEvidence, QualityMutation, QualityNote, QualityPacketSource};
 mod dependency_rules;
 mod entity_audit_jobs;
 mod entity_identity;
@@ -60,7 +100,6 @@ mod fact_integrity;
 mod generation_checkpoint;
 mod generation_delivery;
 pub use generation_delivery::GenerationChapterDelivery;
-mod generation_materialization;
 mod hypotheses;
 mod identity_decisions;
 mod ids;
@@ -77,7 +116,7 @@ mod model_delta;
 mod model_dependencies;
 mod model_sources;
 mod modeling;
-mod modeling_dispatch;
+mod modeling_action;
 #[cfg(test)]
 #[path = "modeling_input_tests.rs"]
 mod modeling_input_tests;
@@ -144,12 +183,12 @@ mod task_action_permit;
 mod task_actions;
 mod task_attempts;
 mod task_author_intent;
-mod task_domain_source;
 mod task_final_reply;
 mod work_modeling_recovery;
 #[cfg(test)]
 #[path = "work_modeling_recovery_tests.rs"]
 mod work_modeling_recovery_tests;
+mod writer_baseline;
 pub use revision_continuation::RevisionPredecessor;
 pub use revision_outcome::{DesiredOutcome, StoredRevisionOutcome};
 pub use revision_outcome_decision::{
@@ -157,10 +196,14 @@ pub use revision_outcome_decision::{
 };
 mod task_followup;
 pub use task_final_reply::{FinalReplyState, RecordTaskFinalReply, TaskFinalReply};
+mod task_evidence;
+mod task_hypothesis;
+mod task_impact;
 mod task_input;
 mod task_intents;
 mod task_knowledge_search;
 mod task_scope;
+mod task_sources;
 mod tasks;
 mod work_delivery;
 mod work_tasks;
@@ -176,6 +219,7 @@ pub use chapters::AssociateChapterPlanRequest;
 pub use chapters::ChapterBinding;
 pub use chapters::RebindChapterPlanRequest;
 pub use chapters::ReboundChapterPlan;
+pub use chapters::{MaterializeStandaloneChapterRequest, StandaloneChapterReceipt};
 pub use commitment_establishment::{
     CommitmentExtractionOrigin, EstablishCommitment, EstablishedCommitment,
 };
@@ -254,6 +298,7 @@ pub use task_scope::writer_scene_limit;
 pub use tasks::CreateTaskRequest;
 pub use tasks::TaskRecord;
 pub use tasks::TaskUpdate;
+pub use work_modeling_recovery::WorkResumeMode;
 pub use work_tasks::{WorkStep, WorkTask, WorkTaskPage};
 pub use workflow::AcceptReviewRequest;
 pub use workflow::AcceptanceReceipt;

@@ -18,7 +18,7 @@ pub(crate) fn specs() -> Vec<Value> {
         });
         let mut required = vec!["taskId","projectId","threadId","expectedRevision"];
         if name == "checkpoint_reading" {
-            let mut plan = super::query_plan_schema();
+            let mut plan = super::query_plan_schema::query_plan_schema("advisory");
             plan["properties"]["question"]["maxLength"] = json!(512);
             plan["properties"]["steps"]["maxItems"] = json!(1);
             plan["properties"]["ranking"] = json!({"type":"object","properties":{"type":{"const":"literal"}},"required":["type"],"additionalProperties":false});

@@ -3,8 +3,8 @@ use serde_json::{Value, json};
 use crate::{RepositoryError, SqliteStoryRepository, TaskRecord};
 
 impl SqliteStoryRepository {
-    /// Bounded original/new scene excerpts from the persisted approved writer scope.
-    /// Truncation is explicit; this projection never expands an Agent's query authority.
+    /// Complete approved scenes; the task-source transport pages this exact projection.
+    /// This does not expand the Agent's ordinary evidence-query authority.
     pub fn revision_outcome_input(&self, task: &TaskRecord) -> Result<Value, RepositoryError> {
         let read_input = || {
             let read = &self.connection;
@@ -25,14 +25,12 @@ impl SqliteStoryRepository {
             let chapter = target["chapterId"]
                 .as_str()
                 .ok_or(RepositoryError::TaskBindingInvalid)?;
-            let mut complete = true;
             let mut before = Vec::new();
             let mut after = Vec::new();
             for (field, scenes) in [
                 ("originalRevisionId", &mut before),
                 ("draftRevisionId", &mut after),
             ] {
-                let mut remaining = 6_000;
                 let revision = target[field]
                     .as_str()
                     .ok_or(RepositoryError::TaskBindingInvalid)?;
@@ -53,22 +51,11 @@ impl SqliteStoryRepository {
                     let body = group["body"]
                         .as_str()
                         .ok_or(RepositoryError::CorruptState)?;
-                    let mut bounded = String::new();
-                    for character in body.chars() {
-                        if character.len_utf8() > remaining {
-                            break;
-                        }
-                        remaining -= character.len_utf8();
-                        bounded.push(character);
-                    }
-                    let truncated = bounded.len() != body.len();
-                    complete &= !truncated;
-                    scenes
-                        .push(json!({"groupId":group["id"],"body":bounded,"truncated":truncated}));
+                    scenes.push(json!({"groupId":group["id"],"body":body,"truncated":false}));
                 }
             }
             Ok(
-                json!({"desiredOutcomes":desired,"beforeScenes":before,"afterScenes":after,"coverage":{"complete":complete,"textByteLimit":12_000}}),
+                json!({"desiredOutcomes":desired,"beforeScenes":before,"afterScenes":after,"coverage":{"complete":true,"delivery":"taskSourcePages"}}),
             )
         };
         if self.connection.is_autocommit() {

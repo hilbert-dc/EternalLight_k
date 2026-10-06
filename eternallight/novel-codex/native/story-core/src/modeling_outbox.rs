@@ -7,7 +7,6 @@ pub struct ModelingOutboxQuery<'a> {
     pub project_id: &'a ProjectId,
     pub cursor: Option<&'a str>,
     pub limit: usize,
-    pub now_ms: i64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -20,14 +19,12 @@ struct Cursor {
 }
 
 impl SqliteStoryRepository {
-    /// Reads durable latest-source intents; due is a hint, never an execution grant.
+    /// Reads durable source freshness records; reading never schedules semantic analysis.
     pub fn modeling_outbox_page(
         &self,
         query: ModelingOutboxQuery<'_>,
     ) -> Result<Value, RepositoryError> {
-        if !(1..=20).contains(&query.limit)
-            || query.now_ms < 0
-            || query.cursor.is_some_and(|cursor| cursor.len() > 512)
+        if !(1..=20).contains(&query.limit) || query.cursor.is_some_and(|cursor| cursor.len() > 512)
         {
             return Err(RepositoryError::InvalidContent(
                 "invalid outbox query".into(),
@@ -48,10 +45,9 @@ impl SqliteStoryRepository {
             let mut data=Vec::new();
             for (_,object,source,snapshot,version,first,last,current) in rows.into_iter().take(query.limit) {
                 if current.as_deref()!=Some(&source) {return Err(RepositoryError::CorruptState);}
-                let due_at=last.saturating_add(1000).min(first.saturating_add(5000));
-                data.push(json!({"objectId":object,"sourceRevisionId":source,"originSnapshotId":snapshot,"generation":version,"status":"pending","firstDirtyMs":first,"lastDirtyMs":last,"dueAtMs":due_at,"due":query.now_ms>=due_at}));
+                data.push(json!({"objectId":object,"sourceRevisionId":source,"originSnapshotId":snapshot,"generation":version,"status":"pending","firstDirtyMs":first,"lastDirtyMs":last}));
             }
-            Ok(json!({"data":data,"nextCursor":next_cursor,"pendingCount":pending,"branchId":"main","authority":"intentOnly"}))
+            Ok(json!({"data":data,"nextCursor":next_cursor,"pendingCount":pending,"branchId":"main","authority":"sourceFreshnessOnly"}))
         })?
     }
 }

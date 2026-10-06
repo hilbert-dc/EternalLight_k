@@ -179,21 +179,23 @@ async fn dialogue_rules_keep_frozen_baseline_candidate_origin_and_author_approva
     );
     let (status, context) = call(&app, "GET", &context_uri, CANDIDATE, /*body*/ None).await;
     assert_eq!(status, StatusCode::OK, "{context}");
-    assert_eq!(
-        context["operationContext"]["propertyRulesBase"],
-        json!({"id":prior["revisionId"],"source":"author","definitionCount":1,"eventRuleCount":1,
-            "payloadBytes":payload.to_string().len(),"contentHash":format!("{:x}",Sha256::digest(payload.to_string().as_bytes())),
-            "readTool":"read_property_rules","payloadEncoding":"jsonUtf8","pageByteLimit":7000})
+    let source = context["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["sectionPath"] == "/operationContext/propertyRulesBase")
+        .unwrap();
+    let page_uri = format!(
+        "{base}/tasks/{id}/task-source?threadId=generator&expectedRevision=0&sourceId={}",
+        source["sourceId"].as_str().unwrap()
     );
-    let page_uri =
-        format!("{base}/tasks/{id}/property-rule-input?threadId=generator&expectedRevision=0");
     let (status, page) = call(&app, "GET", &page_uri, CANDIDATE, /*body*/ None).await;
     assert_eq!(status, StatusCode::OK, "{page}");
-    assert_eq!(page["eventRuleCount"], 1);
-    assert_eq!(
-        serde_json::from_str::<Value>(page["payloadPart"].as_str().unwrap()).unwrap(),
-        payload
-    );
+    let original: Value = serde_json::from_str(page["payloadPart"].as_str().unwrap()).unwrap();
+    assert_eq!(original["payload"], payload);
+    assert_eq!(original["id"], prior["revisionId"]);
+    assert_eq!(page["contentHash"], source["contentHash"]);
+    assert_eq!(page["nextCursor"], Value::Null);
     let complete_uri = format!("{base}/tasks/{id}/complete");
     let complete = json!({"threadId":"generator","expectedRevision":0,"summary":"候选已保存"});
     assert_eq!(

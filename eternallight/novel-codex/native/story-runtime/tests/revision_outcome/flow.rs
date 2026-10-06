@@ -22,6 +22,21 @@ impl Flow {
         Self::from_fixture(Fixture::new().await, goals).await
     }
     pub async fn from_fixture(fixture: Fixture, goals: Goals) -> Self {
+        Self::from_fixture_with_modeling(fixture, goals, true).await
+    }
+    pub async fn unmodeled() -> Self {
+        let flow =
+            Self::from_fixture_with_modeling(Fixture::new().await, Goals::Approved, false).await;
+        flow.fixture
+            .choose(&flow.writer, "assessRevisionOutcome")
+            .await;
+        flow
+    }
+    async fn from_fixture_with_modeling(
+        fixture: Fixture,
+        goals: Goals,
+        model_knowledge: bool,
+    ) -> Self {
         let mut grants = vec![fixture.grant(&fixture.discussion).await];
         let mut target = fixture.target.clone();
         if let Goals::Absent = goals {
@@ -39,28 +54,29 @@ impl Flow {
         let (status, complete) = fixture.complete(&writer).await;
         assert_eq!(status, StatusCode::OK, "{complete}");
         fixture.settle(&writer);
-        let (status, batch) = fixture
-            .request(
-                "POST",
-                "/modeling-batches",
-                AUTHOR,
-                json!({"objectId":"draft-chapter-one","sourceRevisionId":draft["revisionId"],
-                "expectedRevision":0,"extractorVersion":"revision-outcome-test"}),
-            )
-            .await;
-        assert_eq!(status, StatusCode::CREATED, "{batch}");
-        let work = fixture.work().await;
-        assert!(
-            !work["steps"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|s| s["operation"] == "assessRevisionOutcome")
-        );
-        let model_step = step(&work, "modelKnowledge");
-        let (status, model) = fixture.create_task("modelKnowledge",
-            json!({"batchId":batch["id"],"chapterId":"chapter-one","sourceTaskId":writer["id"]})).await;
+        if !model_knowledge {
+            return Self {
+                fixture,
+                writer,
+                draft,
+                batch: Value::Null,
+                model: Value::Null,
+                grants,
+            };
+        }
+        let model_step = fixture.choose(&writer, "modelKnowledge").await;
+        let mut target = model_step["target"].clone();
+        target["resumeStepId"] = model_step["id"].clone();
+        let (status, model) = fixture.create_task("modelKnowledge", target).await;
         assert_eq!(status, StatusCode::CREATED, "{model}");
+        let batch = fixture
+            .repo()
+            .modeling_batch(
+                &fixture.project(),
+                model["target"]["batchId"].as_str().unwrap(),
+            )
+            .unwrap()
+            .as_json();
         grants.push(fixture.grant(&model).await);
         let body = draft["body"].as_str().unwrap();
         let quote = "密函";
@@ -92,6 +108,9 @@ impl Flow {
         let (status, completed) = flow.fixture.complete(&flow.model).await;
         assert_eq!(status, StatusCode::OK, "{completed}");
         flow.fixture.settle(&flow.model);
+        flow.fixture
+            .choose(&flow.model, "assessRevisionOutcome")
+            .await;
         flow
     }
     pub async fn assessment_target(&self) -> Value {

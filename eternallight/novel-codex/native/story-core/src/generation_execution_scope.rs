@@ -15,8 +15,10 @@ use crate::{ProjectId, RepositoryError};
 struct Bounds {
     start_chapter_number: i64,
     target_chapters: i64,
-    max_task_attempts: i64,
-    deadline_at: i64,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    max_task_attempts: Option<i64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    deadline_at: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -30,8 +32,10 @@ struct GenerationScope {
     initial_snapshot_id: String,
     initial_source_digest: String,
     bounds: Bounds,
-    max_requests: u64,
-    max_tokens: u64,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    max_requests: Option<u64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    max_tokens: Option<u64>,
 }
 
 pub(crate) fn record(
@@ -75,7 +79,7 @@ pub(crate) fn validate(
     project: &ProjectId,
     run: &str,
     state: &Value,
-) -> Result<i64, RepositoryError> {
+) -> Result<Option<i64>, RepositoryError> {
     let work = format!("work-{run}");
     let (id,payload,digest,message,confirmed_at): StoredScope = db.query_row(
         "SELECT e.permit_id,e.scope_json,e.preview_digest,e.author_message_id,e.confirmed_at
@@ -110,14 +114,25 @@ pub(crate) fn validate(
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
         || scope.bounds.start_chapter_number < 1
         || scope.bounds.target_chapters < scope.bounds.start_chapter_number
-        || scope.bounds.target_chapters - scope.bounds.start_chapter_number > 2
-        || !(1..=32).contains(&scope.bounds.max_task_attempts)
-        || scope.max_requests < scope.bounds.max_task_attempts as u64
-        || scope.max_requests > 2048
-        || !(1..=32_000_000).contains(&scope.max_tokens)
+        || scope.bounds.target_chapters - scope.bounds.start_chapter_number >= crate::MAX_GENERATION_CHAPTERS
+        || scope
+            .bounds
+            .max_task_attempts
+            .is_some_and(|limit| !(1..=32).contains(&limit))
+        || scope.max_requests.is_some_and(|limit| {
+            scope
+                .bounds
+                .max_task_attempts
+                .is_some_and(|attempts| limit < attempts as u64)
+                || limit > 2048
+        })
+        || scope
+            .max_tokens
+            .is_some_and(|limit| !(1..=32_000_000).contains(&limit))
         || confirmed_at < 0
-        || scope.bounds.deadline_at <= confirmed_at
-        || scope.bounds.deadline_at.saturating_sub(confirmed_at) > 86_400
+        || scope.bounds.deadline_at.is_some_and(|deadline| {
+            deadline <= confirmed_at || deadline.saturating_sub(confirmed_at) > 86_400
+        })
     {
         return Err(RepositoryError::TaskBindingInvalid);
     }

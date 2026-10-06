@@ -302,8 +302,28 @@ async fn modeling_query_and_context_bind_exact_source_and_hide_later_evidence() 
         &plan(3, "world"),
     )
     .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{pack}");
+    assert_eq!(pack["error"]["code"], "context_model_item_budget_exceeded");
+    // Read the full source with a smaller query alongside it, within the same frozen task.
+    let mut bounded_plan = plan(3, "world");
+    bounded_plan["byteBudget"] = json!(4000);
+    bounded_plan["steps"]
+        .as_array_mut()
+        .unwrap()
+        .truncate(/*len*/ 1);
+    let (status, bounded_report) = query(&app, project.as_str(), &id, &bounded_plan).await;
+    assert_eq!(status, StatusCode::OK, "{bounded_report}");
+    let (status, pack) = context(
+        &app,
+        project.as_str(),
+        &id,
+        "critic",
+        /*byte_budget*/ 60000,
+        &bounded_plan,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{pack}");
-    assert_eq!(pack["queryReport"], report);
+    assert_eq!(pack["queryReport"], bounded_report);
     assert_eq!(
         pack["operationContext"]["modelingBatch"]["sourceRevisionId"],
         "revision-3"

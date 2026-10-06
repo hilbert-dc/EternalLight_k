@@ -100,7 +100,7 @@ fn task_bound_draft_output_and_completion_are_one_authority_chain() {
         })
         .unwrap();
     let completed = repository
-        .complete_task(&project_id, "task-1", "thread-1", "done".into(), 10)
+        .complete_task(&project_id, "task-1", "thread-1", "done".into(), None, 10)
         .unwrap();
 
     assert_eq!(completed.status, "completed");
@@ -109,7 +109,7 @@ fn task_bound_draft_output_and_completion_are_one_authority_chain() {
     assert_eq!(completed.capability_revoked_at, Some(10));
     assert_eq!(
         repository
-            .complete_task(&project_id, "task-1", "thread-1", "duplicate".into(), 20)
+            .complete_task(&project_id, "task-1", "thread-1", "duplicate".into(), None, 20)
             .unwrap(),
         completed
     );
@@ -228,12 +228,15 @@ fn blocked_task_reports_the_same_resume_barrier_as_the_domain_control() {
         .unwrap();
     repository
         .materialize_standalone_chapter(
-            &project_id,
-            "Another chapter",
-            0,
-            "new-chapter-key",
-            "author",
-            12,
+            novel_codex_story_core::MaterializeStandaloneChapterRequest {
+                project_id: &project_id,
+                title: "Another chapter",
+                volume_id: None,
+                expected_revision: 0,
+                idempotency_key: "new-chapter-key",
+                request_digest: "author",
+                now: 12,
+            },
         )
         .unwrap();
     let stale = repository
@@ -330,7 +333,17 @@ fn task_input_rejects_formal_chapter_change_without_object_head_change() {
         .unwrap();
     let before = repository.project_source_watermarks(&project_id).unwrap();
     repository
-        .materialize_standalone_chapter(&project_id, "新章节", 0, "directory-key", "directory", 2)
+        .materialize_standalone_chapter(
+            novel_codex_story_core::MaterializeStandaloneChapterRequest {
+                project_id: &project_id,
+                title: "新章节",
+                volume_id: None,
+                expected_revision: 0,
+                idempotency_key: "directory-key",
+                request_digest: "directory",
+                now: 2,
+            },
+        )
         .unwrap();
     let after = repository.project_source_watermarks(&project_id).unwrap();
     assert_eq!(before["objectCount"], after["objectCount"]);
@@ -408,7 +421,7 @@ fn cancelling_a_claimed_candidate_closes_its_action_request() {
             &project_id,
             "task-source",
             "thread-candidate",
-            "done".into(),
+            "done".into(), None,
             2,
         )
         .unwrap();
@@ -493,7 +506,7 @@ fn older_paused_task_remains_visible_after_many_completed_tasks() {
                 &project_id,
                 &task_id,
                 &format!("thread-{task_id}"),
-                "done".into(),
+                "done".into(), None,
                 10,
             )
             .unwrap();
@@ -623,7 +636,7 @@ fn recovered_attempt_with_persisted_complete_output_is_not_replayed() {
                 &project_id,
                 "task-receipt",
                 "thread-receipt",
-                "duplicate".into(),
+                "duplicate".into(), None,
                 26
             )
             .unwrap(),
@@ -691,7 +704,7 @@ fn recovered_candidate_attempt_finishes_its_claimed_action() {
             &project_id,
             "task-source",
             "thread-action",
-            "讨论完毕".into(),
+            "讨论完毕".into(), None,
             10,
         )
         .unwrap();
@@ -847,7 +860,7 @@ fn task_transitions_preserve_terminal_evidence_and_require_validated_completion(
             Err(RepositoryError::TaskNotWritable)
         ));
         assert!(matches!(
-            repository.complete_task(&project_id, &task_id, "thread-state", "done".into(), 10),
+            repository.complete_task(&project_id, &task_id, "thread-state", "done".into(), None, 10),
             Err(RepositoryError::TaskOutputMissing)
         ));
         for status in ["running", "waiting", "running"] {
@@ -884,7 +897,7 @@ fn task_transitions_preserve_terminal_evidence_and_require_validated_completion(
             ));
         }
         assert!(matches!(
-            repository.complete_task(&project_id, &task_id, "thread-state", "done".into(), 20),
+            repository.complete_task(&project_id, &task_id, "thread-state", "done".into(), None, 20),
             Err(RepositoryError::TaskNotWritable)
         ));
         assert_eq!(
@@ -954,7 +967,7 @@ fn a_claimed_conversation_step_survives_interruption_without_duplicate_execution
             &project_id,
             "task-advice",
             "thread-workflow",
-            "done".into(),
+            "done".into(), None,
             10,
         )
         .unwrap();

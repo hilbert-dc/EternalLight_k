@@ -121,7 +121,7 @@ fn fixture() -> Fixture {
             &project,
             "task-model",
             "thread-model",
-            "fixture".into(),
+            "fixture".into(), None,
             /*now*/ 4,
         )
         .unwrap();

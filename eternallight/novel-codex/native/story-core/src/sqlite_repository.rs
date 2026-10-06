@@ -39,6 +39,21 @@ CREATE TABLE IF NOT EXISTS story_workspaces_v2 (
   revision INTEGER NOT NULL DEFAULT 0,
   plan_window INTEGER NOT NULL DEFAULT 3 CHECK(plan_window BETWEEN 1 AND 5)
 );
+CREATE TABLE IF NOT EXISTS story_conversations_v1 (
+  thread_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  is_pinned INTEGER NOT NULL DEFAULT 0 CHECK(is_pinned IN (0,1)),
+  is_archived INTEGER NOT NULL DEFAULT 0 CHECK(is_archived IN (0,1)),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  forked_from_id TEXT REFERENCES story_conversations_v1(thread_id),
+  last_turn_id TEXT,
+  registration_json TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 0 CHECK(version >= 0)
+);
+CREATE INDEX IF NOT EXISTS story_conversations_project_v1
+  ON story_conversations_v1(project_id, is_archived, is_pinned DESC, updated_at DESC, thread_id);
 CREATE TABLE IF NOT EXISTS story_object_heads_v2 (
   project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
   object_id TEXT NOT NULL,
@@ -461,10 +476,7 @@ CREATE TABLE IF NOT EXISTS story_work_steps_v1 (
   current_attempt_id TEXT REFERENCES story_tasks_v2(task_id),
   UNIQUE(work_task_id, ordinal)
 );
-CREATE TABLE IF NOT EXISTS story_domain_task_sources_v1 (
-  step_id TEXT PRIMARY KEY REFERENCES story_work_steps_v1(id),
-  source_json TEXT NOT NULL
-);
+
 CREATE TABLE IF NOT EXISTS story_work_attempts_v1 (
   sequence INTEGER PRIMARY KEY AUTOINCREMENT,
   attempt_id TEXT NOT NULL UNIQUE REFERENCES story_tasks_v2(task_id),
@@ -480,7 +492,7 @@ CREATE TABLE IF NOT EXISTS story_task_action_requests_v1 (
   project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
   source_task_id TEXT NOT NULL REFERENCES story_tasks_v2(task_id) ON DELETE CASCADE,
   idempotency_key TEXT NOT NULL,
-    operation TEXT NOT NULL CHECK(operation IN ('generateBrief','generateOutline','generatePlan','generateChapter','extractCommitments','reviseCommitment','generatePropertyRules')),
+    operation TEXT NOT NULL CHECK(operation IN ('generateBrief','generateOutline','generatePlan','generateChapter','modelKnowledge','extractCommitments','reviseCommitment','generatePropertyRules')),
   target_json TEXT NOT NULL,
   requested_target_json TEXT NOT NULL,
   intent_revision INTEGER NOT NULL CHECK(intent_revision >= 0),
@@ -625,6 +637,12 @@ CREATE TABLE IF NOT EXISTS story_planning_impact_links_v2 (
 );
 CREATE TABLE IF NOT EXISTS story_planning_review_runs_v2 (
   run_id TEXT PRIMARY KEY,
+  work_task_id TEXT NOT NULL REFERENCES story_work_tasks_v1(id),
+  source_task_id TEXT REFERENCES story_tasks_v2(task_id),
+  source_intent_revision INTEGER,
+  focus TEXT NOT NULL,
+  request_key TEXT,
+  request_hash TEXT,
   project_id TEXT NOT NULL REFERENCES story_projects_v2(project_id) ON DELETE CASCADE,
   artifact_kind TEXT NOT NULL CHECK(artifact_kind IN ('outline','plan')),
   revision_id TEXT NOT NULL,
@@ -639,7 +657,10 @@ CREATE TABLE IF NOT EXISTS story_planning_review_runs_v2 (
   status TEXT NOT NULL CHECK(status IN ('open','complete','partial','cancelled')),
   synthesis_json TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  UNIQUE(source_task_id, request_key),
+  CHECK((source_task_id IS NULL AND source_intent_revision IS NULL AND request_key IS NULL AND request_hash IS NULL) OR
+        (source_task_id IS NOT NULL AND source_intent_revision >= 0 AND request_key IS NOT NULL AND request_hash IS NOT NULL))
 );
 CREATE TABLE IF NOT EXISTS story_planning_review_seats_v2 (
   run_id TEXT NOT NULL REFERENCES story_planning_review_runs_v2(run_id) ON DELETE CASCADE,
@@ -1059,6 +1080,22 @@ impl SqliteStoryRepository {
             .map_err(storage_error)?;
         connection.execute_batch(SCHEMA).map_err(storage_error)?;
         connection
+            .execute_batch(crate::work_decision::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::task_sources::SCHEMA)
+            .map_err(storage_error)?;
+        connection.execute_batch(crate::quality_notebook::SCHEMA).map_err(storage_error)?;
+        connection
+            .execute_batch(crate::chapter_deletion::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::chapter_structure::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::manuscript_catalog::SCHEMA)
+            .map_err(storage_error)?;
+        connection
             .execute_batch(crate::condition_evaluation_jobs::SCHEMA)
             .map_err(storage_error)?;
         connection
@@ -1348,8 +1385,8 @@ impl SqliteStoryRepository {
                 actual: project_revision,
             });
         }
-        if let Some(binding) = &request.task_output {
-            crate::tasks::validate_task_write(
+        if let Some(binding) = &request.task_output
+            && let Err(error) = crate::tasks::validate_task_write(
                 &transaction,
                 &request.project_id,
                 binding,
@@ -1357,7 +1394,23 @@ impl SqliteStoryRepository {
                 &request.object_id,
                 &request.expected_candidate_revision_id,
                 &request.content_json,
-            )?;
+            )
+        {
+            // Task validation precedes all draft domain writes. Only its explicit
+            // content rejection proves that this call has no save receipt.
+            if request.object_kind == "draft"
+                && matches!(&error, RepositoryError::InvalidContent(_))
+            {
+                crate::recovery_operations::reject_operation(
+                    &transaction,
+                    self.recovery_operation.as_ref(),
+                    &request.project_id,
+                    &binding.task_id,
+                    "save_draft_checkpoint",
+                )?;
+                transaction.commit().map_err(storage_error)?;
+            }
+            return Err(error);
         }
         let head = require_head(
             &transaction,
@@ -1368,6 +1421,7 @@ impl SqliteStoryRepository {
         require_unused_commit(&transaction, &request.commit_id)?;
         require_unused_snapshot(&transaction, &request.next_snapshot_id)?;
         if let Some(chapter) = &request.chapter_projection {
+            crate::chapter_deletion::assert_not_deleted(&transaction, &chapter.chapter_id)?;
             if chapter.number < 1 || chapter.title.chars().count() > 160 {
                 return Err(RepositoryError::InvalidChapter);
             }
@@ -1451,6 +1505,32 @@ impl SqliteStoryRepository {
                 expected: request.expected_candidate_revision_id,
                 actual: current_candidate,
             });
+        }
+        // Extraction forbids chapter projection, so this phase has no domain writes.
+        // Only an explicit validation rejection can be settled without a receipt.
+        if request.object_kind == "commitmentExtraction"
+            && let Err(error) = crate::commitment_extraction::validate_write(
+                &transaction,
+                &request.project_id,
+                &request.object_id,
+                &request.content_json,
+            )
+        {
+            if matches!(&error, RepositoryError::InvalidContent(_)) {
+                let binding = request
+                    .task_output
+                    .as_ref()
+                    .ok_or(RepositoryError::TaskOutputForbidden)?;
+                crate::recovery_operations::reject_operation(
+                    &transaction,
+                    self.recovery_operation.as_ref(),
+                    &request.project_id,
+                    &binding.task_id,
+                    "submit_commitment_extraction",
+                )?;
+                transaction.commit().map_err(storage_error)?;
+            }
+            return Err(error);
         }
         let parent_revision_id =
             current_candidate.or_else(|| accepted.and_then(|value| RevisionId::parse(value).ok()));

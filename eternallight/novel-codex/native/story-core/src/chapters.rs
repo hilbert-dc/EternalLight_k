@@ -20,6 +20,25 @@ pub struct ChapterBinding {
     pub result_revision: i64,
 }
 
+pub struct MaterializeStandaloneChapterRequest<'a> {
+    pub project_id: &'a ProjectId,
+    pub title: &'a str,
+    pub volume_id: Option<&'a str>,
+    pub expected_revision: i64,
+    pub idempotency_key: &'a str,
+    pub request_digest: &'a str,
+    pub now: i64,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StandaloneChapterReceipt {
+    #[serde(flatten)]
+    pub binding: ChapterBinding,
+    pub catalog_revision: i64,
+    pub volume_id: Option<String>,
+}
+
 pub struct AssociateChapterPlanRequest<'a> {
     pub project_id: &'a ProjectId,
     pub chapter_id: &'a str,
@@ -33,13 +52,17 @@ pub struct AssociateChapterPlanRequest<'a> {
 impl SqliteStoryRepository {
     pub fn materialize_standalone_chapter(
         &mut self,
-        project_id: &ProjectId,
-        title: &str,
-        expected_revision: i64,
-        idempotency_key: &str,
-        request_digest: &str,
-        now: i64,
-    ) -> Result<ChapterBinding, RepositoryError> {
+        request: MaterializeStandaloneChapterRequest<'_>,
+    ) -> Result<StandaloneChapterReceipt, RepositoryError> {
+        let MaterializeStandaloneChapterRequest {
+            project_id,
+            title,
+            volume_id,
+            expected_revision,
+            idempotency_key,
+            request_digest,
+            now,
+        } = request;
         let transaction = self
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -51,9 +74,12 @@ impl SqliteStoryRepository {
             idempotency_key,
             request_digest,
         )? {
-            return parse_binding(result);
+            return serde_json::from_value(result).map_err(|_| RepositoryError::CorruptState);
         }
         assert_revision(&transaction, project_id, expected_revision)?;
+        if volume_id.is_some() {
+            crate::manuscript_catalog::assert_writable(&transaction, project_id)?;
+        }
         let number = transaction
             .query_row(
                 "SELECT COALESCE(MAX(number), 0) + 1 FROM story_chapters_v2 WHERE project_id = ?1",
@@ -71,12 +97,26 @@ impl SqliteStoryRepository {
             "INSERT INTO story_chapters_v2(chapter_id, project_id, number, title, status, summary) VALUES (?1, ?2, ?3, ?4, 'draft', '')",
             params![chapter_id, project_id.as_str(), number, title],
         ).map_err(storage_error)?;
-        let result = ChapterBinding {
-            plan_revision_id: String::new(),
-            chapter_plan_id: String::new(),
-            chapter_id,
-            chapter_number: number,
-            result_revision: expected_revision + 1,
+        if let Some(volume_id) = volume_id {
+            crate::manuscript_catalog::place_new_chapter(
+                &transaction,
+                project_id,
+                &chapter_id,
+                volume_id,
+            )?;
+            crate::manuscript_catalog::advance_revision(&transaction, project_id)?;
+        }
+        let result = StandaloneChapterReceipt {
+            binding: ChapterBinding {
+                plan_revision_id: String::new(),
+                chapter_plan_id: String::new(),
+                chapter_id,
+                chapter_number: number,
+                result_revision: expected_revision + 1,
+            },
+            catalog_revision: crate::manuscript_catalog::read_catalog(&transaction, project_id)?
+                .revision,
+            volume_id: volume_id.map(str::to_owned),
         };
         finish(
             &transaction,
@@ -84,9 +124,11 @@ impl SqliteStoryRepository {
             "materialize-standalone",
             idempotency_key,
             request_digest,
-            &result,
+            &result.binding,
             now,
         )?;
+        transaction.execute("UPDATE story_domain_receipts_v2 SET result_json=?1 WHERE project_id=?2 AND operation='materialize-standalone' AND idempotency_key=?3",
+            params![serde_json::to_string(&result).map_err(|_| RepositoryError::CorruptState)?,project_id.as_str(),idempotency_key]).map_err(storage_error)?;
         transaction.commit().map_err(storage_error)?;
         Ok(result)
     }

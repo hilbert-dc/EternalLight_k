@@ -66,10 +66,15 @@ impl SqliteStoryRepository {
                 | "submit_commitment_extraction"
                 | "submit_commitment_candidate"
                 | "request_candidate_task"
+                | "request_generation_handoff"
+                | "request_work_action"
+                | "request_planning_review"
                 | "publish_knowledge_batch"
                 | "submit_planning_review_report"
                 | "complete_task"
                 | "checkpoint_reading"
+                | "record_quality_note"
+                | "submit_quality_reading"
         ) || !valid_digest(&binding.request_hash)
             || binding
                 .idempotency_ref
@@ -165,6 +170,49 @@ pub(crate) fn reject_operation(
         return Err(RepositoryError::CorruptState);
     }
     Ok(())
+}
+
+/// Close a definite domain rejection after the operation transaction has rolled
+/// back. A storage error or a committed receipt must retain its actual outcome.
+pub(crate) fn settle_prewrite_rejection<T>(
+    repo: &mut SqliteStoryRepository,
+    task: &crate::TaskRecord,
+    tool: &str,
+    outcome: &Result<T, RepositoryError>,
+) -> Result<(), RepositoryError> {
+    if !matches!(
+        outcome,
+        Err(RepositoryError::InvalidContent(_)
+            | RepositoryError::IdempotencyConflict
+            | RepositoryError::TaskBindingInvalid
+            | RepositoryError::TaskInputStale
+            | RepositoryError::TaskNotWritable
+            | RepositoryError::TaskOutputForbidden
+            | RepositoryError::WorkTaskStale
+            | RepositoryError::StaleProjectRevision { .. })
+    ) {
+        return Ok(());
+    }
+    let Some(binding) = repo.recovery_operation.as_ref() else {
+        return Ok(());
+    };
+    let tx = rusqlite::Transaction::new_unchecked(
+        &repo.connection,
+        rusqlite::TransactionBehavior::Immediate,
+    )
+    .map_err(storage_error)?;
+    let state: Option<String> = tx
+        .query_row(
+            "SELECT state FROM story_tool_operations_v1 WHERE operation_id=?1",
+            [operation_id(binding)],
+            |row| row.get(/*idx*/ 0),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    if state.as_deref() == Some("accepted") {
+        reject_operation(&tx, Some(binding), &task.project_id, &task.task_id, tool)?;
+    }
+    tx.commit().map_err(storage_error)
 }
 
 pub(crate) fn commit_operation(

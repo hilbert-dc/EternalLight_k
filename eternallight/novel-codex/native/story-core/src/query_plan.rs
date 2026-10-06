@@ -34,6 +34,11 @@ pub struct QueryStep {
     deny_unknown_fields
 )]
 pub enum QueryOperation {
+    WriterBaselinePassages {
+        cursor: Option<String>,
+        max_chars: usize,
+        limit: usize,
+    },
     Passages {
         cursor: Option<String>,
         max_chars: usize,
@@ -111,6 +116,11 @@ impl StoryQueryPlan {
             }
             let valid = match &step.operation {
                 QueryOperation::Passages {
+                    cursor,
+                    max_chars,
+                    limit,
+                }
+                | QueryOperation::WriterBaselinePassages {
                     cursor,
                     max_chars,
                     limit,
@@ -207,6 +217,21 @@ impl SqliteStoryRepository {
         for step in &plan.steps {
             let value = if let crate::query_scope::TaskQueryScope::Bounded(scope) = &query_scope {
                 match &step.operation {
+                    QueryOperation::WriterBaselinePassages {
+                        cursor,
+                        max_chars,
+                        limit,
+                    } => crate::writer_baseline::scan(
+                        self,
+                        &task,
+                        crate::query_passages::PassageQuery {
+                            question: &plan.question,
+                            step_id: &step.id,
+                            cursor: cursor.as_deref(),
+                            max_chars: *max_chars,
+                            limit: *limit,
+                        },
+                    )?,
                     QueryOperation::Passages {
                         cursor,
                         max_chars,
@@ -283,6 +308,21 @@ impl SqliteStoryRepository {
                 }
             } else {
                 match &step.operation {
+                    QueryOperation::WriterBaselinePassages {
+                        cursor,
+                        max_chars,
+                        limit,
+                    } => crate::writer_baseline::scan(
+                        self,
+                        &task,
+                        crate::query_passages::PassageQuery {
+                            question: &plan.question,
+                            step_id: &step.id,
+                            cursor: cursor.as_deref(),
+                            max_chars: *max_chars,
+                            limit: *limit,
+                        },
+                    )?,
                     QueryOperation::Passages {
                         cursor,
                         max_chars,

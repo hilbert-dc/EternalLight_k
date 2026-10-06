@@ -2,7 +2,10 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::{AuthorReadingProgress, ProjectId, RepositoryError, SqliteStoryRepository, TaskRecord};
+use crate::{
+    AuthorReadingProgress, ProjectId, RepositoryError, SqliteStoryRepository, TaskRecord,
+    WorkResumeMode,
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +53,7 @@ pub struct WorkTask {
     pub version: i64,
     pub error: Option<String>,
     pub resume_block_reason: Option<String>,
+    pub resume_mode: Option<WorkResumeMode>,
     pub steps: Vec<WorkStep>,
 }
 
@@ -210,8 +214,22 @@ impl SqliteStoryRepository {
                 }
                 "running"
             }
+            ("recoverSavedResult", "paused" | "blocked") => {
+                if crate::work_modeling_recovery::resume_mode(
+                    &tx,
+                    project_id,
+                    id,
+                    &kind,
+                    &status,
+                    resume_block_reason(&tx, project_id, id)?.as_deref(),
+                )? != Some(WorkResumeMode::RecoverSavedResult)
+                {
+                    return Err(RepositoryError::TaskInputStale);
+                }
+                "paused"
+            }
             ("cancel", "running" | "paused" | "blocked") => {
-                tx.execute("UPDATE story_planning_review_runs_v2 SET status='cancelled',updated_at=?2 WHERE 'work-'||run_id=?1 AND status='open'", params![id,now]).map_err(storage_error)?;
+                tx.execute("UPDATE story_planning_review_runs_v2 SET status='cancelled',updated_at=?2 WHERE work_task_id=?1 AND status='open'", params![id,now]).map_err(storage_error)?;
                 tx.execute("UPDATE story_task_action_requests_v1 SET status = 'failed', error = '创作任务已取消' WHERE action_id IN (SELECT id FROM story_work_steps_v1 WHERE work_task_id = ?1) AND status IN ('queued','running')", [id]).map_err(storage_error)?;
                 tx.execute("UPDATE story_work_steps_v1 SET status = 'cancelled' WHERE work_task_id = ?1 AND status IN ('queued','blocked','running')", [id]).map_err(storage_error)?;
                 tx.execute(
@@ -234,6 +252,17 @@ impl SqliteStoryRepository {
             crate::work_modeling_recovery::recover_published_steps(&tx, project_id, id, now)?;
             tx.execute("UPDATE story_task_action_requests_v1 SET status = 'queued', result_task_id = NULL, error = NULL WHERE action_id IN (SELECT id FROM story_work_steps_v1 WHERE work_task_id = ?1 AND status = 'blocked')", [id]).map_err(storage_error)?;
             tx.execute("UPDATE story_work_steps_v1 SET status = 'queued', current_attempt_id = NULL WHERE work_task_id = ?1 AND status = 'blocked'", [id]).map_err(storage_error)?;
+            refresh_work_task(&tx, id)?;
+        }
+        if command == "recoverSavedResult" {
+            crate::work_modeling_recovery::recover_published_steps(&tx, project_id, id, now)?;
+            // Recovery is not authorization to run another step, including a
+            // follow-up queued by finish_attempt. Leave that work author-paused.
+            tx.execute(
+                "UPDATE story_work_tasks_v1 SET status='running' WHERE id=?1 AND NOT EXISTS \
+                 (SELECT 1 FROM story_work_steps_v1 WHERE work_task_id=?1 AND status IN ('queued','running','blocked'))",
+                [id],
+            ).map_err(storage_error)?;
             refresh_work_task(&tx, id)?;
         }
         let task = load_work_task(self, &tx, project_id, id)?;
@@ -269,23 +298,6 @@ pub(crate) fn finish_attempt(db: &Connection, attempt: &TaskRecord) -> Result<()
     .map_err(storage_error)?;
     if attempt.status == "completed" {
         db.execute("UPDATE story_task_action_requests_v1 SET status = 'completed' WHERE action_id = ?1 AND status = 'running' AND result_task_id = ?2", params![step, attempt.task_id]).map_err(storage_error)?;
-        if attempt.operation == "generateChapter" {
-            let target: Value = serde_json::from_str(&attempt.target_json)
-                .map_err(|_| RepositoryError::CorruptState)?;
-            if target.get("runId").is_none() {
-                let chapter = target
-                    .get("chapterId")
-                    .and_then(Value::as_str)
-                    .ok_or(RepositoryError::CorruptState)?;
-                db.execute(
-                    "INSERT OR IGNORE INTO story_work_steps_v1(id, work_task_id, ordinal, operation, target_json, input_revision, depends_on_step_id, status) VALUES (?1, ?2, (SELECT COALESCE(MAX(ordinal), 0) + 1 FROM story_work_steps_v1 WHERE work_task_id = ?2), 'modelKnowledge', ?3, (SELECT revision FROM story_workspaces_v2 WHERE project_id = ?4), ?5, 'queued')",
-                    params![format!("knowledge-{}", attempt.task_id), parent, json!({"chapterId": chapter, "sourceTaskId": attempt.task_id}).to_string(), attempt.project_id.as_str(), step],
-                ).map_err(storage_error)?;
-            }
-        }
-    }
-    if attempt.status == "completed" && attempt.operation == "modelKnowledge" {
-        crate::revision_outcome::queue_after_model(db, attempt, &parent, &step)?;
     }
     if attempt.status == "failed" {
         db.execute("UPDATE story_task_action_requests_v1 SET status = 'failed', error = ?1 WHERE action_id = ?2 AND status = 'running' AND result_task_id = ?3", params![attempt.error, step, attempt.task_id]).map_err(storage_error)?;
@@ -318,11 +330,11 @@ pub(crate) fn refresh_work_task(db: &Connection, id: &str) -> Result<(), Reposit
         return Ok(());
     }
     let (queued, running, blocked, cancelled): (i64, i64, i64, i64) = db.query_row(
-        "SELECT SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END), SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END), SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) FROM story_work_steps_v1 WHERE work_task_id = ?1",
+        "SELECT SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END), SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END), SUM(CASE WHEN status = 'cancelled' AND NOT (operation='reviewPlanningSeat' AND EXISTS(SELECT 1 FROM story_planning_review_runs_v2 r WHERE r.work_task_id=?1 AND r.source_task_id IS NOT NULL AND r.run_id=json_extract(target_json,'$.reviewRunId') AND r.status='cancelled')) THEN 1 ELSE 0 END) FROM story_work_steps_v1 WHERE work_task_id = ?1",
         [id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).map_err(storage_error)?;
     let review_open: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM story_planning_review_runs_v2 WHERE 'work-'||run_id=?1 AND status='open')",
+        "SELECT EXISTS(SELECT 1 FROM story_planning_review_runs_v2 WHERE work_task_id=?1 AND status='open')",
         [id], |row|row.get(0),
     ).map_err(storage_error)?;
     let next = if cancelled > 0 {
@@ -330,6 +342,8 @@ pub(crate) fn refresh_work_task(db: &Connection, id: &str) -> Result<(), Reposit
     } else if blocked > 0 {
         "blocked"
     } else if queued + running > 0 {
+        "running"
+    } else if db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_decisions_v1 WHERE work_task_id=?1 AND finished=0)",[id],|r|r.get::<_,bool>(/*idx*/0)).map_err(storage_error)? {
         "running"
     } else if review_open {
         "blocked"
@@ -359,13 +373,15 @@ pub(crate) fn load_work_task(
             let output_refs: String = if let Some(attempt_id) = current_attempt_id.as_deref() {
                 db.query_row("SELECT output_refs_json FROM story_tasks_v2 WHERE task_id = ?1", [attempt_id], |row| row.get(0)).map_err(storage_error)?
             } else { "[]".into() };
-            let instruction: Option<String> = db.query_row("SELECT instruction FROM story_task_action_requests_v1 WHERE action_id = ?1", [&step_id], |row| row.get(0)).optional().map_err(storage_error)?;
-            let source_task_id: Option<String> = db.query_row("SELECT source_task_id FROM story_task_action_requests_v1 WHERE action_id = ?1", [&step_id], |row| row.get(0)).optional().map_err(storage_error)?;
+            let instruction: Option<String> = db.query_row("SELECT instruction FROM story_task_action_requests_v1 WHERE action_id = ?1 UNION ALL SELECT instruction FROM story_work_decision_actions_v1 WHERE step_id=?1 LIMIT 1", [&step_id], |row| row.get(0)).optional().map_err(storage_error)?;
+            let source_task_id: Option<String> = db.query_row("SELECT source_task_id FROM story_task_action_requests_v1 WHERE action_id = ?1 UNION ALL SELECT source_task_id FROM story_work_decision_actions_v1 WHERE step_id=?1 LIMIT 1", [&step_id], |row| row.get::<_,Option<String>>(/*idx*/0)).optional().map_err(storage_error)?.flatten();
             let mut changes = db.prepare("SELECT c.commit_id, c.operation, c.base_revision, c.result_revision, c.undone_by_commit_id FROM story_acceptances_v2 c JOIN story_task_outputs_v2 o ON o.revision_id = c.accepted_revision_id JOIN story_work_attempts_v1 a ON a.attempt_id = o.task_id WHERE a.step_id = ?1 AND c.project_id = ?2 AND c.operation = 'accept' ORDER BY c.result_revision").map_err(storage_error)?;
             let changes = changes.query_map(params![step_id, project.as_str()], |row| Ok(json!({"commitId": row.get::<_, String>(0)?, "operation": row.get::<_, String>(1)?, "baseRevision": row.get::<_, i64>(2)?, "resultRevision": row.get::<_, i64>(3)?, "undoneByCommitId": row.get::<_, Option<String>>(4)?}))).map_err(storage_error)?.map(|value| value.map_err(storage_error)).collect::<Result<Vec<_>, _>>()?;
             let expected_output_kind = match operation.as_str() {
-                "advisory" => Some("completionReport".to_owned()),
+                "advisory" | "assessChapterStructure" => Some("completionReport".to_owned()),
                 "modelKnowledge" => Some("knowledgeBatch".to_owned()),
+                "reviewQuality" => Some("qualityReading".to_owned()),
+                "writeNextChapter" => Some("draft".to_owned()),
                 _ => crate::tasks::operation_contract(&operation)?.2.map(str::to_owned),
             };
             let reading_progress = repo.author_reading_progress(project, &step_id)?;
@@ -378,6 +394,14 @@ pub(crate) fn load_work_task(
     } else {
         None
     };
+    let resume_mode = crate::work_modeling_recovery::resume_mode(
+        db,
+        project,
+        id,
+        &kind,
+        &status,
+        resume_block_reason.as_deref(),
+    )?;
     let mut work = WorkTask {
         id: id.into(),
         project_id: project.to_string(),
@@ -390,6 +414,7 @@ pub(crate) fn load_work_task(
         version,
         error,
         resume_block_reason,
+        resume_mode,
         steps,
     };
     work.delivery_status = work.delivery_report.status(db, project, &work)?.into();
@@ -421,10 +446,15 @@ fn resume_block_reason(
     if unknown {
         return Ok(Some("pendingRecovery".into()));
     }
+    let reader: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_steps_v1 WHERE work_task_id=?1 AND operation='reviewQuality' AND json_extract(target_json,'$.workDecisionAction') IS NULL)", [id], |row| row.get(0)).map_err(storage_error)?;
+    if reader { return Ok(Some("readerRestart".into())); }
+    if crate::work_modeling_recovery::publication_changed(db, project_id, id)? {
+        return Ok(Some("inputChanged".into()));
+    }
     // Aggregating frozen terminal reports does not read a new creative input.
     // No new Attempt can be claimed: all persisted review steps are completed.
     let reports_ready: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM story_planning_review_runs_v2 r WHERE 'work-'||r.run_id=?1 AND r.project_id=?2 AND r.status='open'
+        "SELECT EXISTS(SELECT 1 FROM story_planning_review_runs_v2 r WHERE r.work_task_id=?1 AND r.project_id=?2 AND r.status='open'
          AND NOT EXISTS(SELECT 1 FROM story_work_steps_v1 s WHERE s.work_task_id=?1 AND s.status!='completed'))",
         params![id,project_id.as_str()], |row|row.get(0),
     ).map_err(storage_error)?;
@@ -436,18 +466,6 @@ fn resume_block_reason(
         [id], |row| row.get(0),
     ).map_err(storage_error)?;
     if pending_intent {
-        return Ok(Some("inputChanged".into()));
-    }
-    let recovered = serde_json::to_string(&crate::work_modeling_recovery::eligible_attempts(
-        db, project_id, id,
-    )?)
-    .map_err(|_| RepositoryError::CorruptState)?;
-    let budget_exhausted: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM story_modeling_dispatch_v1 d JOIN story_work_steps_v1 s ON s.id=d.step_id WHERE s.work_task_id=?1 AND s.status IN ('queued','blocked') AND COALESCE(s.current_attempt_id,'') NOT IN (SELECT value FROM json_each(?2)) AND (SELECT COUNT(*) FROM story_work_attempts_v1 a WHERE a.step_id=s.id)>=3)", params![id,recovered], |row| row.get(0)).map_err(storage_error)?;
-    if budget_exhausted {
-        return Ok(Some("attemptBudget".into()));
-    }
-    let stale_modeling: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_steps_v1 s LEFT JOIN story_modeling_dispatch_v1 d ON d.step_id=s.id LEFT JOIN story_modeling_outbox_v1 q ON q.project_id=d.project_id AND q.object_id=d.object_id WHERE s.work_task_id=?1 AND s.status IN ('queued','blocked') AND COALESCE(s.current_attempt_id,'') NOT IN (SELECT value FROM json_each(?2)) AND json_extract(s.target_json,'$.modelingIntent')=1 AND (q.status IS NULL OR q.status!='pending' OR d.intent_generation!=q.generation))",params![id,recovered],|row|row.get(0)).map_err(storage_error)?;
-    if stale_modeling {
         return Ok(Some("inputChanged".into()));
     }
     let partial_output: bool = db.query_row(

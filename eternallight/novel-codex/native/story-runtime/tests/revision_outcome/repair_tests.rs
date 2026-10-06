@@ -200,10 +200,13 @@ async fn repair_root_freezes_analysis_once_without_changing_authority_or_author_
         f.grant(&task).await["workTaskId"],
         flow.grants[0]["workTaskId"]
     );
-    let before = database_snapshot(f);
+    let ledger_before = f.ledger_counts();
     let (status, pack) = context(f, &task, 60_000).await;
     assert_eq!(status, StatusCode::OK, "{pack}");
-    assert_eq!(pack["operationContext"]["revisionRepairInput"], frozen);
+    assert_eq!(
+        read_context_source(f, &task, &pack, "/operationContext/revisionRepairInput").await,
+        frozen
+    );
     assert_eq!(
         pack["activeIntentRefs"],
         json!([{"source":"authorTask","taskId":task["id"],"text":REPAIR_INTENT}])
@@ -213,9 +216,19 @@ async fn repair_root_freezes_analysis_once_without_changing_authority_or_author_
         pack.to_string().matches("\"revisionRepairInput\"").count(),
         1
     );
+    // Initial projection registers frozen sources; subsequent reads are pure.
+    assert_eq!(f.ledger_counts(), ledger_before);
+    assert_eq!(
+        f.repo().project_source_watermarks(&f.project()).unwrap(),
+        watermarks
+    );
+    let before = database_snapshot(f);
     let (status, tight) = context(f, &task, 4_000).await;
     if status == StatusCode::OK {
-        assert_eq!(tight["operationContext"]["revisionRepairInput"], frozen);
+        assert_eq!(
+            read_context_source(f, &task, &tight, "/operationContext/revisionRepairInput").await,
+            frozen
+        );
     } else {
         assert_eq!(
             (status, tight["error"]["code"].clone()),
@@ -362,13 +375,29 @@ async fn repair_input_is_complete_under_context_pressure_and_oversize_creation_r
         );
         let (status, roomy) = context(f, &root, 60_000).await;
         assert_eq!(status, StatusCode::OK, "{roomy}");
-        assert!(!roomy["relevantText"].as_array().unwrap().is_empty());
-        let byte_limit = roomy.to_string().len() - roomy["relevantText"].to_string().len() + 200;
-        assert!((4_000..60_000).contains(&byte_limit));
-        let (status, tight) = context(f, &root, byte_limit).await;
+        let initial =
+            read_context_source(f, &root, &roomy, "/operationContext/revisionRepairInput").await;
+        assert_eq!(initial, frozen);
+        // The full Unicode analysis exceeds one page; it remains complete even
+        // when the initial context is limited to references and author intent.
+        assert!(frozen.to_string().len() > 4000);
+        let cached = database_snapshot(f);
+        let (status, insufficient) = context(f, &root, 4_000).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{insufficient}");
+        assert_eq!(insufficient["error"]["code"], "context_budget_exceeded");
+        assert_eq!(database_snapshot(f), cached);
+        let reference_budget = roomy.to_string().len() + 64;
+        assert!(reference_budget < roomy.to_string().len() + frozen.to_string().len());
+        let (status, tight) = context(f, &root, reference_budget).await;
         assert_eq!(status, StatusCode::OK, "{tight}");
-        assert_eq!(tight["operationContext"]["revisionRepairInput"], frozen);
-        assert_eq!(tight["relevantText"], json!([]));
+        assert_eq!(
+            tight["operationContext"]["revisionRepairInput"],
+            roomy["operationContext"]["revisionRepairInput"]
+        );
+        assert_eq!(
+            read_context_source(f, &root, &tight, "/operationContext/revisionRepairInput").await,
+            frozen
+        );
         assert_eq!(tight["coverage"]["complete"], false);
     }
 }
@@ -504,7 +533,10 @@ async fn approved_repair_writer_models_and_assesses_with_frozen_history_in_one_n
     );
     let (status, pack) = context(f, &writer, 60_000).await;
     assert_eq!(status, StatusCode::OK, "{pack}");
-    assert_eq!(pack["operationContext"]["revisionRepairInput"], frozen);
+    assert_eq!(
+        read_context_source(f, &writer, &pack, "/operationContext/revisionRepairInput").await,
+        frozen
+    );
     let mut output = f.original.clone();
     output["sceneGroups"][1]["body"] = json!(REPAIRED_BODY);
     output["sceneGroups"][2]["body"] = json!("守卫为了保护林夕而沉默。");
@@ -519,34 +551,72 @@ async fn approved_repair_writer_models_and_assesses_with_frozen_history_in_one_n
         StatusCode::OK,
         "Own draft must not invalidate repair: {pack}"
     );
-    assert_eq!(pack["operationContext"]["revisionRepairInput"], frozen);
+    assert_eq!(
+        read_context_source(f, &writer, &pack, "/operationContext/revisionRepairInput").await,
+        frozen
+    );
     let (status, completed) = f.complete(&writer).await;
     assert_eq!(status, StatusCode::OK, "{completed}");
     f.settle(&writer);
-    let (status, batch) = f
+    // The old report is now historical. Only the registered decision in this
+    // repair Work may continue; copying its shape or crossing Works grants nothing.
+    let (code, work) = f
         .request(
-            "POST",
-            "/modeling-batches",
+            "GET",
+            &format!("/tasks/{}/work-task", writer["id"].as_str().unwrap()),
             AUTHOR,
-            json!({"objectId":"draft-chapter-one","sourceRevisionId":draft["revisionId"],
-            "expectedRevision":0,"extractorVersion":"repair-model"}),
+            Value::Null,
         )
         .await;
-    assert_eq!(status, StatusCode::CREATED, "{batch}");
-    let (status, model) = f
-        .create_task(
-            "modelKnowledge",
-            json!({"batchId":batch["id"],"chapterId":"chapter-one","sourceTaskId":writer["id"]}),
-        )
+    assert_eq!(code, StatusCode::OK, "{work}");
+    let (code, workspace) = f
+        .request("GET", "/creative-workspace", AUTHOR, Value::Null)
         .await;
+    assert_eq!(code, StatusCode::OK, "{workspace}");
+    let (code, continuation) = f.request("POST", &format!("/work-tasks/{}/decision", work["id"].as_str().unwrap()), AUTHOR,
+        json!({"expectedWorkVersion":work["version"],"expectedRevision":workspace["revision"],"expectedSourceDigest":workspace["sourceDigest"]})).await;
+    assert_eq!(code, StatusCode::OK, "{continuation}");
+    let queued = &continuation["step"];
+    let mut decision_target = queued["target"].clone();
+    decision_target["resumeStepId"] = queued["id"].clone();
+    let before_claim = database_snapshot(f);
+    for (pointer, value) in [
+        (
+            "/workDecision/workTaskId",
+            flow.grants[0]["workTaskId"].clone(),
+        ),
+        ("/workDecision/originTaskId", f.discussion["id"].clone()),
+        ("/resumeStepId", json!("unregistered-step")),
+    ] {
+        let mut forged = decision_target.clone();
+        *forged.pointer_mut(pointer).unwrap() = value;
+        let mut request = f.task_request("advisory", forged);
+        request["threadId"] = work["threadId"].clone();
+        request["inputRevision"] = queued["inputRevision"].clone();
+        let (code, error) = f.request("POST", "/tasks", AUTHOR, request).await;
+        assert!(code.is_client_error(), "{pointer}: {error}");
+        assert_eq!(database_snapshot(f), before_claim);
+    }
+    let selected = f.choose(&writer, "modelKnowledge").await;
+    let mut target = selected["target"].clone();
+    target["resumeStepId"] = selected["id"].clone();
+    let (status, model) = f.create_task("modelKnowledge", target).await;
     assert_eq!(status, StatusCode::CREATED, "{model}");
+    let batch = f
+        .repo()
+        .modeling_batch(&f.project(), model["target"]["batchId"].as_str().unwrap())
+        .unwrap()
+        .as_json();
     assert_eq!(
         f.grant(&model).await["workTaskId"],
         root_grant["workTaskId"]
     );
     let (status, pack) = context(f, &model, 60_000).await;
     assert_eq!(status, StatusCode::OK, "{pack}");
-    assert_eq!(pack["operationContext"]["revisionRepairInput"], frozen);
+    assert_eq!(
+        read_context_source(f, &model, &pack, "/operationContext/revisionRepairInput").await,
+        frozen
+    );
     let (status, published) = f
         .request(
             "POST",
@@ -563,6 +633,7 @@ async fn approved_repair_writer_models_and_assesses_with_frozen_history_in_one_n
     let (status, completed) = f.complete(&model).await;
     assert_eq!(status, StatusCode::OK, "{completed}");
     f.settle(&model);
+    f.choose(&model, "assessRevisionOutcome").await;
     let (status, work) = f
         .request(
             "GET",
@@ -583,15 +654,25 @@ async fn approved_repair_writer_models_and_assesses_with_frozen_history_in_one_n
     );
     let (status, pack) = context(f, &assessment, 60_000).await;
     assert_eq!(status, StatusCode::OK, "{pack}");
-    assert_eq!(pack["operationContext"]["revisionRepairInput"], frozen);
     assert_eq!(
-        pack["operationContext"]["revisionOutcomeInput"]["desiredOutcomes"],
-        desired_outcomes()
+        read_context_source(
+            f,
+            &assessment,
+            &pack,
+            "/operationContext/revisionRepairInput"
+        )
+        .await,
+        frozen
     );
-    assert_eq!(
-        pack["operationContext"]["revisionOutcomeInput"]["beforeScenes"][0]["body"],
-        NEW_BODY
-    );
+    let outcome_input = read_context_source(
+        f,
+        &assessment,
+        &pack,
+        "/operationContext/revisionOutcomeInput",
+    )
+    .await;
+    assert_eq!(outcome_input["desiredOutcomes"], desired_outcomes());
+    assert_eq!(outcome_input["beforeScenes"][0]["body"], NEW_BODY);
     let mut report = flow.report();
     report["writerTaskId"] = writer["id"].clone();
     report["originalRevisionId"] = flow.draft["revisionId"].clone();

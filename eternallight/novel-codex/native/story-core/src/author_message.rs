@@ -58,9 +58,6 @@ pub(crate) fn validate_execution(
     db: &Connection,
     task: &TaskRecord,
 ) -> Result<(), RepositoryError> {
-    if crate::task_domain_source::validate_execution(db, task)? {
-        return Ok(());
-    }
     let target: Value =
         serde_json::from_str(&task.target_json).map_err(|_| RepositoryError::CorruptState)?;
     if crate::generation_author_source::owns_task(db, &task.task_id)?

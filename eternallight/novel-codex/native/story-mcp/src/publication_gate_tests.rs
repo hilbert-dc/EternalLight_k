@@ -10,6 +10,8 @@ fn acknowledged_publication_closes_tools_but_preserves_root_completion_and_retry
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let client = RuntimeClient {
         publication_gate: PublicationGate::default(),
+        read_progress: Default::default(),
+        argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: listener.local_addr().unwrap().port(),
         candidate_token: "candidate".into(),
@@ -97,7 +99,6 @@ fn acknowledged_publication_closes_tools_but_preserves_root_completion_and_retry
     let read =
         json!({"projectId":"project","taskId":"model","threadId":"root","expectedRevision":0});
     let mut context = read.clone();
-    context["purpose"] = json!("planner");
     context["budget"] = json!(12);
     context["byteBudget"] = json!(6000);
     assert_eq!(

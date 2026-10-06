@@ -118,6 +118,8 @@ fn indexed_writer_knowledge_finds_early_evidence_beyond_hundred_chapters() {
     assert_eq!(stale["candidates"], json!([]));
     assert_eq!(stale["coverage"]["modeledSources"], 129);
     assert_eq!(stale["coverage"]["complete"], false);
+    assert_eq!(stale["coverage"]["pendingSources"], json!(["draft-c1"]));
+    assert_eq!(stale["results"], json!([]));
     let scope = super::WriterKnowledgeScope::CharacterPov {
         chapter: 131,
         character_id: "linxi",

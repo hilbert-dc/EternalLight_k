@@ -19,6 +19,9 @@ pub(crate) fn validate_action_binding(
         .ok_or(RepositoryError::TaskBindingInvalid)?;
     let source = fields.remove("requestedByTaskId");
     let action = fields.remove("requestedActionId");
+    if operation == "modelKnowledge" {
+        crate::modeling_action::normalize_execution(db, project, input_revision, &mut actual)?;
+    }
     if source.as_ref().and_then(Value::as_str) != Some(source_id)
         || action.as_ref().and_then(Value::as_str) != Some(action_id)
         || stored.operation != operation

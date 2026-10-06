@@ -168,10 +168,23 @@ impl SqliteStoryRepository {
                     fields.entry("aliases").or_insert_with(|| json!([]));
                 }
             }
-            for item in entities.iter_mut().chain(&mut assertions) {
-                for key in ["evidence", "validUntilEvidence", "epistemicUntilEvidence"] {
-                    if let Some(evidence) = item.get_mut(key) {
-                        *evidence = crate::source_evidence::resolve(evidence, body)?;
+            for (collection, items) in
+                [("entities", &mut entities), ("assertions", &mut assertions)]
+            {
+                for (index, item) in items.iter_mut().enumerate() {
+                    for key in ["evidence", "validUntilEvidence", "epistemicUntilEvidence"] {
+                        if let Some(evidence) = item.get_mut(key) {
+                            *evidence = crate::source_evidence::resolve(evidence, body).map_err(
+                                |error| match error {
+                                    RepositoryError::InvalidContent(reason) => {
+                                        RepositoryError::InvalidContent(format!(
+                                            "{collection}[{index}].{key}: {reason}"
+                                        ))
+                                    }
+                                    error => error,
+                                },
+                            )?;
+                        }
                     }
                 }
             }

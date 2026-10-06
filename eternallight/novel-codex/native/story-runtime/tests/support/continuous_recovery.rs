@@ -134,7 +134,7 @@ impl Runtime {
         let run = self.get(&run_uri).await;
         self.post(&format!("{root}/tasks"), json!({
             "operation":action["operation"],"target":action["target"],"inputRevision":workspace["revision"],
-            "threadId":thread,"authorIntent":action["authorIntent"],
+            "threadId":thread,"authorIntent":author_intent(&run),
             "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":run["deadlineAt"]
         })).await
     }
@@ -174,108 +174,126 @@ impl Runtime {
         );
     }
 
-    pub async fn advance_until(&self, root: &str, uri: &str, stage: &str, body: &str) -> Value {
-        for _ in 0..12 {
-            let next = self.post(&format!("{uri}/next"), json!({})).await;
-            if next["run"]["stage"] == stage {
-                return next;
-            }
-            let action = &next["action"];
-            if action["kind"] == "materializeChapter" {
-                self.post(
-                    &format!("{uri}/materialize"),
-                    json!({"expectedVersion":next["run"]["version"]}),
-                )
-                .await;
-                continue;
-            }
-            assert_eq!(action["kind"], "agentTask", "{next}");
-            let operation = action["operation"].as_str().unwrap();
-            let workspace = self.get(&format!("{root}/creative-workspace")).await;
-            let mut action = action.clone();
-            let chapter = action["target"]["chapterId"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned();
-            if operation == "modelKnowledge" {
-                let batch = self.post(&format!("{root}/modeling-batches"), json!({
-                    "objectId":format!("draft-{chapter}"),"sourceRevisionId":workspace["chapters"][0]["candidate"]["id"],
-                    "expectedRevision":workspace["revision"],"extractorVersion":"continuous-test"
-                })).await;
-                action["target"]["batchId"] = batch["id"].clone();
-            }
-            let task = self.claim(root, &action, operation).await;
-            let target = &task["target"];
-            let (endpoint, payload) = match operation {
-                "generateBrief" => ("artifacts/brief".into(), json!({"premise":"港城灯光"})),
-                "generateOutline" => (
-                    "artifacts/outline".into(),
-                    json!({"nodes":[{"id":"book","kind":"book","position":0,"title":"港城","purpose":"调查","summary":"灯光"}]}),
-                ),
-                "generatePlan" => (
-                    "artifacts/plan".into(),
-                    json!({"chapters":[{"chapterPlanId":"plan-1","chapterNumber":1,"goal":"看见灯光",
-                    "scenes":[{"id":"scene-1","goal":"看见灯光","beats":[],"expectedEffects":[{"id":"effect-1","dimension":"knowledge","description":"林夕看见灯光","commitmentRefs":[]}]}]}]}),
-                ),
-                "generateChapter" => (
-                    "drafts/checkpoints".into(),
-                    draft(target["chapterId"].clone(), body),
-                ),
-                "modelKnowledge" => {
-                    self.candidate(&format!("{root}/modeling-batches/{}/publish", target["batchId"].as_str().unwrap()), json!({
-                        "taskId":task["id"],"threadId":operation,"expectedRevision":workspace["revision"],
-                        "entities":[{"id":"linxi","kind":"character","displayName":"林夕","aliases":[],"evidence":{"quote":"林夕","start":0,"end":2}},
-                            {"id":"light","kind":"event","displayName":"看见灯光","aliases":[],"evidence":{"quote":"看见灯光","start":2,"end":6}}],
-                        "assertions":[{"kind":"event","subjectId":"light","predicate":"sawLight","value":{"participants":[{"role":"actor","entityId":"linxi"}],"preconditions":[],"effects":[],"untilExclusive":null},"storyTime":1,"evidence":{"quote":"看见灯光","start":2,"end":6}}]
-                    })).await;
-                    (String::new(), Value::Null)
+    pub async fn next_task(&self, root: &str, uri: &str, thread: &str) -> Value {
+        let next = self.post(&format!("{uri}/next"), json!({})).await;
+        assert_eq!(next["action"]["kind"], "agentTask", "{next}");
+        self.claim(root, &next["action"], thread).await
+    }
+
+    pub async fn decision_status(&self, root: &str, task: &Value) -> Value {
+        self.ok(
+            "GET",
+            &format!(
+                "{root}/tasks/{}/work-decision?threadId={}&expectedRevision={}",
+                task["id"].as_str().unwrap(),
+                task["threadId"].as_str().unwrap(),
+                task["inputRevision"]
+            ),
+            CANDIDATE,
+            None,
+        )
+        .await
+    }
+
+    pub async fn choose(&self, root: &str, task: &Value, operation: &str) -> Value {
+        let read = self.decision_status(root, task).await;
+        let action = read["readyActions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["operation"] == operation)
+            .unwrap_or_else(|| panic!("missing agent choice {operation}: {read}"));
+        self.candidate(&format!("{root}/tasks/{}/work-decision/actions", task["id"].as_str().unwrap()), json!({
+            "taskId":task["id"],"threadId":task["threadId"],"expectedRevision":task["inputRevision"],
+            "expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],
+            "actionKey":action["actionKey"],"instruction":"根据作者当前要求完成当前章节，不改其他章节", "idempotencyKey":format!("select-{operation}")
+        })).await
+    }
+
+    pub async fn complete_and_advance(&self, root: &str, uri: &str, task: &Value) -> Value {
+        let grant = self
+            .get(&format!(
+                "{root}/tasks/{}/provider-budget",
+                task["id"].as_str().unwrap()
+            ))
+            .await;
+        let mut completion =
+            json!({"threadId":task["threadId"],"summary":"已按保存回执完成本次选择"});
+        if task["inputManifest"]["workDecision"].is_object() {
+            let read = self.decision_status(root, task).await;
+            if read["deliveryReviewRequired"] == true {
+                let mut evidence = Vec::new();
+                let mut page = read.clone();
+                loop {
+                    for receipt in page["receipts"]["items"].as_array().unwrap() {
+                        if receipt["status"] != "completed" {
+                            continue;
+                        }
+                        for output in receipt["outputs"].as_array().unwrap() {
+                            if output["revisionId"].is_string() {
+                                evidence.push(json!({"taskId":receipt["taskId"],"revisionId":output["revisionId"]}));
+                            }
+                        }
+                    }
+                    let Some(cursor) = page["pagination"]["nextCursor"].as_str() else {
+                        break;
+                    };
+                    page = self.ok("GET", &format!("{root}/tasks/{}/work-decision?threadId={}&expectedRevision={}&cursor={}",
+                        task["id"].as_str().unwrap(),task["threadId"].as_str().unwrap(),task["inputRevision"],cursor.replace(':',"%3A")),CANDIDATE,None).await;
                 }
-                "extractCommitments" => (
-                    format!("chapters/{chapter}/commitment-extractions"),
-                    json!({
-                        "chapterId":chapter,"sourceRevisionId":target["sourceRevisionId"],"examinedRanges":[{"start":0,"end":body.chars().count()}],"candidates":[]
-                    }),
-                ),
-                "assessSceneOutcome" => (
-                    format!("chapters/{chapter}/scene-assessments"),
-                    json!({
-                        "chapterId":chapter,"planRevisionId":target["planRevisionId"],"draftRevisionId":target["draftRevisionId"],
-                        "knowledgeBatchId":target["knowledgeBatchId"],"inputSnapshotId":target["inputSnapshotId"],"intentGeneration":target["intentGeneration"],
-                        "assessments":[{"sceneId":"scene-1","verdict":"realized","rationale":"看见灯光","recommendation":"continue",
-                            "effectAssessments":[{"effectId":"effect-1","verdict":"realized","rationale":"正文事件","actualEventRefs":[{"modelingBatchId":target["knowledgeBatchId"],"assertionIndex":0}],"commitmentAssessments":[]}]}]
-                    }),
-                ),
-                other => panic!("unexpected operation {other}"),
-            };
-            if !endpoint.is_empty() {
-                self.candidate(
-                    &format!("{root}/{endpoint}"),
-                    json!({
-                        "payload":payload,"expectedRevision":workspace["revision"],"expectedCandidateRevisionId":task["inputManifest"]["expectedCandidateRevisionId"],
-                        "idempotencyKey":format!("{operation}-{}", task["id"].as_str().unwrap()),"taskId":task["id"],"threadId":operation
-                    }),
-                )
-                .await;
+                completion["deliveryReview"] = json!({"expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],
+                    "goalStatus":"fulfilled","goalAssessment":"作者要求的当前章节已保存", "checkedScope":"已核对保存的正文回执，不声称完成未运行的语义分析",
+                    "unresolved":[],"authorDecisions":[],"evidence":evidence});
             }
-            let grant = self
-                .get(&format!(
-                    "{root}/tasks/{}/provider-budget",
-                    task["id"].as_str().unwrap()
-                ))
-                .await;
-            self.candidate(
-                &format!("{root}/tasks/{}/complete", task["id"].as_str().unwrap()),
-                json!({"threadId":operation,"summary":"已保存"}),
-            )
-            .await;
-            let charged = self.settle(uri, &task, &grant).await;
-            self.post(
-                &format!("{uri}/advance-task"),
-                json!({"expectedVersion":charged["version"],"taskId":task["id"]}),
-            )
-            .await;
         }
-        panic!("did not reach {stage}");
+        self.candidate(
+            &format!("{root}/tasks/{}/complete", task["id"].as_str().unwrap()),
+            completion,
+        )
+        .await;
+        let charged = self.settle(uri, task, &grant).await;
+        self.post(
+            &format!("{uri}/advance-task"),
+            json!({"expectedVersion":charged["version"],"taskId":task["id"]}),
+        )
+        .await
+    }
+
+    pub async fn writer(&self, root: &str, uri: &str, thread: &str) -> Value {
+        let coordinator = self.next_task(root, uri, "coordinator").await;
+        assert_eq!(coordinator["operation"], "advisory");
+        let run = self.get(uri).await;
+        let operation = if run["currentChapterId"].is_string() {
+            "generateChapter"
+        } else {
+            "writeNextChapter"
+        };
+        self.choose(root, &coordinator, operation).await;
+        self.complete_and_advance(root, uri, &coordinator).await;
+        let writer = self.next_task(root, uri, thread).await;
+        assert_eq!(writer["operation"], "generateChapter");
+        writer
+    }
+
+    pub async fn save_writer(&self, root: &str, task: &Value, body: &str, key: &str) -> Value {
+        self.candidate(&format!("{root}/drafts/checkpoints"),json!({
+            "payload":draft(task["target"]["chapterId"].clone(),body),"expectedRevision":task["inputRevision"],
+            "expectedCandidateRevisionId":task["inputManifest"]["expectedCandidateRevisionId"],
+            "idempotencyKey":key,"taskId":task["id"],"threadId":task["threadId"]
+        })).await
+    }
+
+    pub async fn saved_chapter(&self, root: &str, uri: &str, body: &str) -> (Value, Value) {
+        let writer = self.writer(root, uri, "writer").await;
+        let saved = self.save_writer(root, &writer, body, "writer-save").await;
+        self.complete_and_advance(root, uri, &writer).await;
+        (writer, saved)
+    }
+
+    pub async fn finish_chapter(&self, root: &str, uri: &str) -> Value {
+        let coordinator = self.next_task(root, uri, "coordinator").await;
+        self.choose(root, &coordinator, "finishChapter").await;
+        self.complete_and_advance(root, uri, &coordinator).await
     }
 }
 
@@ -300,7 +318,16 @@ async fn serve(path: &std::path::Path) -> (SocketAddr, tokio::task::JoinHandle<(
     )
 }
 
+pub fn author_intent(run: &Value) -> String {
+    let history: Vec<novel_codex_story_core::CreativeIntentRevision> =
+        serde_json::from_value(run["intentRevisions"].clone()).unwrap();
+    novel_codex_story_core::generation_author_intent(
+        &history,
+        run["completedChapters"].as_i64().unwrap() + 1,
+    )
+    .unwrap()
+}
+
 pub fn draft(chapter: Value, body: &str) -> Value {
-    json!({"chapterId":chapter,"chapterNumber":1,"title":"灯光","body":body,"completeness":"chapterComplete",
-        "sceneGroups":[{"id":"group-1","sceneId":"scene-1","body":body,"locked":false}]})
+    json!({"chapterId":chapter,"chapterNumber":1,"title":"灯光","body":body,"completeness":"chapterComplete","sceneGroups":[]})
 }

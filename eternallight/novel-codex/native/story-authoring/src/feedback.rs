@@ -33,10 +33,10 @@ impl AuthoringService<'_> {
         let mut run = self.get(project_id, run_id)?;
         if run.version != expected_version
             || run.status != RunStatus::Blocked
-            || run.stage != RunStage::Check
+            || run.stage != RunStage::Coordinate
             || run.blocked_reason.as_deref() != Some("scene_feedback_needs_author")
             || run.active_task_id.is_some()
-            || now >= run.deadline_at
+            || run.deadline_at.is_some_and(|deadline| now >= deadline)
             || source_digest(self.repository, project_id)? != run.source_digest
         {
             return Err(RepositoryError::AuthoringRunStale);
@@ -57,11 +57,6 @@ impl AuthoringService<'_> {
                 "feedback instruction exceeds 1000 characters".into(),
             ));
         }
-        if run.feedback_decisions.len() >= 9 {
-            return Err(RepositoryError::InvalidContent(
-                "generation feedback decision limit reached".into(),
-            ));
-        }
         let decision_id = format!("feedback-decision-{}", Uuid::new_v4().simple());
         let author_message_id = (!instruction.trim().is_empty())
             .then(|| format!("author-message-{}", Uuid::new_v4().simple()));
@@ -75,9 +70,9 @@ impl AuthoringService<'_> {
                 run.accepted_feedback_revision_id = Some(assessment_revision_id.to_owned());
             }
             "repairDraft" => {
-                let future_chapters = run.target_chapters - run.completed_chapters - 1;
-                if run.feedback_repair_count >= 2
-                    || run.max_task_attempts - run.used_task_attempts < 4 + 5 * future_chapters
+                if run
+                    .max_task_attempts
+                    .is_some_and(|limit| run.used_task_attempts >= limit)
                     || run.intent_revisions.len() >= 16
                 {
                     return Err(RepositoryError::InvalidContent(
@@ -144,7 +139,7 @@ impl AuthoringService<'_> {
                     },
                 });
                 run.accepted_feedback_revision_id = None;
-                run.stage = RunStage::Draft;
+                run.stage = RunStage::Coordinate;
                 run.step_token = Uuid::new_v4().simple().to_string();
             }
             _ => {

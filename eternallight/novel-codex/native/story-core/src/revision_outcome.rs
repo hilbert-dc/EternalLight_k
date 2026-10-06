@@ -80,6 +80,14 @@ pub(crate) fn writer(
     {
         return Err(RepositoryError::TaskBindingInvalid);
     }
+    if target.get("workDecisionAction").is_some() {
+        let actual:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_attempts_v1 a JOIN story_work_decision_actions_v1 d ON d.step_id=a.step_id JOIN story_work_steps_v1 s ON s.id=d.step_id AND s.current_attempt_id=a.attempt_id WHERE a.attempt_id=?1 AND s.operation='generateChapter' AND s.work_task_id=json_extract(?2,'$.workDecisionAction.workTaskId'))",params![id,task.target_json],|r|r.get(/*idx*/0)).map_err(storage_error)?;
+        if !actual {
+            return Err(RepositoryError::TaskBindingInvalid);
+        }
+        crate::author_message::validate_execution(db, &task)?;
+        return Ok((task, target));
+    }
     let (source, action_id): (String,String) = db.query_row(
         "SELECT a.source_task_id,a.action_id FROM story_task_action_requests_v1 a JOIN story_work_attempts_v1 w ON w.step_id=a.action_id
          WHERE w.attempt_id=?1 AND a.project_id=?2 AND a.operation='generateChapter'",
@@ -125,12 +133,10 @@ pub(crate) fn validate_target(
         .as_object_mut()
         .ok_or(RepositoryError::TaskBindingInvalid)?
         .remove("resumeStepId");
-    let registered: Option<String> = db.query_row(
-        "SELECT s.target_json FROM story_work_steps_v1 s JOIN story_work_steps_v1 prior ON prior.id=s.depends_on_step_id
-         JOIN story_work_attempts_v1 w ON w.step_id IN (SELECT id FROM story_work_steps_v1 WHERE work_task_id=s.work_task_id)
-         WHERE s.id=?1 AND s.operation='assessRevisionOutcome' AND prior.operation='modelKnowledge' AND prior.status='completed' AND w.attempt_id=?2",
-        params![step,id], |row| row.get(0),
-    ).optional().map_err(storage_error)?;
+    if target.get("workDecisionAction").is_none() {
+        return Err(RepositoryError::TaskBindingInvalid);
+    }
+    let registered: Option<String> = db.query_row("SELECT s.target_json FROM story_work_steps_v1 s JOIN story_work_decision_actions_v1 d ON d.step_id=s.id JOIN story_work_steps_v1 parent ON parent.id=s.depends_on_step_id AND parent.operation='advisory' AND parent.status='completed' JOIN story_work_attempts_v1 a ON a.attempt_id=?2 JOIN story_work_steps_v1 writer ON writer.id=a.step_id AND writer.work_task_id=s.work_task_id WHERE s.id=?1 AND s.operation='assessRevisionOutcome' AND d.source_task_id=?2 AND d.source_revision_id=?3",params![step,id,output],|r|r.get(/*idx*/0)).optional().map_err(storage_error)?;
     if registered
         .as_deref()
         .map(serde_json::from_str::<Value>)
@@ -145,14 +151,19 @@ pub(crate) fn validate_target(
     {
         return Err(RepositoryError::TaskBindingInvalid);
     }
-    let batch: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM story_modeling_batches_v2 b JOIN story_work_attempts_v1 a ON a.attempt_id=b.publisher_task_id
-         JOIN story_work_steps_v1 s ON s.id=a.step_id JOIN story_work_steps_v1 next ON next.depends_on_step_id=s.id
-         WHERE next.id=?1 AND s.current_attempt_id=a.attempt_id AND b.batch_id=?2 AND b.project_id=?3
-         AND b.object_id='draft-'||?4 AND b.source_revision_id=?5 AND b.published_at IS NOT NULL AND b.status IN ('ready','stale'))",
-        params![step,target["knowledgeBatchId"].as_str(),project.as_str(),original["chapterId"].as_str(),output], |row|row.get(0),
-    ).map_err(storage_error)?;
-    if !batch || task.project_id != *project {
+    // Published provenance survives head replacement and source invalidation.
+    // Freshness is checked separately by inputs_current at every execution/write gate.
+    match target.get("knowledgeBatchId") {
+        Some(Value::Null) => {}
+        Some(Value::String(batch)) => {
+            let valid: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM story_modeling_batches_v2 b WHERE b.batch_id=?1 AND b.project_id=?2 AND b.object_id='draft-'||?3 AND b.source_revision_id=?4 AND b.published_at IS NOT NULL)",params![batch,project.as_str(),original["chapterId"].as_str(),output],|r|r.get(0)).map_err(storage_error)?;
+            if !valid {
+                return Err(RepositoryError::TaskBindingInvalid);
+            }
+        }
+        _ => return Err(RepositoryError::TaskBindingInvalid),
+    }
+    if task.project_id != *project {
         return Err(RepositoryError::TaskBindingInvalid);
     }
     Ok(())
@@ -164,45 +175,14 @@ pub(crate) fn inputs_current(
     target: &Value,
 ) -> Result<bool, RepositoryError> {
     db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM story_object_heads_v2 h JOIN story_knowledge_heads_v2 k ON k.project_id=h.project_id AND k.object_id=h.object_id
-         JOIN story_modeling_batches_v2 b ON b.batch_id=k.batch_id AND b.project_id=k.project_id
+        "SELECT EXISTS(SELECT 1 FROM story_object_heads_v2 h
          WHERE h.project_id=?1 AND h.object_id='draft-'||?2 AND COALESCE(h.candidate_revision_id,h.accepted_revision_id)=?3
-         AND k.batch_id=?4 AND b.status='ready' AND b.source_revision_id=?3)",
+         AND (?4 IS NULL OR EXISTS(SELECT 1 FROM story_knowledge_heads_v2 k
+           JOIN story_modeling_batches_v2 b ON b.batch_id=k.batch_id AND b.project_id=k.project_id
+           WHERE k.project_id=h.project_id AND k.object_id=h.object_id AND k.batch_id=?4
+           AND b.status='ready' AND b.source_revision_id=?3)))",
         params![project.as_str(),target["chapterId"].as_str(),target["draftRevisionId"].as_str(),target["knowledgeBatchId"].as_str()], |row|row.get(0),
     ).map_err(storage_error)
-}
-
-pub(crate) fn queue_after_model(
-    db: &Connection,
-    attempt: &TaskRecord,
-    parent: &str,
-    step: &str,
-) -> Result<(), RepositoryError> {
-    let model_target: Value =
-        serde_json::from_str(&attempt.target_json).map_err(|_| RepositoryError::CorruptState)?;
-    let Some(id) = model_target["sourceTaskId"].as_str() else {
-        return Ok(());
-    };
-    let original_task = crate::tasks::load_task(db, id)?;
-    let original: Value = serde_json::from_str(&original_task.target_json)
-        .map_err(|_| RepositoryError::CorruptState)?;
-    if desired_outcomes(&original)?.is_empty() {
-        return Ok(());
-    }
-    let (_, original) = writer(db, &attempt.project_id, id)?;
-    let output: String = db.query_row("SELECT revision_id FROM story_task_outputs_v2 WHERE task_id=?1 AND output_kind='draft' AND completeness='chapterComplete' ORDER BY ordinal DESC LIMIT 1", [id], |row|row.get(0)).map_err(storage_error)?;
-    let target = json!({"writerTaskId":id,"chapterId":original["chapterId"],"chapterNumber":original["chapterNumber"],
-        "originalRevisionId":original["scope"]["sourceRevisionId"],"draftRevisionId":output,"knowledgeBatchId":model_target["batchId"]});
-    if !inputs_current(db, &attempt.project_id, &target)? {
-        return Err(RepositoryError::TaskInputStale);
-    }
-    db.execute(
-        "INSERT OR IGNORE INTO story_work_steps_v1(id,work_task_id,ordinal,operation,target_json,input_revision,depends_on_step_id,status)
-         VALUES(?1,?2,(SELECT COALESCE(MAX(ordinal),0)+1 FROM story_work_steps_v1 WHERE work_task_id=?2),'assessRevisionOutcome',?3,
-         (SELECT revision FROM story_workspaces_v2 WHERE project_id=?4),?5,'queued')",
-        params![format!("outcome-{id}"),parent,target.to_string(),attempt.project_id.as_str(),step],
-    ).map_err(storage_error)?;
-    Ok(())
 }
 
 impl SqliteStoryRepository {

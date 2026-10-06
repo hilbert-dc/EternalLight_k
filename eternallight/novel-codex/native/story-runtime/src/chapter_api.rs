@@ -5,6 +5,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use novel_codex_story_core::AssociateChapterPlanRequest;
+use novel_codex_story_core::MaterializeStandaloneChapterRequest;
 use novel_codex_story_core::ProjectId;
 use novel_codex_story_core::RebindChapterPlanRequest;
 use novel_codex_story_core::SqliteStoryRepository;
@@ -33,6 +34,7 @@ pub(crate) struct MaterializeStandaloneRequest {
     title: String,
     expected_revision: i64,
     idempotency_key: String,
+    volume_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -117,16 +119,20 @@ pub(crate) async fn materialize_standalone(
         Ok(value) => value,
         Err(response) => return *response,
     };
-    let digest =
-        digest(&json!({"title": request.title, "expectedRevision": request.expected_revision}));
-    match repository.materialize_standalone_chapter(&project_id, &request.title, request.expected_revision, &request.idempotency_key, &digest, unix_now()) {
+    let digest = digest(
+        &json!({"title": request.title, "expectedRevision": request.expected_revision, "volumeId": request.volume_id}),
+    );
+    match repository.materialize_standalone_chapter(MaterializeStandaloneChapterRequest {
+        project_id:&project_id, title:&request.title, volume_id:request.volume_id.as_deref(), expected_revision:request.expected_revision,
+        idempotency_key:&request.idempotency_key, request_digest:&digest, now:unix_now(),
+    }) {
         Ok(value) => Json(json!({
-            "commitId": format!("materialize-{}", value.chapter_id), "operation": "materialize-standalone",
-            "projectId": project_id.as_str(), "chapterId": value.chapter_id,
-            "chapterNumber": value.chapter_number, "baseRevision": request.expected_revision,
-            "resultRevision": value.result_revision
+            "commitId": format!("materialize-{}", value.binding.chapter_id), "operation": "materialize-standalone",
+            "projectId": project_id.as_str(), "chapterId": value.binding.chapter_id,
+            "chapterNumber": value.binding.chapter_number, "baseRevision": request.expected_revision,
+            "resultRevision": value.binding.result_revision, "catalogRevision": value.catalog_revision, "volumeId":value.volume_id
         })).into_response(),
-        Err(source) => repository_error(source),
+        Err(source) => crate::catalog_api::failure(source),
     }
 }
 

@@ -18,8 +18,10 @@ pub struct ProviderUsageCharge {
 #[serde(rename_all = "camelCase")]
 #[serde(try_from = "BudgetLedger")]
 pub struct ProviderBudget {
-    pub max_requests: u64,
-    pub max_tokens: u64,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub max_requests: Option<u64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub max_tokens: Option<u64>,
     pub used_requests: u64,
     pub used_tokens: u64,
     pub unknown_tokens: u64,
@@ -30,8 +32,10 @@ pub struct ProviderBudget {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct BudgetLedger {
-    max_requests: u64,
-    max_tokens: u64,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    max_requests: Option<u64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    max_tokens: Option<u64>,
     used_requests: u64,
     used_tokens: u64,
     unknown_tokens: u64,
@@ -61,7 +65,7 @@ impl TryFrom<BudgetLedger> for ProviderBudget {
 
 impl ProviderBudget {
     fn validate(&self) -> Result<(), RepositoryError> {
-        if self.max_requests == 0 || self.max_tokens == 0 || self.charges.len() > 32 {
+        if self.max_requests == Some(0) || self.max_tokens == Some(0) {
             return Err(RepositoryError::CorruptState);
         }
         let mut requests = 0_u64;
@@ -100,7 +104,10 @@ impl ProviderBudget {
                 .ok_or(RepositoryError::CorruptState)?;
             overrun |= charge.overrun;
         }
-        overrun |= requests > self.max_requests || tokens.saturating_add(unknown) > self.max_tokens;
+        overrun |= self.max_requests.is_some_and(|limit| requests > limit)
+            || self
+                .max_tokens
+                .is_some_and(|limit| tokens.saturating_add(unknown) > limit);
         if (requests, tokens, unknown, overrun)
             != (
                 self.used_requests,
@@ -114,20 +121,18 @@ impl ProviderBudget {
         Ok(())
     }
 
-    pub fn remaining_requests(&self) -> u64 {
-        self.max_requests.saturating_sub(self.used_requests)
+    pub fn remaining_requests(&self) -> Option<u64> {
+        self.max_requests
+            .map(|limit| limit.saturating_sub(self.used_requests))
     }
 
-    pub fn remaining_tokens(&self) -> u64 {
+    pub fn remaining_tokens(&self) -> Option<u64> {
         self.max_tokens
-            .saturating_sub(self.used_tokens.saturating_add(self.unknown_tokens))
+            .map(|limit| limit.saturating_sub(self.used_tokens.saturating_add(self.unknown_tokens)))
     }
 
     pub fn exhausted(&self) -> bool {
-        self.overrun
-            || self.charges.len() >= 32
-            || self.remaining_requests() == 0
-            || self.remaining_tokens() == 0
+        self.overrun || self.remaining_requests() == Some(0) || self.remaining_tokens() == Some(0)
     }
 
     pub fn has_charge(&self, task_id: &str) -> bool {
@@ -145,6 +150,24 @@ fn integer(value: &Value) -> Result<u64, RepositoryError> {
         return Err(RepositoryError::TaskBindingInvalid);
     }
     Ok(number as u64)
+}
+
+/// Requires an explicit limit value or null on the current wire contract.
+/// Missing authority fields must not silently become unlimited execution.
+pub fn deserialize_execution_limit<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
+fn limit(value: &Value) -> Result<Option<u64>, RepositoryError> {
+    if value.is_null() {
+        Ok(None)
+    } else {
+        integer(value).map(Some)
+    }
 }
 
 fn charge(task_id: &str, receipt: &Value) -> Result<ProviderUsageCharge, RepositoryError> {
@@ -169,16 +192,19 @@ fn charge(task_id: &str, receipt: &Value) -> Result<ProviderUsageCharge, Reposit
             )
         })
         .ok_or(RepositoryError::TaskBindingInvalid)?;
-    if receipt["runId"] != task_id
+    if ["maxRequests", "maxTokens", "maxDurationMs"]
+        .iter()
+        .any(|key| receipt["limits"].get(key).is_none())
+        || receipt["runId"] != task_id
         || receipt["usage"]["overrun"].as_bool().is_none()
-        || integer(&receipt["limits"]["maxRequests"])? == 0
-        || integer(&receipt["limits"]["maxTokens"])? == 0
-        || integer(&receipt["limits"]["maxDurationMs"])? == 0
+        || limit(&receipt["limits"]["maxRequests"])? == Some(0)
+        || limit(&receipt["limits"]["maxTokens"])? == Some(0)
+        || limit(&receipt["limits"]["maxDurationMs"])? == Some(0)
     {
         return Err(RepositoryError::TaskBindingInvalid);
     }
     let requests = integer(&receipt["usage"]["requests"])?;
-    if requests > integer(&receipt["limits"]["maxRequests"])? {
+    if limit(&receipt["limits"]["maxRequests"])?.is_some_and(|maximum| requests > maximum) {
         return Err(RepositoryError::TaskBindingInvalid);
     }
     Ok(ProviderUsageCharge {
@@ -215,11 +241,10 @@ impl ProviderBudget {
                 Err(RepositoryError::TaskBindingInvalid)
             };
         }
-        if self.charges.len() >= 32
-            || self
-                .charges
-                .iter()
-                .any(|item| item.budget_id == charge.budget_id)
+        if self
+            .charges
+            .iter()
+            .any(|item| item.budget_id == charge.budget_id)
         {
             return Err(RepositoryError::TaskBindingInvalid);
         }
@@ -236,8 +261,10 @@ impl ProviderBudget {
             .checked_add(charge.unknown_tokens)
             .ok_or(RepositoryError::TaskBindingInvalid)?;
         let overrun = charge.overrun
-            || requests > self.max_requests
-            || tokens.saturating_add(unknown_tokens) > self.max_tokens;
+            || self.max_requests.is_some_and(|limit| requests > limit)
+            || self
+                .max_tokens
+                .is_some_and(|limit| tokens.saturating_add(unknown_tokens) > limit);
         self.used_requests = requests;
         self.used_tokens = tokens;
         self.unknown_tokens = unknown_tokens;

@@ -16,9 +16,12 @@ pub struct InitialWorkBudget {
     pub author_message_id: String,
     pub expected_base_snapshot_id: String,
     pub expected_source_digest: String,
-    pub max_requests: u64,
-    pub max_tokens: u64,
-    pub deadline_at: i64,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub max_requests: Option<u64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub max_tokens: Option<u64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub deadline_at: Option<i64>,
 }
 
 impl SqliteStoryRepository {
@@ -45,6 +48,8 @@ impl SqliteStoryRepository {
         if [
             "runId",
             "resumeStepId",
+            "workDecision",
+            "workDecisionAction",
             "requestedActionId",
             "requestedByTaskId",
             "sourceTaskId",
@@ -110,6 +115,9 @@ impl SqliteStoryRepository {
             return Err(RepositoryError::TaskInputStale);
         }
         let task = crate::tasks::create_task_record(&tx, &request)?;
+        if request.operation == "assessChapterStructure" {
+            crate::chapter_structure::bind_initial(&tx, &request)?;
+        }
         crate::author_message::record(&tx, &request, &initial.author_message_id, now)?;
         let budget = ProviderBudget {
             max_requests: initial.max_requests,

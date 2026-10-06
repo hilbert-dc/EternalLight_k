@@ -6,9 +6,10 @@ use crate::{CreateTaskRequest, RepositoryError};
 pub(crate) fn validate_origin(target: &Value) -> Result<(), RepositoryError> {
     let action = target.get("requestedActionId").and_then(Value::as_str);
     let source = target.get("requestedByTaskId").and_then(Value::as_str);
-    let chapter_source = target.get("sourceTaskId").and_then(Value::as_str);
     let run = target.get("runId").and_then(Value::as_str);
     let resume_step = target.get("resumeStepId").and_then(Value::as_str);
+    let decision =
+        target.get("workDecision").is_some() || target.get("workDecisionAction").is_some();
     if [
         "requestedActionId",
         "requestedByTaskId",
@@ -24,11 +25,12 @@ pub(crate) fn validate_origin(target: &Value) -> Result<(), RepositoryError> {
                 .is_none_or(|id| id.is_empty() || id.len() > 160)
         })
     }) || action.is_some() != source.is_some()
+        || target.get("sourceTaskId").is_some()
+        || (run.is_some() && (!decision || resume_step.is_none()))
         || [
             action.is_some(),
-            chapter_source.is_some(),
             resume_step.is_some(),
-            run.is_some(),
+            run.is_some() && !decision,
         ]
         .into_iter()
         .filter(|bound| *bound)
@@ -49,7 +51,6 @@ pub(crate) fn attach_attempt(
     validate_origin(&target)?;
     let action = target.get("requestedActionId").and_then(Value::as_str);
     let source = target.get("requestedByTaskId").and_then(Value::as_str);
-    let chapter_source = target.get("sourceTaskId").and_then(Value::as_str);
     let run = target.get("runId").and_then(Value::as_str);
     let resume_step = target.get("resumeStepId").and_then(Value::as_str);
     let step_id = if let (Some(action), Some(source)) = (action, source) {
@@ -70,30 +71,6 @@ pub(crate) fn attach_attempt(
             return Err(RepositoryError::TaskBindingInvalid);
         }
         action.to_owned()
-    } else if let Some(source) = chapter_source {
-        let parent: String = db.query_row(
-            "SELECT s.work_task_id FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id = a.step_id WHERE a.attempt_id = ?1",
-            [source], |row| row.get(0),
-        ).optional().map_err(storage_error)?.ok_or(RepositoryError::TaskBindingInvalid)?;
-        let step = format!("knowledge-{source}");
-        let source_task: (String, String) = db
-            .query_row(
-                "SELECT status, operation FROM story_tasks_v2 WHERE task_id = ?1",
-                [source],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(storage_error)?;
-        if source_task.0 != "completed"
-            || source_task.1 != "generateChapter"
-            || request.operation != "modelKnowledge"
-        {
-            return Err(RepositoryError::TaskBindingInvalid);
-        }
-        db.execute(
-            "INSERT OR IGNORE INTO story_work_steps_v1(id, work_task_id, ordinal, operation, target_json, input_revision, depends_on_step_id, status) VALUES (?1, ?2, (SELECT COALESCE(MAX(ordinal), 0) + 1 FROM story_work_steps_v1 WHERE work_task_id = ?2), 'modelKnowledge', ?3, ?4, (SELECT step_id FROM story_work_attempts_v1 WHERE attempt_id = ?5), 'queued')",
-            params![step, parent, request.target_json, request.input_revision, source],
-        ).map_err(storage_error)?;
-        step
     } else if let Some(step) = resume_step {
         let original: String = db
             .query_row(
@@ -115,31 +92,6 @@ pub(crate) fn attach_attempt(
             return Err(RepositoryError::TaskBindingInvalid);
         }
         step.to_owned()
-    } else if let Some(run) = run {
-        let parent = format!("work-{run}");
-        target
-            .get("stepToken")
-            .and_then(Value::as_str)
-            .ok_or(RepositoryError::TaskBindingInvalid)?;
-        let plan_scope = (request.operation == "generatePlan")
-            .then(|| target.get("planFromChapter").and_then(Value::as_i64))
-            .flatten()
-            .map(|chapter| format!("plan-chapter-{chapter}"));
-        let scope = plan_scope.as_deref().unwrap_or_else(|| {
-            target
-                .get("chapterId")
-                .and_then(Value::as_str)
-                .unwrap_or("project")
-        });
-        let generation = target
-            .get("intentGeneration")
-            .and_then(Value::as_i64)
-            .ok_or(RepositoryError::TaskBindingInvalid)?;
-        let step = format!("step-{run}-{}-{scope}-{generation}", request.operation);
-        if db.query_row("SELECT 1 FROM story_work_tasks_v1 WHERE id = ?1 AND project_id = ?2 AND kind = 'generation'", params![parent, request.project_id.as_str()], |_| Ok(())).optional().map_err(storage_error)?.is_none() { return Err(RepositoryError::TaskBindingInvalid); }
-        db.execute("INSERT OR IGNORE INTO story_work_steps_v1(id, work_task_id, ordinal, operation, target_json, input_revision, status) VALUES (?1, ?2, (SELECT COALESCE(MAX(ordinal), 0) + 1 FROM story_work_steps_v1 WHERE work_task_id = ?2), ?3, ?4, ?5, 'queued')", params![step, parent, request.operation, request.target_json, request.input_revision]).map_err(storage_error)?;
-        db.execute("UPDATE story_work_steps_v1 SET target_json = ?1, input_revision = ?2 WHERE id = ?3 AND status = 'queued'", params![request.target_json, request.input_revision, step]).map_err(storage_error)?;
-        step
     } else {
         let parent = format!("work-{}", request.task_id);
         let kind = if request.operation == "advisory" {
@@ -181,7 +133,7 @@ pub(crate) fn attach_attempt(
             &target,
         )?;
     }
-    if action.is_some() || chapter_source.is_some() || resume_step.is_some() {
+    if action.is_some() || resume_step.is_some() {
         let work_id: String = db
             .query_row(
                 "SELECT work_task_id FROM story_work_steps_v1 WHERE id=?1",
@@ -189,7 +141,9 @@ pub(crate) fn attach_attempt(
                 |row| row.get(0),
             )
             .map_err(storage_error)?;
-        crate::work_tasks::assert_inputs_current(db, &work_id)?;
+        if !decision_target(&target) {
+            crate::work_tasks::assert_inputs_current(db, &work_id)?;
+        }
         crate::execution_scope_storage::assert_attempt_capacity(db, &request.project_id, &work_id)?;
     }
     let count: i64 = db
@@ -199,20 +153,20 @@ pub(crate) fn attach_attempt(
             |row| row.get(0),
         )
         .map_err(storage_error)?;
-    crate::modeling_dispatch::validate_claim(db, &request.project_id, &step_id, count, &target)?;
+    if let Some(diagnostic) = previous_validation(db, &step_id, request.project_id.as_str())? {
+        db.execute(
+            "UPDATE story_tasks_v2 SET input_manifest_json=json_set(input_manifest_json,'$.previousToolValidation',json(?1)) WHERE task_id=?2 AND project_id=?3",
+            params![diagnostic.to_string(), request.task_id, request.project_id.as_str()],
+        ).map_err(storage_error)?;
+    }
     db.execute("UPDATE story_work_steps_v1 SET status = 'running', current_attempt_id = ?1 WHERE id = ?2 AND status = 'queued'", params![request.task_id, step_id]).map_err(storage_error)?;
     db.execute("INSERT INTO story_work_attempts_v1(attempt_id, step_id, attempt_number) VALUES (?1, ?2, ?3)", params![request.task_id, step_id, count + 1]).map_err(storage_error)?;
-    crate::scope_continuation::assert_current(
-        db,
-        &crate::tasks::load_task(db, &request.task_id)?,
-        &target,
-    )?;
     let (work_id, kind): (String,String) = db.query_row(
         "SELECT w.id,w.kind FROM story_work_tasks_v1 w JOIN story_work_steps_v1 s ON s.work_task_id=w.id WHERE s.id=?1",
         [&step_id], |row|Ok((row.get(0)?,row.get(1)?)),
     ).map_err(storage_error)?;
     if kind != "generation"
-        && let Some(deadline) = crate::ordinary_work_budget::deadline(
+        && let Some(authorization) = crate::ordinary_work_budget::authorization(
             db,
             &request.project_id,
             &work_id,
@@ -222,7 +176,10 @@ pub(crate) fn attach_attempt(
         let now: i64 = db
             .query_row("SELECT unixepoch()", [], |row| row.get(0))
             .map_err(storage_error)?;
-        if deadline <= now {
+        if authorization
+            .deadline_at
+            .is_some_and(|deadline| deadline <= now)
+        {
             return Err(RepositoryError::TaskBindingInvalid);
         }
         crate::task_provider_budget::reserve(
@@ -230,7 +187,7 @@ pub(crate) fn attach_attempt(
             &request.project_id,
             &work_id,
             &request.task_id,
-            deadline,
+            authorization.deadline_at,
         )?;
     }
     db.execute("UPDATE story_work_tasks_v1 SET version = version + 1,thread_id=CASE WHEN thread_id='' THEN ?2 ELSE thread_id END WHERE id = (SELECT work_task_id FROM story_work_steps_v1 WHERE id = ?1)", params![step_id,request.thread_id]).map_err(storage_error)?;
@@ -242,4 +199,34 @@ pub(crate) fn attach_attempt(
 
 fn storage_error(error: rusqlite::Error) -> RepositoryError {
     RepositoryError::Storage(error.to_string())
+}
+
+fn previous_validation(db: &Connection, step: &str, project: &str) -> Result<Option<Value>, RepositoryError> {
+    let error: Option<String> = db.query_row(
+        "SELECT t.error FROM story_work_attempts_v1 a JOIN story_tasks_v2 t ON t.task_id=a.attempt_id WHERE a.step_id=?1 AND t.project_id=?2 AND t.status='failed' ORDER BY a.attempt_number DESC LIMIT 1",
+        params![step,project], |row| row.get(0),
+    ).optional().map_err(storage_error)?.flatten();
+    Ok(crate::conversation_receipts::tool_diagnostic(error.as_deref()))
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    #[test]
+    fn retry_feedback_is_bound_to_the_failed_step_and_project_and_sanitized() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE story_tasks_v2(task_id TEXT,project_id TEXT,status TEXT,error TEXT); CREATE TABLE story_work_attempts_v1(attempt_id TEXT,step_id TEXT,attempt_number INTEGER);").unwrap();
+        let error = "invalid_tool_arguments; toolValidation={\"tool\":\"publish_knowledge_batch\",\"reason\":\"required\",\"schemaPath\":\"/required\",\"missingField\":\"value\"}";
+        db.execute("INSERT INTO story_tasks_v2 VALUES('failed','project','failed',?1)",[error]).unwrap();
+        db.execute_batch("INSERT INTO story_work_attempts_v1 VALUES('failed','step',1)").unwrap();
+        assert_eq!(previous_validation(&db,"step","project").unwrap().unwrap()["missingField"],"value");
+        assert!(previous_validation(&db,"step","other").unwrap().is_none());
+        assert!(previous_validation(&db,"other","project").unwrap().is_none());
+        db.execute("UPDATE story_tasks_v2 SET error='private unstructured failure'",[]).unwrap();
+        assert!(previous_validation(&db,"step","project").unwrap().is_none());
+    }
+}
+
+fn decision_target(target: &Value) -> bool {
+    target.get("workDecision").is_some() || target.get("workDecisionAction").is_some()
 }

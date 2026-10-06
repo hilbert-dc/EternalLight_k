@@ -880,6 +880,8 @@ dependencies = [
 name = "novel-codex-story-mcp"
 version = "0.1.0"
 dependencies = [
+ "jsonschema",
+ "pretty_assertions",
  "serde_json",
  "sha2",
 ]

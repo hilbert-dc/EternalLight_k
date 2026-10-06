@@ -14,6 +14,58 @@ const AUTHOR: &str = "provider-budget-author-1234567890123456";
 const CANDIDATE: &str = "provider-budget-candidate-1234567890123";
 const CAPABILITY: &str = "provider-budget-capability-1234567890123456";
 
+#[tokio::test]
+async fn generation_claim_inherits_metered_authority_without_a_default_quota() {
+    use novel_codex_story_core::{ProjectId, SqliteStoryRepository};
+    let directory = tempfile::tempdir().unwrap();
+    let story_db = directory.path().join("metered-generation.sqlite3");
+    let app = router(task_fixture::state(
+        story_db.clone(),
+        AUTHOR.into(),
+        CANDIDATE.into(),
+    ));
+    let (status, created) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        Some(json!({"title":"无额度截断的创作"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let project = created["project"]["id"].as_str().unwrap();
+    let root = format!("/api/projects/{project}");
+    let (status, run) = call(&app, "POST", &format!("{root}/generation-runs"), Some(json!({
+        "expectedProjectRevision":0,"authorIntent":"写港城故事","targetChapters":1,
+        "maxTaskAttempts":null,"maxProviderRequests":null,"maxProviderTokens":null,"deadlineAt":null
+    }))).await;
+    assert_eq!(status, StatusCode::CREATED, "{run}");
+    let run_uri = format!("{root}/generation-runs/{}", run["id"].as_str().unwrap());
+    let (status, next) = call(&app, "POST", &format!("{run_uri}/next"), Some(json!({}))).await;
+    assert_eq!(status, StatusCode::OK, "{next}");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let (status, task) = call(&app, "POST", &format!("{root}/tasks"), Some(json!({
+        "operation":next["action"]["operation"],"inputRevision":0,"threadId":"thread",
+        "target":next["action"]["target"],"authorIntent":"写港城故事",
+        "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":now+3600
+    }))).await;
+    assert_eq!(status, StatusCode::CREATED, "{task}");
+    let task_id = task["id"].as_str().unwrap();
+    let repository = SqliteStoryRepository::open(&story_db).unwrap();
+    let grant = repository
+        .task_provider_budget(&ProjectId::parse(project).unwrap(), task_id, now + 1800)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(grant).unwrap(),
+        json!({
+            "taskId":task_id,"workTaskId":format!("work-{}",run["id"].as_str().unwrap()),
+            "budgetId":format!("budget-{task_id}"),"maxRequests":null,"maxTokens":null,"deadlineAt":null
+        })
+    );
+}
+
 async fn call(app: &Router, method: &str, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
     let mut body = body;
     if method == "POST"
@@ -94,12 +146,13 @@ async fn terminal_engine_usage_is_charged_once_and_exhausted_attempt_cannot_retr
     let run_uri = format!("{root}/generation-runs/{}", run["id"].as_str().unwrap());
     let (_, next) = call(&app, "POST", &format!("{run_uri}/next"), Some(json!({}))).await;
     let claim = json!({
-        "operation":"generateBrief","inputRevision":0,"threadId":"thread",
+        "operation":next["action"]["operation"],"inputRevision":0,"threadId":"thread",
         "target":next["action"]["target"],"authorIntent":"写港城故事",
         "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),
         "capabilityExpiresAt":now+600
     });
     let fault = rusqlite::Connection::open(&story_db).unwrap();
+    let counts_before: (i64,i64,i64) = fault.query_row("SELECT (SELECT COUNT(*) FROM story_tasks_v2),(SELECT COUNT(*) FROM story_work_steps_v1),(SELECT COUNT(*) FROM story_task_provider_budgets_v1)", [], |row| Ok((row.get(/*idx*/0)?,row.get(/*idx*/1)?,row.get(/*idx*/2)?))).unwrap();
     let before_claim = call(&app, "GET", &run_uri, None).await.1;
     fault.execute_batch("CREATE TRIGGER fail_budget_claim BEFORE INSERT ON story_task_provider_budgets_v1 BEGIN SELECT RAISE(ABORT, 'claim failure'); END;").unwrap();
     assert!(
@@ -109,8 +162,8 @@ async fn terminal_engine_usage_is_charged_once_and_exhausted_attempt_cannot_retr
             .is_success()
     );
     assert_eq!(call(&app, "GET", &run_uri, None).await.1, before_claim);
-    let counts: (i64,i64,i64) = fault.query_row("SELECT (SELECT COUNT(*) FROM story_tasks_v2),(SELECT COUNT(*) FROM story_work_steps_v1),(SELECT COUNT(*) FROM story_task_provider_budgets_v1)", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
-    assert_eq!(counts, (0, 0, 0));
+    let counts: (i64,i64,i64) = fault.query_row("SELECT (SELECT COUNT(*) FROM story_tasks_v2),(SELECT COUNT(*) FROM story_work_steps_v1),(SELECT COUNT(*) FROM story_task_provider_budgets_v1)", [], |row| Ok((row.get(/*idx*/0)?,row.get(/*idx*/1)?,row.get(/*idx*/2)?))).unwrap();
+    assert_eq!(counts, counts_before);
     fault
         .execute_batch("DROP TRIGGER fail_budget_claim;")
         .unwrap();
@@ -350,7 +403,7 @@ async fn restart_recovers_an_active_task_and_unknown_budget_before_author_retry(
         "POST",
         &format!("{root}/tasks"),
         Some(json!({
-            "operation":"generateBrief","inputRevision":0,"threadId":"thread",
+            "operation":next["action"]["operation"],"inputRevision":0,"threadId":"thread",
             "target":next["action"]["target"],"authorIntent":"写港城故事",
             "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),
             "capabilityExpiresAt":now+600
@@ -422,6 +475,18 @@ async fn restart_recovers_an_active_task_and_unknown_budget_before_author_retry(
     assert_eq!(status, StatusCode::OK, "{retried}");
     assert_eq!(retried["status"], "running");
     assert_eq!(retried["providerBudget"], charged["providerBudget"]);
+    // Explicit Author recovery does not certify unknown writes or authorize an automatic replay.
+    let (status, unresolved) =
+        call(&app, "POST", &format!("{run_uri}/next"), Some(json!({}))).await;
+    assert_eq!(status, StatusCode::OK, "{unresolved}");
+    assert_eq!(
+        json!({"status":unresolved["run"]["status"],"action":unresolved["action"],"reason":unresolved["stopReason"]}),
+        json!({"status":"blocked","action":null,"reason":"executionBlocked"})
+    );
+    assert_eq!(
+        unresolved["run"]["providerBudget"],
+        charged["providerBudget"]
+    );
 }
 #[path = "support/author_task_fixture.rs"]
 mod task_fixture;

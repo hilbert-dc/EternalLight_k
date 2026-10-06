@@ -21,15 +21,34 @@ async fn call(
     actor: &str,
     body: Option<Value>,
 ) -> (StatusCode, Value) {
+    let mut request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("authorization", format!("Bearer {actor}"))
+        .header("x-novel-task-capability", CAPABILITY)
+        .header("content-type", "application/json");
+    if method == "POST"
+        && actor == CANDIDATE
+        && uri.ends_with("/commitment-extractions")
+        && let Some(payload) = body.as_ref()
+    {
+        let thread = payload["threadId"].as_str().unwrap();
+        let key = payload["idempotencyKey"].as_str().unwrap();
+        request = request
+            .header("x-novel-tool-name", "submit_commitment_extraction")
+            .header("x-novel-tool-call", format!("fixture-{key}"))
+            .header("x-novel-turn", "extraction-turn")
+            .header("x-novel-root-thread", thread)
+            .header("x-novel-caller-thread", thread)
+            .header(
+                "x-novel-request-hash",
+                format!("{:x}", Sha256::digest(payload.to_string().as_bytes())),
+            );
+    }
     let response = app
         .clone()
         .author_fixture_request(
-            Request::builder()
-                .method(method)
-                .uri(uri)
-                .header("authorization", format!("Bearer {actor}"))
-                .header("x-novel-task-capability", CAPABILITY)
-                .header("content-type", "application/json")
+            request
                 .body(body.map_or_else(Body::empty, |value| Body::from(value.to_string())))
                 .unwrap(),
         )
@@ -71,7 +90,7 @@ async fn conversation_extraction_uses_bound_candidate_output_and_an_author_only_
             idempotency_key: IdempotencyKey::parse(format!("save-{chapter}")).unwrap(),
             request_digest: body.into(),
             content_digest: body.into(),
-            content_json: json!({"chapterNumber":chapter,"body":body}).to_string(),
+            content_json: json!({"chapterNumber":chapter,"title":body,"body":body}).to_string(),
             expected_project_revision: 0,
             expected_snapshot_id: repo
                 .branch_head(&project, &branch)
@@ -201,11 +220,130 @@ async fn conversation_extraction_uses_bound_candidate_output_and_an_author_only_
             .0,
         StatusCode::FORBIDDEN
     );
+    for (field, expected_message) in [
+        (
+            "plotThreadId",
+            "candidates[0].plotThreadId: use null or a non-empty ID",
+        ),
+        (
+            "characterArcId",
+            "candidates[0].characterArcId: use null or a non-empty ID",
+        ),
+        (
+            "sceneId",
+            "candidates[0].setupEvidenceRefs[0]: unexpected field; only objectId, revisionId, quote, start, end are allowed",
+        ),
+        ("start", "invalid narrative commitment or source evidence"),
+    ] {
+        let mut invalid = input.clone();
+        invalid["idempotencyKey"] = json!(format!("invalid-{field}"));
+        match field {
+            "plotThreadId" | "characterArcId" => {
+                invalid["payload"]["candidates"][0][field] = json!("")
+            }
+            "sceneId" => {
+                invalid["payload"]["candidates"][0]["setupEvidenceRefs"][0][field] = Value::Null
+            }
+            "start" => {
+                invalid["payload"]["candidates"][0]["setupEvidenceRefs"][0][field] = json!(1)
+            }
+            _ => unreachable!(),
+        }
+        let (status, rejected) = call(&app, "POST", submit, CANDIDATE, Some(invalid)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{rejected}");
+        assert_eq!(
+            rejected["error"]["message"],
+            format!("InvalidContent({expected_message:?})")
+        );
+        assert_eq!(
+            call(&app, "GET", submit, AUTHOR, /*body*/ None).await.1,
+            Value::Null
+        );
+        assert_eq!(
+            SqliteStoryRepository::open(&path)
+                .unwrap()
+                .task(&project, id)
+                .unwrap()
+                .unwrap()
+                .output_refs_json,
+            "[]"
+        );
+    }
+    let (status, snapshot) = call(
+        &app,
+        "POST",
+        "/api/projects/extraction-http/tasks/recovery-snapshot",
+        AUTHOR,
+        Some(json!({"taskIds":[id]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{snapshot}");
+    assert_eq!(snapshot["complete"], true);
+    let rejected: Vec<Value> = snapshot["operations"].as_array().unwrap().iter().map(|operation|
+        json!({"tool_call_id":operation["tool_call_id"],"state":operation["state"],"receipt_ref":operation["receipt_ref"]})
+    ).collect();
+    assert_eq!(
+        rejected,
+        json!([
+            {"tool_call_id":"fixture-invalid-plotThreadId","state":"rejected","receipt_ref":null},
+            {"tool_call_id":"fixture-invalid-characterArcId","state":"rejected","receipt_ref":null},
+            {"tool_call_id":"fixture-invalid-sceneId","state":"rejected","receipt_ref":null},
+            {"tool_call_id":"fixture-invalid-start","state":"rejected","receipt_ref":null}
+        ])
+        .as_array()
+        .unwrap()
+        .clone()
+    );
     let (status, saved) = call(&app, "POST", submit, CANDIDATE, Some(input.clone())).await;
     assert_eq!(status, StatusCode::CREATED, "{saved}");
+    assert_eq!(saved["candidateCount"], 1);
     assert_eq!(
-        call(&app, "POST", submit, CANDIDATE, Some(input)).await.1,
+        call(&app, "POST", submit, CANDIDATE, Some(input.clone()))
+            .await
+            .1,
         saved
+    );
+    // Every checkpoint is a complete replacement, not an append operation.
+    let mut two = input.clone();
+    two["idempotencyKey"] = json!("save-two-proposals");
+    two["expectedCandidateRevisionId"] = saved["revisionId"].clone();
+    let mut extra = two["payload"]["candidates"][0].clone();
+    extra["id"] = json!("lamp-second-proposal");
+    two["payload"]["candidates"]
+        .as_array_mut()
+        .unwrap()
+        .push(extra);
+    let (status, saved_two) = call(&app, "POST", submit, CANDIDATE, Some(two.clone())).await;
+    assert_eq!(status, StatusCode::CREATED, "{saved_two}");
+    assert_eq!(saved_two["candidateCount"], 2);
+    let (_, report_two) = call(&app, "GET", submit, AUTHOR, /*body*/ None).await;
+    assert_eq!(report_two["revisionId"], saved_two["revisionId"]);
+    assert_eq!(report_two["payload"], two["payload"]);
+    // Replaying an older successful write returns that exact saved revision's count.
+    assert_eq!(
+        call(&app, "POST", submit, CANDIDATE, Some(input.clone())).await,
+        (StatusCode::CREATED, saved)
+    );
+    assert_eq!(
+        call(&app, "GET", submit, AUTHOR, /*body*/ None).await.1,
+        report_two
+    );
+    let mut corrected = input;
+    corrected["idempotencyKey"] = json!("save-corrected-report");
+    corrected["expectedCandidateRevisionId"] = saved_two["revisionId"].clone();
+    let (status, saved) = call(&app, "POST", submit, CANDIDATE, Some(corrected.clone())).await;
+    assert_eq!(status, StatusCode::CREATED, "{saved}");
+    assert_eq!(saved["candidateCount"], 1);
+    let (_, report_corrected) = call(&app, "GET", submit, AUTHOR, /*body*/ None).await;
+    assert_eq!(report_corrected["revisionId"], saved["revisionId"]);
+    assert_eq!(report_corrected["payload"], corrected["payload"]);
+    assert_eq!(
+        call(&app, "POST", submit, CANDIDATE, Some(two)).await,
+        (StatusCode::CREATED, saved_two)
+    );
+    assert_eq!(
+        call(&app, "GET", submit, AUTHOR, /*body*/ None).await.1,
+        report_corrected
     );
     assert_eq!(
         call(&app, "GET", submit, CANDIDATE, /*body*/ None).await.0,
@@ -410,7 +548,9 @@ async fn conversation_extraction_uses_bound_candidate_output_and_an_author_only_
         idempotency_key: IdempotencyKey::parse("save-changed").unwrap(),
         request_digest: "changed-request".into(),
         content_digest: "changed-content".into(),
-        content_json: json!({"chapterNumber":1,"body":"白塔的灯不再亮。"}).to_string(),
+        content_json:
+            json!({"chapterNumber":1,"title":"白塔的灯将再亮。","body":"白塔的灯不再亮。"})
+                .to_string(),
         expected_project_revision: 3,
         expected_snapshot_id: repo
             .branch_head(&project, &branch)

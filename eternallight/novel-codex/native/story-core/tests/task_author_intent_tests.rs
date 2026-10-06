@@ -99,7 +99,7 @@ fn candidate_attempts_reconstruct_author_history_after_reopen_and_ignore_client_
         &project(),
         "source",
         "thread-source",
-        "ready".into(),
+        "ready".into(), None,
         /*now*/ 4,
     )
     .unwrap();

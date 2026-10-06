@@ -83,7 +83,7 @@ fn corrupted_event_source_cannot_create_or_accept_review_and_failures_are_atomic
         checks_json: json!([{"blocking":true,"passed":true}]).to_string(),
         proposals_json: "[]".into(),
         modeling_batch_id: Some("event-batch".into()),
-        selections_json: "{}".into(),
+        selections_json: json!({"modelingBatchId":"event-batch"}).to_string(),
     };
     let review = repository.create_review(request.clone()).unwrap();
     let proposals: Value = serde_json::from_str(&review.proposals_json).unwrap();
@@ -91,7 +91,7 @@ fn corrupted_event_source_cannot_create_or_accept_review_and_failures_are_atomic
         proposals[0]["storyEvent"]["participants"],
         claim["value"]["participants"]
     );
-    let selections = json!({"sceneGroupIds":["group-event"],
+    let selections = json!({"sceneGroupIds":["group-event"],"modelingBatchId":"event-batch",
         "factDecisions":{proposals[0]["id"].as_str().unwrap():"confirmed"}})
     .to_string();
     let accept = AcceptReviewRequest {

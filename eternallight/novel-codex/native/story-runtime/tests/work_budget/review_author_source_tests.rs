@@ -111,6 +111,7 @@ async fn author_root_and_review_work_commit_atomically_and_reject_client_identit
     let (status, run) = call(&path, "POST", &uri, request, AUTHOR).await;
     assert_eq!(status, StatusCode::OK, "{run}");
     let run_id = run["id"].as_str().unwrap();
+    assert_eq!(run["workTaskId"], format!("work-{run_id}"));
     let record:RootRecord = db.query_row(
         "SELECT m.message_id,m.project_id,m.work_task_id,m.author_text,m.task_id,m.generation_run_id,m.thread_id,m.created_at,r.source_packet_json FROM story_author_messages_v1 m JOIN story_planning_review_runs_v2 r ON r.run_id=m.review_run_id WHERE r.run_id=?1",
         [run_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?))).unwrap();
@@ -148,6 +149,199 @@ async fn author_root_and_review_work_commit_atomically_and_reject_client_identit
             run["authorMessageId"].clone(),
             json!(format!("{:x}", Sha256::digest(record.8.as_bytes())))
         )
+    );
+}
+
+#[tokio::test]
+async fn persisted_review_owner_drives_source_budget_and_close_without_cross_work_writes() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("owner.sqlite3");
+    let (project, request) = setup(&path).await;
+    let root = format!("/api/projects/{project}");
+    let create_uri = format!("{root}/planning-reviews");
+    let (status, first) = call(&path, "POST", &create_uri, request.clone(), AUTHOR).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let (_, second) = call(&path, "POST", &create_uri, request, AUTHOR).await;
+    let run_id = first["id"].as_str().unwrap();
+    let old_owner = first["workTaskId"].as_str().unwrap();
+    let owner = "work-persisted-owner";
+    let other_owner = "work-other-persisted-owner";
+    let run_uri = format!("{create_uri}/{run_id}");
+    let work_uri = format!("{root}/work-tasks/{owner}");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    // A different persisted owner name exercises every read path without adding a caller-selected owner API.
+    db.execute_batch("PRAGMA foreign_keys=ON; BEGIN IMMEDIATE; PRAGMA defer_foreign_keys=ON;")
+        .unwrap();
+    for (new_owner, prior_owner) in [
+        (owner, old_owner),
+        (other_owner, second["workTaskId"].as_str().unwrap()),
+    ] {
+        db.execute(
+            "UPDATE story_work_tasks_v1 SET id=?1 WHERE id=?2",
+            params![new_owner, prior_owner],
+        )
+        .unwrap();
+        for table in [
+            "story_planning_review_runs_v2",
+            "story_author_messages_v1",
+            "story_work_steps_v1",
+        ] {
+            db.execute(
+                &format!("UPDATE {table} SET work_task_id=?1 WHERE work_task_id=?2"),
+                params![new_owner, prior_owner],
+            )
+            .unwrap();
+        }
+    }
+    db.execute_batch("COMMIT;").unwrap();
+    let (status, restored) = call(&path, "GET", &run_uri, Value::Null, AUTHOR).await;
+    assert_eq!(status, StatusCode::OK, "{restored}");
+    assert_eq!(restored["workTaskId"], owner);
+    let (_, other_before) = call(
+        &path,
+        "GET",
+        &format!("{root}/work-tasks/{other_owner}"),
+        Value::Null,
+        AUTHOR,
+    )
+    .await;
+    let (_, work) = call(&path, "GET", &work_uri, Value::Null, AUTHOR).await;
+    let (_, workspace) = call(
+        &path,
+        "GET",
+        &format!("{root}/creative-workspace"),
+        Value::Null,
+        AUTHOR,
+    )
+    .await;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    assert_eq!(call(&path,"POST",&format!("{work_uri}/budget-authorization"),json!({
+        "expectedVersion":work["version"],"expectedProjectRevision":workspace["revision"],"expectedSourceDigest":workspace["sourceDigest"],
+        "maxRequests":3,"maxTokens":1000,"deadlineAt":now+600
+    }),AUTHOR).await.0,StatusCode::OK);
+    let before: (i64,i64) = db.query_row("SELECT (SELECT COUNT(*) FROM story_tasks_v2),(SELECT COUNT(*) FROM story_task_provider_budgets_v1)",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+    let seat_uri = format!("{run_uri}/seats/structure/tasks");
+    let seat = json!({"threadId":"review-thread","capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":now+600});
+    for wrong_owner in [other_owner, "work-other-project"] {
+        if wrong_owner == "work-other-project" {
+            let (_, other_project) = call(
+                &path,
+                "POST",
+                "/api/projects",
+                json!({"title":"另一作品"}),
+                AUTHOR,
+            )
+            .await;
+            db.execute("INSERT INTO story_work_tasks_v1(id,project_id,thread_id,goal,kind,status,input_revision) VALUES (?1,?2,'',?3,'direct','running',0)",params![wrong_owner,other_project["project"]["id"].as_str().unwrap(),RAW]).unwrap();
+        }
+        db.execute(
+            "UPDATE story_planning_review_runs_v2 SET work_task_id=?1 WHERE run_id=?2",
+            params![wrong_owner, run_id],
+        )
+        .unwrap();
+        for (method, uri, payload) in [
+            ("GET", run_uri.clone(), Value::Null),
+            ("POST", seat_uri.clone(), seat.clone()),
+            ("POST", format!("{run_uri}/cancel"), json!({})),
+        ] {
+            assert!(
+                !call(&path, method, &uri, payload, AUTHOR)
+                    .await
+                    .0
+                    .is_success(),
+                "{method} {uri}"
+            );
+        }
+        let after:(i64,i64) = db.query_row("SELECT (SELECT COUNT(*) FROM story_tasks_v2),(SELECT COUNT(*) FROM story_task_provider_budgets_v1)",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(after, before);
+        let other_status: (String, i64) = db
+            .query_row(
+                "SELECT status,version FROM story_work_tasks_v1 WHERE id=?1",
+                [other_owner],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            other_status,
+            (
+                other_before["status"].as_str().unwrap().into(),
+                other_before["version"].as_i64().unwrap()
+            )
+        );
+    }
+    db.execute(
+        "UPDATE story_planning_review_runs_v2 SET work_task_id=?1 WHERE run_id=?2",
+        params![owner, run_id],
+    )
+    .unwrap();
+    let (status, task) = call(&path, "POST", &seat_uri, seat, AUTHOR).await;
+    assert_eq!(status, StatusCode::OK, "{task}");
+    let task_id = task["id"].as_str().unwrap();
+    assert_eq!(
+        call(
+            &path,
+            "GET",
+            &format!("{root}/tasks/{task_id}/provider-budget"),
+            Value::Null,
+            AUTHOR
+        )
+        .await
+        .1["workTaskId"],
+        owner
+    );
+    assert_eq!(agent_context(&path,&format!("{root}/context?taskId={task_id}&threadId=review-thread&projectRevision=0&purpose={}&budget=24&byteBudget=60000",task["purpose"].as_str().unwrap())).await.0,StatusCode::OK);
+    let (status, cancelled) = call(
+        &path,
+        "POST",
+        &format!("{run_uri}/cancel"),
+        json!({}),
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cancelled}");
+    assert_eq!(cancelled["workTaskId"], owner);
+    assert_eq!(
+        call(&path, "GET", &work_uri, Value::Null, AUTHOR).await.1["status"],
+        "cancelled"
+    );
+    assert_eq!(
+        call(
+            &path,
+            "GET",
+            &format!("{root}/work-tasks/{other_owner}"),
+            Value::Null,
+            AUTHOR
+        )
+        .await
+        .1,
+        other_before
+    );
+    assert_eq!(
+        call(
+            &path,
+            "POST",
+            &format!("{root}/work-tasks/{other_owner}/control"),
+            json!({"expectedVersion":other_before["version"],"command":"cancel"}),
+            AUTHOR
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &path,
+            "GET",
+            &format!("{create_uri}/{}", second["id"].as_str().unwrap()),
+            Value::Null,
+            AUTHOR
+        )
+        .await
+        .1["status"],
+        "cancelled"
     );
 }
 
@@ -374,7 +568,7 @@ async fn damaged_author_root_or_frozen_seat_blocks_context_budget_report_and_com
             &project_id,
             task_id,
             "review-thread",
-            "done".into(),
+            "done".into(), None,
             now as i64
         ),
         Err(RepositoryError::TaskBindingInvalid)
@@ -385,7 +579,7 @@ async fn damaged_author_root_or_frozen_seat_blocks_context_budget_report_and_com
         &project_id,
         task_id,
         "review-thread",
-        "done".into(),
+        "done".into(), None,
         now as i64,
     )
     .unwrap();

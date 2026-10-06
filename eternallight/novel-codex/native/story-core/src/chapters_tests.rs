@@ -23,10 +23,17 @@ fn association_requires_a_unique_matching_accepted_plan_entry_and_replays_once()
     )
     .unwrap();
     let chapter = repo
-        .materialize_standalone_chapter(
-            &project, "密函", /*expected_revision*/ 0, "chapter", "chapter", /*now*/ 1,
-        )
-        .unwrap();
+        .materialize_standalone_chapter(super::MaterializeStandaloneChapterRequest {
+            project_id: &project,
+            title: "密函",
+            volume_id: None,
+            expected_revision: 0,
+            idempotency_key: "chapter",
+            request_digest: "chapter",
+            now: 1,
+        })
+        .unwrap()
+        .binding;
     for (revision, content) in [
         (
             "accepted-plan",

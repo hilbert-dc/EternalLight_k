@@ -1,7 +1,8 @@
 use novel_codex_story_core::{
-    BeginModelingBatch, BranchId, ChapterProjection, CommitId, CreateTaskRequest, IdempotencyKey,
-    InitialWorkBudget, ObjectId, ProjectId, ProjectRecord, PublishModelingBatch, RevisionId,
-    SaveCandidateRequest, SnapshotId, SqliteStoryRepository, TaskActionRequest, TaskOutputBinding,
+    BranchId, ChapterProjection, CommitId, CreateTaskRequest, IdempotencyKey, InitialWorkBudget,
+    ObjectId, ProjectId, ProjectRecord, PublishModelingBatch, RevisionId, SaveCandidateRequest,
+    SnapshotId, SqliteStoryRepository, TaskActionRequest, TaskOutputBinding, WorkActionRequest,
+    WorkBudgetAuthorization, WorkDecisionRequest,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -92,6 +93,7 @@ impl Fixture {
                 task,
                 "thread",
                 summary.into(),
+                None,
                 /*now*/ 10,
             )
             .unwrap();
@@ -128,7 +130,7 @@ fn discussion_termination_is_not_artifact_or_goal_certification() {
                 "evidence":[{"stepId":"step-root","attemptId":"root","kind":"completionReport",
                     "referenceId":if summary.is_empty() { Value::Null } else { json!("root") },
                     "state":if summary.is_empty() { "missing" } else { "recorded" }}],
-                "pendingActionIds":[],"unsettledAttemptIds":[]
+                "pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null
             })
         );
         assert_eq!(work["steps"].as_array().unwrap().len(), 1);
@@ -210,7 +212,7 @@ fn canonical_outputs_not_presentation_metadata_determine_delivery_after_reopen()
     let ready = fixture.work("root");
     assert_eq!(ready["deliveryStatus"], "ready_for_review");
     let report = json!({"evidence":[{"stepId":"step-root","attemptId":"root","kind":"brief",
-        "referenceId":"brief-one","state":"recorded"}],"pendingActionIds":[],"unsettledAttemptIds":[]});
+        "referenceId":"brief-one","state":"recorded"}],"pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null});
     assert_eq!(ready["deliveryReport"], report);
     let db = rusqlite::Connection::open(&path).unwrap();
     db.execute(
@@ -227,7 +229,7 @@ fn canonical_outputs_not_presentation_metadata_determine_delivery_after_reopen()
         superseded["deliveryReport"],
         json!({"evidence":[{"stepId":"step-root",
         "attemptId":"root","kind":"brief","referenceId":"brief-one","state":"superseded"}],
-        "pendingActionIds":[],"unsettledAttemptIds":[]})
+        "pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null})
     );
     fixture.repo = SqliteStoryRepository::open(&path).unwrap();
     assert_eq!(fixture.work("root"), superseded);
@@ -279,9 +281,9 @@ fn trusted_usage_settlement_updates_delivery_without_new_execution_or_quota() {
                 author_message_id: "author-message".into(),
                 expected_base_snapshot_id: "initial".into(),
                 expected_source_digest: digest,
-                max_requests: 3,
-                max_tokens: 700,
-                deadline_at: 100,
+                max_requests: Some(3),
+                max_tokens: Some(700),
+                deadline_at: Some(100),
             },
             /*now*/ 1,
         )
@@ -339,7 +341,7 @@ fn trusted_usage_settlement_updates_delivery_without_new_execution_or_quota() {
             budget.max_tokens,
             budget.used_tokens
         ),
-        (3, 1, 700, 25)
+        (Some(3), 1, Some(700), 25)
     );
 }
 
@@ -386,36 +388,104 @@ fn chapter_delivery_waits_for_its_actual_published_knowledge_and_detects_superse
         })
         .unwrap();
     fixture.complete("root", "草稿完成");
-    let pending = fixture.work("root");
-    assert_eq!(pending["deliveryStatus"], "partial");
-    assert_eq!(
-        pending["deliveryReport"],
-        json!({"evidence":[
-        {"stepId":"step-root","attemptId":"root","kind":"draft","referenceId":"draft-one","state":"recorded"},
-        {"stepId":"knowledge-root","attemptId":null,"kind":"knowledgeBatch","referenceId":null,"state":"pending"}
-    ],"pendingActionIds":[],"unsettledAttemptIds":[]})
-    );
-    let batch = fixture
+    let initial = fixture.work("root");
+    assert_eq!(initial["steps"].as_array().unwrap().len(), 1);
+    let work_id = initial["id"].as_str().unwrap().to_owned();
+    let digest = fixture
         .repo
-        .begin_modeling_batch(BeginModelingBatch {
-            project_id: &fixture.project,
-            object_id: &object,
-            source_revision_id: &revision,
-            expected_revision: 0,
-            extractor_version: "delivery-test",
-            now: 11,
-        })
+        .project_source_watermarks(&fixture.project)
+        .unwrap()["digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fixture
+        .repo
+        .authorize_work_budget(
+            &fixture.project,
+            &work_id,
+            &WorkBudgetAuthorization {
+                expected_version: initial["version"].as_i64().unwrap(),
+                expected_project_revision: 0,
+                expected_source_digest: digest.clone(),
+                max_requests: None,
+                max_tokens: None,
+                deadline_at: None,
+            },
+            /*now*/ 10,
+        )
         .unwrap();
+    let work = fixture.repo.work_task(&fixture.project, &work_id).unwrap();
+    let decision = fixture
+        .repo
+        .prepare_work_decision(
+            &fixture.project,
+            &work_id,
+            &WorkDecisionRequest {
+                expected_work_version: work.version,
+                expected_revision: 0,
+                expected_source_digest: digest,
+            },
+        )
+        .unwrap()
+        .step
+        .unwrap();
+    let mut parent_request = fixture.request("advisory");
+    parent_request.task_id = "decision-parent".into();
+    let mut target = decision.target;
+    target["resumeStepId"] = json!(decision.id);
+    parent_request.target_json = target.to_string();
+    let parent = fixture.repo.create_task(parent_request).unwrap();
+    let status = fixture.repo.task_work_decision(&parent, None).unwrap();
+    assert_eq!(status["canFinish"], true);
+    assert_eq!(status["requirements"], json!([]));
+    let action = status["readyActions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["operation"] == "modelKnowledge")
+        .unwrap();
+    assert_eq!(action["required"], false);
+    let selected = fixture
+        .repo
+        .select_work_action(
+            &parent,
+            &WorkActionRequest {
+                expected_work_version: status["version"].as_i64().unwrap(),
+                expected_source_digest: status["sourceDigest"].as_str().unwrap().into(),
+                action_key: Some(action["actionKey"].as_str().unwrap().into()),
+                proposal: None,
+                instruction: "分析本次已保存章节的事实".into(),
+                idempotency_key: "select-knowledge".into(),
+                recovery_plan: None,
+            },
+        )
+        .unwrap();
+    fixture.complete("decision-parent", "检查本次正文的事实");
+    settle_followup(&mut fixture, &work_id, "decision-parent");
+    let selected_step = selected["step"]["id"].as_str().unwrap();
+    let pending = fixture.work("root");
+    let mut expected_report = json!({"evidence":[
+        {"stepId":"step-root","attemptId":"root","kind":"draft","referenceId":"draft-one","state":"recorded"},
+        {"stepId":decision.id,"attemptId":"decision-parent","kind":"completionReport","referenceId":"decision-parent","state":"recorded"},
+        {"stepId":selected_step,"attemptId":null,"kind":"knowledgeBatch","referenceId":null,"state":"pending"}
+    ],"pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null});
+    assert_eq!(pending["deliveryStatus"], "partial");
+    assert_eq!(pending["deliveryReport"], expected_report);
+    let batch = selected["step"]["target"]["batchId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let mut request = fixture.request("modelKnowledge");
     request.task_id = "modeling".into();
-    request.target_json =
-        json!({"batchId":batch.id,"chapterId":"chapter-one","sourceTaskId":"root"}).to_string();
+    let mut target = selected["step"]["target"].clone();
+    target["resumeStepId"] = json!(selected_step);
+    request.target_json = target.to_string();
     fixture.repo.create_task(request).unwrap();
     fixture
         .repo
         .publish_modeling_batch(PublishModelingBatch {
             project_id: &fixture.project,
-            batch_id: &batch.id,
+            batch_id: &batch,
             task_id: "modeling",
             thread_id: "thread",
             entities: &[],
@@ -424,27 +494,130 @@ fn chapter_delivery_waits_for_its_actual_published_knowledge_and_detects_superse
         })
         .unwrap();
     fixture.complete("modeling", "分析完成");
+    settle_followup(&mut fixture, &work_id, "modeling");
+    let (final_step, submitted_review) = finish_work(&mut fixture, &work_id);
     let ready = fixture.work("root");
     assert_eq!(ready["deliveryStatus"], "ready_for_review");
+    expected_report["evidence"][2]["attemptId"] = json!("modeling");
+    expected_report["evidence"][2]["referenceId"] = json!(batch);
+    expected_report["evidence"][2]["state"] = json!("recorded");
+    expected_report["evidence"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "stepId":final_step,"attemptId":"decision-final","kind":"completionReport",
+            "referenceId":"decision-final","state":"recorded"
+        }));
+    expected_report["deliveryReview"] = submitted_review.clone();
+    assert_eq!(ready["deliveryReport"], expected_report);
+    let stored_review: String = rusqlite::Connection::open(&path).unwrap().query_row(
+        "SELECT content_json FROM story_work_delivery_reviews_v1 WHERE decision_task_id='decision-final' AND work_task_id=?1",
+        [&work_id], |row| row.get(0),
+    ).unwrap();
     assert_eq!(
-        ready["deliveryReport"],
-        json!({"evidence":[
-        {"stepId":"step-root","attemptId":"root","kind":"draft","referenceId":"draft-one","state":"recorded"},
-        {"stepId":"knowledge-root","attemptId":"modeling","kind":"knowledgeBatch","referenceId":batch.id,"state":"recorded"}
-    ],"pendingActionIds":[],"unsettledAttemptIds":[]})
+        serde_json::from_str::<Value>(&stored_review).unwrap(),
+        submitted_review
+    );
+    assert_eq!(submitted_review["goalStatus"], "fulfilled");
+    assert_eq!(
+        submitted_review["evidence"],
+        json!([{"taskId":"root","revisionId":"draft-one"}])
     );
     // A published historical batch stays inspectable, but a stale head cannot
     // prove that the current candidate's dependency is ready.
     let db = rusqlite::Connection::open(&path).unwrap();
     db.execute(
         "UPDATE story_modeling_batches_v2 SET status='stale' WHERE batch_id=?1",
-        [&batch.id],
+        [&batch],
     )
     .unwrap();
     let stale = fixture.work("root");
     assert_eq!(stale["status"], "completed");
     assert_eq!(stale["deliveryStatus"], "partial");
     let mut expected = ready["deliveryReport"].clone();
-    expected["evidence"][1]["state"] = json!("superseded");
+    expected["evidence"][2]["state"] = json!("superseded");
     assert_eq!(stale["deliveryReport"], expected);
+}
+
+fn settle_followup(fixture: &mut Fixture, work: &str, task: &str) {
+    fixture
+        .repo
+        .charge_work_provider_usage(
+            &fixture.project,
+            work,
+            task,
+            &json!({"runId":task,"budgetId":format!("budget-{task}"),"status":"completed",
+            "limits":{"maxRequests":null,"maxTokens":null,"maxDurationMs":null},
+            "usage":{"requests":1,"tokens":1,"unknownTokens":0,"overrun":false}}),
+        )
+        .unwrap();
+}
+
+fn finish_work(fixture: &mut Fixture, work: &str) -> (String, Value) {
+    let current = fixture.repo.work_task(&fixture.project, work).unwrap();
+    let digest = fixture
+        .repo
+        .project_source_watermarks(&fixture.project)
+        .unwrap()["digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let step = fixture
+        .repo
+        .prepare_work_decision(
+            &fixture.project,
+            work,
+            &WorkDecisionRequest {
+                expected_work_version: current.version,
+                expected_revision: 0,
+                expected_source_digest: digest,
+            },
+        )
+        .unwrap()
+        .step
+        .unwrap();
+    let mut request = fixture.request("advisory");
+    request.task_id = "decision-final".into();
+    let mut target = step.target;
+    target["resumeStepId"] = json!(step.id);
+    request.target_json = target.to_string();
+    let parent = fixture.repo.create_task(request).unwrap();
+    assert_eq!(
+        fixture.repo.task_work_decision(&parent, None).unwrap()["canFinish"],
+        true
+    );
+    let mut status = fixture.repo.task_work_decision(&parent, None).unwrap();
+    let mut evidence = Vec::new();
+    loop {
+        for receipt in status["receipts"]["items"].as_array().unwrap() {
+            for output in receipt["outputs"].as_array().unwrap() {
+                if output["revisionId"].is_string() {
+                    evidence.push(
+                        json!({"taskId":receipt["taskId"],"revisionId":output["revisionId"]}),
+                    );
+                }
+            }
+        }
+        let Some(cursor) = status["pagination"]["nextCursor"].as_str() else {
+            break;
+        };
+        status = fixture
+            .repo
+            .task_work_decision(&parent, Some(cursor))
+            .unwrap();
+    }
+    let review = json!({"expectedWorkVersion":status["version"],"expectedSourceDigest":status["sourceDigest"],"goalStatus":"fulfilled","goalAssessment":"已保存本次正文和分析","checkedScope":"已核对实际保存内容，未进行其他检查","unresolved":[],"authorDecisions":[],"evidence":evidence});
+    fixture
+        .repo
+        .complete_task(
+            &fixture.project,
+            "decision-final",
+            "thread",
+            "已保存正文和分析；未进行其他检查".into(),
+            Some(review.clone()),
+            10,
+        )
+        .unwrap();
+    settle_followup(fixture, work, "decision-final");
+    (step.id, review)
 }

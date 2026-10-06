@@ -248,7 +248,7 @@ fn changed_republication_is_rejected_durably_and_does_not_block_completion() {
     completion.tool_name = "complete_task".into();
     repo.bind_recovery_operation(completion).unwrap();
     assert_eq!(
-        repo.complete_task(&project, "model", "root", "已发布候选知识".into(), 4)
+        repo.complete_task(&project, "model", "root", "已发布候选知识".into(), None, 4)
             .unwrap()
             .status,
         "completed"

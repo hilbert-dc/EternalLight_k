@@ -77,21 +77,3 @@ pub(crate) async fn read(
         Err(error) => repository_error(error),
     }
 }
-
-pub(crate) async fn continue_work(
-    State(state): State<RuntimeState>,
-    Path((project, work)): Path<(String, String)>,
-) -> Response {
-    let project = match ProjectId::parse(project) {
-        Ok(value) => value,
-        Err(error) => return bad_request("invalid_project_id", error),
-    };
-    let mut repo = match SqliteStoryRepository::open(&state.database_path) {
-        Ok(value) => value,
-        Err(error) => return repository_error(error),
-    };
-    match repo.continue_scoped_work(&project, &work) {
-        Ok(value) => Json(json!(value)).into_response(),
-        Err(error) => repository_error(error),
-    }
-}

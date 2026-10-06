@@ -2,6 +2,34 @@ use rusqlite::{Connection, params};
 
 use crate::{ProjectId, RepositoryError};
 
+/// The next author action, derived from current domain evidence rather than UI state.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkResumeMode {
+    RecoverSavedResult,
+    ContinueExecution,
+}
+
+pub(crate) fn resume_mode(
+    db: &Connection,
+    project: &ProjectId,
+    work: &str,
+    kind: &str,
+    status: &str,
+    block_reason: Option<&str>,
+) -> Result<Option<WorkResumeMode>, RepositoryError> {
+    if !matches!(status, "paused" | "blocked") || block_reason.is_some() {
+        return Ok(None);
+    }
+    Ok(Some(
+        if kind != "generation" && !eligible_attempts(db, project, work)?.is_empty() {
+            WorkResumeMode::RecoverSavedResult
+        } else {
+            WorkResumeMode::ContinueExecution
+        },
+    ))
+}
+
 /// Only a durable, still-current publication owned by this failed attempt can
 /// satisfy its step. Unknown writes require reconciliation, not inferred success.
 pub(crate) fn eligible_attempts(
@@ -31,6 +59,47 @@ pub(crate) fn eligible_attempts(
         }
     }
     Ok(eligible)
+}
+
+/// Published analysis can be recovered only while its exact publication is current.
+/// A missing/stale knowledge head is not an unpublished attempt to retry.
+pub(crate) fn publication_changed(
+    db: &Connection,
+    project: &ProjectId,
+    work: &str,
+) -> Result<bool, RepositoryError> {
+    let mut statement = db
+        .prepare(
+            "SELECT t.task_id,b.status,b.publisher_task_id FROM story_work_steps_v1 s \
+         JOIN story_work_tasks_v1 w ON w.id=s.work_task_id \
+         JOIN story_tasks_v2 t ON t.task_id=s.current_attempt_id \
+         LEFT JOIN story_modeling_batches_v2 b ON b.project_id=t.project_id \
+           AND b.batch_id=json_extract(t.target_json,'$.batchId') \
+         WHERE w.project_id=?1 AND w.id=?2 AND s.status IN ('queued','blocked') \
+           AND s.operation='modelKnowledge'",
+        )
+        .map_err(storage_error)?;
+    let candidates = statement
+        .query_map(params![project.as_str(), work], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)?;
+    for (id, status, publisher) in candidates {
+        if status.as_deref() == Some("queued") && publisher.is_none() {
+            continue;
+        }
+        let task = crate::tasks::load_task(db, &id)?;
+        if !crate::tasks::recoverable_output(db, &task)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub(crate) fn recover_published_steps(

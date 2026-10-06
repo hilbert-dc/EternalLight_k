@@ -14,7 +14,6 @@ pub struct ExecutionScopeRequest {
     pub action_ids: Vec<String>,
     pub max_actions: u8,
     pub max_task_attempts: u8,
-    pub max_advisory_rounds: u8,
     pub expected_intent_revision: i64,
 }
 
@@ -40,9 +39,12 @@ pub struct ExecutionScopePreview {
     base_snapshot_id: String,
     source_digest: String,
     targets: Vec<ScopeTarget>,
-    remaining_requests: u64,
-    remaining_tokens: u64,
-    pub(crate) deadline_at: i64,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    remaining_requests: Option<u64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    remaining_tokens: Option<u64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub(crate) deadline_at: Option<i64>,
 }
 
 impl ExecutionScopePreview {
@@ -161,7 +163,7 @@ fn preview(
     {
         return Err(RepositoryError::TaskBindingInvalid);
     }
-    if !(2..=16).contains(&request.max_task_attempts) || request.max_advisory_rounds > 3 {
+    if !(2..=16).contains(&request.max_task_attempts) {
         return Err(RepositoryError::TaskBindingInvalid);
     }
     let source = crate::tasks::load_task(db, source_id)?;
@@ -191,9 +193,11 @@ fn preview(
         return Err(RepositoryError::TaskBindingInvalid);
     }
     let budget = crate::work_budget_storage::load(db, project, &work_task_id)?;
-    let deadline_at = crate::ordinary_work_budget::deadline(db, project, &work_task_id, source_id)?
-        .ok_or(RepositoryError::TaskBindingInvalid)?;
-    if budget.exhausted() || deadline_at <= now {
+    let deadline_at =
+        crate::ordinary_work_budget::authorization(db, project, &work_task_id, source_id)?
+            .ok_or(RepositoryError::TaskBindingInvalid)?
+            .deadline_at;
+    if budget.exhausted() || deadline_at.is_some_and(|deadline| deadline <= now) {
         return Err(RepositoryError::TaskBindingInvalid);
     }
     let mut targets = Vec::new();

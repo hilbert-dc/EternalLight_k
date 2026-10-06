@@ -11,9 +11,12 @@ pub struct TaskProviderBudget {
     pub task_id: String,
     pub work_task_id: String,
     pub budget_id: String,
-    pub max_requests: u64,
-    pub max_tokens: u64,
-    pub deadline_at: i64,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub max_requests: Option<u64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub max_tokens: Option<u64>,
+    #[serde(deserialize_with = "crate::deserialize_execution_limit")]
+    pub deadline_at: Option<i64>,
 }
 
 pub(crate) fn reserve(
@@ -21,7 +24,7 @@ pub(crate) fn reserve(
     project: &ProjectId,
     work_id: &str,
     task_id: &str,
-    deadline_at: i64,
+    deadline_at: Option<i64>,
 ) -> Result<(), RepositoryError> {
     let budget = crate::work_budget_storage::load(db, project, work_id)?;
     if budget.exhausted() || budget.has_charge(task_id) {
@@ -38,8 +41,8 @@ pub(crate) fn reserve(
         task_id: task_id.to_owned(),
         work_task_id: work_id.to_owned(),
         budget_id: format!("budget-{task_id}"),
-        max_requests: budget.remaining_requests().min(64),
-        max_tokens: budget.remaining_tokens().min(1_000_000),
+        max_requests: budget.remaining_requests(),
+        max_tokens: budget.remaining_tokens(),
         deadline_at,
     };
     db.execute("INSERT INTO story_task_provider_budgets_v1(task_id,work_task_id,grant_json) VALUES (?1,?2,?3)",
@@ -58,6 +61,13 @@ impl SqliteStoryRepository {
         request: crate::CreateTaskRequest,
         now: i64,
     ) -> Result<crate::TaskRecord, RepositoryError> {
+        if request.operation == "assessChapterStructure" {
+            let target: Value = serde_json::from_str(&request.target_json)
+                .map_err(|_| RepositoryError::TaskBindingInvalid)?;
+            if target.get("resumeStepId").is_none() {
+                return Err(RepositoryError::TaskOutputForbidden);
+            }
+        }
         let transaction = self
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -120,23 +130,26 @@ pub(crate) fn read_budget(
             if state["status"] != "running" || state["activeTaskId"] != task_id {
                 return Err(RepositoryError::TaskBindingInvalid);
             }
-            state["deadlineAt"]
-                .as_i64()
-                .ok_or(RepositoryError::CorruptState)?
+            serde_json::from_value::<Option<i64>>(state["deadlineAt"].clone())
+                .map_err(|_| RepositoryError::CorruptState)?
         }
         "conversation" | "direct" => {
             if state_json.is_some() || version.is_some() {
                 return Err(RepositoryError::CorruptState);
             }
-            crate::ordinary_work_budget::deadline(read, project, &work_id, task_id)?
+            crate::ordinary_work_budget::authorization(read, project, &work_id, task_id)?
                 .ok_or(RepositoryError::TaskBindingInvalid)?
+                .deadline_at
         }
         _ => return Err(RepositoryError::CorruptState),
     };
     let budget = crate::work_budget_storage::load(read, project, &work_id)?;
     let task = crate::tasks::load_task(read, task_id)?;
     crate::task_input::assert_task_inputs_current(read, &task)?;
-    if now >= deadline || budget.exhausted() || budget.has_charge(task_id) {
+    if deadline.is_some_and(|deadline| now >= deadline)
+        || budget.exhausted()
+        || budget.has_charge(task_id)
+    {
         return Err(RepositoryError::TaskBindingInvalid);
     }
     let stored: String = read.query_row(
@@ -149,10 +162,10 @@ pub(crate) fn read_budget(
         || grant.work_task_id != work_id
         || grant.budget_id != format!("budget-{task_id}")
         || grant.deadline_at != deadline
-        || grant.max_requests == 0
-        || grant.max_requests > budget.remaining_requests().min(64)
-        || grant.max_tokens == 0
-        || grant.max_tokens > budget.remaining_tokens().min(1_000_000)
+        || grant.max_requests == Some(0)
+        || grant.max_requests != budget.remaining_requests()
+        || grant.max_tokens == Some(0)
+        || grant.max_tokens != budget.remaining_tokens()
     {
         return Err(RepositoryError::CorruptState);
     }

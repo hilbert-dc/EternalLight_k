@@ -1,0 +1,553 @@
+//! Derives requirements from exact saved outputs; optional checks are choices, not a pipeline.
+use crate::authoring_runs::storage_error;
+use crate::{ProjectId, RepositoryError};
+use rusqlite::{Connection, OptionalExtension, params};
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+
+pub(crate) struct ReadyAction {
+    pub key: String,
+    pub operation: String,
+    pub target: Value,
+    pub source_task: Option<String>,
+    pub source_revision: Option<String>,
+    pub required: bool,
+    pub recovery: Option<Value>,
+}
+
+pub(crate) fn action(
+    operation: &str,
+    target: Value,
+    source: Option<String>,
+    revision: Option<String>,
+    required: bool,
+) -> ReadyAction {
+    let key = format!(
+        "action-{:x}",
+        Sha256::digest(json!([operation, target, revision]).to_string())
+    );
+    ReadyAction {
+        key,
+        operation: operation.into(),
+        target,
+        source_task: source,
+        source_revision: revision,
+        required,
+        recovery: None,
+    }
+}
+
+pub(crate) fn retryable(db: &Connection, task: &str) -> Result<bool, RepositoryError> {
+    let record = crate::tasks::load_task(db, task)?;
+    Ok(crate::conversation_receipts::known_zero_failure(db, task)?
+        && crate::conversation_receipts::failure_code(record.error.as_deref()).is_some())
+}
+
+
+pub(crate) fn actions(
+    db: &Connection,
+    project: &ProjectId,
+    work: &str,
+) -> Result<(Vec<Value>, Vec<ReadyAction>), RepositoryError> {
+    let mut statement=db.prepare("SELECT t.task_id,t.target_json,o.revision_id,c.chapter_id,c.number FROM story_work_steps_v1 s JOIN story_work_attempts_v1 a ON a.attempt_id=s.current_attempt_id JOIN story_tasks_v2 t ON t.task_id=a.attempt_id AND t.status='completed' AND t.operation='generateChapter' JOIN story_task_outputs_v2 o ON o.task_id=t.task_id AND o.output_kind='draft' AND o.completeness='chapterComplete' JOIN story_chapters_v2 c ON c.project_id=t.project_id AND c.chapter_id=json_extract(t.target_json,'$.chapterId') WHERE s.work_task_id=?1 AND t.project_id=?2 AND o.ordinal=(SELECT MAX(ordinal) FROM story_task_outputs_v2 WHERE task_id=t.task_id AND output_kind='draft') AND NOT EXISTS(SELECT 1 FROM story_work_steps_v1 newer JOIN story_tasks_v2 nt ON nt.task_id=newer.current_attempt_id WHERE newer.work_task_id=s.work_task_id AND newer.ordinal>s.ordinal AND nt.status='completed' AND nt.operation='generateChapter' AND json_extract(nt.target_json,'$.chapterId')=c.chapter_id) ORDER BY s.ordinal").map_err(storage_error)?;
+    let rows = statement
+        .query_map(params![work, project.as_str()], |r| {
+            Ok((
+                r.get::<_, String>(/*idx*/ 0)?,
+                r.get::<_, String>(/*idx*/ 1)?,
+                r.get::<_, String>(/*idx*/ 2)?,
+                r.get::<_, String>(/*idx*/ 3)?,
+                r.get::<_, i64>(/*idx*/ 4)?,
+            ))
+        })
+        .map_err(storage_error)?;
+    let mut requirements = Vec::new();
+    // Explicit requested candidates remain part of the goal even when no
+    // child attempt was created (e.g. a later approval failed).
+    let mut pending = db.prepare(
+        "SELECT a.action_id,a.operation FROM story_task_action_requests_v1 a
+         JOIN story_work_attempts_v1 p ON p.attempt_id=a.source_task_id
+         JOIN story_work_steps_v1 s ON s.id=p.step_id
+         WHERE s.work_task_id=?1 AND a.project_id=?2 AND a.status IN ('proposed','queued')
+           AND (a.result_task_id IS NULL OR NOT EXISTS(SELECT 1 FROM story_tasks_v2 t WHERE t.task_id=a.result_task_id AND t.status IN ('completed','failed','cancelled')))
+         ORDER BY a.action_id",
+    ).map_err(storage_error)?;
+    for row in pending.query_map(params![work, project.as_str()], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }).map_err(storage_error)? {
+        let (id, operation) = row.map_err(storage_error)?;
+        requirements.push(json!({"kind":"requestedOutput","actionId":id,"operation":operation,"status":"pending"}));
+    }
+    let mut available = Vec::new();
+    let replanned = crate::work_decision_generation::replanned_current_chapter(db, project, work)?;
+    for row in rows {
+        let (writer, encoded, revision, chapter, number) = row.map_err(storage_error)?;
+        let target: Value =
+            serde_json::from_str(&encoded).map_err(|_| RepositoryError::CorruptState)?;
+        if replanned.as_ref().is_some_and(|(current, generation)| {
+            current == &chapter
+                && target["runId"].as_str().is_some_and(|run| work == format!("work-{run}"))
+                && target["intentGeneration"].as_i64().is_some_and(|old| old < *generation)
+        }) {
+            continue;
+        }
+        let selected:Option<String>=db.query_row("SELECT COALESCE(candidate_revision_id,accepted_revision_id) FROM story_object_heads_v2 WHERE project_id=?1 AND object_id='draft-'||?2",params![project.as_str(),chapter],|r|r.get(/*idx*/0)).optional().map_err(storage_error)?.flatten();
+        if selected.as_deref() != Some(revision.as_str()) {
+            return Err(RepositoryError::TaskInputStale);
+        }
+        let batch:Option<String>=db.query_row("SELECT b.batch_id FROM story_knowledge_heads_v2 h JOIN story_modeling_batches_v2 b ON b.project_id=h.project_id AND b.batch_id=h.batch_id AND b.object_id=h.object_id WHERE h.project_id=?1 AND h.object_id='draft-'||?2 AND b.source_revision_id=?3 AND b.status='ready'",params![project.as_str(),chapter,revision],|r|r.get(/*idx*/0)).optional().map_err(storage_error)?;
+        let needs_outcome = !crate::revision_outcome::desired_outcomes(&target)?.is_empty();
+        // Semantic extraction is an agent-selected aid. Author-requested outcome
+        // checks can compare exact before/after prose without a knowledge pipeline.
+        if batch.is_none() {
+            available.push(action("modelKnowledge",json!({"type":"knowledge","chapterId":chapter,"chapterNumber":number,"sourceRevisionId":revision}),Some(writer.clone()),Some(revision.clone()),false));
+        }
+        let extraction:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_object_heads_v2 h JOIN story_revisions_v2 r ON r.revision_id=h.candidate_revision_id AND r.project_id=h.project_id JOIN story_task_outputs_v2 o ON o.revision_id=r.revision_id JOIN story_tasks_v2 t ON t.task_id=o.task_id AND t.status='completed' WHERE h.project_id=?1 AND h.object_id='commitment-extraction-'||?2 AND json_extract(r.content_json,'$.payload.sourceRevisionId')=?3)",params![project.as_str(),chapter,revision],|r|r.get(/*idx*/0)).map_err(storage_error)?;
+        if !extraction {
+            available.push(action("extractCommitments",json!({"type":"commitmentExtraction","chapterId":chapter,"chapterNumber":number,"sourceRevisionId":revision}),Some(writer.clone()),Some(revision.clone()),false));
+        }
+        let original = &target["scope"]["sourceRevisionId"];
+        if needs_outcome {
+            let outcome:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_object_heads_v2 h JOIN story_revisions_v2 r ON r.revision_id=h.candidate_revision_id AND r.project_id=h.project_id JOIN story_task_outputs_v2 o ON o.revision_id=r.revision_id JOIN story_tasks_v2 t ON t.task_id=o.task_id AND t.status='completed' WHERE h.project_id=?1 AND h.object_id='revision-outcome-'||?2 AND json_extract(r.content_json,'$.draftRevisionId')=?3 AND (json_extract(r.content_json,'$.knowledgeBatchId') IS NULL OR json_extract(r.content_json,'$.knowledgeBatchId')=?4))",params![project.as_str(),writer,revision,batch],|r|r.get(/*idx*/0)).map_err(storage_error)?;
+            requirements.push(json!({"kind":"revisionOutcome","chapterId":chapter,"sourceRevisionId":revision,"status":if outcome{"satisfied"}else{"pending"}}));
+            if !outcome {
+                available.push(action("assessRevisionOutcome",json!({"writerTaskId":writer,"chapterId":chapter,"chapterNumber":number,"originalRevisionId":original,"draftRevisionId":revision,"knowledgeBatchId":batch}),Some(writer.clone()),Some(revision.clone()),true));
+            }
+        }
+        if let Some(batch) = batch {
+            let plan:Option<String>=db.query_row("SELECT plan_revision_id FROM story_chapter_plan_bindings_v2 WHERE project_id=?1 AND chapter_id=?2",params![project.as_str(),chapter],|r|r.get(/*idx*/0)).optional().map_err(storage_error)?;
+            if let Some(plan) = plan {
+                let current:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_object_heads_v2 h JOIN story_revisions_v2 r ON r.revision_id=h.candidate_revision_id AND r.project_id=h.project_id JOIN story_task_outputs_v2 o ON o.revision_id=r.revision_id JOIN story_tasks_v2 t ON t.task_id=o.task_id AND t.status='completed' WHERE h.project_id=?1 AND h.object_id='scene-assessment-'||?2 AND json_extract(r.content_json,'$.draftRevisionId')=?3 AND json_extract(r.content_json,'$.planRevisionId')=?4 AND json_extract(r.content_json,'$.knowledgeBatchId')=?5)",params![project.as_str(),chapter,revision,plan,batch],|r|r.get(/*idx*/0)).map_err(storage_error)?;
+                let current = current && crate::work_decision_delivery::scene_feedback(db, project, work, &chapter)?
+                    .is_none_or(|feedback| feedback.current);
+                if !current {
+                    let snapshot:String=db.query_row("SELECT head_snapshot_id FROM story_branches_v2 WHERE project_id=?1 AND branch_id='main'",[project.as_str()],|r|r.get(/*idx*/0)).map_err(storage_error)?;
+                    available.push(action("assessSceneOutcome",json!({"type":"sceneAssessment","chapterId":chapter,"chapterNumber":number,"planRevisionId":plan,"draftRevisionId":revision,"knowledgeBatchId":batch,"inputSnapshotId":snapshot,"intentGeneration":0}),Some(writer),Some(revision),false));
+                }
+            }
+        }
+    }
+    drop(statement);
+    crate::quality_notebook::reader_actions(db, project, work, &mut available)?;
+    crate::work_decision_generation::available(
+        db,
+        project,
+        work,
+        &mut requirements,
+        &mut available,
+    )?;
+    // Selected or already successful actions are not silently replayed. Known zero-output
+    // failures can be selected under a successor; unknown outcomes remain recovery gates.
+    crate::work_decision_recovery::failed_actions(db, work, &mut requirements, &mut available)?;
+    let mut ready = Vec::new();
+    for candidate in available {
+        let selected:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_decision_actions_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE a.work_task_id=?1 AND a.action_key=?2 AND s.status IN ('queued','running','completed'))",params![work,candidate.key],|r|r.get(/*idx*/0)).map_err(storage_error)?;
+        if !selected || candidate.operation == "finishChapter" {
+            ready.push(candidate)
+        }
+    }
+    ready.sort_by(|a, b| (!a.required, &a.key).cmp(&(!b.required, &b.key)));
+    Ok((requirements, ready))
+}
+
+pub(crate) fn status(
+    db: &Connection,
+    project: &ProjectId,
+    work: &str,
+) -> Result<Value, RepositoryError> {
+    status_page(db, project, work, "", None)
+}
+
+pub(crate) fn status_page(
+    db: &Connection,
+    project: &ProjectId,
+    work: &str,
+    decision_task: &str,
+    cursor: Option<&str>,
+) -> Result<Value, RepositoryError> {
+    let (version, thread, kind): (i64, String, String) = db
+        .query_row(
+            "SELECT version,thread_id,kind FROM story_work_tasks_v1 WHERE id=?1 AND project_id=?2",
+            params![work, project.as_str()],
+            |r| Ok((r.get(/*idx*/ 0)?, r.get(/*idx*/ 1)?, r.get(/*idx*/ 2)?)),
+        )
+        .optional()
+        .map_err(storage_error)?
+        .ok_or(RepositoryError::TaskNotFound)?;
+    let source_digest = crate::task_input::project_source_digest(db, project)?;
+    let page_digest = receipt_page_digest(db, work, &source_digest)?;
+    let page = read_page(
+        cursor,
+        project.as_str(),
+        work,
+        decision_task,
+        version,
+        &page_digest,
+    )?;
+    let (requirements, actions) = actions(db, project, work)?;
+    let receipt_total: i64 = db.query_row("SELECT COUNT(*) FROM story_work_steps_v1 WHERE work_task_id=?1 AND current_attempt_id IS NOT NULL AND operation!='advisory'", [work], |row| row.get(0)).map_err(storage_error)?;
+    let pages = requirements
+        .len()
+        .div_ceil(6)
+        .max(actions.len().div_ceil(6))
+        .max((receipt_total as usize).div_ceil(3))
+        .max(1);
+    if page >= pages {
+        return Err(page_error());
+    }
+    let next = (page + 1 < pages).then(|| {
+        page_cursor(
+            project.as_str(),
+            work,
+            decision_task,
+            version,
+            &page_digest,
+            page + 1,
+        )
+    });
+    let pending = requirements
+        .iter()
+        .filter(|r| r["status"] == "pending")
+        .count();
+    let can_report_partial = kind != "generation" && pending > 0
+        && requirements.iter().any(|r| r["status"] == "pending" && r["kind"] == "requestedOutput")
+        && requirements.iter().filter(|r| r["status"] == "pending").all(|r| r["kind"] == "requestedOutput" || r["kind"] == "revisionOutcome");
+    let total_requirements = requirements.len();
+    let mut requirements = requirements;
+    requirements.sort_by_key(|r| (r["status"] != "pending", r.to_string()));
+    let requirements: Vec<_> = requirements.into_iter().skip(page * 6).take(6).collect();
+    let total_actions = actions.len();
+    let ready:Vec<Value>=actions.iter().skip(page * 6).take(6).map(|a|json!({"actionKey":a.key,"operation":a.operation,"chapterId":a.target["chapterId"],"qualityPacketId":a.target["qualityPacketId"],"sourceRevisionId":a.source_revision,"required":a.required,"recovery":a.recovery})).collect();
+    Ok(
+        json!({"workTaskId":work,"threadId":thread,"version":version,"sourceDigest":source_digest,"requirements":requirements,"readyActions":ready,"finalDeliveryReviewRequired":crate::work_decision_generation::final_delivery_pending(db,project,work)?,"canReportPartial":can_report_partial,"canFinish":pending==0 && (kind!="generation" || crate::work_decision_generation::goal_complete(db,project,work)?),"coverage":{"complete":total_requirements==requirements.len() && total_actions==ready.len(),"pendingRequirements":pending,"totalRequirements":total_requirements,"returnedRequirements":requirements.len(),"requirementsOffset":(page*6).min(total_requirements),"requirementsComplete":total_requirements==requirements.len(),"availableActions":total_actions,"returnedActions":ready.len(),"actionsOffset":(page*6).min(total_actions),"actionsComplete":total_actions==ready.len()},"pagination":{"page":page,"nextCursor":next,"hasMore":next.is_some()},"receipts":receipts(db,work,page*3)?,"completionAuthority":"persistedEvidenceNotLiteraryCertification"}),
+    )
+}
+
+// Nonterminal task progress need not advance the Work version. Bind receipts
+// too, so a page cannot silently mix queued/running/failed snapshots.
+fn receipt_page_digest(
+    db: &Connection,
+    work: &str,
+    source: &str,
+) -> Result<String, RepositoryError> {
+    let mut statement = db.prepare("SELECT t.task_id,t.status,t.error FROM story_work_steps_v1 s JOIN story_tasks_v2 t ON t.task_id=s.current_attempt_id WHERE s.work_task_id=?1 AND t.operation!='advisory' ORDER BY s.ordinal DESC,s.id DESC").map_err(storage_error)?;
+    let mut hasher = Sha256::new();
+    hasher.update(source.as_bytes());
+    let quality: i64 = db.query_row("SELECT COALESCE(q.version,0) FROM story_work_tasks_v1 w LEFT JOIN story_quality_state_v1 q ON q.project_id=w.project_id WHERE w.id=?1", [work], |r| r.get(0)).map_err(storage_error)?;
+    hasher.update(quality.to_le_bytes());
+    let rows = statement
+        .query_map([work], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(storage_error)?;
+    for row in rows {
+        hasher.update(json!(row.map_err(storage_error)?).to_string().as_bytes());
+    }
+    // Selecting finishChapter persists a decision without changing prose or
+    // allocating a new step; it still changes this decision's review obligation.
+    let mut selections = db.prepare("SELECT decision_task_id,action_key FROM story_work_decision_actions_v1 WHERE work_task_id=?1 ORDER BY decision_task_id,action_key").map_err(storage_error)?;
+    let rows = selections
+        .query_map([work], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(storage_error)?;
+    for row in rows {
+        hasher.update(json!(row.map_err(storage_error)?).to_string().as_bytes());
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn page_error() -> RepositoryError {
+    RepositoryError::InvalidContent(
+        "Work status cursor is stale or invalid; restart read_work_status with cursor null".into(),
+    )
+}
+fn page_cursor(
+    project: &str,
+    work: &str,
+    task: &str,
+    version: i64,
+    digest: &str,
+    page: usize,
+) -> String {
+    format!(
+        "{page}:{:x}",
+        Sha256::digest(json!([project, work, task, version, digest, page]).to_string())
+    )
+}
+fn read_page(
+    cursor: Option<&str>,
+    project: &str,
+    work: &str,
+    task: &str,
+    version: i64,
+    digest: &str,
+) -> Result<usize, RepositoryError> {
+    let Some(cursor) = cursor else {
+        return Ok(0);
+    };
+    if cursor.len() > 100 {
+        return Err(page_error());
+    }
+    let page = cursor
+        .split_once(':')
+        .and_then(|(page, _)| page.parse::<usize>().ok())
+        .filter(|page| *page > 0 && *page <= i64::MAX as usize / 6)
+        .ok_or_else(page_error)?;
+    if cursor != page_cursor(project, work, task, version, digest, page) {
+        return Err(page_error());
+    }
+    Ok(page)
+}
+
+pub(crate) fn complete(
+    db: &Connection,
+    task: &crate::TaskRecord,
+    review: Option<&Value>,
+) -> Result<(), RepositoryError> {
+    let Some(bound) = crate::work_decision::binding(db, task)? else {
+        if review.is_some() {
+            return Err(RepositoryError::InvalidContent(
+                "deliveryReview belongs only to final Work decisions".into(),
+            ));
+        }
+        return Ok(());
+    };
+    let work = bound["workTaskId"]
+        .as_str()
+        .ok_or(RepositoryError::CorruptState)?;
+    let selected: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM story_work_decision_actions_v1 WHERE decision_task_id=?1)",
+            [&task.task_id],
+            |r| r.get(/*idx*/ 0),
+        )
+        .map_err(storage_error)?;
+    if selected || crate::work_decision_generation::completion_selected(db, task)? {
+        if crate::work_decision_generation::final_delivery_review_required(db, task)? {
+            let current = status(db, &task.project_id, work)?;
+            return crate::work_delivery_review::save(db, task, work, &current, review);
+        }
+        if review.is_some() {
+            return Err(RepositoryError::InvalidContent(
+                "deliveryReview cannot accompany another selected action".into(),
+            ));
+        }
+        return Ok(());
+    }
+    let status = status(db, &task.project_id, work)?;
+    if status["canFinish"] != true {
+        if status["canReportPartial"] != true || review.is_none_or(|r| r["goalStatus"] != "partial") {
+            return Err(RepositoryError::TaskOutputMissing);
+        }
+    }
+    crate::work_delivery_review::save(db, task, work, &status, review)?;
+    db.execute(
+        "UPDATE story_work_decisions_v1 SET finished=1 WHERE work_task_id=?1",
+        [work],
+    )
+    .map_err(storage_error)?;
+    Ok(())
+}
+
+fn receipts(db: &Connection, work: &str, offset: usize) -> Result<Value, RepositoryError> {
+    let mut statement=db.prepare("SELECT t.task_id,t.operation,t.status,t.error,s.id FROM story_work_steps_v1 s JOIN story_tasks_v2 t ON t.task_id=s.current_attempt_id WHERE s.work_task_id=?1 AND t.operation!='advisory' ORDER BY s.ordinal DESC,s.id DESC LIMIT 3 OFFSET ?2").map_err(storage_error)?;
+    let rows = statement
+        .query_map(params![work, offset as i64], |r| {
+            Ok((
+                r.get::<_, String>(/*idx*/ 0)?,
+                r.get::<_, String>(/*idx*/ 1)?,
+                r.get::<_, String>(/*idx*/ 2)?,
+                r.get::<_, Option<String>>(/*idx*/ 3)?,
+                r.get::<_, String>(/*idx*/ 4)?,
+            ))
+        })
+        .map_err(storage_error)?;
+    let mut items = Vec::new();
+    for row in rows {
+        let (task, operation, status, error, step) = row.map_err(storage_error)?;
+        let mut outputs=db.prepare("SELECT output_kind,revision_id FROM story_task_outputs_v2 WHERE task_id=?1 ORDER BY ordinal DESC LIMIT 1").map_err(storage_error)?;
+        let mut refs=outputs.query_map([&task],|r|Ok(json!({"kind":r.get::<_,String>(/*idx*/0)?,"revisionId":r.get::<_,String>(/*idx*/1)?}))).map_err(storage_error)?.collect::<Result<Vec<_>,_>>().map_err(storage_error)?;
+        for output in &mut refs {
+            if output["kind"] == "draft" {
+                let content: String = db.query_row(
+                    "SELECT r.content_json FROM story_revisions_v2 r JOIN story_tasks_v2 t ON t.project_id=r.project_id WHERE t.task_id=?1 AND r.revision_id=?2",
+                    params![task, output["revisionId"].as_str()], |row| row.get(0),
+                ).map_err(storage_error)?;
+                let content: Value =
+                    serde_json::from_str(&content).map_err(|_| RepositoryError::CorruptState)?;
+                output["chapterId"] = content["chapterId"].clone();
+                if let Some(body) = content["body"].as_str() {
+                    output["characterCount"] = json!(chapter_character_count(body));
+                    output["countUnit"] = json!(
+                        "Unicode characters excluding whitespace; punctuation included; body only"
+                    );
+                }
+            }
+        }
+        if operation == "reviewQuality" {
+            let packet: Option<String> = db.query_row("SELECT id FROM story_quality_packets_v1 WHERE task_id=?1 AND report_json IS NOT NULL", [&task], |r| r.get(0)).optional().map_err(storage_error)?;
+            if let Some(packet) = packet {
+                refs.push(json!({"kind":"qualityReading","packetId":packet,"authority":"readerHypotheses"}));
+            }
+        }
+        if operation == "modelKnowledge" {
+            let batch:Option<String>=db.query_row("SELECT batch_id FROM story_modeling_batches_v2 WHERE publisher_task_id=?1 AND published_at IS NOT NULL AND status IN ('ready','stale')",[&task],|r|r.get(/*idx*/0)).optional().map_err(storage_error)?;
+            if let Some(batch) = batch {
+                refs.push(json!({"kind":"knowledgeBatch","batchId":batch}));
+            }
+        }
+        items.push(json!({"taskId":task,"stepId":step,"operation":operation,"status":status,"outputs":refs,"failureCode":crate::conversation_receipts::failure_code(error.as_deref()),"toolValidation":crate::conversation_receipts::tool_diagnostic(error.as_deref())}));
+    }
+    let total:i64=db.query_row("SELECT COUNT(*) FROM story_work_steps_v1 WHERE work_task_id=?1 AND current_attempt_id IS NOT NULL AND operation!='advisory'",[work],|r|r.get(/*idx*/0)).map_err(storage_error)?;
+    Ok(
+        json!({"items":items,"coverage":{"complete":total as usize==items.len(),"total":total,"returned":items.len(),"offset":offset.min(total as usize)},"authority":"persistedTaskReceipts"}),
+    )
+}
+
+// Match the editor's Array.from(body.replace(/\s/g, "")).length, including
+// ECMAScript's BOM whitespace and excluding Unicode NEXT LINE (U+0085).
+fn chapter_character_count(body: &str) -> usize {
+    body.chars()
+        .filter(|c| {
+            !matches!(*c,
+                '\u{0009}'..='\u{000d}' | '\u{0020}' | '\u{00a0}' | '\u{1680}' |
+                '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' |
+                '\u{205f}' | '\u{3000}' | '\u{feff}'
+            )
+        })
+        .count()
+}
+
+#[cfg(test)]
+mod count_tests {
+    #[test]
+    fn saved_body_count_matches_editor_unicode_and_whitespace_rules() {
+        assert_eq!(
+            super::chapter_character_count("雨夜，灯亮。\n A 🕯\u{feff}\u{3000}"),
+            8
+        );
+        assert_eq!(super::chapter_character_count("\u{0085}"), 1);
+    }
+}
+
+#[cfg(test)]
+mod pagination_tests {
+    use super::*;
+    #[test]
+    fn cursor_is_bound_to_decision_and_current_work_evidence() {
+        let cursor = page_cursor("project", "work", "decision", 8, "digest", 1);
+        assert_eq!(
+            read_page(Some(&cursor), "project", "work", "decision", 8, "digest").unwrap(),
+            1
+        );
+        for (project, work, task, version, digest) in [
+            ("other", "work", "decision", 8, "digest"),
+            ("project", "other", "decision", 8, "digest"),
+            ("project", "work", "other", 8, "digest"),
+            ("project", "work", "decision", 9, "digest"),
+            ("project", "work", "decision", 8, "changed"),
+        ] {
+            assert!(read_page(Some(&cursor), project, work, task, version, digest).is_err());
+        }
+        for malformed in ["", "null", "0", "1:wrong", "18446744073709551615:wrong"] {
+            assert!(
+                read_page(Some(malformed), "project", "work", "decision", 8, "digest").is_err()
+            );
+        }
+    }
+    #[test]
+    fn long_work_receipts_are_small_complete_pages_without_duplicates() {
+        use crate::{
+            BranchId, CreateTaskRequest, ProjectRecord, SnapshotId, SqliteStoryRepository,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let mut repo =
+            SqliteStoryRepository::open(&directory.path().join("pages.sqlite3")).unwrap();
+        let project = ProjectId::parse("page-project").unwrap();
+        repo.create_project(
+            ProjectRecord {
+                project_id: project.clone(),
+                title: "分页".into(),
+                logline: String::new(),
+                created_at: 1,
+                updated_at: 1,
+            },
+            BranchId::parse("main").unwrap(),
+            SnapshotId::parse("initial").unwrap(),
+        )
+        .unwrap();
+        let mut work = String::new();
+        for index in 0..7 {
+            let task_id = format!("receipt-{index}");
+            repo.create_task(CreateTaskRequest {
+                task_id: task_id.clone(),
+                project_id: project.clone(),
+                thread_id: "thread".into(),
+                operation: "generateBrief".into(),
+                input_revision: 0,
+                model: None,
+                target_json: "{}".into(),
+                input_manifest_json: json!({"authorIntent":"整理创作方向"}).to_string(),
+                capability_hash: "a".repeat(64),
+                capability_expires_at: 100,
+            })
+            .unwrap();
+            if index == 0 {
+                work = repo.work_task_for_attempt(&project, &task_id).unwrap().id;
+            }
+            repo.connection.execute("UPDATE story_work_steps_v1 SET work_task_id=?1,ordinal=?2 WHERE current_attempt_id=?3", params![work, index, task_id]).unwrap();
+        }
+        let mut cursor = None;
+        let mut seen = std::collections::BTreeSet::new();
+        let mut pages = 0;
+        loop {
+            let status = status_page(
+                &repo.connection,
+                &project,
+                &work,
+                "decision",
+                cursor.as_deref(),
+            )
+            .unwrap();
+            assert_eq!(status["receipts"]["coverage"]["total"], 7);
+            assert_eq!(status["receipts"]["coverage"]["offset"], pages * 3);
+            let items = status["receipts"]["items"].as_array().unwrap();
+            assert!(items.len() <= 3);
+            for item in items {
+                assert!(seen.insert(item["taskId"].as_str().unwrap().to_owned()));
+            }
+            pages += 1;
+            cursor = status["pagination"]["nextCursor"]
+                .as_str()
+                .map(str::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(pages, 3);
+        assert_eq!(seen.len(), 7);
+        let first = status_page(&repo.connection, &project, &work, "decision", None).unwrap();
+        let next = first["pagination"]["nextCursor"].as_str().unwrap();
+        repo.connection
+            .execute(
+                "UPDATE story_tasks_v2 SET status='running' WHERE task_id='receipt-6'",
+                [],
+            )
+            .unwrap();
+        assert!(status_page(&repo.connection, &project, &work, "decision", Some(next)).is_err());
+        let refreshed = status_page(&repo.connection, &project, &work, "decision", None).unwrap();
+        let next = refreshed["pagination"]["nextCursor"].as_str().unwrap();
+        repo.connection
+            .execute(
+                "UPDATE story_work_tasks_v1 SET version=version+1 WHERE id=?1",
+                [&work],
+            )
+            .unwrap();
+        assert!(status_page(&repo.connection, &project, &work, "decision", Some(next)).is_err());
+    }
+}

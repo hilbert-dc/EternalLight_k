@@ -3,7 +3,6 @@ use crate::{
 };
 use pretty_assertions::assert_eq;
 use rusqlite::params;
-use serde_json::json;
 
 fn seed() -> (SqliteStoryRepository, ProjectId) {
     let mut repo = SqliteStoryRepository::in_memory().unwrap();
@@ -27,9 +26,8 @@ fn seed() -> (SqliteStoryRepository, ProjectId) {
 }
 
 #[test]
-fn continuous_edit_window_caps_due_time_without_overwriting_authority() {
+fn source_freshness_is_passive_and_does_not_grant_execution() {
     let (repo, project) = seed();
-    repo.connection.execute("UPDATE story_modeling_outbox_v1 SET first_dirty_ms=100,last_dirty_ms=5000 WHERE project_id=?1",[project.as_str()]).unwrap();
     let before = repo
         .branch_head(&project, &BranchId::parse("main").unwrap())
         .unwrap();
@@ -38,33 +36,17 @@ fn continuous_edit_window_caps_due_time_without_overwriting_authority() {
             project_id: &project,
             cursor: None,
             limit: 20,
-            now_ms: 5099,
         })
         .unwrap();
-    assert_eq!(
-        page["data"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|item| (item["dueAtMs"].clone(), item["due"].clone()))
-            .collect::<Vec<_>>(),
-        vec![(json!(5100), json!(false)); 2]
-    );
-    let page = repo
-        .modeling_outbox_page(ModelingOutboxQuery {
-            project_id: &project,
-            cursor: None,
-            limit: 20,
-            now_ms: 5100,
-        })
-        .unwrap();
-    assert!(
-        page["data"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|item| item["due"] == true)
-    );
+    assert_eq!(page["pendingCount"], 2);
+    assert_eq!(page["authority"], "sourceFreshnessOnly");
+    for source in page["data"].as_array().unwrap() {
+        assert_eq!(source["sourceRevisionId"], "source");
+        assert_eq!(source["status"], "pending");
+        assert!(source.get("due").is_none());
+        assert!(source.get("dueAtMs").is_none());
+    }
+    assert!(repo.tasks(&project).unwrap().is_empty());
     assert_eq!(
         repo.branch_head(&project, &BranchId::parse("main").unwrap())
             .unwrap(),
@@ -80,7 +62,6 @@ fn deletion_and_recreation_cannot_restore_an_old_cursor_watermark() {
             project_id: &project,
             cursor: None,
             limit: 1,
-            now_ms: i64::MAX,
         })
         .unwrap();
     let cursor = page["nextCursor"].as_str().unwrap();
@@ -91,7 +72,6 @@ fn deletion_and_recreation_cannot_restore_an_old_cursor_watermark() {
             project_id: &project,
             cursor: Some(cursor),
             limit: 1,
-            now_ms: i64::MAX
         })
         .is_err()
     );
@@ -106,7 +86,6 @@ fn deletion_and_recreation_cannot_restore_an_old_cursor_watermark() {
             project_id: &project,
             cursor: None,
             limit: 1,
-            now_ms: i64::MAX
         })
         .is_err()
     );

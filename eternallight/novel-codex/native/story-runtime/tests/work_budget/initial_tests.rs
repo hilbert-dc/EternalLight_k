@@ -38,6 +38,77 @@ pub(super) async fn request(path: &std::path::Path) -> (String, Value) {
 }
 
 #[tokio::test]
+async fn metered_authority_is_persisted_and_usage_can_cross_former_limits() {
+    use novel_codex_story_core::{ProjectId, SqliteStoryRepository};
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("metered.sqlite3");
+    let (root, mut request) = request(&path).await;
+    for field in ["maxRequests", "maxTokens", "deadlineAt"] {
+        request["initialBudget"][field] = Value::Null;
+    }
+    let now = request["capabilityExpiresAt"].as_i64().unwrap() - 600;
+    request["capabilityExpiresAt"] = json!(now + 3600);
+    let (status, task) = call(
+        &path,
+        "POST",
+        &format!("{root}/tasks"),
+        request.clone(),
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{task}");
+    let task_id = task["id"].as_str().unwrap();
+    let project = ProjectId::parse(root.trim_start_matches("/api/projects/")).unwrap();
+    let mut repository = SqliteStoryRepository::open(&path).unwrap();
+    assert_eq!(
+        serde_json::to_value(
+            repository
+                .task_provider_budget(&project, task_id, now + 1800)
+                .unwrap()
+        )
+        .unwrap(),
+        json!({"taskId":task_id,"workTaskId":format!("work-{task_id}"),"budgetId":format!("budget-{task_id}"),
+            "maxRequests":null,"maxTokens":null,"deadlineAt":null})
+    );
+    finish(&path, project.as_str(), task_id);
+    let receipt = json!({"runId":task_id,"budgetId":format!("budget-{task_id}"),"status":"completed",
+        "limits":{"maxRequests":null,"maxTokens":null,"maxDurationMs":null},
+        "usage":{"requests":70,"tokens":1380000,"unknownTokens":20000,"overrun":false}});
+    let owner = format!("work-{task_id}");
+    let metering = repository
+        .charge_work_provider_usage(&project, &owner, task_id, &receipt)
+        .unwrap();
+    assert_eq!(
+        (
+            metering.used_requests,
+            metering.used_tokens,
+            metering.unknown_tokens,
+            metering.exhausted()
+        ),
+        (70, 1380000, 20000, false)
+    );
+    assert_eq!(
+        repository
+            .charge_work_provider_usage(&project, &owner, task_id, &receipt)
+            .unwrap(),
+        metering
+    );
+    for field in ["maxRequests", "maxTokens", "deadlineAt"] {
+        let mut malformed = request.clone();
+        malformed["initialBudget"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert_eq!(
+            call(&path, "POST", &format!("{root}/tasks"), malformed, AUTHOR)
+                .await
+                .0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+}
+
+#[tokio::test]
 async fn initial_confirmation_creates_one_budgeted_root_and_exact_retry_never_reopens_it() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("initial.sqlite3");

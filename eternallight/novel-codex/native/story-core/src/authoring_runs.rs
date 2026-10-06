@@ -41,16 +41,12 @@ pub(crate) fn claim_generation_run_for_task(
     )?;
     let provider_budget =
         crate::work_budget_storage::load(db, project_id, &format!("work-{run_id}"))?;
-    let expected_operation = match state["stage"].as_str() {
-        Some("brief") => "generateBrief",
-        Some("outline") => "generateOutline",
-        Some("rollingPlan") => "generatePlan",
-        Some("draft") => "generateChapter",
-        Some("extract") => "modelKnowledge",
-        Some("commitments") => "extractCommitments",
-        Some("assess") => "assessSceneOutcome",
-        _ => return Err(RepositoryError::TaskBindingInvalid),
-    };
+    let expected_operation =
+        if target.get("workDecision").is_some() || target.get("workDecisionAction").is_some() {
+            operation
+        } else {
+            return Err(RepositoryError::TaskBindingInvalid);
+        };
     let now: i64 = db
         .query_row("SELECT unixepoch()", [], |row| row.get(0))
         .map_err(storage_error)?;
@@ -62,19 +58,23 @@ pub(crate) fn claim_generation_run_for_task(
     }
     if state["status"] != "running"
         || !state["activeTaskId"].is_null()
+        || state["stage"] != "coordinate"
         || expected_operation != operation
         || target["runId"] != run_id
         || target["runVersion"].as_i64() != Some(version)
         || target["stepToken"] != state["stepToken"]
         || target["intentGeneration"] != state["intentGeneration"]
-        || now
-            >= state["deadlineAt"]
-                .as_i64()
-                .ok_or(RepositoryError::CorruptState)?
-        || state["usedTaskAttempts"]
-            .as_i64()
-            .zip(state["maxTaskAttempts"].as_i64())
-            .is_none_or(|(used, max)| used >= max)
+        || serde_json::from_value::<Option<i64>>(state["deadlineAt"].clone())
+            .map_err(|_| RepositoryError::CorruptState)?
+            .is_some_and(|deadline| now >= deadline)
+        || state["usedTaskAttempts"].as_i64().is_none()
+        || serde_json::from_value::<Option<i64>>(state["maxTaskAttempts"].clone())
+            .map_err(|_| RepositoryError::CorruptState)?
+            .is_some_and(|max| {
+                state["usedTaskAttempts"]
+                    .as_i64()
+                    .is_some_and(|used| used >= max)
+            })
         || provider_budget.exhausted()
         || Some(provider_budget.charges.len())
             != state["usedTaskAttempts"].as_u64().map(|used| used as usize)
@@ -104,9 +104,8 @@ pub(crate) fn claim_generation_run_for_task(
         project_id,
         &format!("work-{run_id}"),
         task_id,
-        state["deadlineAt"]
-            .as_i64()
-            .ok_or(RepositoryError::CorruptState)?,
+        serde_json::from_value::<Option<i64>>(state["deadlineAt"].clone())
+            .map_err(|_| RepositoryError::CorruptState)?,
     )?;
     state["activeTaskId"] = Value::String(task_id.to_owned());
     state["usedTaskAttempts"] = Value::from(
@@ -147,63 +146,37 @@ fn generation_start_position(
     db: &rusqlite::Connection,
     project_id: &ProjectId,
 ) -> Result<GenerationStartPosition, RepositoryError> {
-    let (count, first, last): (i64, i64, i64) = db
+    let (count, first, last, distinct): (i64, i64, i64, i64) = db
         .query_row(
-            "SELECT COUNT(*), COALESCE(MIN(number), 0), COALESCE(MAX(number), 0) FROM story_chapters_v2 WHERE project_id = ?1",
+            "SELECT COUNT(*), COALESCE(MIN(number), 0), COALESCE(MAX(number), 0), COUNT(DISTINCT number) FROM story_chapters_v2 WHERE project_id = ?1",
             [project_id.as_str()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(/*idx*/ 0)?, row.get(/*idx*/ 1)?, row.get(/*idx*/ 2)?, row.get(/*idx*/ 3)?)),
         )
         .map_err(storage_error)?;
-    if count > 0 && (first != 1 || last != count) {
+    if count > 0 && (first < 1 || distinct != count) {
         return Err(RepositoryError::InvalidContent(
-            "automatic continuation requires chapters numbered consecutively from one".into(),
+            "automatic continuation requires positive unique chapter numbers".into(),
         ));
     }
     let unready: i64 = db
         .query_row(
             "SELECT COUNT(*) FROM story_chapters_v2 c
              LEFT JOIN story_object_heads_v2 h ON h.project_id = c.project_id AND h.object_id = 'draft-' || c.chapter_id AND h.object_kind = 'draft'
-             LEFT JOIN story_knowledge_heads_v2 k ON k.project_id = c.project_id AND k.object_id = h.object_id
-             LEFT JOIN story_modeling_batches_v2 b ON b.project_id = c.project_id AND b.batch_id = k.batch_id
-             WHERE c.project_id = ?1 AND (COALESCE(h.candidate_revision_id, h.accepted_revision_id) IS NULL OR b.status IS NOT 'ready' OR b.source_revision_id IS NOT COALESCE(h.candidate_revision_id, h.accepted_revision_id))",
+             WHERE c.project_id = ?1 AND COALESCE(h.candidate_revision_id, h.accepted_revision_id) IS NULL",
             [project_id.as_str()],
             |row| row.get(0),
         )
         .map_err(storage_error)?;
     if unready != 0 {
         return Err(RepositoryError::InvalidContent(
-            "automatic continuation requires current draft and knowledge for every existing chapter".into(),
+            "automatic continuation requires a saved draft for every existing chapter".into(),
         ));
     }
-    let (brief, outline, plan, plan_locked): (i64, i64, i64, i64) = db
-        .query_row(
-            "SELECT
-                COALESCE(MAX(CASE WHEN object_id = 'artifact-brief' AND COALESCE(candidate_revision_id, accepted_revision_id) IS NOT NULL THEN 1 ELSE 0 END), 0),
-                COALESCE(MAX(CASE WHEN object_id = 'artifact-outline' AND COALESCE(candidate_revision_id, accepted_revision_id) IS NOT NULL THEN 1 ELSE 0 END), 0),
-                COALESCE(MAX(CASE WHEN object_id = 'artifact-plan' AND COALESCE(candidate_revision_id, accepted_revision_id) IS NOT NULL THEN 1 ELSE 0 END), 0),
-                COALESCE(MAX(CASE WHEN object_id = 'artifact-plan' AND locked = 1 THEN 1 ELSE 0 END), 0)
-             FROM story_object_heads_v2 WHERE project_id = ?1 AND object_id IN ('artifact-brief', 'artifact-outline', 'artifact-plan')",
-            [project_id.as_str()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .map_err(storage_error)?;
-    if plan_locked != 0 {
-        return Err(RepositoryError::InvalidContent(
-            "automatic continuation cannot rewrite a locked plan".into(),
-        ));
-    }
-    let first_stage = if count > 0 || outline != 0 || plan != 0 {
-        "rollingPlan"
-    } else if brief == 0 {
-        "brief"
-    } else if outline == 0 {
-        "outline"
-    } else {
-        "rollingPlan"
-    };
     Ok(GenerationStartPosition {
-        completed_chapters: count,
-        first_stage: first_stage.into(),
+        // GenerationRun uses this as the numbering frontier, not the count of retained chapters.
+        // Deleting a chapter leaves a gap; the next chapter still follows MAX(number) + 1.
+        completed_chapters: last,
+        first_stage: "coordinate".into(),
     })
 }
 
@@ -285,13 +258,14 @@ impl SqliteStoryRepository {
         }
         if state["completedChapters"] != position.completed_chapters
             || state["startChapterNumber"] != position.completed_chapters + 1
-            || state["stage"] != position.first_stage
+            || state["stage"] != "coordinate"
             || state["targetChapters"].as_i64().is_none_or(|target| {
-                target <= position.completed_chapters || target > position.completed_chapters + 3
+                target <= position.completed_chapters || target - position.completed_chapters > crate::MAX_GENERATION_CHAPTERS
             })
         {
             return Err(RepositoryError::AuthoringRunStale);
         }
+        crate::generation_handoff::consume(&transaction, project_id, run_id, &mut state)?;
         transaction
             .execute(
                 "INSERT INTO story_generation_runs_v1(run_id, project_id, version, state_json) VALUES (?1, ?2, 0, ?3)",
@@ -309,9 +283,13 @@ impl SqliteStoryRepository {
             )
             .map_err(storage_error)?;
         transaction.execute(
-            "INSERT INTO story_work_tasks_v1(id, project_id, thread_id, goal, kind, status, input_revision) VALUES (?1, ?2, '', ?3, 'generation', 'running', ?4)",
-            params![format!("work-{run_id}"), project_id.as_str(), intent, revision],
+            "INSERT INTO story_work_tasks_v1(id, project_id, thread_id, goal, kind, status, input_revision) VALUES (?1, ?2, ?5, ?3, 'generation', 'running', ?4)",
+            params![format!("work-{run_id}"), project_id.as_str(), intent, revision, state["rootThreadId"].as_str().unwrap_or_default()],
         ).map_err(storage_error)?;
+        if let Some(origin) = state["originTaskId"].as_str() {
+            transaction.execute("INSERT INTO story_work_decisions_v1(work_task_id,origin_task_id) VALUES(?1,?2)",
+                params![format!("work-{run_id}"),origin]).map_err(storage_error)?;
+        }
         transaction
             .execute(
                 "INSERT INTO story_work_budgets_v1(work_task_id,ledger_json) VALUES (?1,?2)",
@@ -328,7 +306,7 @@ impl SqliteStoryRepository {
             run_id: run_id.to_owned(),
             project_id: project_id.clone(),
             version: 0,
-            state_json: state_json.to_owned(),
+            state_json: state.to_string(),
         })
     }
 
@@ -561,6 +539,19 @@ impl SqliteStoryRepository {
                 if prior["status"] != "cancelled" || unchanged != prior {
                     return Err(RepositoryError::TaskBindingInvalid);
                 }
+            }
+            if prior["intentGeneration"] != stored_state["intentGeneration"]
+                && stored_state["activeTaskId"].is_null()
+            {
+                // An Author replan invalidates unclaimed choices, not their immutable
+                // receipts or granted budget. The next decision captures the new intent.
+                transaction.execute("UPDATE story_work_steps_v1 SET status='superseded' WHERE work_task_id=?1 AND status='queued' AND current_attempt_id IS NULL",[format!("work-{run_id}")]).map_err(storage_error)?;
+                transaction
+                    .execute(
+                        "UPDATE story_work_decisions_v1 SET finished=0 WHERE work_task_id=?1",
+                        [format!("work-{run_id}")],
+                    )
+                    .map_err(storage_error)?;
             }
             crate::generation_delivery::prepare_transition(
                 self,

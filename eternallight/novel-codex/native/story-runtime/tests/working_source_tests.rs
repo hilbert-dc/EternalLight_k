@@ -82,7 +82,7 @@ async fn selected_historical_draft_is_frozen_read_and_advanced_by_writer_checkpo
         original["revisionId"]
     );
     assert_eq!(
-        context["relevantText"][0]["content"]["body"],
+        context["relevantText"][0]["content"]["sceneGroups"][0]["body"],
         "林夕藏起密函。"
     );
     assert_eq!(context["relevantText"][0]["authority"], "working");
@@ -385,6 +385,129 @@ async fn planner_uses_selected_artifact_and_a_changed_selection_invalidates_its_
         author_context["narrativeGoals"]["brief"]["sourceRevisionId"],
         latest["revisionId"]
     );
+}
+
+#[tokio::test]
+async fn writer_context_delivers_long_chapter_once_and_rejects_oversized_mandatory_source() {
+    for repeats in [110, 500] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("writer-context.sqlite3");
+        let (_, created) = call(
+            &path,
+            "POST",
+            "/api/projects",
+            Some(json!({"title":"迟到的钟"})),
+            false,
+        )
+        .await;
+        let root = format!(
+            "/api/projects/{}",
+            created["project"]["id"].as_str().unwrap()
+        );
+        let body = "沈遥合上父亲的修理记录，关掉手电，听见检修梯上有人走来。".repeat(repeats);
+        let groups = json!([{"id":"frozen-scene","title":"站台","body":body,"locked":false}]);
+        let (status, saved) = call(&path, "POST", &format!("{root}/drafts/checkpoints"), Some(json!({
+            "payload":{"chapterNumber":1,"title":"最后一分钟","body":body,"sceneGroups":groups},
+            "expectedRevision":0,"expectedCandidateRevisionId":null,"idempotencyKey":"long-chapter"
+        })), false).await;
+        assert_eq!(status, StatusCode::CREATED, "{saved}");
+        let expires = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 600;
+        let (status, task) = call(&path, "POST", &format!("{root}/tasks"), Some(json!({
+            "operation":"generateChapter","inputRevision":0,"threadId":"long-writer",
+            "target":{"type":"chapter","chapterId":saved["chapterId"],"chapterNumber":1,"readingChapter":1,"sceneOrder":1},
+            "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":expires,
+            "authorIntent":"保留已有正文，只写这一刻"
+        })), false).await;
+        assert_eq!(status, StatusCode::CREATED, "{task}");
+        let uri = format!(
+            "{root}/context?taskId={}&threadId=long-writer&projectRevision=0&purpose=writer&readingChapter=1&sceneOrder=1&budget=24&byteBudget=60000",
+            task["id"].as_str().unwrap()
+        );
+        let (status, context) = call(&path, "GET", &uri, None, true).await;
+        if repeats == 500 {
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{context}");
+            assert_eq!(
+                context["error"]["code"],
+                "context_model_item_budget_exceeded"
+            );
+        } else {
+            assert_eq!(status, StatusCode::OK, "{context}");
+            let draft = &context["relevantText"][0];
+            assert_eq!(draft["content"]["sceneGroups"], groups);
+            assert_eq!(
+                (
+                    draft["textRepresentation"].clone(),
+                    draft["sourceRevisionId"].clone()
+                ),
+                (json!("sceneGroups"), saved["revisionId"].clone())
+            );
+            assert!(draft["content"].get("body").is_none());
+            let item = json!({"type":"function_call_output","call_id":"call-1","output":[
+                {"type":"input_text","text":"Tool result: novel_workspace.read_context"},
+                {"type":"input_text","text":context.to_string()}
+            ]});
+            let tokens =
+                eternallight_engine_core::dispatch("tokens.count", json!(item.to_string()))
+                    .unwrap()
+                    .as_u64()
+                    .unwrap();
+            assert!(tokens <= 10_000, "actual model item has {tokens} tokens");
+        }
+        let (status, batch) = call(&path,"POST",&format!("{root}/modeling-batches"),Some(json!({
+            "objectId":format!("draft-{}",saved["chapterId"].as_str().unwrap()),"sourceRevisionId":saved["revisionId"],
+            "expectedRevision":0,"extractorVersion":"current-context-contract"
+        })),false).await;
+        assert_eq!(status, StatusCode::CREATED, "{batch}");
+        let (status, knowledge_task) = call(&path,"POST",&format!("{root}/tasks"),Some(json!({
+            "operation":"modelKnowledge","inputRevision":0,"threadId":"long-critic","target":{"batchId":batch["id"]},
+            "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":expires,
+            "authorIntent":"只分析已绑定的完整正文，不修改章节"
+        })),false).await;
+        assert_eq!(status, StatusCode::CREATED, "{knowledge_task}");
+        let critic_uri = format!(
+            "{root}/context?taskId={}&threadId=long-critic&projectRevision=0&purpose=critic&budget=24&byteBudget=60000",
+            knowledge_task["id"].as_str().unwrap()
+        );
+        let (status, critic) = call(&path, "GET", &critic_uri, None, true).await;
+        if repeats == 500 {
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{critic}");
+            assert_eq!(
+                critic["error"]["code"],
+                "context_model_item_budget_exceeded"
+            );
+        } else {
+            assert_eq!(status, StatusCode::OK, "{critic}");
+            let source = &critic["relevantText"][0];
+            assert_eq!(source["content"]["sceneGroups"], groups);
+            assert_eq!(
+                (
+                    source["sourceRevisionId"].clone(),
+                    source["textRepresentation"].clone()
+                ),
+                (saved["revisionId"].clone(), json!("sceneGroups"))
+            );
+            assert!(source["content"].get("body").is_none());
+            assert_eq!(
+                critic["operationContext"]["modelingBatch"]["sourceRevisionId"],
+                saved["revisionId"]
+            );
+        }
+        let (status, workspace) = call(
+            &path,
+            "GET",
+            &format!("{root}/creative-workspace"),
+            None,
+            false,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(workspace["chapters"][0]["candidate"]["body"], body);
+        assert!(workspace["chapters"][0]["accepted"].is_null());
+    }
 }
 
 async fn call(

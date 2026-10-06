@@ -181,6 +181,24 @@ async fn mixed_proposal_preflight_and_atomic_apply_share_explicit_fact_choices()
         call(&app, "POST", &format!("{uri}/apply"), apply.clone(), AUTHOR).await;
     assert_eq!(status, StatusCode::OK, "{receipt}");
     assert_eq!(receipt["resultRevision"], 1);
+    let adopted = repo
+        .object_heads(&project)
+        .unwrap()
+        .into_iter()
+        .find(|head| head.object_id.as_str() == "draft-chapter-1")
+        .unwrap()
+        .accepted_revision_id
+        .unwrap();
+    let adopted: Value =
+        serde_json::from_str(&repo.revision_content(&adopted).unwrap().unwrap()).unwrap();
+    assert_eq!(
+        adopted["sceneGroups"],
+        json!([workspace["chapters"][0]["candidate"]["sceneGroups"][0]])
+    );
+    assert_eq!(
+        adopted["body"],
+        workspace["chapters"][0]["candidate"]["sceneGroups"][0]["body"]
+    );
     let facts = repo.facts(&project).unwrap();
     assert_eq!(facts.len(), 1);
     assert_eq!(facts[0]["id"], first);

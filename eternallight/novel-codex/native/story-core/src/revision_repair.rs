@@ -59,7 +59,7 @@ fn input(
         &source.assessment_revision_id,
     )?;
     if report["draftRevisionId"] != decision.draft_revision_id
-        || report["knowledgeBatchId"] != decision.knowledge_batch_id
+        || report["knowledgeBatchId"] != serde_json::json!(decision.knowledge_batch_id)
     {
         return Err(RepositoryError::TaskBindingInvalid);
     }
@@ -218,8 +218,23 @@ pub(crate) fn freeze(
         {
             return Err(RepositoryError::TaskBindingInvalid);
         }
-        if matches!(request.operation.as_str(), "advisory" | "generateChapter") && !current {
-            return Err(RepositoryError::TaskInputStale);
+        if !current {
+            match request.operation.as_str() {
+                "advisory" => {
+                    // A coordinator continues an already authorized Work after its
+                    // own writer replaced the report source. Validate the registered
+                    // step and author lineage; an arbitrary target key is no grant.
+                    let mut verified = manifest.clone();
+                    if target.get("workDecision").is_none()
+                        || !crate::work_decision::freeze(db, request, target, &mut verified)?
+                        || verified != *manifest
+                    {
+                        return Err(RepositoryError::TaskInputStale);
+                    }
+                }
+                "generateChapter" => return Err(RepositoryError::TaskInputStale),
+                _ => {}
+            }
         }
         if request.operation == "generateChapter" {
             writer_target(&frozen, &request.operation, target)?;
@@ -235,6 +250,7 @@ pub(crate) fn assert_discussion_current(
     if let Some((_, current)) = inherited(db, task)?
         && task.operation == "advisory"
         && !current
+        && crate::work_decision::binding(db, task)?.is_none()
     {
         return Err(RepositoryError::TaskInputStale);
     }

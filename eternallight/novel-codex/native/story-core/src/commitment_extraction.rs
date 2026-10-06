@@ -77,7 +77,44 @@ fn parse_report(
     if content.len() > 40_000 {
         return Err(invalid());
     }
-    let report: Content = serde_json::from_str(content).map_err(|_| invalid())?;
+    let raw: Value = serde_json::from_str(content).map_err(|_| invalid())?;
+    for (index, candidate) in raw["payload"]["candidates"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(16)
+        .enumerate()
+    {
+        for field in ["plotThreadId", "characterArcId"] {
+            if candidate
+                .get(field)
+                .and_then(Value::as_str)
+                .is_some_and(|id| id.trim().is_empty())
+            {
+                return Err(RepositoryError::InvalidContent(format!(
+                    "candidates[{index}].{field}: use null or a non-empty ID"
+                )));
+            }
+        }
+        for (anchor_index, anchor) in candidate["setupEvidenceRefs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .take(8)
+            .enumerate()
+        {
+            if anchor.as_object().is_some_and(|fields| {
+                fields.keys().any(|field| {
+                    !["objectId", "revisionId", "quote", "start", "end"].contains(&field.as_str())
+                })
+            }) {
+                return Err(RepositoryError::InvalidContent(format!(
+                    "candidates[{index}].setupEvidenceRefs[{anchor_index}]: unexpected field; only objectId, revisionId, quote, start, end are allowed"
+                )));
+            }
+        }
+    }
+    let report: Content = serde_json::from_value(raw).map_err(|_| invalid())?;
     let report = report.payload;
     if report.candidates.len() > 16 || report.examined_ranges.len() > 16 {
         return Err(invalid());

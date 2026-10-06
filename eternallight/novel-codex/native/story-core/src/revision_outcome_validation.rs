@@ -91,7 +91,7 @@ struct Report {
     chapter_id: String,
     original_revision_id: String,
     draft_revision_id: String,
-    knowledge_batch_id: String,
+    knowledge_batch_id: Option<String>,
     outcomes: Vec<Judgment>,
 }
 
@@ -150,11 +150,16 @@ pub(crate) fn validate_report(
         ("chapterId", &report.chapter_id),
         ("originalRevisionId", &report.original_revision_id),
         ("draftRevisionId", &report.draft_revision_id),
-        ("knowledgeBatchId", &report.knowledge_batch_id),
     ] {
         if target[field].as_str() != Some(value.as_str()) {
             return Err(invalid());
         }
+    }
+    let supplied: Value = serde_json::from_str(encoded).map_err(|_| invalid())?;
+    if supplied.get("knowledgeBatchId") != target.get("knowledgeBatchId")
+        || supplied["knowledgeBatchId"] != serde_json::json!(report.knowledge_batch_id)
+    {
+        return Err(invalid());
     }
     let (_, writer_target) = crate::revision_outcome::writer(db, project, &report.writer_task_id)?;
     let desired = crate::revision_outcome::desired_outcomes(&writer_target)?;

@@ -15,12 +15,33 @@ pub(crate) fn review_options(
     ).map_err(|error| RepositoryError::Storage(error.to_string()))?;
     let content: Value =
         serde_json::from_str(&content).map_err(|_| RepositoryError::CorruptState)?;
-    let groups = content["sceneGroups"]
+    let mut groups = content["sceneGroups"]
         .as_array()
         .into_iter()
         .flatten()
         .map(|group| group["id"].clone())
         .collect::<Vec<_>>();
+    let previous =
+        crate::workflow::object_head(connection, &review.project_id, &review.object_id)?.2;
+    if review.object_kind == "draft"
+        && let Some(previous) = previous
+    {
+        let (_, base) = crate::acceptance_shared::chapter::candidate_and_base(
+            connection,
+            review,
+            Some(&previous),
+        )?;
+        for group in base
+            .as_ref()
+            .and_then(|base| base["sceneGroups"].as_array())
+            .into_iter()
+            .flatten()
+        {
+            if !groups.contains(&group["id"]) {
+                groups.push(group["id"].clone());
+            }
+        }
+    }
     let facts: Value =
         serde_json::from_str(&review.proposals_json).map_err(|_| RepositoryError::CorruptState)?;
     let selections: Value =
@@ -54,6 +75,14 @@ pub(crate) fn validate_choices(
         ));
     }
     let options = review_options(connection, review)?;
+    let previous =
+        crate::workflow::object_head(connection, &review.project_id, &review.object_id)?.2;
+    let (candidate, base) = crate::acceptance_shared::chapter::candidate_and_base(
+        connection,
+        review,
+        previous.as_deref(),
+    )?;
+    crate::acceptance_shared::chapter::selected_content(&candidate, base.as_ref(), selections)?;
     let known_groups = options["sceneGroupIds"]
         .as_array()
         .ok_or(RepositoryError::CorruptState)?;
@@ -104,6 +133,32 @@ pub(crate) fn validate_choices(
             && !groups.is_some_and(|groups| groups.contains(&fact["sceneGroupId"]))
         {
             return Err(RepositoryError::ReviewChecksFailed);
+        }
+        if decision == "confirmed" {
+            let source = candidate["sceneGroups"]
+                .as_array()
+                .and_then(|groups| {
+                    groups
+                        .iter()
+                        .find(|group| group["id"] == fact["sceneGroupId"])
+                })
+                .ok_or(RepositoryError::ReviewChecksFailed)?;
+            let quote = fact["evidence"]
+                .as_str()
+                .filter(|quote| !quote.trim().is_empty())
+                .ok_or(RepositoryError::ReviewChecksFailed)?;
+            if !source["body"]
+                .as_str()
+                .is_some_and(|body| body.trim().contains(quote))
+                || fact
+                    .get("sourceRevisionId")
+                    .is_some_and(|id| id != review.revision_id.as_str())
+                || fact
+                    .get("sceneId")
+                    .is_some_and(|id| !id.is_null() && *id != source["sceneId"])
+            {
+                return Err(RepositoryError::ReviewChecksFailed);
+            }
         }
     }
     Ok(())

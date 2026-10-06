@@ -115,7 +115,7 @@ fn frozen_proposal_survives_report_replacement_but_not_author_establishment() {
                 &project,
                 &task.task_id,
                 &task.thread_id,
-                "saved".into(),
+                "saved".into(), None,
                 /*now*/ 2,
             )
             .unwrap();
@@ -499,7 +499,7 @@ fn assessment_is_task_bound_and_rejects_cross_scene_or_stale_evidence() {
                 &project_id,
                 &task.task_id,
                 &task.thread_id,
-                "done".into(),
+                "done".into(), None,
                 2
             )
             .unwrap()

@@ -1,7 +1,10 @@
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::workflow::{apply_confirmed_facts, load_review, object_head};
 use crate::{BranchId, CommitId, ProjectId, RepositoryError, ReviewRecord, SnapshotId};
+
+#[path = "chapter_acceptance.rs"]
+pub(crate) mod chapter;
 
 pub(crate) struct ValidatedReview {
     pub review: ReviewRecord,
@@ -109,6 +112,38 @@ pub(crate) fn validate_review_for_accept(
             &content,
         )?;
     }
+    if review.object_kind == "draft" {
+        let choices: serde_json::Value = serde_json::from_str(selections_json)
+            .map_err(|_| RepositoryError::InvalidContent("invalid review selections".into()))?;
+        chapter::validate_choices(connection, &review, &choices)?;
+        // Knowledge publication does not advance the workspace revision. Bind the
+        // prepared check and any explicit submitted batch inside this transaction.
+        let current_batch: Option<String> = connection.query_row(
+            "SELECT b.batch_id FROM story_knowledge_heads_v2 h JOIN story_modeling_batches_v2 b ON b.project_id=h.project_id AND b.object_id=h.object_id AND b.batch_id=h.batch_id WHERE h.project_id=?1 AND h.object_id=?2 AND b.source_revision_id=?3 AND b.status='ready'",
+            params![project_id.as_str(), review.object_id.as_str(), review.revision_id.as_str()],
+            |row| row.get(0),
+        ).optional().map_err(storage_error)?;
+        let prepared: serde_json::Value = serde_json::from_str(&review.selections_json)
+            .map_err(|_| RepositoryError::CorruptState)?;
+        let prepared_batch = prepared
+            .get("modelingBatchId")
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .ok_or(RepositoryError::CorruptState)
+            })
+            .transpose()?;
+        if prepared_batch != current_batch.as_deref()
+            || choices
+                .get("modelingBatchId")
+                .is_some_and(|batch| batch.as_str() != current_batch.as_deref())
+        {
+            return Err(RepositoryError::InvalidContent(
+                "故事设定分析已变化，请重新准备发布检查".into(),
+            ));
+        }
+    }
     crate::modeling_review::validate_confirmed_modeling_proposals(
         connection,
         project_id,
@@ -134,9 +169,21 @@ pub(crate) fn record_review_acceptance(
         return Err(RepositoryError::TaskOutputForbidden);
     }
     let result_revision = write.base_revision + 1;
+    let accepted_revision = if review.object_kind == "draft" {
+        let choices = serde_json::from_str(write.selections_json)
+            .map_err(|_| RepositoryError::CorruptState)?;
+        chapter::materialize(
+            connection,
+            review,
+            validated.previous_accepted_revision_id.as_deref(),
+            &choices,
+        )?
+    } else {
+        review.revision_id.clone()
+    };
     let updated = connection.execute(
-        "UPDATE story_object_heads_v2 SET accepted_revision_id = candidate_revision_id WHERE project_id = ?1 AND object_id = ?2 AND candidate_revision_id = ?3 AND locked = 0",
-        params![write.project_id.as_str(), review.object_id.as_str(), review.revision_id.as_str()],
+        "UPDATE story_object_heads_v2 SET accepted_revision_id = ?4 WHERE project_id = ?1 AND object_id = ?2 AND candidate_revision_id = ?3 AND locked = 0",
+        params![write.project_id.as_str(), review.object_id.as_str(), review.revision_id.as_str(), accepted_revision.as_str()],
     ).map_err(storage_error)?;
     if updated != 1 {
         return Err(RepositoryError::CorruptState);
@@ -150,7 +197,7 @@ pub(crate) fn record_review_acceptance(
     }
     connection.execute(
         "INSERT INTO story_acceptances_v2(commit_id, project_id, branch_id, review_id, object_id, object_kind, accepted_revision_id, previous_accepted_revision_id, base_revision, result_revision, base_snapshot_id, result_snapshot_id, operation) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'accept')",
-        params![write.commit_id.as_str(), write.project_id.as_str(), write.branch_id.as_str(), review.review_id, review.object_id.as_str(), review.object_kind, review.revision_id.as_str(), validated.previous_accepted_revision_id, write.base_revision, result_revision, write.base_snapshot_id.as_str(), write.result_snapshot_id.as_str()],
+        params![write.commit_id.as_str(), write.project_id.as_str(), write.branch_id.as_str(), review.review_id, review.object_id.as_str(), review.object_kind, accepted_revision.as_str(), validated.previous_accepted_revision_id, write.base_revision, result_revision, write.base_snapshot_id.as_str(), write.result_snapshot_id.as_str()],
     ).map_err(storage_error)?;
     crate::impacts::resolve_linked_impacts_on_accept(
         connection,

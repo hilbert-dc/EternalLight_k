@@ -16,6 +16,8 @@ struct Binding {
     role: String,
     step_id: String,
     source_packet_hash: String,
+    source_task_id: Option<String>,
+    source_intent_revision: Option<i64>,
 }
 
 pub(crate) struct Source {
@@ -31,6 +33,10 @@ pub(crate) struct Source {
     goal: String,
     recorded_text: Option<String>,
     recorded_at: Option<i64>,
+    source_task_id: Option<String>,
+    source_intent_revision: Option<i64>,
+    work_id: String,
+    focus: String,
 }
 
 pub(crate) fn root(
@@ -38,19 +44,19 @@ pub(crate) fn root(
     project: &ProjectId,
     run: &str,
 ) -> Result<Source, RepositoryError> {
-    let source: Source = db.query_row(
+    let mut source: Source = db.query_row(
         "SELECT r.author_message_id,r.author_intent,
          CASE WHEN length(CAST(r.source_packet_json AS BLOB))<=?3 THEN r.source_packet_json ELSE NULL END,
-         r.source_packet_hash,r.artifact_kind,r.revision_id,r.target_node_id,r.input_revision,r.created_at,w.goal,m.author_text,m.created_at
-         FROM story_planning_review_runs_v2 r JOIN story_work_tasks_v1 w ON w.id='work-'||r.run_id AND w.project_id=r.project_id AND w.kind='direct' AND w.input_revision=r.input_revision
-         LEFT JOIN story_author_messages_v1 m ON m.message_id=r.author_message_id AND m.review_run_id=r.run_id
+         r.source_packet_hash,r.artifact_kind,r.revision_id,r.target_node_id,r.input_revision,r.created_at,w.goal,m.author_text,m.created_at,r.source_task_id,r.source_intent_revision,r.work_task_id,r.focus
+         FROM story_planning_review_runs_v2 r JOIN story_work_tasks_v1 w ON w.id=r.work_task_id AND w.project_id=r.project_id AND w.kind=CASE WHEN r.source_task_id IS NULL THEN 'direct' ELSE 'conversation' END AND w.input_revision=r.input_revision
+         LEFT JOIN story_author_messages_v1 m ON m.message_id=r.author_message_id AND ((r.source_task_id IS NULL AND m.review_run_id=r.run_id AND m.task_id IS NULL AND m.thread_id IS NULL) OR (r.source_task_id IS NOT NULL AND m.review_run_id IS NULL AND m.task_id IS NOT NULL))
           AND m.work_task_id=w.id AND m.project_id=r.project_id AND m.intent_revision=0
-          AND m.task_id IS NULL AND m.generation_run_id IS NULL AND m.thread_id IS NULL
+          AND m.generation_run_id IS NULL
          WHERE r.run_id=?1 AND r.project_id=?2",
         params![run,project.as_str(),MAX_PACKET_BYTES], |row| Ok(Source {
             author_message_id:row.get(0)?,text:row.get(1)?,packet:row.get(2)?,packet_hash:row.get(3)?,kind:row.get(4)?,
             revision:row.get(5)?,node:row.get(6)?,input_revision:row.get(7)?,created_at:row.get(8)?,goal:row.get(9)?,
-            recorded_text:row.get(10)?,recorded_at:row.get(11)?,
+            recorded_text:row.get(10)?,recorded_at:row.get(11)?,source_task_id:row.get(12)?,source_intent_revision:row.get(13)?,work_id:row.get(14)?,focus:row.get(15)?,
         }),
     ).optional().map_err(storage_error)?.ok_or(RepositoryError::TaskBindingInvalid)?;
     let packet = source
@@ -61,10 +67,11 @@ pub(crate) fn root(
         serde_json::from_str(packet).map_err(|_| RepositoryError::TaskBindingInvalid)?;
     if !crate::author_message::valid_id(&source.author_message_id)
         || source.text.trim().is_empty()
-        || source.text.chars().count() > 4_000
+        || (source.source_task_id.is_none() && source.text.chars().count() > 4_000)
+        || source.text.len() > crate::task_author_intent::MAX_AUTHOR_HISTORY_BYTES
         || source.created_at < 0
         || source.recorded_text.as_deref() != Some(source.text.as_str())
-        || source.recorded_at != Some(source.created_at)
+        || (source.source_task_id.is_none() && source.recorded_at != Some(source.created_at))
         || source.goal != source.text
         || source.packet_hash != format!("{:x}", Sha256::digest(packet.as_bytes()))
         || parsed["authorMessageId"] != source.author_message_id
@@ -72,7 +79,28 @@ pub(crate) fn root(
         || parsed["artifactKind"] != source.kind
         || parsed["revisionId"] != source.revision
         || parsed["scope"]["targetNodeId"] != json!(source.node)
+        || parsed["focus"] != source.focus
     {
+        return Err(RepositoryError::TaskBindingInvalid);
+    }
+    match (&source.source_task_id, source.source_intent_revision) {
+        (None, None) => {}
+        (Some(task_id), Some(revision)) => {
+            let author = crate::planning_review_task_source::load(
+                db,
+                project,
+                &source.work_id,
+                task_id,
+                revision,
+            )?;
+            if author.id != source.author_message_id || author.original != source.text {
+                return Err(RepositoryError::TaskBindingInvalid);
+            }
+            source.text = author.history;
+        }
+        _ => return Err(RepositoryError::TaskBindingInvalid),
+    }
+    if parsed["authorHistory"] != source.text {
         return Err(RepositoryError::TaskBindingInvalid);
     }
     Ok(source)
@@ -81,7 +109,7 @@ pub(crate) fn root(
 pub(crate) fn owns_task(db: &Connection, task: &str) -> Result<bool, RepositoryError> {
     db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_attempts_v1 a
         JOIN story_work_steps_v1 s ON s.id=a.step_id
-        JOIN story_planning_review_runs_v2 r ON s.work_task_id='work-'||r.run_id WHERE a.attempt_id=?1)",
+        JOIN story_planning_review_runs_v2 r ON s.work_task_id=r.work_task_id AND r.run_id=json_extract(s.target_json,'$.reviewRunId') WHERE a.attempt_id=?1 AND s.operation='reviewPlanningSeat')",
         [task], |row|row.get(0)).map_err(storage_error)
 }
 
@@ -90,10 +118,18 @@ pub(crate) fn validate_work(
     project: &ProjectId,
     work: &str,
 ) -> Result<(), RepositoryError> {
-    let run: Option<String> = db.query_row("SELECT run_id FROM story_planning_review_runs_v2 WHERE 'work-'||run_id=?1 AND project_id=?2",
-        params![work,project.as_str()],|row|row.get(0)).optional().map_err(storage_error)?;
-    if let Some(run) = run {
-        root(db,project,&run)?;
+    let mut statement = db.prepare("SELECT run_id FROM story_planning_review_runs_v2 WHERE work_task_id=?1 AND project_id=?2").map_err(storage_error)?;
+    let runs = statement
+        .query_map(params![work, project.as_str()], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)?;
+    if !runs.is_empty() {
+        for run in runs {
+            root(db, project, &run)?;
+        }
     } else if db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_steps_v1 WHERE work_task_id=?1 AND operation='reviewPlanningSeat')",
         [work],|row|row.get::<_,bool>(0)).map_err(storage_error)? {
         return Err(RepositoryError::TaskBindingInvalid);
@@ -117,14 +153,19 @@ pub(crate) fn freeze(
         .as_str()
         .ok_or(RepositoryError::TaskBindingInvalid)?;
     let source = root(db, &request.project_id, run)?;
+    if let (Some(task_id), Some(revision)) = (&source.source_task_id, source.source_intent_revision)
+    {
+        crate::task_intents::assert_action_intent(db, task_id, revision)?;
+    }
     let mut expected =
         crate::planning_review_work::target(run, role, &source.kind, &source.revision);
     expected["resumeStepId"] = json!(step);
     let valid: bool = db
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM story_work_steps_v1 s
-        JOIN story_planning_review_seats_v2 seat ON seat.run_id=?2 AND seat.role=?3
-        WHERE s.id=?1 AND s.work_task_id='work-'||?2 AND s.operation='reviewPlanningSeat'
+        JOIN story_planning_review_runs_v2 r ON r.run_id=?2
+        JOIN story_planning_review_seats_v2 seat ON seat.run_id=r.run_id AND seat.role=?3
+        WHERE s.id=?1 AND s.work_task_id=r.work_task_id AND s.operation='reviewPlanningSeat'
         AND s.input_revision=?4 AND s.target_json=?5)",
             params![
                 step,
@@ -163,6 +204,8 @@ pub(crate) fn freeze(
         role: role.into(),
         step_id: step.into(),
         source_packet_hash: source.packet_hash,
+        source_task_id: source.source_task_id,
+        source_intent_revision: source.source_intent_revision,
     })
     .map_err(|_| RepositoryError::CorruptState)?;
     Ok(())
@@ -179,7 +222,8 @@ pub(crate) fn validate_task(
             .map_err(|_| RepositoryError::TaskBindingInvalid)?;
     let source = root(db, &task.project_id, &binding.run_id)?;
     let actual_step: Option<(String,String,i64)> = db.query_row("SELECT s.id,s.target_json,s.input_revision FROM story_work_attempts_v1 a
-        JOIN story_work_steps_v1 s ON s.id=a.step_id AND s.work_task_id='work-'||?2 AND s.operation='reviewPlanningSeat'
+        JOIN story_planning_review_runs_v2 r ON r.run_id=?2
+        JOIN story_work_steps_v1 s ON s.id=a.step_id AND s.work_task_id=r.work_task_id AND s.operation='reviewPlanningSeat'
         JOIN story_work_tasks_v1 w ON w.id=s.work_task_id AND w.project_id=?3
         JOIN story_planning_review_seats_v2 seat ON seat.run_id=?2 AND seat.role=?4
         WHERE a.attempt_id=?1",
@@ -201,6 +245,8 @@ pub(crate) fn validate_task(
         )
         || step != format!("review-seat-{}-{}", binding.run_id, binding.role)
         || binding.step_id != step
+        || binding.source_task_id != source.source_task_id
+        || binding.source_intent_revision != source.source_intent_revision
         || binding.author_message_id != source.author_message_id
         || binding.source_packet_hash != source.packet_hash
         || task.input_revision != source.input_revision
@@ -216,8 +262,6 @@ pub(crate) fn validate_task(
             "authorIntentBinding",
             "candidateInstruction",
             "generationAuthorIntentBinding",
-            "domainTaskSource",
-            "domainInstruction",
         ]
         .into_iter()
         .any(|field| manifest.get(field).is_some())

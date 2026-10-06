@@ -110,27 +110,21 @@ pub(crate) fn freeze(
     if manifest.get("authorIntentBinding").is_some()
         || manifest.get("candidateInstruction").is_some()
         || manifest.get("generationAuthorIntentBinding").is_some()
-        || manifest.get("domainTaskSource").is_some()
-        || manifest.get("domainInstruction").is_some()
         || manifest.get("planningReviewAuthorIntentBinding").is_some()
     {
         return Err(RepositoryError::TaskBindingInvalid);
+    }
+    if manifest.get("workDecision").is_some() || manifest.get("workDecisionAction").is_some() {
+        return Err(RepositoryError::TaskBindingInvalid);
+    }
+    if crate::work_decision::freeze(db, request, target, manifest)? {
+        return Ok(());
     }
     if target.get("runId").is_some() {
         return crate::generation_author_source::freeze(db, request, target, manifest);
     }
     if request.operation == "reviewPlanningSeat" || target.get("reviewRunId").is_some() {
         return crate::planning_review_author_source::freeze(db, request, target, manifest);
-    }
-    if request.operation == "assessRevisionOutcome" {
-        crate::revision_outcome::validate_target(db, &request.project_id, target)?;
-        let writer = target["writerTaskId"]
-            .as_str()
-            .ok_or(RepositoryError::TaskBindingInvalid)?;
-        manifest["authorIntent"] = json!(source_intent(db, writer, /*revision*/ 0)?);
-        manifest["authorIntentBinding"] =
-            json!({"sourceTaskId":writer,"intentRevision":0,"actionId":null});
-        return Ok(());
     }
     if let Some(action_id) = target["requestedActionId"].as_str() {
         let (source_id, revision, instruction): (String,i64,String) = db.query_row(
@@ -146,44 +140,12 @@ pub(crate) fn freeze(
         manifest["candidateInstruction"] = json!(instruction);
         manifest["authorIntentBinding"] =
             json!({"sourceTaskId":source_id,"intentRevision":revision,"actionId":action_id});
-    } else if let Some(source_id) = target["sourceTaskId"].as_str() {
-        manifest["authorIntent"] = json!(source_intent(db, source_id, /*revision*/ 0)?);
-        manifest["authorIntentBinding"] =
-            json!({"sourceTaskId":source_id,"intentRevision":0,"actionId":null});
     } else if let Some(step_id) = target["resumeStepId"].as_str() {
-        if crate::task_domain_source::freeze(db, request, target, manifest)? {
-            return Ok(());
-        }
-        let continuation_root = if target.get("scopeContinuation").is_some() {
-            let mut frozen_target = target.clone();
-            frozen_target
-                .as_object_mut()
-                .ok_or(RepositoryError::TaskBindingInvalid)?
-                .remove("resumeStepId");
-            let (source, revision) = crate::scope_continuation::validate_step(
-                db,
-                &request.project_id,
-                step_id,
-                &frozen_target,
-            )?;
-            if request.operation != "advisory" {
-                return Err(RepositoryError::TaskBindingInvalid);
-            }
-            Some((source, revision))
-        } else {
-            None
-        };
         let source_id: Option<String> = db.query_row(
             "SELECT a.attempt_id FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id JOIN story_work_tasks_v1 w ON w.id=s.work_task_id WHERE s.id=?1 AND w.project_id=?2 AND s.operation=?3 ORDER BY a.attempt_number DESC LIMIT 1",
             params![step_id,request.project_id.as_str(),request.operation], |row| row.get(0),
         ).optional().map_err(storage_error)?;
         let Some(source_id) = source_id else {
-            if let Some((source, revision)) = continuation_root {
-                manifest["authorIntent"] = json!(source_intent(db, &source, revision)?);
-                manifest["authorIntentBinding"] =
-                    json!({"sourceTaskId":source,"intentRevision":revision,"actionId":null});
-                return Ok(());
-            }
             // Prequeued domain steps (e.g. review seats) have no earlier Attempt.
             // Their domain claim validates the source; they are not author messages.
             if request.operation == "advisory" {
@@ -208,12 +170,6 @@ pub(crate) fn freeze(
         if request.operation == "advisory" {
             crate::task_intents::supersede_queued_actions(db, &source_id)?;
         }
-        if continuation_root.is_some() {
-            return Ok(());
-        }
-    }
-    if target.get("scopeContinuation").is_some() {
-        return Err(RepositoryError::TaskBindingInvalid);
     }
     Ok(())
 }

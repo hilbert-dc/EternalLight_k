@@ -53,18 +53,25 @@ impl SqliteStoryRepository {
                 "invalid impact analysis limits".into(),
             ));
         }
-        self.with_read_snapshot(|| {
-            let main = BranchId::parse("main").expect("main branch id");
-            let base_snapshot_id = match query.scope {
-                ImpactAnalysisScope::Current => self
-                    .branch_head(query.project_id, &main)?
-                    .ok_or(RepositoryError::ProjectNotFound)?
-                    .snapshot_id
-                    .as_str()
-                    .to_owned(),
-                ImpactAnalysisScope::Snapshot(snapshot_id) => snapshot_id.as_str().to_owned(),
-            };
-            let graph = self.relation_graph_with_policy(RelationGraphQuery {
+        self.with_read_snapshot(|| self.analyze_explicit_impact_in_snapshot(query))?
+    }
+
+    pub(crate) fn analyze_explicit_impact_in_snapshot(
+        &self,
+        query: ImpactAnalysisQuery<'_>,
+    ) -> Result<Value, RepositoryError> {
+        let main = BranchId::parse("main").expect("main branch id");
+        let base_snapshot_id = match query.scope {
+            ImpactAnalysisScope::Current => self
+                .branch_head(query.project_id, &main)?
+                .ok_or(RepositoryError::ProjectNotFound)?
+                .snapshot_id
+                .as_str()
+                .to_owned(),
+            ImpactAnalysisScope::Snapshot(snapshot_id) => snapshot_id.as_str().to_owned(),
+        };
+        let graph = self.relation_graph_with_policy(
+            RelationGraphQuery {
                 project_id: query.project_id,
                 scope: match query.scope {
                     ImpactAnalysisScope::Current => RelationGraphScope::Current,
@@ -78,150 +85,159 @@ impl SqliteStoryRepository {
                 world_time: query.world_time,
                 max_hops: query.max_hops,
                 limit: 100,
-            }, RelationTraversalPolicy::ExplicitDependencies)?;
-            let seed = graph["canonicalEntityId"]
+            },
+            RelationTraversalPolicy::ExplicitDependencies,
+        )?;
+        let seed = graph["canonicalEntityId"]
+            .as_str()
+            .ok_or(RepositoryError::CorruptState)?;
+        let mut outgoing: BTreeMap<&str, Vec<&Value>> = BTreeMap::new();
+        for edge in graph["results"]
+            .as_array()
+            .ok_or(RepositoryError::CorruptState)?
+        {
+            let source = edge["fromId"]
                 .as_str()
                 .ok_or(RepositoryError::CorruptState)?;
-            let mut outgoing: BTreeMap<&str, Vec<&Value>> = BTreeMap::new();
-            for edge in graph["results"]
-                .as_array()
-                .ok_or(RepositoryError::CorruptState)?
-            {
-                let source = edge["fromId"].as_str().ok_or(RepositoryError::CorruptState)?;
-                let _ = edge["toId"].as_str().ok_or(RepositoryError::CorruptState)?;
-                outgoing.entry(source).or_default().push(edge);
+            let _ = edge["toId"].as_str().ok_or(RepositoryError::CorruptState)?;
+            outgoing.entry(source).or_default().push(edge);
+        }
+        let mut queue = VecDeque::from([PathState {
+            node: seed,
+            visited: vec![seed],
+            edges: Vec::new(),
+        }]);
+        let mut findings = Vec::new();
+        let mut finding_bytes = 0;
+        let mut path_states = 0;
+        let mut truncated_paths = false;
+        while let Some(path) = queue.pop_front() {
+            path_states += 1;
+            if path_states > MAX_PATH_STATES {
+                truncated_paths = true;
+                break;
             }
-            let mut queue = VecDeque::from([PathState {
-                node: seed,
-                visited: vec![seed],
-                edges: Vec::new(),
-            }]);
-            let mut findings = Vec::new();
-            let mut finding_bytes = 0;
-            let mut path_states = 0;
-            let mut truncated_paths = false;
-            while let Some(path) = queue.pop_front() {
-                path_states += 1;
-                if path_states > MAX_PATH_STATES {
+            if path.edges.len() == query.max_hops {
+                continue;
+            }
+            for edge in outgoing.get(path.node).into_iter().flatten() {
+                let target = edge["toId"].as_str().ok_or(RepositoryError::CorruptState)?;
+                if path.visited.contains(&target) {
+                    continue;
+                }
+                let mut steps = path.edges.clone();
+                steps.push(edge);
+                let finding = json!({
+                    "affectedEntityId": target,
+                    "classification": "possibleImpact",
+                    "hopCount": steps.len(),
+                    "evidencePath": steps.iter().map(|step| Ok(json!({
+                        "fromId": step["fromId"], "toId": step["toId"],
+                        "relationType": step["relationType"],
+                        "dependencyRuleId": format!("{DEPENDENCY_RULE_VERSION}/{}", step["relationType"].as_str().ok_or(RepositoryError::CorruptState)?),
+                        "propositionId": step["propositionId"],
+                        "sourceObjectId": step["sourceObjectId"],
+                        "sourceRevisionId": step["sourceRevisionId"],
+                        "modelingBatchId": step["modelingBatchId"],
+                        "assertionIndex": step["assertionIndex"],
+                        "confirmationState": step["confirmationState"],
+                        "evidence": step["evidence"]
+                    }))).collect::<Result<Vec<_>, RepositoryError>>()?
+                });
+                let bytes = finding.to_string().len();
+                if findings.len() == query.limit || finding_bytes + bytes > MAX_FINDING_BYTES {
                     truncated_paths = true;
                     break;
                 }
-                if path.edges.len() == query.max_hops {
-                    continue;
-                }
-                for edge in outgoing.get(path.node).into_iter().flatten() {
-                    let target = edge["toId"].as_str().ok_or(RepositoryError::CorruptState)?;
-                    if path.visited.contains(&target) {
-                        continue;
-                    }
-                    let mut steps = path.edges.clone();
-                    steps.push(edge);
-                    let finding = json!({
-                        "affectedEntityId": target,
-                        "classification": "possibleImpact",
-                        "hopCount": steps.len(),
-                        "evidencePath": steps.iter().map(|step| Ok(json!({
-                            "fromId": step["fromId"], "toId": step["toId"],
-                            "relationType": step["relationType"],
-                            "dependencyRuleId": format!("{DEPENDENCY_RULE_VERSION}/{}", step["relationType"].as_str().ok_or(RepositoryError::CorruptState)?),
-                            "propositionId": step["propositionId"],
-                            "sourceObjectId": step["sourceObjectId"],
-                            "sourceRevisionId": step["sourceRevisionId"],
-                            "modelingBatchId": step["modelingBatchId"],
-                            "assertionIndex": step["assertionIndex"],
-                            "confirmationState": step["confirmationState"],
-                            "evidence": step["evidence"]
-                        }))).collect::<Result<Vec<_>, RepositoryError>>()?
-                    });
-                    let bytes = finding.to_string().len();
-                    if findings.len() == query.limit || finding_bytes + bytes > MAX_FINDING_BYTES {
-                        truncated_paths = true;
-                        break;
-                    }
-                    finding_bytes += bytes;
-                    findings.push(finding);
-                    let mut visited = path.visited.clone();
-                    visited.push(target);
-                    queue.push_back(PathState {
-                        node: target,
-                        visited,
-                        edges: steps,
-                    });
-                }
-                if truncated_paths {
-                    break;
-                }
+                finding_bytes += bytes;
+                findings.push(finding);
+                let mut visited = path.visited.clone();
+                visited.push(target);
+                queue.push_back(PathState {
+                    node: target,
+                    visited,
+                    edges: steps,
+                });
             }
-            let explicit_graph_complete = graph["coverage"]["complete"] == true && !truncated_paths;
-            let literal = literal_impact_candidates(self, query.project_id, query.scope, seed)?;
-            let mut revision_delta = query
-                .revision_pair
-                .map(|pair| {
-                    self.draft_revision_delta(
-                        query.project_id,
-                        pair.from_revision_id,
-                        pair.to_revision_id,
-                    )
-                })
-                .transpose()?;
-            if let (Some(delta), Some(pair)) = (revision_delta.as_mut(), query.revision_pair) {
-                let object_id = delta["objectId"].as_str().ok_or(RepositoryError::CorruptState)?;
-                let (selected, required, binding) = match query.scope {
-                    ImpactAnalysisScope::Current => {
-                        let selected = self.connection.query_row(
+            if truncated_paths {
+                break;
+            }
+        }
+        let explicit_graph_complete = graph["coverage"]["complete"] == true && !truncated_paths;
+        let literal = literal_impact_candidates(self, query.project_id, query.scope, seed)?;
+        let mut revision_delta = query
+            .revision_pair
+            .map(|pair| {
+                self.draft_revision_delta(
+                    query.project_id,
+                    pair.from_revision_id,
+                    pair.to_revision_id,
+                )
+            })
+            .transpose()?;
+        if let (Some(delta), Some(pair)) = (revision_delta.as_mut(), query.revision_pair) {
+            let object_id = delta["objectId"]
+                .as_str()
+                .ok_or(RepositoryError::CorruptState)?;
+            let (selected, required, binding) = match query.scope {
+                ImpactAnalysisScope::Current => {
+                    let selected = self.connection.query_row(
                             "SELECT COALESCE(candidate_revision_id, accepted_revision_id) FROM story_object_heads_v2 WHERE project_id = ?1 AND object_id = ?2",
                             params![query.project_id.as_str(), object_id],
                             |row| row.get::<_, Option<String>>(0),
                         ).optional().map_err(storage_error)?.flatten();
-                        (selected, pair.to_revision_id.as_str(), "currentToRevision")
-                    }
-                    ImpactAnalysisScope::Snapshot(snapshot_id) => {
-                        let selected = self.connection.query_row(
+                    (selected, pair.to_revision_id.as_str(), "currentToRevision")
+                }
+                ImpactAnalysisScope::Snapshot(snapshot_id) => {
+                    let selected = self.connection.query_row(
                             "SELECT revision_id FROM story_snapshot_members_v2 WHERE snapshot_id = ?1 AND object_id = ?2",
                             params![snapshot_id.as_str(), object_id],
                             |row| row.get::<_, String>(0),
                         ).optional().map_err(storage_error)?;
-                        (selected, pair.from_revision_id.as_str(), "snapshotFromRevision")
-                    }
-                };
-                if selected.as_deref() != Some(required) {
-                    return Err(RepositoryError::InvalidContent(
-                        "revision pair does not match the analysis source".into(),
-                    ));
+                    (
+                        selected,
+                        pair.from_revision_id.as_str(),
+                        "snapshotFromRevision",
+                    )
                 }
-                let model_candidate_delta = self.draft_model_candidate_delta(
-                    query.project_id,
-                    object_id,
-                    pair.from_revision_id,
-                    pair.to_revision_id,
-                )?;
-                delta["scopeBinding"] = json!(binding);
-                delta["modelCandidateDelta"] = model_candidate_delta;
+            };
+            if selected.as_deref() != Some(required) {
+                return Err(RepositoryError::InvalidContent(
+                    "revision pair does not match the analysis source".into(),
+                ));
             }
-            Ok(json!({
-                "projectId": query.project_id.as_str(),
-                "branchId": "main", "baseSnapshotId": base_snapshot_id,
-                "changedEntityId": query.changed_entity_id,
-                "canonicalEntityId": seed,
-                "worldTime": query.world_time,
-                "dependencyRuleVersion": DEPENDENCY_RULE_VERSION,
-                "maxHops": query.max_hops,
-                "findings": findings,
-                "revisionDelta": revision_delta,
-                "literalTextCandidates": literal["candidates"],
-                "coverage": {
-                    "explicitGraphComplete": explicit_graph_complete,
-                    "globalImpactComplete": false,
-                    "graphCoverage": graph["coverage"],
-                    "truncatedPaths": truncated_paths,
-                    "pathStatesExamined": path_states.min(MAX_PATH_STATES),
-                    "literalSearch": literal["coverage"],
-                    "searchedNames": literal["searchedNames"],
-                    "missingScope": ["unlinkedProse", "semanticDependencies", "alternativeInterpretations"]
-                },
-                "authority": "readOnlyHypothesis"
-            }))
-        })?
+            let model_candidate_delta = self.draft_model_candidate_delta(
+                query.project_id,
+                object_id,
+                pair.from_revision_id,
+                pair.to_revision_id,
+            )?;
+            delta["scopeBinding"] = json!(binding);
+            delta["modelCandidateDelta"] = model_candidate_delta;
+        }
+        Ok(json!({
+            "projectId": query.project_id.as_str(),
+            "branchId": "main", "baseSnapshotId": base_snapshot_id,
+            "changedEntityId": query.changed_entity_id,
+            "canonicalEntityId": seed,
+            "worldTime": query.world_time,
+            "dependencyRuleVersion": DEPENDENCY_RULE_VERSION,
+            "maxHops": query.max_hops,
+            "findings": findings,
+            "revisionDelta": revision_delta,
+            "literalTextCandidates": literal["candidates"],
+            "coverage": {
+                "explicitGraphComplete": explicit_graph_complete,
+                "globalImpactComplete": false,
+                "graphCoverage": graph["coverage"],
+                "truncatedPaths": truncated_paths,
+                "pathStatesExamined": path_states.min(MAX_PATH_STATES),
+                "literalSearch": literal["coverage"],
+                "searchedNames": literal["searchedNames"],
+                "missingScope": ["unlinkedProse", "semanticDependencies", "alternativeInterpretations"]
+            },
+            "authority": "readOnlyHypothesis"
+        }))
     }
 }
 

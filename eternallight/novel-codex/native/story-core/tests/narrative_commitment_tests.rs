@@ -442,24 +442,31 @@ fn locked_confirmed_commitment_cannot_be_replaced_by_a_new_candidate() {
 fn future_chapter_window_is_saved_and_its_historical_position_is_frozen() {
     let mut repo = setup();
     repo.materialize_standalone_chapter(
-        &project(),
-        "目录首章",
-        /*expected_revision*/ 0,
-        "first",
-        "first",
-        /*now*/ 1,
+        novel_codex_story_core::MaterializeStandaloneChapterRequest {
+            project_id: &project(),
+            title: "目录首章",
+            volume_id: None,
+            expected_revision: 0,
+            idempotency_key: "first",
+            request_digest: "first",
+            now: 1,
+        },
     )
     .unwrap();
     let future = repo
         .materialize_standalone_chapter(
-            &project(),
-            "尚未起草",
-            /*expected_revision*/ 1,
-            "future",
-            "future",
-            /*now*/ 2,
+            novel_codex_story_core::MaterializeStandaloneChapterRequest {
+                project_id: &project(),
+                title: "尚未起草",
+                volume_id: None,
+                expected_revision: 1,
+                idempotency_key: "future",
+                request_digest: "future",
+                now: 2,
+            },
         )
-        .unwrap();
+        .unwrap()
+        .binding;
     let mut value = content();
     value["payload"]["targetWindow"]["throughChapterId"] = json!(future.chapter_id);
     let receipt = save(

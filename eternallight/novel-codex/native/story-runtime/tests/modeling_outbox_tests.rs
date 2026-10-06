@@ -19,13 +19,11 @@ fn page(
     project: &ProjectId,
     cursor: Option<&str>,
     limit: usize,
-    now_ms: i64,
 ) -> Value {
     repo.modeling_outbox_page(ModelingOutboxQuery {
         project_id: project,
         cursor,
         limit,
-        now_ms,
     })
     .unwrap()
 }
@@ -126,8 +124,15 @@ fn publish(
         now: 3,
     })
     .unwrap();
-    repo.complete_task(project, &task, &thread, "published".into(), /*now*/ 4)
-        .unwrap();
+    repo.complete_task(
+        project,
+        &task,
+        &thread,
+        "published".into(),
+        None,
+        /*now*/ 4,
+    )
+    .unwrap();
     batch.id
 }
 
@@ -137,36 +142,16 @@ async fn saves_coalesce_durably_and_failed_transactions_leave_no_outbox_intent()
     let path = directory.path().join("outbox.sqlite3");
     let mut repo = SqliteStoryRepository::open(&path).unwrap();
     let (project, _) = fixture::build(&mut repo, 3);
+    let original_task_count = repo.tasks(&project).unwrap().len();
     assert_eq!(
-        page(
-            &repo,
-            &project,
-            /*cursor*/ None,
-            /*limit*/ 20,
-            i64::MAX
-        )["pendingCount"],
+        page(&repo, &project, /*cursor*/ None, /*limit*/ 20)["pendingCount"],
         0
     );
     let request = edit_request(&repo, &project, /*chapter*/ 1, "first");
     repo.save_candidate(request.clone()).unwrap();
-    let first = page(
-        &repo,
-        &project,
-        /*cursor*/ None,
-        /*limit*/ 20,
-        i64::MAX,
-    );
+    let first = page(&repo, &project, /*cursor*/ None, /*limit*/ 20);
     repo.save_candidate(request).unwrap();
-    assert_eq!(
-        page(
-            &repo,
-            &project,
-            /*cursor*/ None,
-            /*limit*/ 20,
-            i64::MAX
-        ),
-        first
-    );
+    assert_eq!(page(&repo, &project, /*cursor*/ None, /*limit*/ 20), first);
     let mut failed = edit_request(&repo, &project, /*chapter*/ 2, "failed");
     failed.task_output = Some(TaskOutputBinding {
         task_id: "unknown-task".into(),
@@ -175,25 +160,10 @@ async fn saves_coalesce_durably_and_failed_transactions_leave_no_outbox_intent()
         completeness: None,
     });
     assert!(repo.save_candidate(failed).is_err());
-    assert_eq!(
-        page(
-            &repo,
-            &project,
-            /*cursor*/ None,
-            /*limit*/ 20,
-            i64::MAX
-        ),
-        first
-    );
+    assert_eq!(page(&repo, &project, /*cursor*/ None, /*limit*/ 20), first);
     let request = edit_request(&repo, &project, /*chapter*/ 1, "latest");
     repo.save_candidate(request).unwrap();
-    let latest = page(
-        &repo,
-        &project,
-        /*cursor*/ None,
-        /*limit*/ 20,
-        i64::MAX,
-    );
+    let latest = page(&repo, &project, /*cursor*/ None, /*limit*/ 20);
     assert_eq!(latest["pendingCount"], 1);
     assert_eq!(latest["data"][0]["sourceRevisionId"], "revision-latest");
     assert_eq!(
@@ -204,35 +174,13 @@ async fn saves_coalesce_durably_and_failed_transactions_leave_no_outbox_intent()
         latest["data"][0]["generation"].as_i64().unwrap(),
         first["data"][0]["generation"].as_i64().unwrap() + 1
     );
-    let due = latest["data"][0]["dueAtMs"].as_i64().unwrap();
-    assert_eq!(
-        page(
-            &repo,
-            &project,
-            /*cursor*/ None,
-            /*limit*/ 20,
-            due - 1
-        )["data"][0]["due"],
-        false
-    );
-    assert_eq!(
-        page(
-            &repo, &project, /*cursor*/ None, /*limit*/ 20, due
-        )["data"][0]["due"],
-        true
-    );
+    assert_eq!(latest["authority"], "sourceFreshnessOnly");
+    assert!(latest["data"][0].get("due").is_none());
+    assert!(latest["data"][0].get("dueAtMs").is_none());
+    assert_eq!(repo.tasks(&project).unwrap().len(), original_task_count);
     drop(repo);
     let repo = SqliteStoryRepository::open(&path).unwrap();
-    assert_eq!(
-        page(
-            &repo,
-            &project,
-            /*cursor*/ None,
-            /*limit*/ 20,
-            i64::MAX
-        ),
-        latest
-    );
+    assert_eq!(page(&repo, &project, /*cursor*/ None, /*limit*/ 20), latest);
     let app = router(RuntimeState::new(path, AUTHOR.into(), CANDIDATE.into()));
     let uri = format!("/api/projects/{project}/modeling-outbox?limit=20");
     let response = app
@@ -274,15 +222,9 @@ fn publication_confirms_only_current_intents_and_revokes_queue_cursors() {
         let request = edit_request(&repo, &project, chapter, &format!("edit-{chapter}"));
         repo.save_candidate(request).unwrap();
     }
-    let first = page(
-        &repo,
-        &project,
-        /*cursor*/ None,
-        /*limit*/ 1,
-        i64::MAX,
-    );
+    let first = page(&repo, &project, /*cursor*/ None, /*limit*/ 1);
     let cursor = first["nextCursor"].as_str().unwrap();
-    let next = page(&repo, &project, Some(cursor), /*limit*/ 1, i64::MAX);
+    let next = page(&repo, &project, Some(cursor), /*limit*/ 1);
     assert_eq!(next["data"][0]["objectId"], "draft-chapter-2");
     let object = ObjectId::parse("draft-chapter-1").unwrap();
     let revision = RevisionId::parse("revision-edit-1").unwrap();
@@ -311,13 +253,7 @@ fn publication_confirms_only_current_intents_and_revokes_queue_cursors() {
         .is_err()
     );
     assert_eq!(
-        page(
-            &repo,
-            &project,
-            /*cursor*/ None,
-            /*limit*/ 20,
-            i64::MAX
-        )["pendingCount"],
+        page(&repo, &project, /*cursor*/ None, /*limit*/ 20)["pendingCount"],
         2
     );
     assert!(
@@ -325,18 +261,11 @@ fn publication_confirms_only_current_intents_and_revokes_queue_cursors() {
             project_id: &project,
             cursor: Some(cursor),
             limit: 1,
-            now_ms: i64::MAX
         })
         .is_err()
     );
     let current = publish(&mut repo, &project, /*chapter*/ 1, "current", &[], &[]);
-    let remaining = page(
-        &repo,
-        &project,
-        /*cursor*/ None,
-        /*limit*/ 20,
-        i64::MAX,
-    );
+    let remaining = page(&repo, &project, /*cursor*/ None, /*limit*/ 20);
     assert_eq!(remaining["pendingCount"], 1);
     assert_eq!(remaining["data"][0]["objectId"], "draft-chapter-2");
     let other = ProjectId::parse("other-outbox").unwrap();
@@ -353,13 +282,7 @@ fn publication_confirms_only_current_intents_and_revokes_queue_cursors() {
     )
     .unwrap();
     assert_eq!(
-        page(
-            &repo,
-            &other,
-            /*cursor*/ None,
-            /*limit*/ 20,
-            i64::MAX
-        )["pendingCount"],
+        page(&repo, &other, /*cursor*/ None, /*limit*/ 20)["pendingCount"],
         0
     );
     assert!(
@@ -367,7 +290,6 @@ fn publication_confirms_only_current_intents_and_revokes_queue_cursors() {
             project_id: &other,
             cursor: Some(cursor),
             limit: 1,
-            now_ms: i64::MAX
         })
         .is_err()
     );
@@ -410,13 +332,7 @@ fn publication_confirms_only_current_intents_and_revokes_queue_cursors() {
         .is_err()
     );
     assert_eq!(
-        page(
-            &repo,
-            &project,
-            /*cursor*/ None,
-            /*limit*/ 20,
-            i64::MAX
-        )["pendingCount"],
+        page(&repo, &project, /*cursor*/ None, /*limit*/ 20)["pendingCount"],
         2
     );
 }
@@ -457,24 +373,12 @@ fn transitive_knowledge_invalidation_enqueues_each_current_dependent_once() {
         &[assertion(json!(batch), json!("relay"))],
     );
     assert_eq!(
-        page(
-            &repo,
-            &project,
-            /*cursor*/ None,
-            /*limit*/ 20,
-            i64::MAX
-        )["pendingCount"],
+        page(&repo, &project, /*cursor*/ None, /*limit*/ 20)["pendingCount"],
         0
     );
     let request = edit_request(&repo, &project, /*chapter*/ 1, "root-change");
     repo.save_candidate(request).unwrap();
-    let pending = page(
-        &repo,
-        &project,
-        /*cursor*/ None,
-        /*limit*/ 20,
-        i64::MAX,
-    );
+    let pending = page(&repo, &project, /*cursor*/ None, /*limit*/ 20);
     assert_eq!(
         pending["data"]
             .as_array()
