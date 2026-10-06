@@ -2,6 +2,39 @@
 
 > 当前门禁：所有新设计和实施后复核必须使用 [设计评审模板](DESIGN_REVIEW_TEMPLATE.md)，执行 [测试阶段工程策略](TEST_STAGE_ENGINEERING_POLICY.md) 的“零兼容投入”检查。本文后续章节是按时间追加的历史记录，其中关于旧版本、旧数据、迁移或兼容的要求均已失效，不得重新转化为实现项。
 
+## 2026-10-01 产品体验方案全量实施复核
+
+方案：[产品体验优化方案](PRODUCT_EXPERIENCE_OPTIMIZATION.md)。沿用用户取消
+外部评审会议的安排，以下为主实现者检查，不是 Codex/Cursor 员工、真人
+技术专家或设计师签字。并行编码分为中央文档、对话恢复、事件归属和
+独立引擎续期，主实现者集成任务 capability、作者历史 API 和后端场景
+采用。完整行为证据与限制见[验收第 30 节](CONTINUOUS_CREATION_ACCEPTANCE.md#30-产品体验方案全量落地2026-10-01)。
+
+- 架构：生成停留候选，正式采用和知识确认分离；Rust 负责选择合并、
+  原子提交与撤销，Renderer 不伪造采用。线程恢复只是作者可见的读投影，
+  不重写模型历史。独立引擎和 Novel 凭证分别续期，不改 Codex 上游内核。
+- 技术 A：作者身份、任务、线程、模型、来源、目标及旧有效期在事务内
+  冻结检查；可信新证据只延续同范围。过期、取消、范围变化或迟到回执
+  不能复活执行，计量不重置。部分采用保留未选场景，事实不能从未选场景
+  确认；锁定、重复、空选择和跨章节仍拒绝。
+- 技术 B：真实 HTTP 用完整 UI choices 验证；实际 React/Electron 回归
+  覆盖多场景、焦点、选区、刷新失败、线程恢复、迟到事件及回答失败。
+  版本/发布夹具保留可执行版本与摘要验证，移除对 PATH Node 的依赖；
+  原生 MCP 测试对齐生产必需依赖和启动边界，不放宽模型执行期限。
+- 产品：中央作品优先，已结束工作默认折叠；正式稿、候选稿和后续依据
+  不混用“完成”。同步失败只读重试，草稿不因不可发送而消失。普通发送
+  无二次确认和默认用量额度，作者仍控制采用、停止与任务范围。
+- UI/UX：正式阅读、工作编辑、差异视图各自清楚；标题与来源可检查，
+  未保存状态、预览范围、空记录与错误有邻近文本说明；键盘和中文输入法
+  保留，明暗主题检查可读性。Mac 锁屏期间未声明最新窗口目视验收成功。
+- 零兼容：当前类型、API、主进程和夹具一次性同步；旧章节编辑器删除，
+  没有旧 schema 探测、迁移或双轨接口。
+
+实施结果：全部方案代码项已完成；构建与当前界面回归通过。全量 Rust
+仍逐个执行，部分新二进制停在 macOS 加载器，不能用编译通过或定向复验
+代替全量通过。既存大包体积警告和供应商/Windows 实机认证未纳入完成
+声明；没有新增依赖、付费模型调用或提交工作区。
+
 ## 变更概览
 
 - 目标：把当前静态 Electron + React 原型落地为可运行的小说 Codex 第一版。
@@ -2322,3 +2355,164 @@ CreativeProject
 - 产品经理：`APPROVE WITH FOLLOW-UP`。用户指令现在能形成证据、计划、影响范围和待审阅 ChangeSet；下一步必须把右侧 UI 的 Review/Apply/Undo 与真实 Agent Tool 调用接上，才能完成完整的“对话代替写作操作”。
 - UI/UX 设计师：`APPROVE WITH FOLLOW-UP`。数据契约已为 Task/Changes 面板预留稳定字段；本轮未改变现有布局，下一轮需要实现 Context/Plan/Changes 的折叠展示、空态、失败态、键盘操作和审阅状态反馈。
 - 剩余风险：当前 Agent App Server 通过主进程注入工作包，尚未拥有独立的 Runtime Tool schema；因此 Agent 能看到证据和计划，但仍不能在对话中直接提交结构化操作。质量评估、伏笔检测和语义向量检索仍未纳入本轮。
+# v31：完整验收阻塞项收敛（2026-10-01）
+
+沿用负责人“不组织评审”的授权，本节是实施者检查，不代表外部专家签字。
+
+目标：修复任务恢复入口与正文来源语义，以当前源码重新验收；不兼容旧接口、旧 fixture，不放宽生产安全边界。
+
+- 领域任务失败后进入其持久化任务恢复入口，普通讨论才允许重发讨论；跨作品、并发执行及历史身份必须校验。
+- 总览优先展示正式稿；无正式稿时明确标识未采用候选，场景分隔按文档结构渲染。
+- 执行总耗时从作者提交开始计算，不遗漏会话和 MCP 初始化。
+- 修正当前 Rust 测试候选的必填标题，不能削弱生产校验来容纳无效夹具。
+- 桌面夹具的整体 deadline 必须覆盖生产允许的 Runtime 冷启动和会话启动；分阶段保留有界 deadline，不靠无限等待获得通过。
+
+零兼容检查：未新增历史格式探测、迁移或双轨。系统签名检查不关闭；原生冷启动阻塞需独立复验，真实模型偶发成功不等于全量通过。
+
+验收要求：实际 App 重试/跨作品回归、来源标识快照、提交时间回归、真实生成→知识候选→采用→撤销，以及完整 Rust/Node/桌面套件。未取得最终结果的执行一律标为未完成。
+
+# v32：持久作者会话（2026-10-02）
+
+沿用免评审会议授权，以下是实施者按五个视角的方案检查，不代表外部专家签字。
+
+目标：正常关闭、重启、开发地址变化和打包入口切换不重复登录；只有首次创建、主动退出或会话不可用时要求认证。非目标：云账号、跨设备同步、Codex/ChatGPT 登录态复用。
+
+- 架构：删除 Renderer localStorage 作者/登录标记双记录；唯一会话由 Electron 持有，异步 IPC 读取和修改。默认路径为平台 appData/novel-codex/author-session.json；显式测试 userData 覆盖时在该独立目录保存。不改作品数据库和引擎目录。
+- 可靠性与安全：有界输入、单文件原子替换、串行读写、私有文件权限；不保存明文密码或模型密钥。复用可信主窗口 IPC 校验。损坏/读写失败明确报错，不能伪装新用户或假成功；退出先持久化成功再离开工作区。
+- 实现与质量：同步切换生产契约、类型和测试夹具；无历史迁移、双读或 fallback。真实 Electron/preload 验证新进程、不同页面来源、退出后重启；验证失败态与并发写入。
+- 产品：默认保持登录，不增加每次确认或“记住我”步骤；明确本机作者身份与服务商凭据分离。
+- UI/UX：启动读取时显示简洁恢复状态，不闪登录页；失败提供重试，设置保存/退出/删除失败留在当前界面并提示。保留主动退出入口。
+
+决策：按以上边界实施；零兼容门禁 PASS。当前本机作者身份不是云端认证，也不声称能隔离同一 OS 用户的作品访问。验收以本轮新进程和当前版本状态为准。
+
+实施后复核：唯一会话存储、异步 preload 契约与恢复 hook 已接入；资料、密码、退出和删除都等待持久化成功，错误留在当前界面。同步重写 Renderer 夹具，删除生产 localStorage 作者逻辑，没有迁移/双读。StrictMode 的过期恢复响应不覆盖最新状态。会话专项 11/11、真实 App UI 40/40、Agent 211/211、生产桌面 5/5 均通过，专项已加入 verify 门禁。新 Electron ESM 夹具最初因顶层等待 ready 造成启动死锁，已改为 ready 回调，跨进程专项完整通过；这是夹具问题，不归因于模型或系统加载器。主进程 harness 同步补齐 app.getPath 当前契约，不修改生产行为来适应旧夹具。
+
+完整验收中的暂停权限回归已按当前契约修正：暂停后不能让 candidate 完成；作者使用最新版本恢复后才可完成，同一 attempt 与原权限有效期保持不变。生产权限校验未放宽。Rust 全量最终证据由验收文档记录。
+
+
+## 2026-10-06 Agent 自主纠错与统一协调准入
+
+目标：模型依据真实工具反馈修正执行；Runtime 唯一决定后继步骤准入；原对话准确说明保存成果与停止原因。非目标：扩大授权、解除预算与保护门禁、迁移旧数据或更改 Codex Core。
+
+- 架构专家 / 技术 A（codex_pm）：PRE 与源码 POST APPROVE。Electron 删除重复轮数判定和候选列表截断，Runtime 保有候选数、协调轮限、预算、输入版本、原 Work/thread 与未知写入门禁；Host 检查精确 source/step 不重复。
+- 技术 B（cursor_pm）：PRE 与源码 POST APPROVE。停止回执也验证原 Work/thread；只有明确 noNewResults 且无失败才正常结束。无法确认的停止原因、回环及矛盾回执不再被当作成功。
+- 产品经理 / UI/UX（design_review）：PRE 与源码 POST APPROVE。可恢复工具参数错误由 Agent 处理；额度、轮限、暂停和待核对结果在原对话显示。保留已保存正文、编辑状态和原任务恢复入口，不重新发送作者请求。
+- 工具契约：正文仅提交 body 或完整 sceneGroups；MCP 确定性派生规范全文并保留原组元数据。明确发生在领域写入前的 InvalidContent 拒绝结算为 rejected，同任务新操作可以修正；未知保存结果仍需先核对，不回填历史操作。
+- 零兼容门禁：PASS。未新增版本判断、旧字段读取、迁移、回填、双写或旧入口；当前调用方和测试夹具同步更新。
+
+验证：29 项 Host 对话测试、定向原 App 恢复 UI 1 项、正文契约 MCP 2 项、Runtime 写入与恢复 HTTP 3 项均通过。UI 使用既有页面且只更新有意变更的停止文案快照。真实 Core/bridge/MCP/Runtime 集成 1 项、生产 Host/Native 原对话协调 1 项与交接契约 22 项均通过。3000 汉字仅以 sceneGroups 提交，实际错误零 HTTP 写入，修正后唯一写入并完整读回；工具项保守估算 4601 token，未放宽 10K 上限。模型响应为本地合成数据，3 次请求沿用原任务预算；这验证执行链路，不宣称 DeepSeek 真实创作质量或真实供应商成本。五角色实施后复核 APPROVE。
+
+## 2026-10-06 全入口 Agent 决策、冻结资料与原对话闭环（实现完成，部分验证受阻）
+
+目标：普通讨论后执行、直接起草、明确范围连续创作、原任务恢复共用 Native 准入的 Agent 决策；Runtime 提供事实、允许动作与待满足条件，Host 只执行获准步骤。采用/发布、扩大内容范围、未知写入核对继续由原权限边界控制。
+
+五角色 PRE（本任务内部评审角色，并非外部产品团队签字）：
+
+- 架构 / 技术 A（codex_pm）：APPROVE WITH CONDITIONS。决策必须属于持久 Work 与原线程；动作目标由 Native 派生，原子验证来源/许可/当前版本，不新增第二调度器。决策 Attempt 选择了 queued children 后允许结束；Work 的完成必须验证未满足条件，不能因所有 Attempt 结束就当作目标完成。
+- 技术 B（cursor_pm）：APPROVE WITH CONDITIONS。所有操作的长资料改为任务冻结来源目录与分页，来源独立于自己保存后推进的工作指针；按需读取不得静默切最新版本、突破 POV 或漏掉必需保护范围。工具字段提供有界默认，作者不填写技术预算。新增可能超过 1K token 的上下文项按最终实际载荷人工复核。
+- 产品 / UX（design_review）：APPROVE WITH CONDITIONS。起草使用同一对话入口；新章范围是模型提出、作者一次确认的明确提案，保留原始目标，不重复填写。所有页面均能在原对话看到提案、进展、成果与恢复；执行记录通过 Native Work/Step/Attempt 身份关联，不按文案或操作白名单猜。
+
+分阶段审阅边界：
+
+1. Native work decision 与证据完成门禁；Host 通用派发及原线程绑定。
+2. Native 初始来源冻结、资料目录/分页、MCP 工具默认与精简交接。
+3. 连续创作改由获准动作驱动；自然对话生成范围提案、一次确认、原对话回执。
+4. 恢复与未知写入回归、实际 App/真实模型四入口验收、五角色 POST。
+
+额度沿用当前明确许可：null 表示仅计量，不重新引入默认 3/8/32 次总量限制；非 null 限额、暂停、能力到期、未结算用量和无进展重试抑制仍生效。测试作品使用新独立目录，不迁移旧数据库或修改作者已有作品。
+
+### 实施后复核（产品与 UI/UX，2026-10-06）
+
+- 产品经理：实现层 `APPROVE`。普通起草与改稿共用对话；新章提案在本次回复后直接一次确认原目标和 1–3 章范围，不要求重填目标或自行提供工具参数。原任务恢复先读取精确持久 Work；读取或身份核对失败不执行、不新建任务，已保存成果保留。实际供应商整体验收仍在进行，本结论不代表前 100 章创作目标完成。
+- UI/UX：实现层 `APPROVE`。可信工作流事件按 Native manifest 与 Host 核验的 Work/Step/Attempt/action 身份进入同一对话；协调中显示真实执行状态，最终失败保留原任务恢复入口，成功不把历史失败当作当前失败。一条原始作者消息、未发送草稿、编辑 DOM 与选择状态保留；显式换来源、暂停、取消和跨作品响应不被新的协调覆盖。
+- 技术 B（cursor_pm）：Renderer、exact approval、前置启动失败和主回复补修最终源码 POST `APPROVE`，无剩余 P0/P1。架构及技术 A 已报告源码 POST 批准，冻结后中央 Native 回归和实模条件由负责人汇总；不代签尚未完成的测试。
+- exact approval 补修：所有操作先执行原 leaf；先用原批准 worker 的真实身份完成动作回执，再沿原 Work 执行 Native 排队步骤；最终 parent 的回复不会替换 writer 回执身份。返回原已保存产物、后继结果和真实 executionFailure，Renderer 不再消费旧 modeling/outcome/followup 固定管线字段。保存成功而评估失败仍显示未完成，恢复不重发原目标。
+- 首 worker 失败补修：仅本地已持久任务 provenance、fresh 原 task/Work/step 状态与当前执行 owner 一致时进入原 Work 决策。明确批准路径先记录原动作失败，再共享该判定；不将失败 worker 列为已保存产物，不因最终 parent 更换原动作身份。未创建、取消或归属不明仍保留真实错误。
+- 后继失败纠正：`work-step-continuation.mjs` 只有收到 Native 对同一 Work、原线程的新 queued advisory 准入才继续；不重放失败步骤、不新建根额度。取消直接停止；未知保存、额度用尽、需作者选择或无法确认准入时保留原始失败。源码复核无新增产品/UX 阻断；负责人报告新增四种纠正/停止反例与原测试共 10/10 通过。
+- 清除死配置：删除 `maxAdvisoryRounds` 类型、表单、Host 校验和旧 fixture 参数；后继步骤由 Agent 选择、Native 准入，真实范围、累计尝试与预算继续约束。不存在旧轮数设置双轨。
+- 恢复前尚未创建任务的断点已修：Host 仅凭本次调用的私有 provenance、fresh 原 Work 与 CAS 暂停返回 `WORK_RESUME_NOT_STARTED`；未知 POST、已创建任务、已派发供应商请求及取消不伪造此证明。Renderer 准备恢复时只保留原 Work 待启动票据，不新增作者消息；可信 Native/Host 工作流身份到达后才绑定新回复。首次 generation 的空线程且无 attempt 是合法待启动状态，不能伪造线程；暂停/取消清除尚未绑定票据。原 Work 与 generation 的 start/continue/retry/feedback 都消费精确前置失败回执，失败局部显示、保留已保存内容与草稿，已消费的新章许可不恢复成未批准提案。
+- 最终回复选择补修：同 Work 最后持久终态步骤如果是精确 `workDecision`、currentAttempt 和根线程均一致，主回复优先显示该协调结论；较早 writer 的原文仍可读，正文结果入口保持。最终协调失败不会被早前保存成功遮盖；不新增布局或按回复文字去重。
+
+验证证据（各组独立报告，不把重复运行累计成新案例）：
+
+- 最终 actual App 恢复 4/4（含 exact approval 已保存后额度停止、原任务恢复、下一草稿保留），日志 `/tmp/novel-work-decision-approval-renderer-ui.log`。共享恢复控件 1/1、跨页 typed handoff 1/1，日志 `/tmp/novel-work-decision-renderer-final-ui.log`；全部零 skip，快照已审。
+- 旧阶段清理前 CreativeWorkspace 5/5，日志 `/tmp/novel-work-decision-workspace-ui.log`；GenerationReplan 1/1 与提案入口回归见 `/tmp/novel-generation-handoff-ui.log`。固定旧连续创作入口 fixture 已删除，修订后的后继许可仍保留真实作者决定范围。本次 coordinate 类型/意图门禁同步后的完整 Electron runner 已通过 5/5、零 skip，日志 `/tmp/novel-work-decision-coordinate-ui.log`，原快照无变更。
+- Renderer 事件与原作者消息关联 Node 8/8，日志 `/tmp/novel-work-decision-renderer-node.log`。Host exact approval / conversation / scope 最终合组 26/26，日志 `/tmp/novel-work-decision-approval-scope-final.log`，覆盖后继 parent 身份不同、评估失败不重复知识建模、原 Work 和预算归属及停止状态。
+- 本次原 leaf/exact 初始失败/普通对话/生成合同合组 25/25、零 skip，日志 `/tmp/novel-exact-approval-failure-tests.log`，覆盖原 writer 失败后同 Work 的 Native 准入决策、原失败身份与无虚假保存回执。此为生产 Host 加受控 Runtime/本地响应，不是供应商实模成功。
+- 同轮历史按唯一持久 step/attempt 的执行顺序显示，修复 writer 回复排在最初登记回复之前的倒序；模糊身份保原位置，不猜时间、不删原文或新增折叠。事件/历史关联与 modeling-consumer、planning-review-resumption 当前 Native 决策合同合组 21/21、零 skip，日志 `/tmp/novel-work-decision-order-followups.log`。两个 fixture 已删除旧 execution-scope/continue 回执，按 Native /decision 完成状态验证，不保留旧端点路径。
+- 当前 GenerationRun.stage 已收窄为 coordinate/finished；当前章调整按精确原 generation Work 的 active writer 验证，后续要求按当前 materialized 章边界；已去掉旧 4+5 预测与固定两次修复限制，真实累计尝试和额度仍受 Native 门禁。对应 fixture 已同步并 bundle 通过；新完整 Electron 5/5 明确覆盖 active writer、无当前章、无 active checkpoint 与真实 finite 额度，不沿用此前运行作为本变更证明。
+- TypeScript 检查通过。新事件与 handoff runner 已加入相应 package scripts。死轮数字段删除后的 scope UI fixture/快照已同步当前契约；负责人释放实机窗口后最终专项 1/1、零 skip 通过，日志 `/tmp/novel-work-decision-scope-ui-final.log`，覆盖冻结范围变更、迟到预览、确认单飞和已提交回执仅读核对。快照已审，不存在已删轮数字段。
+- 本次恢复断点实际 App 定向 1/1、零 skip，日志 `/tmp/novel-work-resume-all-entry-ui.log`：原 Work 前置失败、首次空线程 generation、可信首绑定、正式 retry 的 pausedWork 回执、局部恢复错误、草稿 DOM/选区及跨作品迟到均通过，更新快照已审。首次新章许可启动补充专项 1/1、零 skip，日志 `/tmp/novel-generation-start-not-started-ui.log`，验证已消费许可不复活、无自动重放或新增作者消息。执行归属与主回复选择 Node 8/8、零 skip，日志 `/tmp/novel-work-resume-primary-node.log`；最终 `tsc --noEmit` 通过。重复复验不累计为新案例。
+- 最后可信归属守卫复核补修：已有持久 workTaskId 的待启动 owner 拒绝缺少 Native binding 的裸同作品 workflow；反例核对 thread/origin/parents 不被污染，随后真实绑定仍可继续。最终原 App 恢复整组 4 例与共享控件 1 例合组 5/5、零 skip，日志 `/tmp/novel-work-resume-final-ui.log`。旧夹具只补当前 Native 工作流合同，无生产门禁放宽或兼容 fallback；原快照不变。Node 8/8 和 tsc 在这一守卫冻结后再次通过，测试与源码均冻结。
+- 上述 Electron 使用真实 React/原 Renderer 加 mock IPC；Host 使用生产 handler/adapter 与本地合成模型响应及受控 Runtime transport。它们验证来源、流程和恢复合同，不证明真实供应商文学质量或实际完整章节交付。
+- 负责人实际 DeepSeek 仅中文讨论与保存 1403 字符正文已通过；真实供应商纠错、改稿、恢复及连续两章仍待验。系统加载器扫描阻塞 Runtime/MCP 启动；只读诊断见 `/tmp/novel-native-startup-diagnostic.md`，系统设置没有可用 Allow Anyway，未更改安全设置。不能将原正文保存、受控回复或超时观察器当作整体目标通过。
+- Native 最终四项目及 finishChapter receipt 专项均已编译成功，日志 `/tmp/novel-agent-goals-frozen-regression.log`、`/tmp/novel-agent-goals-completion-receipt-regression.log`；nextest 在系统扫描枚举阶段等待，不能报告测试通过。已存在的局部 PASS 仍按其具体覆盖解释，不代替本次冻结后中央回归。
+- 负责人确认前端构建通过（1.26 秒），日志 `/tmp/novel-agent-goals-final-ui-build.log`；Native scoped rustfmt、根 `just fmt`、scoped diff-check 均通过。最后 Renderer 可信归属的一行守卫补修已冻结，负责人随后统一最终构建/格式化；之前成功不冒充该末改后的证明。scoped `just fix` 尚在运行，已检查 core/MCP，非阻断警告不等同最终退出成功；最终状态由负责人补录。
+
+零兼容门禁：本实施层 `PASS`。未新增历史版本探测、迁移、回填、双轨或放宽来源/CAS；原普通 author-action、独立作者范围许可及 explicit recovery 是当前真实权限入口，不作为旧行为 fallback。本阶段实现与受控恢复验收已完成；真实供应商纠错、改稿及连续两章仍待验证，不把受控测试或局部保存当作整体目标完成。恢复前 Core/MCP 启动失败导致 Work running 与重复未绑定消息的问题，已由 Host 本地未创建证明和 Renderer 原 Work 待启动呈现共同修复。
+
+
+### 技术 B 最终来源与恢复边界复核（2026-10-06）
+
+实现层结论：`APPROVE WITH CONDITIONS`。条件是负责人收齐冻结后中央 Native 回归与当前版本实机结果；下述启动超时的观察器不计为通过，不代签尚未完成的实际模型验收。
+
+- 统一资料读取：13 个操作的工具 purpose 来自可信 operation；预算缺省有界，非法显式值不回退。任务创建冻结初始引用；自己保存后推进的 working 指针不能替换原始来源。目录只包含原 context 可见投影，固定构造器路径、task/policy/source/hash 绑定，模型不能选任意 revision、路径或 POV。缓存是派生读取资料，不是第二写入权威；原文、保护场景、范围完整性及 query policy 保持原门禁。
+- 分页与覆盖：payloadPart 每页最多 2000 UTF-8 字节，页总 JSON 最多 6500 字节；Runtime 对完整转义 MCP 模型项再次检查 9000 token 上限，Core 原 10000 token 硬限不变。按连续 byteRange、完整末页及 contentHash 重建原 JSON，未读资料明确未知，不把游标末尾当作已全书阅读。正文/规划/检查等大资料在可见性构造后、预算裁剪前登记；选中或锁定范围不因小 transport budget 丢失。
+- **P0：新增单项可能超过 1000 token，已人工复核批准读取边界。** 负责人真实 Core/bridge/MCP/Runtime 冻结属性来源专项实测 3 页，最大工具文本 2576 字节；`cl100k_base` 最大 1198 token，`o200k_base` 最大 773 token，证据 `/tmp/novel-agent-goals-engine-integration.log`。这是该专项页的数据，不代表所有目录、上下文或决策状态均小于 1K。固定分页、冻结来源、既有权限、完整哈希及最终模型项硬限共同约束，不以截断代替完整读取。
+- Work 决策状态只返回 Native 派生的条件/动作标识及真实保存引用：最多 6 个条件、6 个动作、3 条 worker 回执，覆盖字段明确省略范围；不注入正文、child 自由回复或任意 provider 错误。状态 JSON 硬限 6500 字节，不能声称该 byte cap 就是 Runtime 的 9K token 检查；通用 source/context 路径有独立 9K 闸，Core 模型项 10K 门禁仍生效。实际 status/context 全载荷量化观察器因 Runtime 进程未就绪超时，尚无成功测量，后续由负责人一次补齐。
+- 瘦交接：普通首作者动作仍沿明确授权链；进入持久 workDecision 后只接受 read_work_status/request_work_action，actionKey 不允许覆写 operation/target/来源。修复专用来源不携普通写作指令；公开回复只说明作品成果、具体问题与作者下一步，不向作者展示内部调度术语。旧专用 planning/property 分页和固定管线已删除，当前调用方/fixture 一次切换，未新增迁移、双读或 latest fallback。
+- 初始失败：只有私有本地已持久任务 provenance 与 fresh task/Work/step/owner 核验一致，才沿原 Work 进入 Native 决策。取消、未创建、未知绑定不伪造失败 Attempt/零用量。exact approval 先以原 leaf 身份记录动作结果，最终父回复不能替换原批准 worker 身份；失败 worker 不计作已保存成果。Design 的生产 handler 合组 25/25 证据已源码复核采纳。
+- 恢复尚未启动：私有 provenance 只在本次 task POST 从未尝试时产生；fresh 同 project/Work/thread 的确切 step 必须仍 queued、currentAttemptId=null 且无 running/waiting step。原 Work 使用 fresh CAS 暂停；generation 走原 run/control 并重新核对暂停的 Run 与 Work。只有初次 generation 允许精确相等的空 thread，额外要求所有 step 都无当前 Attempt；其它空 thread 拒绝。无新预算、provider 用量或 task 行，保留原始错误与历史失败。未知 POST、已有 Attempt、异线程或取消不返回该证明。
+- IPC 返回真实 typed 数据而非依赖 Error 自定义属性：普通恢复返回 fresh paused Work + resumeFailure{code:WORK_RESUME_NOT_STARTED,message,workTaskId}；连续创作返回 fresh paused Run + 同 failure + pausedWork{id,projectId,threadId,status,version}。启动、继续、重试及反馈复用同入口。Renderer 据精确恢复 owner 和此证明还原原回复，不凭“没有 workflow”猜零执行，不增加作者消息或重新发送原目标。
+
+本组独立证据：初始 worker 失败生产 Host/真实 Adapter/受控 Runtime 5/5；预创建恢复最终 13/13，覆盖真实首 generation advisory 空线程、writer/advisory 启动、工作区读取、正式启动/继续/重试、丢创建响应、异线程、已有 Attempt 和取消，日志 `/tmp/novel-work-resume-all-entry-host-final.log`。同变更与原 generation feedback/duration 合组 28/28、零 skip，日志 `/tmp/novel-work-resume-all-entry-host.log`。均为本地受控响应，不是供应商实模成功。13 操作 MCP 真 handler→TCP Runtime transport 2/2 与短交接 Node 42/42 先前冻结检查通过；中央 Native 最终执行结果由负责人汇总。两个 actual Native 启动观察器超时均未进入模型或行为断言，绝不作为成功证据；保留相应 runner，未增加永久 skip。
+
+零兼容门禁 `PASS`。未修改权限、POV、CAS、历史账本或 shared engine；没有据 queued 状态推断零用量，没有自动重建 root，也没有放宽正文/资料大小上限。源码冻结后格式化由负责人统一执行，不再无因重复已通过测试。
+
+### 中央验收状态（2026-10-06）
+
+- 架构 / 技术 A：源码 POST `APPROVE`；最终 Native 回归及真实供应商完整闭环仍是验收条件，不以编译成功替代行为通过。
+- 最终 Renderer `npm run build` 通过，日志 `/tmp/novel-agent-goals-final-ui-build.log`；Native 四项目定向格式化和仓库 `just fmt` 通过，差异空白检查通过。限定四项目的 `just fix` 后续已成功结束（70m56s，日志 `/tmp/novel-agent-goals-final-clippy.log`），仍有非阻断警告；不以此替代尚未结束的 Native 行为回归。
+- Native 四项目最终回归及最后 finishChapter 持久回执专项均编译成功，分别见 `/tmp/novel-agent-goals-frozen-regression.log`、`/tmp/novel-agent-goals-completion-receipt-regression.log`；nextest 等待系统启动评估，尚未产生最终通过结果。未终止这些 Rust 进程。
+- 实际 App + DeepSeek 已完成中文纯讨论，以及第 1 章 1403 字符正文保存。后继知识任务出现真实参数校验失败，由此补修原任务纠错与预创建失败恢复；修复后的真实恢复、局部改稿、批准后连续两章仍待验收，前 100 章目标未完成。
+- 当前机器的 MCP 启动存在系统级阻塞：只读诊断记录了加载器入口等待、旧 MCP 进程的 macOS 安全策略拒绝，以及部分测试程序经 XProtect 扫描后才获准启动。证据 `/tmp/novel-native-startup-diagnostic.md`。系统设置未显示单个程序放行入口；没有修改系统安全设置、签名或文件安全属性。当前启动等待与行为断言失败分开记录，不归因为模型质量，也不计作通过。
+
+
+## 2026-10-06 小说工坊应用品牌（Renderer 完成；PM/UX POST APPROVE）
+
+目标：按作者指定名称“小说工坊”统一应用可见品牌、登录/恢复、标题、无障碍操作和设置说明。通用星形图标不变；真实供应商和模型 ID、原始诊断与上游许可证/法律来源保持准确。本轮没有模型调用、自动保存或权限变化。
+
+| 角色 | PRE 结论 | 条件 |
+| --- | --- | --- |
+| 架构专家 | APPROVE WITH CONDITIONS（负责人确认） | 作者会话和作品使用同一 userData；内部契约保留，不迁移历史数据。 |
+| 技术 A | APPROVE WITH CONDITIONS（负责人确认） | 内部 IPC/API、模型与法律来源不伪造；当前调用方一次同步。 |
+| 技术 B | APPROVE WITH CONDITIONS | 精确替换自有应用说明，保留原始上游错误、模型 ID 和内部协议。 |
+| 产品经理 | APPROVE WITH CONDITIONS | 默认产品品牌为小说工坊；真实模型名不是应用品牌，不能替换用户作品或存储内容。 |
+| UI/UX | APPROVE WITH CONDITIONS | 登录、加载、正常与执行中界面及 AX 名称一致；停止仍可达、设置说明不暗示第三方账号共用；亮暗窄宽文字不溢出。 |
+
+实施范围：Renderer 品牌与提示、匿名统计导出名、现有停止按钮定位 fixture 和有意变化的 UI 快照；Electron 主入口/包元数据和 Runtime/adapter 由负责人及技术 B 分工。内部 NovelCodexApi/window.novelCodex、存储键和协议标识保持其当前契约，不设置双读或迁移分支。
+
+验收：登录/恢复/顶栏和窗口标题一致；停止与恢复 AX 使用中性动作名称；真实 provider/model 配置和原始诊断不被应用品牌替换；匿名导出文件名为“小说工坊-本地创作统计.json”且导出数据不变；当前作者/作品仍沿统一存储读取。
+
+本轮 POST（只对当前品牌范围判断，不继承上一阶段）：
+
+| 角色 | POST 结论 | 证据范围 |
+| --- | --- | --- |
+| 架构专家 | APPROVE（负责人确认） | 应用品牌与统一 userData 边界源码核验；不建立历史迁移或兼容分支。 |
+| 技术 A | APPROVE（负责人确认） | 内部契约与真实模型/法律来源保留；主入口与 Renderer 当前来源一致。 |
+| 技术 B | APPROVE | Runtime/adapter 自有文案及角色应用自称已复核；独立 adapter 最终 24/24 通过，Runtime/release 合组仍待返回。 |
+| 产品经理 | APPROVE | 应用名称符合作者选择；原作者/作品恢复成功，原始内容与真实模型标识未替换。 |
+| UI/UX | APPROVE | 登录/恢复/顶栏品牌一致，停止与恢复 AX 中性、操作保持可达；明暗设置/登录/注册窄宽 12 个表面几何检查通过。 |
+
+已完成证据：
+
+- Renderer Electron 5/5 PASS、零 skip。登录/会话恢复 1/1（原作者作品恢复、三处品牌快照）；匿名统计 1/1（“小说工坊-本地创作统计.json”及原 JSON 数据）；模型连接/任务恢复 2/2（真实 `gpt-5.3-codex` 标识保留、无付费模型）；取消竞争 1/1（新“停止当前执行” AX，原终态与恢复合同保留）。日志：`/tmp/novel-workshop-brand-session-ui.log`、`/tmp/novel-workshop-brand-controls-ui.log`、`/tmp/novel-workshop-brand-stop-ui.log`。
+- 首次登录恢复测试失败为旧 fixture 缺当前 `listThreads` 接口；仅按现有合同补模拟接口后通过，未在生产新增容错分支。更新并亲审登录/恢复/顶栏品牌快照及 12 个亮暗几何结果。
+- Renderer `npx tsc --noEmit` 与产品范围 `git diff --check` PASS；负责人最终 build PASS（`/tmp/novel-workshop-brand-build.log`），语法检查 PASS。
+- 负责人报告作者桌面跨进程与 store 已输出 9 个 PASS（`/tmp/novel-workshop-brand-host.log`）；后续 handler 导入仍受系统启动等待影响，不能把整个合组计作 PASS。Runtime/adapter 独立 Node 导入验证同样以实际最终退出为准。
+
+零兼容结论 PASS：内部 `NovelCodexApi/window.novelCodex`、IPC 与存储键保留当前契约；没有双读、历史重命名、用户数据迁移或字面过滤用户文本。上游许可证、原始诊断和真实模型 ID 保留。内部约束不可见性 fixture 的旧品牌字符串作为泄漏反例保留，不代表产品界面仍显示旧名。
+
+PM/UX 本阶段无 P0/P1；品牌 UI 与受控行为验收完成。无真实模型调用或用户作品写入，不以本轮 UI 测试冒称模型交付成功。
+
+负责人收尾：限定 Native 格式化及根 `just fmt` 均通过（`/tmp/novel-workshop-brand-fmt.log`），最终构建与差异检查通过。Adapter 24/24、零 skip、退出码 0，日志 `/tmp/novel-fiction-workshop-adapter-final.log`；握手显示标题为小说工坊，协议身份与原始供应商诊断保持原值。两个自有 managed role 只改应用名称，沿当前来源摘要重新核验，不复用不匹配的资格证据。独立安装包尚未通过发布验收：既有发布流程发现内置引擎 BuildIdentity 与当前源码不匹配，已启动正常重建，未绕过校验或开启 Codex 桌面应用的系统权限。

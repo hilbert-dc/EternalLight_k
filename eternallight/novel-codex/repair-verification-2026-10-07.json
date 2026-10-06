@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-07",
+  "book": "万城灯火",
+  "implementation": "source changes built; typed 100-chapter range verified",
+  "tests": {
+    "productionHostNativeRuntime": 4,
+    "bridgeAndContracts": 43,
+    "decisionRecoveryReply": 26,
+    "nativeScope": 4,
+    "nativeAuthorSource": 13,
+    "nativeContinuousRecovery": 5,
+    "nativeReplan": 1
+  },
+  "actualApplication": {
+    "driver": "CUA",
+    "originalSavedChapters": 1,
+    "originalFirstChapterCharacters": 3421,
+    "realModelProposedNewChapters": 99,
+    "newPlaceholderChapters": 0,
+    "newBodySaveVerified": false,
+    "complete100ChapterRunVerified": false,
+    "oldVerificationProfileResult": "proposal submitted; stopped on outdated quality table schema",
+    "currentSchemaProfile": "/tmp/novel-repair-current-schema-author",
+    "currentSchemaUiResult": "Mac locked; automatic unlock failed; waiting for manual unlock"
+  },
+  "compatibility": "none; original data and verification copy preserved; fresh current-schema environment",
+  "designReview": "LONG_CREATION_RELIABILITY_DESIGN.md"
+}

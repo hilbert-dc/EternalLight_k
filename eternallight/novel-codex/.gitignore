@@ -8,3 +8,6 @@ release/
 .certification-reports/
 .upstream-sync-reports/
 .codex-upstream-worktrees/
+
+# Local packaged conversation acceptance build
+release-conversation/

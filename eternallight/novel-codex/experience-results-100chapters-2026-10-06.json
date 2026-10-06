@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-06",
+  "timezone": "Asia/Shanghai",
+  "requestedOutcome": "实际使用当前工程应用，创作300万字小说的前100章",
+  "outcome": "blocked_incomplete",
+  "novel": {
+    "title": "万城灯火",
+    "genre": "东方幻想悬疑",
+    "targetTotalCharacters": 3000000,
+    "plannedTotalChapters": 1000,
+    "requestedChapters": 100,
+    "savedBodyChapters": 1,
+    "savedBodyCharactersAsDisplayed": 3421,
+    "characterCountConvention": "应用显示：不含空白，含标点；不是纯汉字计数",
+    "firstChapterTitle": "不该存在的家灯",
+    "savedArtifacts": ["创作简报候选", "十卷全书大纲候选", "第1章正文候选"],
+    "publicationStatus": "未发布",
+    "missing": ["第2—100章正文", "第1—100章近章规划", "主要人物资料", "世界规则资料"]
+  },
+  "application": {
+    "interactionMethod": "通过原生应用界面创建作品、发送创作指令、批准提案、创建章节、核对保存结果",
+    "runningBuild": "/Users/hilbert/private/codex/eternallight/novel-codex/release-conversation/mac-arm64/小说工坊.app",
+    "model": "DeepSeek / deepseek-flash",
+    "sourceDevelopmentEntry": "electron/dev.mjs",
+    "sourceDevelopmentDataDirectory": "/Users/hilbert/private/codex/eternallight/novel-codex/.experience-100chapters",
+    "sourceDevelopmentResult": "Story Runtime启动后，创作引擎被固定支持清单拒绝；开发窗口停在本地作者创建页，未创建新凭据。"
+  },
+  "reproduction": [
+    {"step": 1, "action": "创建作品，提交前100章规划及正文创作请求", "result": "仅保存简报候选；提出两个待批准规划建议；任务结束报deliveryReview缺失"},
+    {"step": 2, "action": "批准第1—100章规划建议", "result": "TaskInputStale，无法恢复"},
+    {"step": 3, "action": "重新发起直接创建第1章并写作请求", "result": "智能体报告缺少章节目标，未写入正文"},
+    {"step": 4, "action": "通过界面手动创建第1章，再请求为当前章写正文", "result": "正文候选保存成功，界面3421字符；结束仍报deliveryReview缺失"},
+    {"step": 5, "action": "批准原全书大纲建议", "result": "TaskInputStale"},
+    {"step": 6, "action": "重新明确授权生成全书大纲候选", "result": "十卷大纲保存成功；结束仍报deliveryReview缺失"},
+    {"step": 7, "action": "重新请求第1—100章近章规划", "result": "HTTP 413 Payload Too Large，encoded request exceeds the route input budget"},
+    {"step": 8, "action": "缩短为第2—4章近章规划请求", "result": "同样HTTP 413，未产生新规划或正文"},
+    {"step": 9, "action": "启动当前源码开发应用验证", "result": "运行时就绪；日志提示创作引擎的SHA-256或平台版本不在固定支持清单中"}
+  ],
+  "blockingErrors": [
+    "InvalidContent(\"deliveryReview: final decision requires a delivery review\")",
+    "Error invoking remote method 'agent:approve-action': Error: TaskInputStale",
+    "unexpected status 413 Payload Too Large: encoded request exceeds the route input budget",
+    "创作引擎的 SHA-256 或平台版本不在固定支持清单中"
+  ],
+  "limitsOfFinding": "这些结论来自本次本地构建、所用模型连接和可见UI/日志；未证明所有构建或模型都存在同样问题。未完成100章，未把大纲或章节占位计为正文。未修改应用源代码。"
+}
