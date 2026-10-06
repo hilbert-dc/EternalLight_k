@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { NOVEL_ROOT_DEVELOPER_INSTRUCTIONS } from "../electron/creative-mission.mjs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -21,7 +22,7 @@ const knownTool = name => toolNames.find(tool => name === tool || name === `mcp_
 const failureCodes = ["task_token_budget_exhausted", "task_request_budget_exhausted", "task_duration_budget_exhausted",
   "provider_http_error", "provider_connection_failed", "stream_tool_mismatch", "response_incomplete", "response_stream_disconnected",
   "provider_output_limit", "provider_content_filter", "provider_context_limit", "provider_quota_exhausted", "provider_invalid_request",
-  "provider_rate_limited", "provider_server_error", "provider_stream_failed", "invalid_tool_arguments", "context_item_limit", "bridge_error"];
+  "provider_rate_limited", "provider_server_error", "provider_stream_failed", "invalid_tool_arguments", "context_item_limit", "provider_output_item_limit", "bridge_error"];
 const evidenceCodes = ["evidence_shape_invalid", "evidence_quote_invalid", "evidence_quote_not_found", "evidence_quote_ambiguous",
   "evidence_anchor_invalid", "evidence_anchor_mismatch", "evidence_anchor_incomplete"];
 const runtimeCodes = ["invalid_request", "conflict", "internal_error", "task_scope_invalid", "task_binding_invalid"];
@@ -303,6 +304,7 @@ export async function probeLiveRevision(options = {}) {
         const catalog = join(home, "catalog.json");
         await writeFile(catalog, JSON.stringify(engine.compileCodexModelCatalog(provider.sessionPlan, { baseInstructions })), { mode: 0o600 });
         await writeFile(join(home, "config.toml"), engine.compileCodexConfig({ sessionPlan: provider.sessionPlan,
+          developerInstructions: NOVEL_ROOT_DEVELOPER_INSTRUCTIONS, subagentDeveloperInstructions: api.NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS,
           modelCatalogPath: catalog, bridge: { baseUrl: address.baseUrl, credentialRef: "AGENT_ENGINE_BRIDGE_TOKEN" },
           mcpServers: [{ id: "novel_workspace", command: binary("novel-workspace-mcp"), args: [], approvalMode: "approve",
             envVars: ["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"] }] }), { mode: 0o600 });

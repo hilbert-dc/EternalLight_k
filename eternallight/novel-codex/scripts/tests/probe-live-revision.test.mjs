@@ -91,6 +91,7 @@ test("observation whitelist omits arbitrary credentials, arguments, reasoning an
   assert.equal(summarizeObservation({ logicalModel: "deepseek-flash" }, "response").modelMatches, true);
   assert.equal(summarizeObservation({ errorCategory: "budget", errorCode: "task_token_budget_exhausted" }, "response").errorCode, "task_token_budget_exhausted");
   assert.equal(summarizeObservation({ errorCode: secret }, "response").errorCode, null);
+  assert.equal(summarizeObservation({ errorCode: "provider_output_item_limit" }, "response").errorCode, "provider_output_item_limit");
   assert.equal(summarizeToolResult({ status: "failed" }, null).error, true);
 });
 

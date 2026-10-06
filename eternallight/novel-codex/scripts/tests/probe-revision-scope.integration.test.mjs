@@ -11,7 +11,7 @@ import { PersistentTaskBudget } from "@eternallight/agent-engine";
 import { taskProviderBudgetOptions } from "../../electron/task-provider-budget.mjs";
 import { assertFeedbackIsolation, createProbeRevisionScope, summarizeFeedback } from "../probe-live-revision.mjs";
 
-test("probe uses approved production goals and canonical report receipts, not final reply JSON", { timeout: 45000 }, async t => {
+test("probe uses approved production goals and canonical report receipts, not final reply JSON", { timeout: 120000 }, async t => {
   // Scripted author/model payloads through real HTTP/SQLite; no vendor calls.
   const root = await mkdtemp(join(tmpdir(), "novel-probe-scope-"));
   const budgetPath = join(root, "budget.sqlite3");

@@ -21,7 +21,8 @@ import {
 } from "@eternallight/agent-engine";
 import { CodexConformanceRunner } from "../electron/codex-conformance-runner.mjs";
 import { CodexCoreIntegrationRunner } from "../electron/codex-core-integration-runner.mjs";
-import { createQualificationContextDigest, resolveCodexCli } from "../electron/codex-runtime.mjs";
+import { NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS, createQualificationContextDigest, resolveCodexCli } from "../electron/codex-runtime.mjs";
+import { NOVEL_ROOT_DEVELOPER_INSTRUCTIONS } from "../electron/creative-mission.mjs";
 import { loadProjectDevelopmentEnvironment, resolveDevelopmentEnvironment } from "../electron/development-credentials.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -141,6 +142,8 @@ export async function certifyModel({
     coreRunner ??= new CodexCoreIntegrationRunner({
       baseEnvironment: environment,
       baseInstructions: baseInstructions.trim(),
+      developerInstructions: NOVEL_ROOT_DEVELOPER_INSTRUCTIONS,
+      subagentDeveloperInstructions: NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS,
       command: [cli.path, "app-server"],
       cwd: workspace,
       nodeCommand: process.execPath,
@@ -160,7 +163,7 @@ export async function certifyModel({
     const suiteResults = [protocolSuite, coreSuite];
     const conformanceAttempts = [];
     if (profile.requiredCapabilities.some((capability) => DELEGATION_EXECUTION_CAPABILITIES.includes(capability))) {
-      conformanceRunner ??= new CodexConformanceRunner({ baseEnvironment: environment, baseInstructions: baseInstructions.trim(), command: [cli.path, "app-server"], cwd: workspace, nodeCommand: process.execPath });
+      conformanceRunner ??= new CodexConformanceRunner({ baseEnvironment: environment, baseInstructions: baseInstructions.trim(), developerInstructions: NOVEL_ROOT_DEVELOPER_INSTRUCTIONS, subagentDeveloperInstructions: NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS, command: [cli.path, "app-server"], cwd: workspace, nodeCommand: process.execPath });
       const conformance = await conformanceRunner.verify({ apiKey: apiKey.trim(), connection, credentialScope: `release-certification:${connection.id}`, protocol: probe.selectedProtocol, probeEvidence: probe.records, qualificationContextDigest, now });
       conformanceAttempts.push(conformance.attempt);
       diagnostics.attempts.push(conformance.attempt);

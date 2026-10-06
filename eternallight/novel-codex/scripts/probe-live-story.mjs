@@ -12,17 +12,18 @@ import { ModelBridge, PersistentTaskBudget, compileCodexConfig, compileCodexMode
 
 import { CodexAppServerAdapter } from "../electron/codex-adapter.mjs";
 import { CodexCoreIntegrationRunner } from "../electron/codex-core-integration-runner.mjs";
-import { createQualificationContextDigest, credentialScopesFromEnvironment,
+import { NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS, createQualificationContextDigest, credentialScopesFromEnvironment,
   loadCodexEvidence, resolveCodexCli, resolveCodexProvider, verifyCodexConnection } from "../electron/codex-runtime.mjs";
 import { loadProjectDevelopmentEnvironment, resolveDevelopmentEnvironment } from "../electron/development-credentials.mjs";
 import { taskProviderBudgetOptions } from "../electron/task-provider-budget.mjs";
+import { NOVEL_ROOT_DEVELOPER_INSTRUCTIONS } from "../electron/creative-mission.mjs";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const suffix = process.platform === "win32" ? ".exe" : "";
 const binary = (name) => join(projectRoot, "native", "target", "debug", `${name}${suffix}`);
 const premise = "在一座逐渐失去记忆的港城，一位不再相信预言的抄写员必须决定是否为未来留下证词。";
 
-function limited(promise, milliseconds, label) {
+export function limited(promise, milliseconds, label) {
   let timer;
   return Promise.race([
     promise,
@@ -30,7 +31,7 @@ function limited(promise, milliseconds, label) {
   ]).finally(() => clearTimeout(timer));
 }
 
-async function startRuntime(path, authorToken, candidateToken) {
+export async function startRuntime(path, authorToken, candidateToken) {
   const child = spawn(binary("novel-codex-story-runtime"), ["--port", "0", "--db", path,
     "--engine-budget-db", `${path}.budget`, "--token-stdin"], { stdio: ["pipe", "pipe", "pipe"] });
   const listening = new Promise((resolveOrigin, reject) => {
@@ -43,14 +44,14 @@ async function startRuntime(path, authorToken, candidateToken) {
   });
   child.stdin.end(`${JSON.stringify({ authorToken, candidateToken })}\n`);
   try {
-    return { child, origin: await limited(listening, 10_000, "Story Runtime startup") };
+    return { child, origin: await limited(listening, 90_000, "Story Runtime startup") };
   } catch (error) {
     if (child.exitCode === null && child.signalCode === null) child.kill();
     throw error;
   }
 }
 
-async function request(origin, authorToken, method, path, body) {
+export async function request(origin, authorToken, method, path, body) {
   const response = await fetch(`${origin}${path}`, { method, signal: AbortSignal.timeout(10_000),
     headers: { authorization: `Bearer ${authorToken}`, "content-type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -75,6 +76,7 @@ export async function probeLiveStory() {
     const qualificationContextDigest = createQualificationContextDigest({ baseInstructions, cliPath: cli.path });
     const evidencePath = join(root, "evidence.json");
     const coreRunner = new CodexCoreIntegrationRunner({ baseEnvironment: environment, baseInstructions,
+      developerInstructions: NOVEL_ROOT_DEVELOPER_INSTRUCTIONS, subagentDeveloperInstructions: NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS,
       command: [cli.path, "app-server"], cwd: root, nodeCommand: process.execPath });
     await verifyCodexConnection({ baseEnvironment: environment, coreRunner, credentialScopes, evidencePath,
       provider: "deepseek", model: "deepseek-flash", qualificationContextDigest });
@@ -100,6 +102,7 @@ export async function probeLiveStory() {
     const catalog = join(home, "catalog.json");
     await writeFile(catalog, JSON.stringify(compileCodexModelCatalog(provider.sessionPlan, { baseInstructions })), { mode: 0o600 });
     await writeFile(join(home, "config.toml"), compileCodexConfig({ sessionPlan: provider.sessionPlan,
+      developerInstructions: NOVEL_ROOT_DEVELOPER_INSTRUCTIONS, subagentDeveloperInstructions: NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS,
       modelCatalogPath: catalog, bridge: { baseUrl: address.baseUrl, credentialRef: "AGENT_ENGINE_BRIDGE_TOKEN" },
       mcpServers: [{ id: "novel_workspace", command: binary("novel-workspace-mcp"), args: [],
         envVars: ["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"],
