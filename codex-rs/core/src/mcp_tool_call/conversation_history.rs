@@ -143,6 +143,8 @@ impl<'call> ToolExecutor<ToolCall<'call>> for HistoryTool {
                     Some(json!({"callId": call.call_id, "_codex_apps": apps_meta})),
                     &parent.thread_id.to_string(),
                     &parent.session_id().to_string(),
+                    &call.turn_id,
+                    &parent.thread_config_snapshot().await.session_source,
                     /*originating_call*/ None,
                 );
                 let limit = prepared
