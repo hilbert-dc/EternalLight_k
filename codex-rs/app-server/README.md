@@ -19,6 +19,40 @@ These errors are not evidence that history is exhausted; callers can retry.
 A successful response with `nextCursor: null` still indicates exhaustion.
 Default scan-and-repair requests retain their filesystem fallback.
 
+# Thread read state (experimental)
+
+Local durable ordinary user threads expose a `readState` on the
+`thread/read` response. `thread/list` returns `readStates`, a map from eligible
+thread IDs on the returned page to their receipts. Null (or absent on older servers)
+means durable read state is unavailable; a missing map entry means that row is
+ineligible. Ephemeral, not-yet-persisted, service and product-owned threads are
+ineligible. Shared `Thread` objects, including search and lifecycle responses,
+carry no receipts. After start, resume or fork, use `thread/read` to obtain the
+current receipt.
+Each local thread has one receipt, with the same storage ownership as the thread.
+
+A read state is `{firstUnread, revision}`. `firstUnread` is null when read,
+`{type:"threadStart"}` for an explicit unread mark (even for an empty thread),
+or `{type:"turn", turnId}` for the earliest eligible completed result.
+`revision` is an opaque string, scoped to this thread.
+
+Only newly delivered, durable, visible terminal results advance read state,
+before `turn/completed`. Every new result changes the revision, even when an
+older turn remains the first unread position. Reverting a paginated thread
+clears a removed position; explicit thread-start marks survive. Loading snapshots
+never acknowledges activity; empty threads start read and forked history does
+not publish inherited turns as new results.
+
+Enabling `initialize.capabilities.experimentalApi` permits receiving read-state
+notifications.
+
+Started, resumed or forked threads send `thread/readState/changed` alongside
+ordinary thread events; thread/unsubscribe or disconnect stops delivery.
+Clients can filter this method with the existing notification opt-out setting.
+Revisions are equality tokens, not clocks: never compare or merge them across
+threads or hosts. When concurrent responses disagree, refresh with `thread/read`.
+Offscreen threads converge on page refresh.
+
 # Guardian circuit-breaker errors
 
 Set `auto_review.circuit_break_action = "strict"` to include `TooManyDenials` in
