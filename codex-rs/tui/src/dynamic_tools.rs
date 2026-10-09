@@ -349,6 +349,7 @@ async fn execute_inner(
                 request(&handle, |request_id| ClientRequest::ThreadList {
                     request_id,
                     params: ThreadListParams {
+                        excluded_thread_ids: None,
                         originators: None,
                         cursor: arguments.cursor.clone(),
                         limit: Some(limit),
@@ -1491,6 +1492,7 @@ fn turn_summary(turn: &Turn, include_outputs: bool, output_chars: usize) -> Valu
                 kind,
                 agent_thread_id,
                 agent_path,
+                ..
             } => json!({
                 "type": "subAgentActivity", "id": id, "kind": kind,
                 "agentThreadId": agent_thread_id, "agentPath": agent_path

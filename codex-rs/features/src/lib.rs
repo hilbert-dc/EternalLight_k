@@ -137,6 +137,8 @@ pub enum Feature {
     CodeModePrewarm,
     /// Terminate active code mode cells when their turn is interrupted.
     CodeModeInterrupt,
+    /// Put each tool's description before its namespace description in Code Mode.
+    CodeModeToolDescriptionFirst,
     /// Restrict model-visible tools to code mode entrypoints (`exec`, `wait`).
     CodeModeOnly,
     /// Keep eligible MCP/app and dynamic tools deferred in exec, only in Code Mode Only.
@@ -146,13 +148,9 @@ pub enum Feature {
     UnifiedExec,
     /// Allow unified exec commands to allocate an interactive terminal.
     UnifiedExecTty,
-    /// Route shell tool execution through the zsh exec bridge.
+    /// Removed compatibility flag for the retired patched zsh backend.
     ShellZshFork,
-    /// Allow unified exec to compose with the zsh exec bridge.
-    ///
-    /// This flag is only a composition gate. Enabling it by itself must not turn
-    /// on either `unified_exec` or `shell_zsh_fork` because those features have
-    /// separate rollout and enterprise controls.
+    /// Removed compatibility flag for the retired patched zsh backend.
     UnifiedExecZshFork,
     /// Removed compatibility flag. Transcript scrollback reflow on terminal resize is always on.
     TerminalResizeReflow,
@@ -211,6 +209,8 @@ pub enum Feature {
     UnboundedConnectionRetries,
     /// Start the managed network proxy for sandboxed sessions.
     NetworkProxy,
+    /// Mask credentials and inject them through an already enabled network proxy.
+    CredentialMasking,
     /// Enable managed worktree creation and repository-aware sessions.
     Worktrees,
     /// Respect host system proxy settings for Codex-owned network clients.
@@ -367,6 +367,8 @@ pub enum Feature {
     GuardianEnhancedNodeReplTranscripts,
     /// Include completed node_repl or cua_repl Code Mode response images in Guardian reviews.
     GuardianNodeReplTranscriptImages,
+    /// Trust connector identities from the plugin service orchestrator in Guardian V2.
+    GuardianTrustOrchestratorConnectors,
     /// Give Guardian access to the root conversation's message history tools.
     GuardianConversationHistoryTools,
     /// Enable Guardian V2 automatic approval reviews.
@@ -637,6 +639,17 @@ impl Features {
                         Feature::WebSearchCached,
                     );
                 }
+                "shell_zsh_fork" => {
+                    self.record_legacy_usage_force("shell_zsh_fork", Feature::ShellZshFork);
+                    continue;
+                }
+                "unified_exec_zsh_fork" => {
+                    self.record_legacy_usage_force(
+                        "unified_exec_zsh_fork",
+                        Feature::UnifiedExecZshFork,
+                    );
+                    continue;
+                }
                 "transcript_v2" => {
                     self.record_legacy_usage_force("features.transcript_v2", Feature::TranscriptV2);
                     continue;
@@ -752,6 +765,10 @@ impl Features {
 fn legacy_usage_notice(alias: &str, feature: Feature) -> (String, Option<String>) {
     let canonical = feature.key();
     match feature {
+        Feature::ShellZshFork | Feature::UnifiedExecZshFork => (
+            format!("`[features].{canonical}` is deprecated and ignored."),
+            Some(format!("The patched zsh backend has been removed. Shell commands now use the standard shell executor. Remove `{canonical}` from [features] in config.toml or profile configuration files.")),
+        ),
         Feature::GuardianThreadContext => (
             "`[features.guardianv2].thread_context` is deprecated and ignored.".to_string(),
             Some("Thread-owned Guardian context is always enabled. Remove `thread_context` from [features.guardianv2] in config.toml, including profile overrides.".to_string()),
@@ -1046,14 +1063,14 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::ShellZshFork,
         key: "shell_zsh_fork",
-        stage: Stage::UnderDevelopment,
+        stage: Stage::Removed,
         default_enabled: false,
     },
     FeatureSpec {
         id: Feature::UnifiedExecZshFork,
         key: "unified_exec_zsh_fork",
         stage: Stage::Removed,
-        default_enabled: true,
+        default_enabled: false,
     },
     FeatureSpec {
         id: Feature::ShellSnapshot,
@@ -1152,6 +1169,12 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::CodeModeInterrupt,
         key: "code_mode_interrupt",
+        stage: Stage::Stable,
+        default_enabled: true,
+    },
+    FeatureSpec {
+        id: Feature::CodeModeToolDescriptionFirst,
+        key: "code_mode_tool_description_first",
         stage: Stage::UnderDevelopment,
         default_enabled: false,
     },
@@ -1159,7 +1182,7 @@ pub const FEATURES: &[FeatureSpec] = &[
         id: Feature::InstantInterrupt,
         key: "instant_interrupt",
         stage: Stage::UnderDevelopment,
-        default_enabled: false,
+        default_enabled: true,
     },
     FeatureSpec {
         id: Feature::CodeModeOnly,
@@ -1391,6 +1414,12 @@ pub const FEATURES: &[FeatureSpec] = &[
             menu_description: "Apply network proxy restrictions to sandboxed sessions that already have network access.",
             announcement: "NEW: Network proxy can now be enabled from /experimental. Restart Codex after enabling it.",
         },
+        default_enabled: false,
+    },
+    FeatureSpec {
+        id: Feature::CredentialMasking,
+        key: "credential_masking",
+        stage: Stage::UnderDevelopment,
         default_enabled: false,
     },
     FeatureSpec {
@@ -1792,6 +1821,12 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::GuardianNodeReplTranscriptImages,
         key: "guardian_node_repl_transcript_images",
+        stage: Stage::UnderDevelopment,
+        default_enabled: false,
+    },
+    FeatureSpec {
+        id: Feature::GuardianTrustOrchestratorConnectors,
+        key: "guardian_trust_orchestrator_connectors",
         stage: Stage::UnderDevelopment,
         default_enabled: false,
     },

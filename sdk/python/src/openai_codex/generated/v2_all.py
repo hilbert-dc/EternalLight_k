@@ -4906,7 +4906,7 @@ class SkillSummary(BaseModel):
     enabled: bool
     interface: SkillInterface | None = None
     name: str
-    path: AbsolutePathBuf | None = None
+    path: LegacyAppPathString | None = None
     short_description: Annotated[str | None, Field(alias="shortDescription")] = None
 
 
@@ -5465,6 +5465,19 @@ class SubAgentActivityThreadItem(BaseModel):
     agent_thread_id: Annotated[str, Field(alias="agentThreadId")]
     id: str
     kind: SubAgentActivityKind
+    model: Annotated[
+        str | None,
+        Field(
+            description="Resolved model at sub-agent creation; absent from older records and other activities."
+        ),
+    ] = None
+    reasoning_effort: Annotated[
+        ReasoningEffort | None,
+        Field(
+            alias="reasoningEffort",
+            description="Resolved reasoning effort at sub-agent creation, when known.",
+        ),
+    ] = None
     type: Annotated[Literal["subAgentActivity"], Field(title="SubAgentActivityThreadItemType")]
 
 
@@ -9781,7 +9794,7 @@ class SkillMetadata(BaseModel):
     enabled: bool
     interface: SkillInterface | None = None
     name: str
-    path: AbsolutePathBuf
+    path: LegacyAppPathString
     plugin_id: Annotated[
         str | None,
         Field(
@@ -10122,6 +10135,13 @@ class ThreadListParams(BaseModel):
         ThreadListCwdFilter | None,
         Field(
             description="Optional cwd filter or filters; when set, only threads whose session cwd exactly matches one of these paths are returned."
+        ),
+    ] = None
+    excluded_thread_ids: Annotated[
+        list[str] | None,
+        Field(
+            alias="excludedThreadIds",
+            description="Thread IDs to exclude before applying the result limit. Up to 100 entries; invalid IDs or a larger list are rejected, never truncated. Send the same exclusions on each page. Omitted, null, or empty means no exclusions.",
         ),
     ] = None
     limit: Annotated[
@@ -11672,6 +11692,13 @@ class Turn(BaseModel):
             description="Describes how much of `items` has been loaded for this turn.",
         ),
     ] = "full"
+    root_turn_id: Annotated[
+        str | None,
+        Field(
+            alias="rootTurnId",
+            description="ID of the first turn in the chain of work that led to this turn. Pass this as `rootTurnId` when starting work on behalf of this turn. May be null in older history or a `review/start` response.",
+        ),
+    ] = None
     started_at: Annotated[
         int | None,
         Field(alias="startedAt", description="Unix timestamp (in seconds) when the turn started."),
@@ -12555,10 +12582,24 @@ class TurnStartParams(BaseModel):
             description="Optional JSON Schema used to constrain the final assistant message for this turn.",
         ),
     ] = None
+    parent_turn_id: Annotated[
+        str | None,
+        Field(
+            alias="parentTurnId",
+            description="ID of the turn that caused this new turn to start.\n\nSet this when starting work on behalf of another turn, such as delegated work in a different thread. Leave unset for work started directly by the user. Ignored when this request adds input to an active turn.",
+        ),
+    ] = None
     personality: Annotated[
         Personality | None,
         Field(
             description="@deprecated `friendly` and `pragmatic` no longer select a style. Changing this does not rewrite the thread's existing instructions."
+        ),
+    ] = None
+    root_turn_id: Annotated[
+        str | None,
+        Field(
+            alias="rootTurnId",
+            description="ID of the first turn in the chain of work that led to this new turn.\n\nWhen setting `parentTurnId`, set this to the parent turn's `rootTurnId` when known. This keeps descendant work attributed to the original turn. If omitted, the new turn becomes its own root. Ignored when this request adds input to an active turn.",
         ),
     ] = None
     sandbox_policy: Annotated[

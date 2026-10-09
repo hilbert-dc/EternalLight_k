@@ -106,6 +106,19 @@ enum ClassificationOutcome {
 }
 
 impl Classification {
+    #[tracing::instrument(
+        name = "guardian_background_scoring",
+        level = "debug",
+        skip_all,
+        fields(
+            thread_id = %self.thread_id,
+            turn_id = %self.turn_id,
+            call_id = %self.call_id,
+            tool_call_index = self.tool_call_index,
+            context_mode = self.context_mode.as_str(),
+            retained_conversation = self.reservation.is_some(),
+        )
+    )]
     pub(super) async fn run(self) {
         let Self {
             reservation,
@@ -346,16 +359,16 @@ impl Classification {
                         );
                     }
                     let (ready, score) = tokio::sync::oneshot::channel();
-                    reservation.submit(ConversationRequest {
+                    tokio::spawn(reservation.run(ConversationRequest {
                         evidence,
                         sampling,
-                        reset_token_limit: guardian_config
-                            .async_classifier_conversation_token_limit,
+                        reset_token_limit:
+                            guardian_config.async_classifier_conversation_token_limit,
                         ready,
                         authorization: score_authorization.clone(),
                         thread: Arc::clone(&thread),
                         metrics: metrics.clone(),
-                    });
+                    }));
                     score.await.unwrap_or(Err(LunaSamplerError::Superseded))
                 }
             };
