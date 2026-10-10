@@ -1,0 +1,15 @@
+.media-application-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(340px,42%);flex:1;min-height:0;overflow:hidden}
+.media-editor-region{overflow:auto;min-width:0;background:var(--nc-surface,#fff)}
+.media-conversation{display:flex;flex-direction:column;min-width:0;min-height:0;border-left:1px solid var(--nc-border,#e1e4eb)}
+.media-conversation-scroll{flex:1;overflow:auto;min-height:0;padding:20px 24px}
+.media-live-turn{margin-top:20px;overflow-wrap:anywhere}.media-live-turn .user-message{margin-bottom:22px}
+.media-composer{padding:12px 18px;border-top:1px solid var(--nc-border,#e1e4eb)}
+.media-composer textarea{resize:vertical;width:100%;min-height:80px;max-height:180px;padding:12px;border-radius:12px;border:1px solid var(--nc-border,#e1e4eb);background:var(--nc-surface,#fff);color:var(--nc-ink,#202631)}
+.media-composer-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}.media-composer-actions span{margin-left:auto;color:var(--nc-ink-soft,#647084);font-size:12px}
+.media-composer p{font-size:13px;line-height:1.5;margin:6px 0}.media-selection-context{display:flex;justify-content:space-between;color:var(--nc-ink-soft,#647084)}
+.media-attachments{display:flex;gap:8px;flex-wrap:wrap}.media-attachments span{position:relative}.media-attachments img{width:64px;height:64px;object-fit:contain;border:1px solid var(--nc-border,#e1e4eb);border-radius:8px}.media-attachments button{position:absolute;top:0;right:0}
+@media(max-width:800px){.media-application-body{grid-template-columns:1fr;grid-template-rows:minmax(200px,45%) minmax(250px,55%)}.media-conversation{border-left:0;border-top:1px solid var(--nc-border,#e1e4eb)}.media-conversation-scroll{padding:12px}.media-composer{padding:10px}}
+
+.media-composer-actions .text-button{padding:6px 2px;font-size:13px}.media-selection-context .icon-button{width:24px;height:24px;min-height:24px;font-size:17px}.media-settings-dialog{max-height:calc(100vh - 48px);overflow:auto}
+
+.media-composer-actions .composer-model-picker{margin-left:auto}.media-composer-actions .composer-model-label{margin:0}.media-composer-actions .composer-model-menu{max-width:min(360px,calc(100vw - 28px))}
