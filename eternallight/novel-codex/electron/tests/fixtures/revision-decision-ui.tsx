@@ -1,3 +1,5 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
+import { emptyCreationIssueSummary, revisionOutcomeFixture } from "../helpers/creation-issues";
 import "../../../src/styles.css";
 import React from "react";
 import { flushSync } from "react-dom";
@@ -35,10 +37,12 @@ const trap = (target: object, path: string): any => new Proxy(target, { get: (va
 } });
 const writer = `task-${"a".repeat(32)}`, otherWriter = `task-${"b".repeat(32)}`;
 const criteria = [{ id: "keep_letter", criterion: "藏好密函", groupIds: ["letter"] }];
-const report = (state: RevisionOutcome["state"] = "current", decisions: RevisionOutcomeDecision[] = []): RevisionOutcome => ({
+const chapterAcceptance = { requirements: [{ id: "acceptance-1", text: "保留整章上下文。" }], length: { requirement: "保持原有篇幅。", minCharacters: null, maxCharacters: null } };
+const report = (state: RevisionOutcome["state"] = "current", decisions: RevisionOutcomeDecision[] = []): RevisionOutcome => revisionOutcomeFixture({
   revisionId: "assessment-2", authority: "candidateAnalysis", state, decisions,
-  assessment: { writerTaskId: writer, chapterId: "chapter-2", originalRevisionId: "original-2", draftRevisionId: "draft-2", knowledgeBatchId: "batch-2",
-    outcomes: [{ id: "keep_letter", status: "supported", reason: "正文中保留了密函。", evidence: [{ groupId: "letter", quote: "他藏好密函。", start: 0, end: 6 }] }] },
+  assessment: { uncoveredRequirements: [], writerTaskId: writer, chapterId: "chapter-2", originalRevisionId: "original-2", draftRevisionId: "draft-2", knowledgeBatchId: "batch-2",
+    outcomes: [{ id: "keep_letter", status: "supported", reason: "正文中保留了密函。", evidence: [{ groupId: "letter", quote: "他藏好密函。", start: 0, end: 6 }] },
+      { id: "acceptance-1", status: "supported", reason: "正文承接藏信行动。", evidence: [{ groupId: "letter", quote: "他藏好密函。", start: 0, end: 6 }] }] },
 });
 const decision = (choice: RevisionOutcomeDecision["choice"] = "acceptRevision", id = "decision-1"): RevisionOutcomeDecision => ({
   id, writerTaskId: writer, assessmentRevisionId: "assessment-2", draftRevisionId: "draft-2", knowledgeBatchId: "batch-2", choice, note: "", createdAt: 100,
@@ -62,7 +66,7 @@ const snapshot = () => {
 };
 function render(projectId = "project-a", version = "1:2", disabled = false, writerTaskId = writer) {
   flushSync(() => root.render(<RevisionOutcomeDetails api={api} projectId={projectId} writerTaskId={writerTaskId} chapterId="chapter-2"
-    desiredOutcomes={criteria} version={version} disabled={disabled} onPrepareContinuation={value => preparations.push(value)} />));
+    chapterAcceptance={chapterAcceptance} desiredOutcomes={criteria} version={version} disabled={disabled} onPrepareContinuation={value => preparations.push(value)} />));
 }
 async function load(value: RevisionOutcome | null, action = () => button("重新读取修改结果")!.click()) {
   const n = reads.length; action(); await wait(() => reads.length === n + 1, "Report read missing");
@@ -168,8 +172,8 @@ void (async () => {
     tasks: [], commits: [], modeling: [], reviews: [], factProposals: [], planningReviews: [], workingBaselines: [], continuationIntents: [], chapterPlanBindings: [] };
   const intent = "藏好密函，按原作者目标继续后续章节。";
   const work = { id: "work-1", projectId: project.id, threadId: "thread-1", goal: intent, kind: "conversation", status: "completed", version: 2,
-    deliveryStatus: "ready_for_review", deliveryReport: { evidence: [], pendingActionIds: [], unsettledAttemptIds: [] }, error: null, resumeBlockReason: null, resumeMode: null,
-    steps: [{ id: "step-1", operation: "generateChapter", status: "completed", target: { chapterId: chapter.id, desiredOutcomes: criteria },
+    deliveryStatus: "ready_for_review", deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], evidence: [], pendingActionIds: [], unsettledAttemptIds: [] }, error: null, resumeBlockReason: null, resumeMode: null,
+    steps: [{ id: "step-1", operation: "generateChapter", status: "completed", target: { chapterId: chapter.id, chapterAcceptance, desiredOutcomes: criteria },
       attempts: [{ id: writer, status: "completed", threadId: "thread-1", turnId: "writer-turn", startedAt: 100, completedAt: 101, attemptNumber: 1, error: null }], changes: [], readingProgress: null, sourceTaskId: null }] };
   let currentReport = report("current", [decision()]);
   let delayedRead: ReturnType<typeof deferred<RevisionOutcome | null>> | null = null;
@@ -189,16 +193,18 @@ void (async () => {
     ...Object.fromEntries(["Search", "Entity", "Relation", "Knowledge", "SnapshotKnowledge", "Fact"].map(kind => [`get${kind}Audit`, async () => ({ job: null })])),
   }, "app.runtime");
   const agent = trap({ onEvent: (listener: (event: unknown) => void) => { agentEvent = listener; return () => { agentEvent = null; }; }, onUserInputRequest: () => () => {}, status: async () => ({ configured: true, state: "idle", mode: "novel-agent-engine", error: null }),
-    listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }),
+    listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), readConversation: async (projectId, id) => ({ thread: { projectId, id, name: "当前对话", status: "idle" }, turns: [] }),
     setWorkspaceContext: async () => ({}), listProposedActions: async () => ({ actions: [] }),
     sendPrompt: async (_projectId: string, prompt: string) => {
-      agentEvent?.({ method: "turn/started", params: { threadId: "ordinary-thread", turn: { id: "ordinary-turn" } } });
+      const task = { id: "ordinary-task", projectId: _projectId, threadId: "thread-1", operation: "advisory", target: {} };
+      agentEvent?.({ method: "agent/workflow", params: { workflow: { task } } });
+      agentEvent?.({ method: "turn/started", params: { threadId: "thread-1", turn: { id: "ordinary-turn" } } });
       if (failDiscussion) {
-        agentEvent?.({ method: "turn/completed", params: { threadId: "ordinary-thread", turn: { id: "ordinary-turn", status: "failed", error: { message: "本次讨论失败" } } } });
+        agentEvent?.({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "ordinary-turn", status: "failed", error: { message: "本次讨论失败" } } } });
         throw new Error("本次讨论失败");
       }
-      agentEvent?.({ method: "turn/completed", params: { threadId: "ordinary-thread", turn: { id: "ordinary-turn", status: "completed" } } });
-      return { message: "已核对后续目标，尚未创建新章节。", proposedActions: [], workflow: { ...source }, candidateResults: [] };
+      agentEvent?.({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "ordinary-turn", status: "completed" } } });
+      return { message: "已核对后续目标，尚未创建新章节。", proposedActions: [], workflow: { task }, generationHandoff: { proposalId: "proposal-ordinary", projectId: _projectId, sourceTaskId: task.id, threadId: task.threadId, authorIntent: prompt, targetChapters: 1, expectedRevision: 7, sourceDigest: "source-7", baseSnapshotId: "snapshot-7", state: "proposed" }, candidateResults: [] };
     },
     generateWork: async (...args: unknown[]) => {
       generations.push(args);
@@ -208,13 +214,14 @@ void (async () => {
       return { id: "run-1", status: "completed", revisionPredecessor: args[6] };
     },
   }, "app.agent");
-  window.novelCodex = { app: { onCloseRequested: () => () => {} }, runtime, agent } as NovelCodexApi;
+  window.novelCodex = { multimedia: novelFixtureMedia, app: { onCloseRequested: () => () => {} }, runtime, agent } as NovelCodexApi;
   saveAuthor({ name: "测试作者", email: "author@example.test", passwordSalt: "local-salt", passwordHash: "local-hash" });
   localStorage.setItem("novel-codex-active-project", project.id);
+  localStorage.setItem(`novel-codex:selected-conversation:${JSON.stringify(["author@example.test", project.id])}`, "thread-1");
   flushSync(() => root.render(<App />));
   await wait(() => document.querySelector<HTMLInputElement>('[aria-label="章节标题"]')?.value === chapter.title, "App failed to load the exact chapter editor");
   await wait(() => document.querySelector(".revision-outcome-details"), "App work report missing");
-  document.querySelector<HTMLElement>(".work-task-execution > summary")!.click();
+  check(!document.querySelector(".work-task-execution"), "Revision decision should be beside its result");
   document.querySelector<HTMLElement>(".revision-outcome-details summary")!.click();
   await wait(() => button("准备后继创作"), "App accepted decision entry missing");
   const prepareDialog = async () => { await click("准备后继创作"); await wait(() => document.querySelector(".generation-permit-dialog"), "App did not route preparation to existing dialog"); };
@@ -233,10 +240,13 @@ void (async () => {
   delayedRead = deferred<RevisionOutcome | null>(); await click("确认开始创作");
   await click("返回编辑"); delayedRead.resolve(report("current", [decision()])); await tick(); delayedRead = null;
   equal(generations.length, 0, "Late confirmation after close started generation");
-  await prepareDialog(); document.querySelector<HTMLInputElement>('input[name="generation-target-chapters"][value="2"]')!.click(); await tick();
+  await prepareDialog();
+  const countInput = document.querySelector<HTMLInputElement>('[aria-label="新增章节数"]')!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(countInput, "2");
+  countInput.dispatchEvent(new Event("input", { bubbles: true })); await tick();
   await input("本轮创作目标", "作者在确认框调整后的目标。");
   await click("确认开始创作"); await wait(() => generations.length === 1, "Explicit confirmation did not generate");
-  equal(generations[0], [project.id, "作者在确认框调整后的目标。", 2, 7, "snapshot-7", "source-7", preparations[0]], "App did not append exact predecessor with original bounds");
+  equal(generations[0], [project.id, "作者在确认框调整后的目标。", 2, 7, "snapshot-7", "source-7", preparations[0], null], "App did not append exact predecessor with original bounds");
   await wait(() => !document.querySelector(".generation-permit-dialog"), "Generation confirmation did not close");
   // A normal new run passes a literal null, with the same range and budget dialog.
   const briefNav = [...document.querySelectorAll<HTMLButtonElement>(".sidebar button")].find(node => node.textContent?.includes("作品概况"));
@@ -244,18 +254,18 @@ void (async () => {
   await wait(() => document.querySelector(".planning-workspace-header"), "Brief view missing");
   check(!document.querySelector('[aria-label="规划生成意图"]') && !button("续写后续章节"), "Brief retained an independent generation intent entry");
   await input("创作指令", "普通创作目标。"); await click("发送创作指令");
-  await wait(() => button("用这次对话续写新章节"), "Conversation did not provide a source-bound continuation");
-  check(button("用这次对话续写新章节")!.closest(".conversation-panel") && !document.querySelector(".creative-workspace-view .conversation-continuation-entry"), "Continuation was detached from its current reply");
+  await wait(() => button("批准生成 1 章"), "Conversation did not provide a source-bound continuation");
+  check(button("批准生成 1 章")!.closest(".conversation-panel") && !document.querySelector(".creative-workspace-view .conversation-generation-handoff"), "Continuation was detached from its current reply");
   failDiscussion = true;
   await input("创作指令", "普通创作目标。"); await click("发送创作指令");
   await wait(() => document.body.textContent?.includes("本次讨论失败") && !document.querySelector('[aria-label="停止当前执行"]'), "Repeated discussion failure did not settle");
-  check(!button("用这次对话续写新章节"), "Failed repeat of identical author input reused an old continuation receipt");
+  check(!button("批准生成 1 章"), "Failed repeat of identical author input reused an old continuation receipt");
   failDiscussion = false;
   await input("创作指令", "普通创作目标。"); await click("发送创作指令");
-  await wait(() => button("用这次对话续写新章节"), "Fresh completed discussion did not restore its own continuation");
-  await click("用这次对话续写新章节");
-  await click("确认开始创作"); await wait(() => generations.length === 2, "Ordinary run did not start");
-  equal(generations[1], [project.id, "普通创作目标。", 1, 7, "snapshot-7", "source-7", null], "Ordinary run inherited predecessor");
+  await wait(() => button("批准生成 1 章"), "Fresh completed discussion did not restore its own continuation");
+  await click("批准生成 1 章");
+  await wait(() => generations.length === 2, "Ordinary run did not start");
+  equal(generations[1], [project.id, "普通创作目标。", 1, 7, "snapshot-7", "source-7", null, "proposal-ordinary"], "Ordinary run inherited predecessor");
   clearAuthor(); root.unmount(); check(unexpectedCalls.length === 0, `Unexpected calls: ${unexpectedCalls.join(", ")}`);
   window["testResult"] = { passed: true, snapshots, unexpectedCalls };
 })().catch(error => { window["testResult"] = { passed: false, error: `${error.stack}\nDOM: ${document.body.textContent}` }; });

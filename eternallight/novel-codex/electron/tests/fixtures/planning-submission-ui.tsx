@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../../src/App";
@@ -27,7 +28,7 @@ const calls = { saves: [], sends: [], reads: [], accept: 0, working: 0 }, snapsh
 let stateReads = 0, onEvent, execution, turn = 0, failSave = false, nextRead = null, heldRead, awaitSavedRead = false;
 const baseReads = chapterRuntimeReads(projectFor);
 const forbidden = kind => { calls[kind]++; throw Error(`Unexpected ${kind}`); };
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} },
   runtime: { ...baseReads, status: async () => ({ state: "online", mode: "local", error: null }), listProjects: async () => ({ projects }),
     getState: async id => { stateReads++; return { project: projectFor(id), canon: { characters: [], relationships: [], events: [], locations: [], plotThreads: [], worldRules: [], notes: [] }, narrativeIr: { version: "1", scenes: [], anchors: [] }, novelEdition: { chapters: [] } }; },
@@ -46,7 +47,7 @@ window.novelCodex = {
     acceptReview: async () => forbidden("accept"), setWorkingBaseline: async () => forbidden("working"),
     getHistoricalKnowledgeState: async (id, snapshotId) => ({ projectId: id, snapshotId, entries: [{ modelingBatchId: "batch-source", assertionIndex: 0, sourceObjectId: "draft-source", sourceRevisionId: "draft-revision", confirmationState: "candidate", assertion: { kind: "world", predicate: "信件", value: "尚未打开", evidence: { quote: "他没有拆开那封信。" } } }], coverage: { complete: true, truncatedEntries: false, pendingSources: [] } }),
   },
-  agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: listener => { onEvent = listener; return () => {}; }, onUserInputRequest: () => () => {},
+  agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: listener => { onEvent = listener; return () => {}; }, onUserInputRequest: () => () => {},
     sendPrompt: async (id, prompt, repair, focus) => { const workspace = workspaces.get(id), lastSave = calls.saves.at(-1); check(calls.reads.at(-1)?.id === id && calls.reads.at(-1)?.revision === workspace.revision && (!lastSave || calls.reads.at(-1)?.candidates[lastSave.kind] === workspace.artifacts[lastSave.kind].candidate.id), "Model started without the fresh saved source"); calls.sends.push({ id, prompt, repair, focus: clone(focus), revision: workspace.revision }); execution = deferred(); turn++; onEvent({ method: "thread/started", params: { thread: { id: "planning-thread" } } }); onEvent({ method: "turn/started", params: { threadId: "planning-thread", turn: { id: `turn-${turn}` } } }); return execution.promise; },
   },
 };

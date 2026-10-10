@@ -1,4 +1,7 @@
 .commitment-panel { margin: 18px 0; border: 1px solid var(--nc-border); border-radius: 14px; background: var(--nc-surface); color: var(--nc-ink); }
+.commitment-management-dialog { box-sizing: border-box; width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; padding: 20px; border: 1px solid var(--nc-border); border-radius: 16px; background: var(--nc-surface); color: var(--nc-ink); }
+.commitment-management-dialog::backdrop { background: rgb(0 0 0 / 24%); }
+.commitment-management-dialog > p { color: var(--nc-ink-soft); font-size: 13px; }
 .commitment-panel summary { padding: 14px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
 .commitment-panel summary:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; border-radius: 14px; }
 .commitment-panel-body { display: grid; gap: 12px; padding: 0 16px 16px; }

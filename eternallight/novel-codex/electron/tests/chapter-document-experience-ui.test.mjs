@@ -9,22 +9,24 @@ import test from "node:test";
 import { build } from "esbuild";
 import electron from "electron";
 
-test("chapter editing and publication preserve scene identity, bookmarks and preview recovery", async t => {
+test("chapter editing and publication preserve contextual scene controls, bookmarks and saved-result recovery", async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "novel-chapter-experience-"));
   try {
     await build({ entryPoints: [fileURLToPath(new URL("./fixtures/chapter-document-experience-ui.tsx", import.meta.url))], outfile: path.join(directory, "test.js"), bundle: true, platform: "browser", jsx: "automatic" });
-    await writeFile(path.join(directory, "index.html"), '<html><head><link rel="stylesheet" href="test.css"></head><body><div id="root"></div><script src="test.js"></script></body></html>');
+    await writeFile(path.join(directory, "index.html"), '<html><head><meta charset="utf-8"><link rel="stylesheet" href="test.css"></head><body><div id="root"></div><script src="test.js"></script></body></html>');
     let output;
     try {
       output = await promisify(execFile)(electron, [fileURLToPath(new URL("./fixtures/creative-workspace-ui-main.cjs", import.meta.url)), path.join(directory, "index.html")], { timeout: 35000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "" } });
     } catch (error) { throw new Error(`${error.stdout ?? ""}\n${error.stderr ?? ""}`, { cause: error }); }
     const result = JSON.parse(output.stdout.trim());
     assert.equal(result.passed, true, result.error);
-    assert.equal(result.themeChecks.length, 19);
+    assert.equal(result.themeChecks.length, 15);
+    assert.deepEqual(result.settingsChecks.map(check => check.width), [980, 330]);
+    assert.ok(result.settingsChecks.every(check => check.contained && check.escapeFocus && check.outsideEditorFocus), "Chapter settings must fit wide and wrapped narrow toolbars and preserve focus on close");
     assert.ok(result.themeChecks.every(check => check.contrast >= 4.5), "Chapter text and enabled buttons must remain readable");
     const darkText = result.themeChecks.find(check => check.mode === "dark" && check.selector === ".story-reading-text p");
     const lightText = result.themeChecks.find(check => check.mode === "light" && check.selector === ".story-reading-text p");
     assert.notEqual(darkText.foreground, lightText.foreground, "Chapter text must follow the active theme");
-    t.assert.snapshot({ dirtyRoundTrip: result.dirtyRoundTrip, generationPhaseChecks: result.generationPhaseChecks, publication: result.publicationStates, diff: result.initialDiff, metadata: result.metadataDiffSnapshot, adoption: result.adoptionHints, reviewProgress: result.reviewProgress, generationStatuses: result.generationStatuses, journey: result.candidateJourney, planning: result.planningAuthority, bookmark: result.sceneBookmark, layout: result.layoutChecks });
+    t.assert.snapshot({ dirtyRoundTrip: result.dirtyRoundTrip, generationPhaseChecks: result.generationPhaseChecks, publication: result.publicationStates, diff: result.initialDiff, metadata: result.metadataDiffSnapshot, adoption: result.adoptionHints, reviewProgress: result.reviewProgress, journey: result.candidateJourney, planning: result.planningAuthority, bookmark: result.sceneBookmark, layout: result.layoutChecks });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

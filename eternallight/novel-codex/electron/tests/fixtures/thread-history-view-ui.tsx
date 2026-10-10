@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import "../../../src/styles.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -17,14 +18,14 @@ const reads = [], pending = [];
 const detail = (projectId, id) => ({ thread: thread(id), turns: [{ id: `${id}-turn`, status: "inProgress", startedAt: null, completedAt: null,
   items: [{ id: `${id}-public`, type: "agentMessage", phase: "commentary", text: `${projectId}:${id}:公开记录` }] }] });
 const forbiddenCall = kind => async () => { forbidden[kind]++; throw Error(`unexpected ${kind}`); };
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} },
   runtime: { ...chapterRuntimeReads(id => projects.find(project => project.id === id)),
     status: async () => ({ state: "online", mode: "local", error: null }), listProjects: async () => ({ projects }),
     getState: async id => runtimeState(projects.find(project => project.id === id)), saveBrief: forbiddenCall("write") },
   agent: { status: async () => ({ configured, state: configured ? "ready" : "disconnected", mode: "novel-agent-engine", error: null }), listConnections: async () => ({ connections: [] }),
     recoveryReport: async () => [], listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {},
-    listThreads: async (_id, archived) => ({ threads: [thread(archived ? "archived-writer" : "writer-A"), thread("writer-B")], nextCursor: null }),
+    listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async (_id, archived) => ({ threads: [thread(archived ? "archived-writer" : "writer-A"), thread("writer-B")], nextCursor: null }),
     onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
     resumeThread: forbiddenCall("resume"), unarchiveThread: forbiddenCall("unarchive"),
     readThread: async (projectId, id) => {

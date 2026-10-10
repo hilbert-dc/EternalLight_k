@@ -67,7 +67,7 @@
     "title": "确认本轮自动创作",
     "intent": "藏好密函，按原作者目标继续后续章节。",
     "limits": [],
-    "scope": [{ "value": "1", "checked": true }, { "value": "2", "checked": false }, { "value": "3", "checked": false }],
+    "scope": [],
     "source": "后继创作来源：写作尝试 task-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa · 判断 assessment-2 · 作者决策 decision-1"
   }
 }

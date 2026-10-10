@@ -36,7 +36,7 @@ exports[`author replan UI preserves preview authority and survives rejected subm
   "range": "currentChapter",
   "description": [
     "选择需要重建的范围，补充这一轮的创作要求。",
-    "以作者修改后的当前稿为依据重写本章，由创作助手安排必要检查；前文与当前规划绑定保留。",
+    "以当前已保存稿为依据重写本章；尚无正文时重新起草，由创作助手安排必要检查。",
     "已执行 2 次任务，后续步骤由创作助手按需要安排。已完成 0 章，目标共 1 章。",
     "模型用量：已请求 7 次 · 已使用 12,000 token · 未确认用量 2,000 token。"
   ]

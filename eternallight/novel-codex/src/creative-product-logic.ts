@@ -16,14 +16,6 @@ export function rebaseEditorBaseline<T extends EditorBaseline>(session: T, next:
   return { ...session, ...next };
 }
 
-export function parseFactValue(source: string): unknown {
-  try {
-    return JSON.parse(source);
-  } catch {
-    throw new Error("事实值必须是有效 JSON，例如 true、false、\"秘密\" 或 3");
-  }
-}
-
 export function formatFactValue(value: unknown): string {
   const serialized = JSON.stringify(value);
   return serialized === undefined ? String(value) : serialized;

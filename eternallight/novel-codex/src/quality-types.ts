@@ -1,4 +1,4 @@
-export type QualityKind = "preference" | "goal" | "strength" | "observation" | "trial";
+export type QualityKind = "preference" | "goal" | "strength" | "observation" | "trial" | "method";
 export interface QualityNote { kind: QualityKind; scope: "work" | "task"; text: string; evidence: { revisionId: string; quote: string; role: "current" | "reference" }[]; question: string | null; body: string | null; relatesTo: string | null; verdict: "supported" | "unmet" | "insufficientEvidence" | null; }
 export interface QualityRecord { id: string; ordinal: number; note: QualityNote; status: "proposed" | "confirmed" | "withdrawn"; sourceCurrent: boolean; authorKind: "model" | "author"; taskId: string | null; decisions: { version: number; status: string; reason: string }[]; }
 export interface QualityPacketSummary { id: string; kind: "reading" | "comparison"; labels: string[]; taskId: string | null; status: string; sourceCurrent: boolean; hasReport: boolean; feedbackCount: number; }

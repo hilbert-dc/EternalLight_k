@@ -109,6 +109,25 @@ export function applyConversationExecutionEvent(run: AgentRun, event: unknown, o
   return startExecution(run, task.id, task.threadId, false);
 }
 
+/** Passive display attachment for Native-owned background continuation, never a send/retry owner. */
+export function applyBackgroundExecutionEvent(run: AgentRun, event: unknown, works: WorkTaskSummary[], projectId: string, selectedThreadId: string | null) {
+  const message = record(event), workflow = record(record(message?.params)?.workflow);
+  const binding = record(workflow?.executionBinding), task = record(workflow?.task);
+  if (message?.method !== "agent/workflow" || !selectedThreadId || task?.projectId !== projectId
+    || binding?.rootThreadId !== selectedThreadId || run.taskId === task?.id
+    || !["idle", "completed", "error"].includes(run.state)) return null;
+  const matches = works.filter(work => work.projectId === projectId && work.threadId === selectedThreadId
+    && work.id === binding?.workTaskId && work.status === "running");
+  if (matches.length !== 1) return null;
+  const owner = createRecoveredExecutionOwner(matches[0]);
+  if (!owner || !id(task?.id)) return null;
+  // A fresh snapshot may already contain this attempt. It has not yet been
+  // displayed; removing it from the display dedupe set grants no authority.
+  owner.parents.delete(task.id); owner.workers.delete(task.id);
+  const next = applyConversationExecutionEvent(run, event, owner);
+  return next === run ? null : { run: next, rootThreadId: selectedThreadId };
+}
+
 function startExecution(run: AgentRun, taskId: string, threadId: string, coordinating: boolean): AgentRun {
   const previous = summarizeAgentRun(run);
   return { ...createAgentRun(run.prompt, previous ? [previous, ...run.history] : run.history),

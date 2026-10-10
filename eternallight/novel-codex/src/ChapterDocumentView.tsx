@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { newDraftScene } from "./creative-product-logic";
+import { DirectoryMenu, type DirectoryMenuAnchor } from "./DirectoryMenu";
 import type { DraftRevision } from "./types";
+import "./work-directory.css";
 import "./chapter-document.css";
 
 type Scene = DraftRevision["sceneGroups"][number];
@@ -85,7 +87,7 @@ function ChapterSceneDiff({ accepted, scenes, title, sourcePlanRefs }: { accepte
   </section>;
 }
 
-export function ChapterDocumentView({ scope, scenes, accepted, title, sourcePlanRefs, onTitleChange, lockedIds, disabled, onChange, onActiveScene, onLocksChange, tools, toolsDirty, sceneDiscussion, emptyWriting }: {
+export function ChapterDocumentView({ scope, scenes, accepted, title, sourcePlanRefs, onTitleChange, lockedIds, disabled, onChange, onActiveScene, onLocksChange, emptyWriting }: {
   scope: string;
   scenes: Scene[];
   accepted: DraftRevision | null;
@@ -96,14 +98,15 @@ export function ChapterDocumentView({ scope, scenes, accepted, title, sourcePlan
   disabled: boolean;
   dirty: boolean;
   onChange: (scenes: Scene[]) => void;
-  onActiveScene: (id: string) => void;
+  onActiveScene?: (id: string) => void;
   onLocksChange?: (ids: string[]) => void;
-  tools?: ReactNode;
-  toolsDirty?: boolean;
   emptyWriting?: { disabled: boolean; onPrepare: () => void };
-  sceneDiscussion?: { disabled: boolean; notice: string | null; onPrepare: (sceneGroupId: string) => void };
 }) {
   const [versionsScope, setVersionsScope] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ sceneKey: string; anchor: DirectoryMenuAnchor } | null>(null);
+  const menuId = useId();
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const addButton = useRef<HTMLButtonElement>(null);
   const editors = useRef(new Map<string, HTMLTextAreaElement>());
   const restoredScope = useRef<string | null>(null);
   const activeScope = useRef(scope);
@@ -122,9 +125,10 @@ export function ChapterDocumentView({ scope, scenes, accepted, title, sourcePlan
     element.setSelectionRange(bookmark.start, bookmark.end, bookmark.direction);
     const panel = element.closest<HTMLElement>(".main-panel");
     if (panel) panel.scrollTop += element.getBoundingClientRect().top - panel.getBoundingClientRect().top - bookmark.viewportOffset;
-    onActiveScene(scene.id);
+    onActiveScene?.(scene.id);
   };
-  useEffect(() => { setVersionsScope(null); }, [scope]);
+  useEffect(() => { setVersionsScope(null); setMenu(null); }, [scope]);
+  useEffect(() => { if (disabled) setMenu(null); }, [disabled]);
   useEffect(() => {
     const panel = editors.current.values().next().value?.closest<HTMLElement>(".main-panel");
     if (!panel) return;
@@ -151,52 +155,55 @@ export function ChapterDocumentView({ scope, scenes, accepted, title, sourcePlan
     return () => cancelAnimationFrame(frame);
   }, [scope, scenes, onActiveScene]);
   const focusScene = (scene: Scene | undefined) => requestAnimationFrame(() => {
-    if (scene && activeScope.current === scope) editors.current.get(sceneKey(scene))?.focus({ preventScroll: true });
+    if (activeScope.current !== scope) return;
+    if (scene) editors.current.get(sceneKey(scene))?.focus({ preventScroll: true });
+    else addButton.current?.focus({ preventScroll: true });
   });
   const isLocked = (scene: Scene) => lockedIds.includes(scene.id);
   const move = (index: number, destination: number) => {
+    if (disabled || !scenes[index] || !scenes[destination] || isLocked(scenes[index]) || isLocked(scenes[destination])) return;
     const next = [...scenes];
     [next[index], next[destination]] = [next[destination], next[index]];
     onChange(next);
     focusScene(scenes[index]);
   };
+  const menuIndex = menu ? scenes.findIndex(scene => sceneKey(scene) === menu.sceneKey) : -1;
+  const menuScene = scenes[menuIndex];
   return <section className="chapter-document">
     <fieldset key={scope} className="draft-editor-wrap" data-chapter-draft-anchor disabled={disabled}>
       <legend className="sr-only">章节正文</legend>
       <label className="chapter-title"><span className="sr-only">章节标题</span><input aria-label="章节标题" value={title} disabled={disabled} onChange={event => onTitleChange(event.target.value)} placeholder="填写这一章的标题" /></label>
       {emptyWriting && <div className="chapter-empty-writing"><button type="button" aria-label="让 AI 起草本章" className="chapter-writing-entry text-button" disabled={disabled || emptyWriting.disabled} onClick={emptyWriting.onPrepare}>让 AI 起草</button><span>也可以直接开始写作。</span></div>}
       {scenes.map((scene, index) => <section key={sceneKey(scene)} data-scene-id={scene.id}>
-        <label><strong className={scenes.length === 1 && !isLocked(scene) ? "sr-only" : "chapter-scene-label"}>{scenes.length === 1 ? "正文" : `场景 ${index + 1}`}{isLocked(scene) ? " · 已锁定" : ""}</strong>
+        <div className="chapter-scene-heading"><strong className={scenes.length === 1 && !isLocked(scene) ? "sr-only" : "chapter-scene-label"}>{scenes.length === 1 ? "正文" : `场景 ${index + 1}`}{isLocked(scene) ? " · 已保护" : ""}</strong>
+          <button type="button" className="chapter-scene-menu-trigger" aria-label={`场景 ${index + 1} 操作`} aria-haspopup="menu" aria-expanded={Boolean(menu && menu.sceneKey === sceneKey(scene))} aria-controls={menu && menu.sceneKey === sceneKey(scene) ? menuId : undefined} disabled={disabled} onClick={event => {
+            if (menu?.sceneKey === sceneKey(scene)) { closeMenu(); return; }
+            const trigger = event.currentTarget;
+            const box = trigger.getBoundingClientRect();
+            setMenu({ sceneKey: sceneKey(scene), anchor: { trigger, x: box.right, y: box.bottom + 4 } });
+          }}><span aria-hidden="true">⋯</span></button>
+        </div>
+        <label><span className="sr-only">场景 {index + 1} 正文</span>
           <textarea ref={element => { if (element) editors.current.set(sceneKey(scene), element); else editors.current.delete(sceneKey(scene)); }} className="draft-editor" aria-label={`场景 ${index + 1} 正文`} value={scene.body} disabled={disabled} readOnly={isLocked(scene)}
-            onFocus={event => { remember(scene, event.currentTarget); onActiveScene(scene.id); }}
+            onFocus={event => { remember(scene, event.currentTarget); onActiveScene?.(scene.id); }}
             onSelect={event => remember(scene, event.currentTarget)} onScroll={event => remember(scene, event.currentTarget)} onBlur={event => remember(scene, event.currentTarget)}
             onChange={event => { if (document.activeElement === event.currentTarget) remember(scene, event.currentTarget); onChange(scenes.map(item => item.id === scene.id ? { ...item, body: event.target.value } : item)); }} placeholder="从一个场景开始……" />
         </label>
       </section>)}
+      <button ref={addButton} type="button" className="draft-add-scene" onClick={() => { const scene = newDraftScene(); onChange([...scenes, scene]); focusScene(scene); }}>＋ 添加场景</button>
     </fieldset>
-    <details key={`tools:${scope}`} className="chapter-manual-tools" onToggle={event => {
-      if (!event.currentTarget.open && event.currentTarget.contains(document.activeElement)) {
-        event.currentTarget.querySelector<HTMLElement>(":scope > summary")?.focus({ preventScroll: true });
-      }
-    }}><summary>手动工具{toolsDirty ? " · 有未保存修改" : ""}</summary>
-      <p>也可以直接在对话中说明要分析或调整什么。这里保留精确编辑与无模型时使用的工具。</p>
-      <fieldset className="chapter-scene-tools" disabled={disabled}><legend className="sr-only">场景与保护</legend>
-      <details key={`scenes:${scope}`} className="chapter-scene-management"><summary>场景与保护 · {scenes.length}</summary>
-      {scenes.map((scene, index) => <div key={sceneKey(scene)}><strong>场景 {index + 1}{isLocked(scene) ? " · 已锁定" : ""}</strong>
-        <div className="draft-scene-actions">
-          {onLocksChange && <label><input type="checkbox" aria-label={`保护场景 ${index + 1}`} checked={isLocked(scene)} onChange={event => onLocksChange(event.target.checked ? [...new Set([...lockedIds, scene.id])] : lockedIds.filter(id => id !== scene.id))} />保护此段</label>}
-          {sceneDiscussion && <button type="button" aria-label={`讨论场景 ${index + 1}`} disabled={sceneDiscussion.disabled} onClick={() => sceneDiscussion.onPrepare(scene.id)}>讨论这个场景</button>}
-          <button type="button" disabled={isLocked(scene) || index === 0 || isLocked(scenes[index - 1])} onClick={() => move(index, index - 1)}>上移场景 {index + 1}</button>
-          <button type="button" disabled={isLocked(scene) || index === scenes.length - 1 || isLocked(scenes[index + 1])} onClick={() => move(index, index + 1)}>下移场景 {index + 1}</button>
-          <button type="button" disabled={scenes.slice(index).some(isLocked)} onClick={() => { onChange(scenes.filter(item => item.id !== scene.id)); focusScene(scenes[index - 1] ?? scenes[index + 1]); }}>删除场景 {index + 1}</button>
-        </div>
-      </div>)}
-      {sceneDiscussion?.notice && <p className="scene-discussion-notice" role="status">{sceneDiscussion.notice}</p>}
-      <button type="button" className="draft-add-scene" onClick={() => { const scene = newDraftScene(); onChange([...scenes, scene]); focusScene(scene); }}>＋ 添加场景</button>
-      </details>
-      </fieldset>
-      {tools}
-    </details>
+    {!disabled && menu && menuScene && <DirectoryMenu id={menuId} anchor={menu.anchor} onClose={closeMenu} label={`场景 ${menuIndex + 1} 操作`} items={[
+      ...(onLocksChange ? [{ label: isLocked(menuScene) ? "取消保护此段" : "保护此段", ariaLabel: `${isLocked(menuScene) ? "取消保护" : "保护"}场景 ${menuIndex + 1}`, run: () => {
+        onLocksChange(isLocked(menuScene) ? lockedIds.filter(id => id !== menuScene.id) : [...new Set([...lockedIds, menuScene.id])]);
+        focusScene(menuScene);
+      } }] : []),
+      { label: `上移场景 ${menuIndex + 1}`, disabled: isLocked(menuScene) || menuIndex === 0 || isLocked(scenes[menuIndex - 1]), run: () => move(menuIndex, menuIndex - 1) },
+      { label: `下移场景 ${menuIndex + 1}`, disabled: isLocked(menuScene) || menuIndex === scenes.length - 1 || isLocked(scenes[menuIndex + 1]), run: () => move(menuIndex, menuIndex + 1) },
+      { label: `删除场景 ${menuIndex + 1}`, danger: true, disabled: scenes.slice(menuIndex).some(isLocked), run: () => {
+        onChange(scenes.filter(item => item.id !== menuScene.id));
+        focusScene(scenes[menuIndex - 1] ?? scenes[menuIndex + 1]);
+      } },
+    ]} />}
     {accepted?.sceneGroups.some(scene => scene.body.trim()) && <details key={`versions:${scope}`} className="chapter-versions" open={versionsScope === scope} onToggle={event => {
       if (activeScope.current !== scope) return;
       const opened = event.currentTarget.open;

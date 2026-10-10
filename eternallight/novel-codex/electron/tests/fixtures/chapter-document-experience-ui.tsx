@@ -1,3 +1,4 @@
+import { emptyCreationIssueSummary } from "../helpers/creation-issues";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { CreativeWorkspaceView, revealControl } from "./creative-workspace-harness";
@@ -8,9 +9,17 @@ window.addEventListener("error", event => { window.testResult = { passed: false,
 const tick = () => new Promise(resolve => setTimeout(resolve, 35));
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 const until = async (predicate, message) => { const deadline = performance.now() + 2000; while (!predicate() && performance.now() < deadline) await tick(); check(predicate(), message); };
+const viewport = async width => { window.testViewport = { width, height: 1000 }; await until(() => window.testViewport === null && innerWidth === width && innerHeight === 1000, `Viewport did not settle at ${width}px`); await tick(); await tick(); };
 const button = text => [...document.querySelectorAll("button")].find(item => item.textContent === text || item.getAttribute("aria-label") === text);
 const versions = async () => { const summary = document.querySelector(".chapter-versions summary"); check(summary, "Version details missing"); summary.focus({ preventScroll: true }); summary.click(); await tick(); await tick(); };
-const click = async text => { const item = text === "查看修改记录" ? [...document.querySelectorAll<HTMLButtonElement>("button")].find(item => item.getAttribute("aria-label") === text && item.checkVisibility()) : button(text); check(item && !item.matches(":disabled"), `Unavailable: ${text}`); await revealControl(item); item.click(); await tick(); await tick(); };
+const click = async text => {
+  const sceneAction = /^(?:上移场景|下移场景|删除场景|保护场景|取消保护场景) (\d+)$/.exec(text);
+  if (sceneAction && !document.querySelector(`[role="menu"][aria-label="场景 ${sceneAction[1]} 操作"]`)) {
+    const trigger = document.querySelector<HTMLButtonElement>(`button[aria-label="场景 ${sceneAction[1]} 操作"]`);
+    check(trigger && !trigger.matches(":disabled"), `Unavailable scene menu: ${text}`); await revealControl(trigger); trigger.scrollIntoView({ block: "nearest" }); await tick(); trigger.focus({ preventScroll: true }); trigger.click(); await tick();
+  }
+  const item = text === "查看修改记录" ? [...document.querySelectorAll<HTMLButtonElement>("button")].find(item => item.getAttribute("aria-label") === text && item.checkVisibility()) : button(text); check(item && !item.matches(":disabled"), `Unavailable: ${text}`); await revealControl(item); item.click(); await tick(); await tick();
+};
 const input = async (label, value) => {
   const item = document.querySelector(`textarea[aria-label="${label}"]`);
   check(item && !item.matches(":disabled"), `Unavailable: ${label}`);
@@ -32,12 +41,11 @@ let workTasks = [];
 const generationPhaseChecks = [];
 let reportedDirty = false;
 const dirtyRoundTrip = [];
-let generationCalls = 0, acceptanceCalls = 0, reviewCalls = 0, saveCalls = 0, previewCalls = [], previewFailure = false, workspaceReadFailure = false, deferPreview = false, releasePreview, latestReviewSelections;
+let generationCalls = 0, acceptanceCalls = 0, reviewCalls = 0, saveCalls = 0, workspaceReadFailure = false, latestReviewSelections;
 let metadataDiffSnapshot;
 const planningVersionRequests = [];
 const adoptionHints = [];
 const reviewProgress = [];
-const generationStatuses = [];
 const progress = () => document.querySelector('[aria-label="发布检查进展"]').textContent;
 const adoptionHint = () => document.querySelector(".review-panel > p:not([role])").textContent;
 const themeChecks = [];
@@ -72,13 +80,6 @@ const api = { runtime: {
   listGenerationRuns: async () => ({ runs: [] }),
   listWorkTasks: async () => ({ tasks: structuredClone(workTasks), nextCursor: null, activeCount: workTasks.length }),
   ...Object.fromEntries(["Search", "Entity", "Relation", "Knowledge", "SnapshotKnowledge", "Fact"].map(name => [`get${name}Audit`, async () => ({ job: null })])),
-  getWriterPreview: async (projectId, projectRevision, readingChapter, sceneOrder, povCharacterId, storyTime) => {
-    previewCalls.push({ readingChapter, sceneOrder });
-    const response = { purpose: "writer", taskId: null, snapshotId: `preview-chapter-${readingChapter}`, contentHash: `hash-${readingChapter}`, target: { projectId, projectRevision, position: { readingChapter, sceneOrder, povCharacterId, storyTime } }, plannedEffects: [], relevantText: [], coverage: { complete: true, missingScope: [], truncationReasons: [], scannedScope: { factsIncluded: 0 } }, budgetsUsed: { byteSize: 500, byteLimit: 60000 } };
-    if (deferPreview) await new Promise(resolve => { releasePreview = resolve; });
-    if (previewFailure) throw new Error("预览连接中断");
-    return response;
-  },
   saveDraftCheckpoint: async (_, payload) => {
     saveCalls++;
     workspace.revision++;
@@ -122,6 +123,25 @@ const nearOffset = (element, expected) => Math.abs(offset(element) - expected) <
 const readAt = async (element, position) => { check(element.isConnected, "Reading target is detached"); main.scrollTop += offset(element) - position; main.dispatchEvent(new Event("scroll")); await tick(); return offset(element); };
 const layoutChecks = [];
 const readingChecks = [];
+const settingsChecks = [];
+const checkChapterSettings = async (theme, width) => {
+  main.style.width = `${width}px`; document.documentElement.dataset.theme = theme;
+  await viewport(Math.max(width, 330));
+  main.scrollTop = 0; await tick();
+  const settings = document.querySelector<HTMLDetailsElement>('.chapter-settings');
+  const summary = settings.querySelector<HTMLElement>(':scope > summary');
+  summary.focus({ preventScroll: true }); summary.click(); await tick(); await tick();
+  const bounds = settings.querySelector('.chapter-settings-content').getBoundingClientRect(), panel = main.getBoundingClientRect();
+  check(settings.open && bounds.left >= panel.left - 1 && bounds.right <= panel.right + 1 && bounds.top >= document.querySelector('.chapter-page-toolbar').getBoundingClientRect().bottom - 1 && main.scrollWidth <= main.clientWidth + 1, `${theme}/${width}: chapter settings escaped its toolbar or produced horizontal overflow`);
+  window.testScreenshot = `chapter-settings-${theme}-${width}`; await new Promise(resolve => setTimeout(resolve, 130));
+  settings.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await tick();
+  check(!settings.open && document.activeElement === summary, `${theme}/${width}: closing settings with Esc lost trigger focus`);
+  summary.click(); await tick();
+  const title = document.querySelector<HTMLInputElement>('[aria-label="章节标题"]');
+  title.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); title.focus({ preventScroll: true }); await tick(); await tick();
+  check(!settings.open && document.activeElement === title, `${theme}/${width}: outside click did not close settings or stole editor focus`);
+  settingsChecks.push({ theme, width, contained: true, escapeFocus: true, outsideEditorFocus: true });
+};
 const checkLayout = async (theme, width) => {
   document.documentElement.dataset.theme = theme; main.style.width = `${width}px`; await tick();
   const editors = [...document.querySelectorAll(".chapter-document textarea")];
@@ -144,6 +164,8 @@ const checkLayout = async (theme, width) => {
 
 async function run() {
   await render();
+  await checkChapterSettings("light", 980); await checkChapterSettings("dark", 330);
+  main.style.width = "980px"; document.documentElement.dataset.theme = "light"; await viewport(1400);
   for (const theme of ["light", "dark"]) for (const width of [980, 540]) await checkLayout(theme, width);
   main.style.width = "980px"; document.documentElement.dataset.theme = "light"; main.scrollTop = 0; await tick();
   const expectDirty = (label, expected) => { check(reportedDirty === expected, `${label}: incorrect unsaved state`); dirtyRoundTrip.push({ label, dirty: reportedDirty }); };
@@ -155,16 +177,29 @@ async function run() {
   await setTitle("改写标题"); expectDirty("title changed", true);
   await input("场景 1 正文", "改写第一场"); await input("场景 1 正文", candidate.sceneGroups[0].body); expectDirty("prose restored with changed title", true);
   await setTitle(candidate.title); expectDirty("title restored", false);
-  const baselineProtection = document.querySelector(".chapter-scene-tools input"); await revealControl(baselineProtection); baselineProtection.click(); await tick(); expectDirty("protection changed", true);
+  check(!document.querySelector(".chapter-manual-tools,.writer-runtime-preview,.fact-proposal-form") && !button("讨论这个场景"), "Chapter retained a manual toolbox or duplicated scene discussion");
+  await click("场景 1 操作");
+  const sceneMenu = document.querySelector('[role="menu"][aria-label="场景 1 操作"]');
+  check(sceneMenu?.parentElement === document.body && sceneMenu.contains(document.activeElement) && button("上移场景 1").disabled, "Scene controls were not reachable through the focused contextual menu");
+  window.testScreenshot = "chapter-scene-menu-light"; await new Promise(resolve => setTimeout(resolve, 130));
+  sceneMenu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await tick();
+  check(!document.querySelector('[role="menu"]') && document.activeElement?.getAttribute("aria-label") === "场景 1 操作", "Esc did not close the scene menu and return focus");
+  main.style.width = "540px"; document.documentElement.dataset.theme = "dark"; await viewport(540); await click("场景 1 操作");
+  const narrowMenu = document.querySelector('[role="menu"][aria-label="场景 1 操作"]');
+  check(narrowMenu.getBoundingClientRect().right <= innerWidth && narrowMenu.scrollWidth <= narrowMenu.clientWidth + 1, "Scene menu overflowed the narrow viewport");
+  window.testScreenshot = "chapter-scene-menu-dark-narrow"; await new Promise(resolve => setTimeout(resolve, 130));
+  narrowMenu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await tick();
+  main.style.width = "980px"; document.documentElement.dataset.theme = "light"; await viewport(1400);
+  await click("保护场景 1"); expectDirty("protection changed", true);
   await input("场景 2 正文", "改写第二场"); await input("场景 2 正文", candidate.sceneGroups[1].body); expectDirty("prose restored with protection", true);
-  baselineProtection.click(); await tick(); expectDirty("protection restored", false);
+  await click("取消保护场景 1"); expectDirty("protection restored", false);
   await click("下移场景 1"); expectDirty("scene order changed", true);
   await click("上移场景 2"); expectDirty("scene order restored", false);
   check(saveCalls === 0 && generationCalls === 0 && acceptanceCalls === 0, "Restoring baseline performed a write or model call");
   workspace.modeling = [{ objectId: `draft-${chapter.id}`, sourceRevisionId: candidate.id, status: "model_pending", batchId: null, entities: [], assertions: [], confirmationState: "candidate" }];
   await render({ agentRunning: false, refreshToken: 99 });
   check(!button("继续分析本章") && !document.querySelector(".chapter-analysis-status") && !document.body.textContent.includes("故事设定分析尚未完成"), "An unmodeled saved revision was presented as an author obligation");
-  workTasks = [{ status: "running", deliveryReport: { unsettledAttemptIds: [] }, steps: [{ operation: "modelKnowledge", status: "running", target: { chapterId: chapter.id } }] }];
+  workTasks = [{ status: "running", deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], unsettledAttemptIds: [] }, steps: [{ operation: "modelKnowledge", status: "running", target: { chapterId: chapter.id } }] }];
   await render({ agentRunning: true, refreshToken: 100 });
   await until(() => document.querySelector('.draft-main-column > small[role="status"]')?.textContent.includes("正文已保存，正在分析…"), "Current chapter analysis was labelled as generation");
   const analysisStatus = document.querySelector(".chapter-analysis-status")?.textContent;
@@ -196,7 +231,7 @@ async function run() {
   check(JSON.stringify(initialDiff) === JSON.stringify([{ id: "scene-a", kind: "修改" }, { id: "scene-d", kind: "新增" }, { id: "scene-b", kind: "删除" }]), "Scene identity diff treated regenerated IDs as replacements");
   await click("返回正文");
   const titleInput = document.querySelector('[aria-label="章节标题"]');
-  await checkReadability("dark", [".chapter-title input", ".draft-editor", ".draft-scene-actions button:not(:disabled)", ".draft-add-scene"]); document.documentElement.dataset.theme = "light";
+  await checkReadability("dark", [".chapter-title input", ".draft-editor", ".chapter-scene-menu-trigger:not(:disabled)", ".draft-add-scene"]); document.documentElement.dataset.theme = "light";
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(titleInput, "作者调整的工作标题"); titleInput.dispatchEvent(new Event("input", { bubbles: true })); await tick();
   await input("场景 1 正文", "作者未保存改动");
   const third = document.querySelector('[data-scene-id="new-c"] textarea');
@@ -252,16 +287,8 @@ async function run() {
   check(!button("更新故事设定") && [...document.querySelectorAll(".creative-alert.warning")].some(item => item.textContent.includes("来源与当前正文不同")), "Stale source was exposed as current publication knowledge");
   workspace.modeling = [];
 
-  previewFailure = true; workspace.revision++; await render({ refreshToken: 4 });
-  check(document.querySelector(".writer-preview-state").textContent.includes("预览读取失败") && !document.querySelector(".writer-preview-state").textContent.includes("正在读取"), "Preview failure looked like indefinite loading");
-  await checkReadability("dark", [".writer-preview-range button[aria-pressed='true']", ".writer-preview-range button[aria-pressed='false']", ".writer-preview-state [role='alert']", ".writer-preview-state [role='alert'] button"]);
-  document.documentElement.dataset.theme = "light";
-  previewFailure = false; const beforeRetry = { saveCalls, generationCalls, acceptanceCalls }; await click("重试读取预览");
-  check(document.querySelector(".writer-preview-state").textContent.includes("预览已更新") && JSON.stringify(beforeRetry) === JSON.stringify({ saveCalls, generationCalls, acceptanceCalls }), "Preview retry was not read-only");
-  document.querySelector('[data-scene-id="new-c"] textarea').focus(); await tick(); await click("当前场景预览");
-  check(previewCalls.at(-1).sceneOrder === 2 && document.querySelector(".writer-preview-state").textContent.includes("截至场景 2"), "Current scene preview silently requested full chapter");
+  workspace.revision++; await render({ refreshToken: 4 });
   await input("场景 1 正文", "又一次本地修改");
-  check(document.querySelector(".writer-preview-state").textContent.includes("预览已过期"), "Unsaved work presented saved preview as current");
   await click("保存");
   const beforeManualPublish = generationCalls;
   await click("发布章节");
@@ -271,12 +298,9 @@ async function run() {
   const lastSceneEditor = document.querySelector('[data-scene-id="new-c"] textarea');
   lastSceneEditor.focus({ preventScroll: true }); lastSceneEditor.setSelectionRange(43, 51, "backward"); await readAt(lastSceneEditor, readingOffset);
   readingChecks.push({ phase: "before chapter switch", offset: offset(lastSceneEditor) });
-  deferPreview = true; workspace.revision++; await render({ refreshToken: 5 });
-  check(document.querySelector(".writer-preview-state").textContent.includes("正在读取"), "Pending preview had no loading state");
-  const releaseOld = releasePreview; deferPreview = false;
+  workspace.revision++; await render({ refreshToken: 5 });
   await render({ selectedChapterId: chapterB.id, refreshToken: 6 });
-  releaseOld(); await tick(); await tick();
-  check(document.querySelector(".writer-runtime-preview").textContent.includes("第 2 章") && !document.querySelector(".writer-runtime-preview").textContent.includes("第 1 章"), "Late chapter preview leaked across chapter selection");
+  check(document.querySelector('[aria-label="场景 1 正文"]').value === "第二章独有正文" && !document.querySelector(".writer-runtime-preview"), "Chapter selection leaked the old body or restored removed preview tools");
   await render({ selectedChapterId: chapter.id, refreshToken: 7 });
   await until(() => document.activeElement?.closest("[data-scene-id]")?.dataset.sceneId === "new-c", "Chapter return did not restore stable scene bookmark");
   readingChecks.push({ phase: "chapter return", offset: offset(document.activeElement) });
@@ -319,23 +343,9 @@ async function run() {
     layoutChecks.push({ reading: locked ? "locked" : "unfocused", restoredAfterReflow: true });
   }
   root.unmount(); root = createRoot(main);
-  const writerOutputs = [{ kind: "draft", objectId: `draft-${chapter.id}`, revisionId: "draft-write-1" }, { kind: "draft", objectId: `draft-${chapter.id}`, revisionId: "draft-write-2", workingBaseRevisionId: "draft-write-1" }, { kind: "draft", objectId: `draft-${chapter.id}`, revisionId: "draft-write-1" }, { kind: "draft", objectId: `draft-${chapterB.id}`, revisionId: "other-chapter" }, { kind: "knowledge", objectId: `draft-${chapter.id}`, revisionId: "knowledge-output" }];
-  const writerTask = { id: "writer-current", taskKind: "draft", purpose: "writer", threadId: "writer-thread", inputRevision: workspace.revision, status: "completed", stage: "ready_for_review", deliveryStatus: "ready_for_review", error: null, target: { chapterId: chapter.id, chapterNumber: 1 }, outputRefs: writerOutputs };
-  workspace.tasks = [writerTask];
+  workspace.tasks = [{ id: "writer-current", taskKind: "draft", purpose: "writer", status: "completed", stage: "ready_for_review", deliveryStatus: "ready_for_review", target: { chapterId: chapter.id, chapterNumber: 1 }, outputRefs: [{ kind: "draft", objectId: `draft-${chapter.id}`, revisionId: "draft-write-1" }] }];
   await render({ refreshToken: 60 });
-  const taskStatus = () => document.querySelector(".generation-task-status").textContent;
-  generationStatuses.push(taskStatus());
-  check(taskStatus() === "内容已保存已保存 2 个本章正文修订" && document.querySelector(".generation-task-status.ready_for_review") && workspace.chapters[0].accepted.id === "saved-2", "Current camelCase completed receipt did not render two unique same-chapter revisions without adoption");
-  workspace.tasks.unshift({ ...writerTask, id: "writer-followup", outputRefs: [{ kind: "draft", objectId: `draft-${chapter.id}`, revisionId: "draft-write-3", workingBaseRevisionId: "draft-write-2" }] });
-  await render({ refreshToken: 601 }); generationStatuses.push(taskStatus());
-  check(taskStatus() === "内容已保存已保存 1 个本章正文修订", "Followup task with real objectId output accumulated revisions from an earlier task");
-  workspace.tasks.shift();
-  writerTask.status = "failed"; writerTask.stage = "failed"; writerTask.deliveryStatus = "incomplete"; await render({ refreshToken: 61 });
-  generationStatuses.push(taskStatus()); check(taskStatus().startsWith("生成部分完成"), "Partial delivery was mistaken for complete generation");
-  writerTask.outputRefs = []; writerTask.deliveryStatus = "pending"; await render({ refreshToken: 62 });
-  generationStatuses.push(taskStatus()); check(taskStatus() === "生成失败没有保存本章正文修订" && document.querySelector(".generation-task-status.failed"), "Zero-output failure lost its terminal state");
-  writerTask.status = "cancelled"; await render({ refreshToken: 63 });
-  generationStatuses.push(taskStatus()); check(taskStatus() === "生成已停止没有保存本章正文修订", "Cancelled task remained in progress");
+  check(!document.querySelector(".generation-task-status") && !document.body.textContent.includes("查看生成记录"), "Chapter settings duplicated execution records from the conversation");
   workspace.tasks = []; root.unmount(); root = createRoot(main);
   workspace.factProposals = [{ id: "progress-fact", draft_revision_id: workspace.chapters[0].candidate.id, sceneGroupId: "new-a", factKind: "world", subjectId: "linxi", predicate: "letterArrived", value: true, epistemicOwnerId: null, epistemicState: "unknown", evidence: workspace.chapters[0].candidate.sceneGroups[0].body, source: "agent", reviewDecision: "candidate", readingChapter: 1, sceneOrder: 1 }];
   workspace.reviews.unshift({ id: "review-progress", artifactKind: "draft", artifactRevisionId: workspace.chapters[0].candidate.id, projectRevision: workspace.revision, status: "ready", checks: [{ id: "semantic-review", message: "语义检查待完成", blocking: true, passed: false }], selections: { provisionalImpacts: [{ id: "progress-impact", factProposalId: "progress-fact", severity: "locked-conflict", targetArtifactKind: "outline", targetNodeId: "protected-node", targetLabel: "受保护的大纲", predicate: "letterArrived", evidence: "来信" }] } });
@@ -369,13 +379,15 @@ async function run() {
   }
   check(JSON.stringify(publicationStates) === JSON.stringify(["未发布", "有未发布修改", "有未发布修改", "已发布"]), "Publication state mapping is incorrect");
   root.render(<ChapterDocumentView scope="locked-scope" scenes={[{ ...formal.sceneGroups[0], locked: true }]} accepted={formal} title={formal.title} sourcePlanRefs={formal.sourcePlanRefs} lockedIds={[formal.sceneGroups[0].id]} dirty={false} disabled={false} onTitleChange={() => {}} onChange={() => {}} onActiveScene={() => {}} />); await tick(); await versions();
-  check(document.querySelector("textarea").disabled && document.querySelector('[data-change-kind="保护调整"]').textContent.includes("未锁定 → 已锁定"), "Locked editor or exact protection difference was lost");
+  check(document.querySelector("textarea").readOnly && document.querySelector('[data-change-kind="保护调整"]').textContent.includes("未锁定 → 已锁定"), "Locked editor or exact protection difference was lost");
+  await click("场景 1 操作");
+  check([...document.querySelectorAll('[role="menu"] button')].every(item => item.disabled), "Protected scene exposed move or delete operations");
   root.render(<ChapterDocumentView scope="locked-scope" scenes={[{ ...formal.sceneGroups[0], locked: true }]} accepted={formal} title={formal.title} sourcePlanRefs={formal.sourcePlanRefs} lockedIds={[formal.sceneGroups[0].id]} dirty={false} disabled={true} onTitleChange={() => {}} onChange={() => {}} onActiveScene={() => {}} />); await tick();
   check(document.querySelector("fieldset").disabled && document.querySelector(".chapter-versions").open, "Task lock closed the read-only version comparison");
   await renderCache("scope-isolation"); await versions();
   const priorNode = document.querySelector("textarea"); await renderCache("other-project:same-chapter");
   check(document.querySelector("textarea") !== priorNode && !document.querySelector(".chapter-versions").open && document.activeElement !== document.querySelector("textarea"), "New project reused editor/versions/bookmark state");
   root.unmount();
-  window.testResult = { passed: true, dirtyRoundTrip, generationPhaseChecks, publicationStates, initialDiff, metadataDiffSnapshot, adoptionHints, reviewProgress, generationStatuses, themeChecks, layoutChecks, candidateJourney: { saveCalls, generationCalls, acceptanceCalls, formalRevision: workspace.chapters[0].accepted.id }, previewRanges: previewCalls.map(item => ({ chapter: item.readingChapter, scope: item.sceneOrder === 2147483647 ? "chapter" : `throughScene:${item.sceneOrder}` })), planningAuthority: status, sceneBookmark: { scene: "scene-c", positionAfterReorder: 2, start: 43, end: 51, viewportOffset: Math.round(readingOffset) } };
+  window.testResult = { passed: true, dirtyRoundTrip, generationPhaseChecks, publicationStates, initialDiff, metadataDiffSnapshot, adoptionHints, reviewProgress, themeChecks, layoutChecks, settingsChecks, candidateJourney: { saveCalls, generationCalls, acceptanceCalls, formalRevision: workspace.chapters[0].accepted.id }, planningAuthority: status, sceneBookmark: { scene: "scene-c", positionAfterReorder: 2, start: 43, end: 51, viewportOffset: Math.round(readingOffset) } };
 }
 run().catch(error => { window.testResult = { passed: false, error: `${error.stack}\n${JSON.stringify(readingChecks)}\nmain: ${main.scrollTop}/${main.scrollHeight}/${main.clientHeight}; offsets: ${[...document.querySelectorAll("textarea")].map(item => `${item.getAttribute("aria-label")}:${offset(item)}/${item.clientHeight}/${item.scrollHeight}`).join(";")}` }; });

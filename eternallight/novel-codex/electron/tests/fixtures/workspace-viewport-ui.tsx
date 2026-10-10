@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../../src/App";
@@ -39,7 +40,7 @@ Object.defineProperty(navigator, "clipboard", { configurable: true, value: { wri
 const sendEvent = (method, params) => eventListener?.({ method, params });
 const diffRequests = [];
 const diffs = [{ id: "diff-one", chapter_id: chapter.id, fromText: "来信之前。".repeat(50), toText: body, summary: "作者保存了更长的章节正文", createdAt: null, addedChars: 100, removedChars: 0 }];
-window.novelCodex = { app: { onCloseRequested: () => () => {} }, runtime: { listChapterStructureChanges: async (projectId: string) => ({ projectId, items: [], nextCursor: null }),
+window.novelCodex = { multimedia: novelFixtureMedia, app: { onCloseRequested: () => () => {} }, runtime: { listChapterStructureChanges: async (projectId: string) => ({ projectId, items: [], nextCursor: null }),
   getWorkCatalog: async () => ({ revision: 0, volumes: [], placements: [] }),
   status: async () => ({ state: "online", mode: "local", error: null }), listProjects: async () => ({ projects }), getState: async id => structuredClone(state(id)), getCreativeWorkspace: async id => structuredClone(workspace(id)),
   listWorkTasks: async () => ({ tasks: [], nextCursor: null, activeCount: 0 }), listGenerationRuns: async () => ({ runs: [] }), listPlanningImpacts: async () => ({ data: [], nextCursor: null, counts: { total: 0, open: 0 } }),
@@ -51,7 +52,7 @@ window.novelCodex = { app: { onCloseRequested: () => () => {} }, runtime: { list
   getDiffs: async (projectId, chapterId) => { diffRequests.push({ projectId, chapterId }); if (failDiff) throw Error("夹具版本读取失败"); if (holdDiff) { holdDiff = false; await new Promise(resolve => { releaseDiff = resolve; }); } return { diffs: structuredClone(diffs) }; },
   ...Object.fromEntries(["Search", "Entity", "Relation", "Knowledge", "SnapshotKnowledge", "Fact"].map(kind => [`get${kind}Audit`, async () => ({ job: null })])),
   createProject: async () => { writeCalls++; throw Error("Unexpected project mutation"); },
-}, agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listProposedActions: async () => ({ actions: proposalActions }), listThreads: async () => ({ threads: [], nextCursor: null }), setWorkspaceContext: async () => {},
+}, agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listProposedActions: async () => ({ actions: proposalActions }), listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), setWorkspaceContext: async () => {},
   onEvent: listener => { eventListener = listener; return () => { if (eventListener === listener) eventListener = null; }; }, onUserInputRequest: () => () => {},
   sendPrompt: async (projectId, prompt, repair, focus) => {
     if (!allowDiscussion) { modelCalls++; throw Error("Unexpected model request"); }

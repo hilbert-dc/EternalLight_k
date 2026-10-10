@@ -26,7 +26,7 @@ export function createCommitmentDecision() {
     const assertCurrent = () => { if (!isCurrent()) throw new Error("确认来源已切换；原操作结果需在原章节核对。"); };
     assertCurrent();
     const proposals = report.payload.candidates.filter(item => item.id === proposalId);
-    if (proposals.length !== 1 || report.payload.chapterId !== chapterId || !report.sourceCurrent) throw new Error("伏笔提案来源已变化，请重新读取。");
+    if (proposals.length !== 1 || report.payload.chapterId !== chapterId || report.reportCurrent !== true || !report.sourceCurrent) throw new Error("伏笔提案来源已变化，请重新读取。");
     let entry = pending.get(key);
     if (entry?.api !== api && entry) throw new Error("连接已变化，请先核对原确认结果。");
     if (entry?.settled) { pending.delete(key); entry = undefined; }
@@ -47,7 +47,7 @@ export function createCommitmentDecision() {
     const readReport = async () => {
       const fresh = await api.runtime.getCommitmentExtraction(projectId, chapterId);
       assertCurrent();
-      if (!fresh || fresh.authority !== "candidateProposalBatch" || !fresh.sourceCurrent
+      if (!fresh || fresh.authority !== "candidateProposalBatch" || fresh.reportCurrent !== true || !fresh.sourceCurrent
         || fresh.revisionId !== origin.reportRevisionId || fresh.payload.chapterId !== chapterId
         || fresh.payload.sourceRevisionId !== report.payload.sourceRevisionId
         || fresh.payload.candidates.filter(item => item.id === proposalId).length !== 1

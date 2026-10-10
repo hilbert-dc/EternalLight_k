@@ -1,3 +1,5 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
+import { emptyCreationIssueSummary, revisionOutcomeFixture } from "../helpers/creation-issues";
 import "../../../src/styles.css";
 import React from "react";
 import { flushSync } from "react-dom";
@@ -35,14 +37,16 @@ const trap = (target: object, path: string): any => new Proxy(target, { get: (va
 } });
 const writer = `task-${"a".repeat(32)}`;
 const criteria = [{ id: "keep_letter", criterion: "藏好密函", groupIds: ["letter"] }];
+const chapterAcceptance = { requirements: [{ id: "acceptance-1", text: "保留整章上下文。" }], length: { requirement: "保持原有篇幅。", minCharacters: null, maxCharacters: null } };
 const decision = (choice: RevisionOutcomeDecision["choice"] = "repairDraft", id = "repair-1"): RevisionOutcomeDecision => ({
   id, writerTaskId: writer, assessmentRevisionId: "assessment-2", draftRevisionId: "draft-2", knowledgeBatchId: "batch-2",
   choice, note: "建议：先核对守卫的动机；不要直接写作。", createdAt: 100,
 });
-const report = (state: RevisionOutcome["state"] = "current", decisions = [decision()]): RevisionOutcome => ({
+const report = (state: RevisionOutcome["state"] = "current", decisions = [decision()]): RevisionOutcome => revisionOutcomeFixture({
   revisionId: "assessment-2", authority: "candidateAnalysis", state, decisions,
-  assessment: { writerTaskId: writer, chapterId: "chapter-2", originalRevisionId: "original-1", draftRevisionId: "draft-2", knowledgeBatchId: "batch-2",
-    outcomes: [{ id: "keep_letter", status: "supported", reason: "正文中保留了密函。", evidence: [{ groupId: "letter", quote: "他藏好密函。", start: 0, end: 6 }] }] },
+  assessment: { uncoveredRequirements: [], writerTaskId: writer, chapterId: "chapter-2", originalRevisionId: "original-1", draftRevisionId: "draft-2", knowledgeBatchId: "batch-2",
+    outcomes: [{ id: "keep_letter", status: "supported", reason: "正文中保留了密函。", evidence: [{ groupId: "letter", quote: "他藏好密函。", start: 0, end: 6 }] },
+      { id: "acceptance-1", status: "supported", reason: "正文承接藏信行动。", evidence: [{ groupId: "letter", quote: "他藏好密函。", start: 0, end: 6 }] }] },
 });
 const reads: ReturnType<typeof deferred<RevisionOutcome | null>>[] = [];
 const preparations: RevisionRepairPreparation[] = [];
@@ -51,7 +55,7 @@ const api = { runtime: trap({ getRevisionOutcome: () => {
 } }, "panel.runtime") } as NovelCodexApi;
 function render(projectId = "project-a", version = "1:2", disabled = false) {
   flushSync(() => root.render(<RevisionOutcomeDetails api={api} projectId={projectId} writerTaskId={writer} chapterId="chapter-2"
-    desiredOutcomes={criteria} version={version} disabled={disabled} onPrepareRepair={value => preparations.push(value)} />));
+    chapterAcceptance={chapterAcceptance} desiredOutcomes={criteria} version={version} disabled={disabled} onPrepareRepair={value => preparations.push(value)} />));
 }
 async function load(value: RevisionOutcome | null, action = () => button("重新读取修改结果")!.click()) {
   const n = reads.length; action(); await wait(() => reads.length === n + 1, "Report read missing");
@@ -102,8 +106,8 @@ void (async () => {
     chapters: [{ ...chapter, candidate: { id: "draft-2", title: chapter.title, version: 1, body: "他藏好密函。", sceneGroups: [{ id: "letter", body: "他藏好密函。", locked: false }] }, accepted: null, working: null, workingSelection: null }],
     tasks: [], commits: [], modeling: [], reviews: [], factProposals: [], planningReviews: [], workingBaselines: [], continuationIntents: [], chapterPlanBindings: [] };
   const work = { id: "work-1", projectId: project.id, threadId: "thread-1", goal: "不可作为隐藏指令的原Writer目标", kind: "conversation", status: "completed", version: 2,
-    deliveryStatus: "ready_for_review", deliveryReport: { evidence: [], pendingActionIds: [], unsettledAttemptIds: [] }, error: null, resumeBlockReason: null, resumeMode: null,
-    steps: [{ id: "step-1", operation: "generateChapter", status: "completed", target: { chapterId: chapter.id, desiredOutcomes: criteria },
+    deliveryStatus: "ready_for_review", deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], evidence: [], pendingActionIds: [], unsettledAttemptIds: [] }, error: null, resumeBlockReason: null, resumeMode: null,
+    steps: [{ id: "step-1", operation: "generateChapter", status: "completed", target: { chapterId: chapter.id, chapterAcceptance, desiredOutcomes: criteria },
       attempts: [{ id: writer, status: "completed", threadId: "thread-1", turnId: "writer-turn", startedAt: 100, completedAt: 101, attemptNumber: 1, error: null }], changes: [], readingProgress: null, sourceTaskId: null }] };
   let currentReport = report();
   let delayedRead: ReturnType<typeof deferred<RevisionOutcome | null>> | null = null;
@@ -116,7 +120,7 @@ void (async () => {
     getState: async (id: string) => ({ ...edition, project: id === project.id ? project : otherProject }),
     getCreativeWorkspace: async (id: string) => structuredClone({ ...workspace, project: id === project.id ? project : otherProject }),
     listGenerationRuns: async () => ({ runs: [] }), listPlanningImpacts: async () => ({ data: [], nextCursor: null, counts: { total: 0, open: 0, retained: 0, lockedConflict: 0 } }),
-    listWorkTasks: async () => ({ tasks: [work], activeCount: 0, nextCursor: null }),
+    listWorkTasks: async (projectId: string) => ({ tasks: [{ ...work, projectId }], activeCount: 0, nextCursor: null }),
     getTaskFinalReply: async () => null,
     getRevisionOutcome: async () => { reportReads++; return delayedRead ? delayedRead.promise : structuredClone(currentReport); },
     getWriterPreview: async (projectId, projectRevision, readingChapter, sceneOrder, povCharacterId, storyTime) => ({ purpose: "writer", taskId: null,
@@ -126,16 +130,17 @@ void (async () => {
   }, "app.runtime");
   const agent = trap({ onEvent: (listener: (event: unknown) => void) => { agentEvent = listener; return () => { agentEvent = null; }; }, onUserInputRequest: () => () => {},
     status: async () => ({ configured: true, state: "idle", mode: "novel-agent-engine", error: null }), listConnections: async () => ({ connections: [] }),
-    recoveryReport: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), setWorkspaceContext: async () => ({}), listProposedActions: async () => ({ actions: [] }),
-    sendPrompt: (...args: unknown[]) => { sends.push(args); sendReply = deferred(); agentEvent?.({ method: "turn/started", params: { threadId: "repair-thread", turn: { id: `local-turn-${sends.length}` } } }); return sendReply.promise; },
+    recoveryReport: async () => [], listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), readConversation: async (projectId, id) => ({ thread: { projectId, id, name: "当前对话", status: "idle" }, turns: [] }), setWorkspaceContext: async () => ({}), listProposedActions: async () => ({ actions: [] }),
+    sendPrompt: (...args: unknown[]) => { sends.push(args); sendReply = deferred(); agentEvent?.({ method: "turn/started", params: { threadId: "thread-1", turn: { id: `local-turn-${sends.length}` } } }); return sendReply.promise; },
     steer: async (...args: unknown[]) => { steers.push(args); return { steered: true }; },
   }, "app.agent");
-  window.novelCodex = { app: { onCloseRequested: () => () => {} }, runtime, agent } as NovelCodexApi;
+  window.novelCodex = { multimedia: novelFixtureMedia, app: { onCloseRequested: () => () => {} }, runtime, agent } as NovelCodexApi;
   saveAuthor({ name: "测试作者", email: "author@example.test", passwordSalt: "local-salt", passwordHash: "local-hash" });
   localStorage.setItem("novel-codex-active-project", project.id);
+  localStorage.setItem(`novel-codex:selected-conversation:${JSON.stringify(["author@example.test", project.id])}`, "thread-1");
+  localStorage.setItem(`novel-codex:selected-conversation:${JSON.stringify(["author@example.test", otherProject.id])}`, "thread-1");
   flushSync(() => root.render(<App />)); await wait(() => document.querySelector('[aria-label="章节标题"]'), "App failed to load");
   await wait(() => document.querySelector(".revision-outcome-details"), "App report missing");
-  document.querySelector<HTMLElement>(".work-task-execution > summary")!.click();
   document.querySelector<HTMLElement>(".revision-outcome-details summary")!.click();
   await wait(() => button("讨论下一次改稿"), "App repair entry missing");
   const prepared = () => document.querySelector('[aria-label="已准备改稿讨论"]');
@@ -147,12 +152,11 @@ void (async () => {
     flushSync(() => root.render(<App />));
     await wait(() => document.querySelector('[aria-label="章节标题"]'), "Fresh App failed to load");
     await wait(() => document.querySelector(".revision-outcome-details"), "Fresh App report missing");
-    document.querySelector<HTMLElement>(".work-task-execution > summary")!.click();
     document.querySelector<HTMLElement>(".revision-outcome-details summary")!.click();
     await input("创作指令", draft);
   };
   const complete = async () => {
-    agentEvent?.({ method: "turn/completed", params: { threadId: "repair-thread", turn: { id: `local-turn-${sends.length}`, status: "completed" } } });
+    agentEvent?.({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: `local-turn-${sends.length}`, status: "completed" } } });
     sendReply!.resolve({ mode: "novel-agent-engine", message: "仅讨论改稿方向", projectId: project.id, proposedActions: [] });
     await tick(); await tick();
   };
@@ -164,7 +168,7 @@ void (async () => {
   await input("创作指令", "作者明确编辑后的讨论问题。");
   await click("取消改稿讨论来源"); check(!prepared(), "Cancel retained source");
   equal(composer().value, "作者明确编辑后的讨论问题。", "Cancel erased author edits");
-  await click("发送创作指令"); equal(sends[0], [project.id, "作者明确编辑后的讨论问题。", null, conversationFocus], "Ordinary send inherited repair source"); await complete();
+  await click("发送创作指令"); equal(sends[0], [project.id, "作者明确编辑后的讨论问题。", null, conversationFocus, "thread-1"], "Ordinary send inherited repair source"); await complete();
 
   // Final preflight rejects stale decisions, assessment, draft and published batch.
   for (const change of ["state", "decision", "revisionId", "draftRevisionId", "knowledgeBatchId"] as const) {
@@ -208,16 +212,16 @@ void (async () => {
   // A running task cannot consume this prepared source, even through Enter/steer.
   // A separate root gets a fresh App run; an old terminal turn is not resurrected.
   await restartApp();
-  await prepare(); agentEvent?.({ method: "turn/started", params: { turn: { id: "other-turn" } } }); await tick();
-  check(composer().disabled && document.querySelector<HTMLButtonElement>(".composer-steer")?.disabled === true && button("讨论下一次改稿")!.disabled, "Running preparation was steerable");
+  await prepare(); agentEvent?.({ method: "turn/started", params: { threadId: "thread-1", turn: { id: "other-turn" } } }); await tick();
+  check(!document.querySelector<HTMLButtonElement>(".composer-steer:not(:disabled)") && button("讨论下一次改稿")!.disabled, "Running preparation was steerable");
   composer().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); await tick();
   equal([sends.length, steers.length], [1, 0], "Running Enter consumed repair source");
-  agentEvent?.({ method: "turn/completed", params: { turn: { id: "other-turn", status: "completed" } } }); await tick();
+  agentEvent?.({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "other-turn", status: "completed" } } }); await tick();
   await click("取消改稿讨论来源"); await restartApp(); await prepare();
   delayedRead = deferred(); await click("发送创作指令");
-  agentEvent?.({ method: "turn/started", params: { turn: { id: "late-turn" } } }); await tick();
+  agentEvent?.({ method: "turn/started", params: { threadId: "thread-1", turn: { id: "late-turn" } } }); await tick();
   delayedRead.resolve(report()); delayedRead = null; await tick(); equal(sends.length, 1, "Running late preflight sent");
-  agentEvent?.({ method: "turn/completed", params: { turn: { id: "late-turn", status: "completed" } } }); await tick();
+  agentEvent?.({ method: "turn/completed", params: { threadId: "thread-1", turn: { id: "late-turn", status: "completed" } } }); await tick();
   await click("取消改稿讨论来源");
 
   await prepare(); delayedRead = deferred(); await click("发送创作指令");
@@ -233,7 +237,6 @@ void (async () => {
   flushSync(() => root.render(null)); flushSync(() => root.render(<App />));
   await wait(() => document.querySelector('[aria-label="章节标题"]'), "App remount failed");
   await wait(() => document.querySelector(".revision-outcome-details"), "Remount report missing");
-  document.querySelector<HTMLElement>(".work-task-execution > summary")!.click();
   document.querySelector<HTMLElement>(".revision-outcome-details summary")!.click();
   await wait(() => button("讨论下一次改稿"), "Remount repair missing");
   await prepare(); await input("创作指令", "只讨论守卫动机，先问我需要改哪一段。");
@@ -248,27 +251,27 @@ void (async () => {
   const expectedSource = { writerTaskId: writer, assessmentRevisionId: "assessment-2", decisionId: "repair-1" };
   composer().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   await wait(() => sends.length === 2, "Editable Enter did not send");
-  equal(sends[1], [project.id, "只讨论守卫动机，先问我需要改哪一段。", expectedSource, null], "App changed editable author prompt or source fields");
+  equal(sends[1], [project.id, "只讨论守卫动机，先问我需要改哪一段。", expectedSource, null, "thread-1"], "App changed editable author prompt or source fields");
   check(!prepared(), "Successful send retained preparation"); await complete();
   await input("创作指令", "普通聊天。"); await click("发送创作指令");
-  equal(sends[2], [project.id, "普通聊天。", null, conversationFocus], "Next normal chat reused repair source"); await complete();
+  equal(sends[2], [project.id, "普通聊天。", null, conversationFocus, "thread-1"], "Next normal chat reused repair source"); await complete();
 
   await prepare(); await input("创作指令", "发送失败也必须保留来源。"); await click("发送创作指令");
-  equal(sends[3], [project.id, "发送失败也必须保留来源。", expectedSource, null], "Failed attempt lost repair identity");
+  equal(sends[3], [project.id, "发送失败也必须保留来源。", expectedSource, null, "thread-1"], "Failed attempt lost repair identity");
   sendReply!.reject(new Error("HOST_REPAIR_FAILURE"));
   await wait(() => document.querySelector('[aria-label="本轮改稿讨论来源"]'), "Failed repair source missing");
   check(document.body.textContent!.includes("HOST_REPAIR_FAILURE") && button("取消改稿来源，开始普通讨论") && !button("取消改稿来源，开始普通讨论")!.disabled,
     "Host failure did not expose recovery with its source");
-  await click("查看任务恢复"); equal(sends.length, 4, "Failure recovery silently sent with null source");
+  check(!button("查看任务恢复") && sends.length === 4, "Failure invented a duplicate recovery entry or sent without source");
   check(document.querySelector('[aria-label="本轮改稿讨论来源"]'), "Blocked Retry discarded failed source");
-  check(document.querySelector('[aria-label="原任务恢复"]')?.textContent.includes("改稿讨论 · 请恢复原任务"), "Recovery did not route to the source-bound task");
+  check(!document.querySelector('[aria-label="原任务恢复"]'), "Failure opened a second task management surface");
   agentEvent?.({ method: "agent/connection", params: { state: "ready" } }); await tick();
   await input("创作指令", "作者明确选择的普通讨论。"); await click("发送创作指令");
   equal(sends.length, 4, "Failure implicitly switched to an ordinary discussion");
   equal(composer().value, "作者明确选择的普通讨论。", "Blocked ordinary send erased author edits");
   snapshots.failed = { text: document.querySelector('[aria-label="本轮改稿讨论来源"]')!.textContent };
   await click("取消改稿来源，开始普通讨论"); await click("发送创作指令");
-  equal(sends[4], [project.id, "作者明确选择的普通讨论。", null, conversationFocus], "Explicit ordinary discussion retained failed source"); await complete();
+  equal(sends[4], [project.id, "作者明确选择的普通讨论。", null, conversationFocus, "thread-1"], "Explicit ordinary discussion retained failed source"); await complete();
 
   await prepare(); delayedRead = deferred(); await click("发送创作指令");
   const switcher = document.querySelector<HTMLButtonElement>("button.project-switcher")!;
@@ -282,11 +285,10 @@ void (async () => {
 
   // An intermediate error does not unlock a pending pipeline; a settled failure can leave the project safely.
   await wait(() => document.querySelector('[aria-label="章节标题"]'), "Current chapter did not load"); await wait(() => document.querySelector(".revision-outcome-details"), "Other project report missing");
-  document.querySelector<HTMLElement>(".work-task-execution > summary")!.click();
   document.querySelector<HTMLElement>(".revision-outcome-details summary")!.click();
   await wait(() => button("讨论下一次改稿"), "Other project repair entry missing");
   await prepare(); await input("创作指令", "项目切换前的改稿讨论。"); await click("发送创作指令");
-  equal(sends[5], [otherProject.id, "项目切换前的改稿讨论。", expectedSource, null], "Other project source not bound");
+  equal(sends[5], [otherProject.id, "项目切换前的改稿讨论。", expectedSource, null, "thread-1"], "Other project source not bound");
   const oldSend = sendReply!;
   agentEvent?.({ method: "agent/error", params: { message: "HOST_PENDING_FAILURE" } }); await tick();
   check(document.querySelector('[aria-label="本轮改稿讨论来源"]'), "Pending failure lost source");
@@ -299,9 +301,8 @@ void (async () => {
   check(!document.body.textContent!.includes("LATE_OLD_PROJECT_REPAIR_FAILURE") && !prepared()
     && !document.querySelector('[aria-label="本轮改稿讨论来源"]'), "Settled failure revived source in another project");
   await input("创作指令", "切换后的普通聊天。"); await click("发送创作指令");
-  equal(sends[6], [project.id, "切换后的普通聊天。", null, conversationFocus], "Project switch leaked sent identity into retry guard"); await complete();
+  equal(sends[6], [project.id, "切换后的普通聊天。", null, conversationFocus, "thread-1"], "Project switch leaked sent identity into retry guard"); await complete();
   await wait(() => document.querySelector('[aria-label="章节标题"]'), "Current chapter did not load"); await wait(() => document.querySelector(".revision-outcome-details"), "Final report missing");
-  document.querySelector<HTMLElement>(".work-task-execution > summary")!.click();
   document.querySelector<HTMLElement>(".revision-outcome-details summary")!.click();
   await wait(() => button("讨论下一次改稿"), "Final repair entry missing");
   await prepare(); delayedRead = deferred(); await click("发送创作指令");

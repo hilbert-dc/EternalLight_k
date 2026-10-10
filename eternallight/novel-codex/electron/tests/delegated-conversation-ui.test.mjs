@@ -9,7 +9,7 @@ import test from "node:test";
 import { build } from "esbuild";
 import electron from "electron";
 
-test("delegated conversation folds only proven intermediate replies and preserves reading and failures", async t => {
+test("delegated conversation keeps public progress visible and preserves reading and failures", async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "novel-delegated-conversation-"));
   try {
     await build({ entryPoints: [fileURLToPath(new URL("./fixtures/delegated-conversation-ui.tsx", import.meta.url))], outfile: path.join(directory, "test.js"), bundle: true, platform: "browser", jsx: "automatic" });

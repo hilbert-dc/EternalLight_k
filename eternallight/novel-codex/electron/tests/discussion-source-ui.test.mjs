@@ -15,7 +15,7 @@ test("actual App binds discussion sources and opens exact catalogue decisions wi
     await build({ entryPoints: [fileURLToPath(new URL("./fixtures/discussion-source-ui.tsx", import.meta.url))], outfile: path.join(directory, "test.js"), bundle: true, platform: "browser", jsx: "automatic" });
     await writeFile(path.join(directory, "index.html"), '<html><head><meta charset="utf-8"><link rel="stylesheet" href="test.css"></head><body><div id="root"></div><script src="test.js"></script></body></html>');
     let output;
-    try { output = await promisify(execFile)(electron, [fileURLToPath(new URL("./fixtures/project-information-ui-main.cjs", import.meta.url)), path.join(directory, "index.html")], { timeout: 35000, killSignal: "SIGKILL", env: { ...process.env, ELECTRON_RUN_AS_NODE: "" } }); }
+    try { output = await promisify(execFile)(electron, [fileURLToPath(new URL("./fixtures/creative-workspace-ui-main.cjs", import.meta.url)), path.join(directory, "index.html")], { timeout: 35000, killSignal: "SIGKILL", env: { ...process.env, ELECTRON_RUN_AS_NODE: "" } }); }
     catch (error) { throw new Error(`${error.stdout ?? ""}\n${error.stderr ?? ""}`, { cause: error }); }
     const result = JSON.parse(output.stdout.trim());
     assert.equal(result.passed, true, `${result.error}\n${result.dom ?? ""}`);

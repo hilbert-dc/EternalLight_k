@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import { chapterRuntimeReads } from "../helpers/chapter-runtime";
 import "../../../src/styles.css";
 import React from "react";
@@ -12,13 +13,13 @@ const state = { project, canon: { characters: [], relationships: [], events: [],
 const calls = { model: 0, reconnect: 0 }, snapshots = [];
 let listener, settleTurn, settleRead, turnId;
 const event = (method, params) => listener({ method, params });
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} },
   runtime: { ...chapterRuntimeReads(() => project), listWorkTasks: async () => ({ tasks: [], nextCursor: null, activeCount: 0 }), status: async () => ({ state: "online", mode: "local", error: null }), listProjects: async () => ({ projects: [project] }), getState: async () => state },
   agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", error: null }), listConnections: async () => ({ connections: [] }),
-    recoveryReport: async () => [], listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, listThreads: async () => ({ threads: [], nextCursor: null }),
+    recoveryReport: async () => [], listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, readConversation: async (projectId, id) => ({ thread: { id, projectId, name: "作品讨论", status: "idle" }, turns: [] }), listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }),
     onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
-    sendPrompt: async () => { calls.model++; turnId = `turn-${calls.model}`; event("thread/started", { thread: { id: "thread" } }); await tick(); event("turn/started", { threadId: "thread", turn: { id: turnId } }); await new Promise(resolve => { settleTurn = resolve; }); return { message: "原请求已保存", proposedActions: [] }; },
+    sendPrompt: async () => { calls.model++; turnId = `turn-${calls.model}`; event("agent/workflow", { workflow: { task: { id: `task-${turnId}`, projectId: project.id, operation: "advisory", threadId: "thread" } } }); await tick(); event("turn/started", { threadId: "thread", turn: { id: turnId } }); event("item/completed", { threadId: "thread", turnId, item: { id: `progress-${turnId}`, type: "agentMessage", phase: "commentary", text: "正在核对作品中的相关段落。" } }); await new Promise(resolve => { settleTurn = resolve; }); return { message: "原请求已保存", proposedActions: [] }; },
     reconnectThread: async (_project, thread, expectedTurn) => { calls.reconnect++; check(thread === "thread" && expectedTurn === turnId, "recovery lost its source turn"); return new Promise((resolve, reject) => { settleRead = { resolve, reject, turnId: expectedTurn }; }); },
   },
 };
@@ -38,16 +39,16 @@ const finish = async () => { event("turn/completed", { threadId: "thread", turn:
   await retry(); settleRead.resolve({ thread: { id: "thread" }, recovery: { turnId, state: "running" } }); await until(() => !document.querySelector('.status-reconnect'));
   check(document.querySelector('[aria-label="停止当前执行"]'), "active recovery lost original execution"); await finish();
   await send(); await retry(); const racing = settleRead; await finish();
-  const completedDuration = document.querySelector('.conversation-timeline.is-completed summary').textContent;
+  const completedDuration = document.querySelector('.conversation-timeline.is-completed .conversation-process-header').textContent;
   const realNow = Date.now; Date.now = () => realNow() + 60000;
   racing.resolve({ thread: { id: "thread" }, recovery: { turnId: racing.turnId, state: "running" } }); await tick();
-  check(document.querySelector('.conversation-timeline.is-completed summary')?.textContent === completedDuration
+  check(document.querySelector('.conversation-timeline.is-completed .conversation-process-header')?.textContent === completedDuration
     && !document.querySelector('[aria-label="停止当前执行"]'), "late running receipt erased the completed turn duration");
   Date.now = realNow;
   await send();
   event("turn/completed", { threadId: "thread", turn: { id: turnId, status: "failed", error: { message: "受控模型输出过限" } } });
   settleTurn(); await until(() => !document.querySelector('[aria-label="停止当前执行"]'));
-  const failedDuration = document.querySelector('.conversation-timeline.is-error summary').textContent;
+  const failedDuration = document.querySelector('.conversation-timeline.is-error .conversation-process-header').textContent;
   check(!document.querySelector('.status-reconnect')
     && document.querySelector('.agent-status-bar').textContent.includes('本轮任务未完成；创作引擎已连接')
     && !document.querySelector('.agent-status-bar').textContent.includes('未连接'), 'task failure falsely disconnected a ready transport');
@@ -58,7 +59,7 @@ const finish = async () => { event("turn/completed", { threadId: "thread", turn:
   check(!document.querySelector('[aria-label="停止当前执行"]')
     && !document.querySelector('.sr-only[role="status"]').textContent.includes("恢复")
     && !document.querySelector('.agent-status-bar').textContent.includes("等待恢复")
-    && document.querySelector('.conversation-timeline.is-error summary').textContent === failedDuration
+    && document.querySelector('.conversation-timeline.is-error .conversation-process-header').textContent === failedDuration
     && document.body.textContent.includes("受控模型输出过限"), "terminal read failure lost the original result or left a false reconnecting state");
   snapshots.push(document.querySelector('[aria-label="原任务连接核对"]').textContent);
   await send(); check(calls.model === 6 && calls.reconnect === 5, "terminal recovery blocked a new instruction or duplicated generation"); await finish();

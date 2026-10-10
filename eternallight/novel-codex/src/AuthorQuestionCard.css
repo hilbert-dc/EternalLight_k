@@ -1,0 +1,4 @@
+.author-question-options { margin-top: 6px; }
+.author-question-option { width: 100%; background: transparent; text-align: left; }
+.author-question-option:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 1px; }
+.author-question-option:disabled { cursor: default; opacity: .6; }

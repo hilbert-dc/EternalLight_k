@@ -1,0 +1,63 @@
+import React, { useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { ComposerModelPicker } from '../../../src/ComposerModelPicker';
+import { useReasoningSelection } from '../../../src/useReasoningSelection';
+import '../../../src/styles.css';
+import '../../../src/conversation-presentation.css';
+import { ReadFailureNotice } from '../../../src/ReadFailureNotice';
+const check = (value, message) => { if (!value) throw Error(message); };
+const tick = () => new Promise(resolve => setTimeout(resolve, 20));
+const until = async predicate => { for (let i = 0; i < 150 && !predicate(); i++) await tick(); check(predicate(), `UI did not settle: calls=${calls.length}, selected=${document.querySelector('input[type=range]')?.value}, active=${document.activeElement?.tagName}, error=${document.querySelector('[role=alert]')?.textContent}`); };
+const calls = [], modelCalls = [];
+let resolve, reject;
+let retries = 0;
+const connection = { id: 'fixture', provider: 'fixture', model: 'Model', reasoning: { effort: 'low', defaultEffort: 'low', options: [
+  { effort: 'low', label: '标准', description: '创作基线' }, { effort: 'high', label: '深入', description: '更多推理' }, { effort: 'max', label: '最深', description: '最高档位' }] } };
+const api = { agent: { setReasoningEffort: (...args) => { calls.push(args); return new Promise((yes, no) => { resolve = yes; reject = no; }); } } };
+function Fixture() {
+  const [effort, setEffort] = useState('low');
+  const selection = useReasoningSelection({ api, provider: connection.provider, model: connection.model, onChange: setEffort });
+  return <div className="conversation-rail" style={{ width: 300, height: 160, position: "absolute", left: 40, bottom: 60 }}><button id="before">上一项</button><span>正在创作</span><div className="composer-card composer-global"><div className="composer-body"><textarea aria-label="草稿" /></div><ComposerModelPicker connections={[connection]} provider={connection.provider} model={connection.model} label="Model" disabled={true}
+    reasoningEffort={effort} reasoningDisabled={selection.busy} onReasoningChange={selection.change} onSelect={value => modelCalls.push(value)} /></div><ReadFailureNotice message="任务记录暂时无法读取。" error="Storage: SELECT private_diagnostic" retryLabel="重新读取" onRetry={() => { retries++; }} />{selection.error && <p role="alert">{selection.error}</p>}</div>;
+}
+createRoot(document.getElementById('root')).render(<Fixture />);
+(async () => { try {
+  await until(() => document.querySelector('.composer-reasoning-picker > button'));
+  const trigger = document.querySelector<HTMLButtonElement>('.composer-reasoning-picker > button');
+  const composer = document.querySelector('.composer-global');
+  const textarea = document.querySelector('textarea');
+  textarea.focus(); const editingBorder = getComputedStyle(composer).borderColor;
+  trigger.click(); await until(() => document.querySelector('input[type=range]'));
+  const range = document.querySelector<HTMLInputElement>('input[type=range]');
+  check(!trigger.disabled && !range.disabled && document.querySelector<HTMLButtonElement>('.reasoning-model-link button').disabled, 'running task must allow reasoning while model switching remains locked');
+  check(document.activeElement === range, 'opening did not focus the slider');
+  check(trigger.innerText.includes('选择强度') && !trigger.innerText.includes('Model'), 'expanded entry must show the reference prompt');
+  check(getComputedStyle(composer).borderColor !== editingBorder, 'slider focus still highlights the composer');
+  const trackBounds = document.querySelector('.reasoning-track').getBoundingClientRect();
+  check(range.getBoundingClientRect().left - trackBounds.left >= 10, 'minimum thumb covers the selected blue track');
+  const notice = document.querySelector('.read-failure-notice'), details = notice.querySelector('details');
+  check(!details.open && !notice.querySelector('[role=alert]').textContent.includes('SELECT'), 'diagnostics leaked into default alert');
+  details.querySelector('summary').click();
+  check(details.open && details.querySelector('pre').textContent === 'Storage: SELECT private_diagnostic', 'original diagnostic was lost');
+  details.querySelector('summary').click(); notice.querySelector('button').click();
+  check(retries === 1, 'read retry was not preserved');
+  const bounds = document.querySelector('[role=dialog]').getBoundingClientRect(), rail = document.querySelector('.conversation-rail').getBoundingClientRect();
+  check(bounds.left >= rail.left && bounds.right <= rail.right && bounds.top >= 0, `popover escaped the narrow conversation rail: ${JSON.stringify({ bounds: bounds.toJSON(), rail: rail.toJSON() })}`);
+  const set = value => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(range, value); range.dispatchEvent(new Event('input', { bubbles: true })); };
+  range.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); set('1'); set('2'); await tick();
+  check(calls.length === 0 && range.getAttribute('aria-valuetext') === '最深', 'drag must preview without sending intermediate choices');
+  range.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true })); await tick();
+  check(range.value === '0' && calls.length === 0, 'cancelled drag committed a choice');
+  range.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); set('2'); set('1');
+  range.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })); await until(() => calls.length === 1);
+  check(calls[0].join('|') === 'fixture|Model|high', 'drag did not commit only the last choice');
+  resolve({ reasoningEffort: 'high' }); await until(() => !range.disabled && range.value === '1');
+  range.focus(); window.testKey = { keyCode: 'Right' }; await until(() => !window.testKey); await until(() => calls.length === 2);
+  reject(Error('无法保存设置')); await until(() => document.body.textContent.includes('无法保存设置'));
+  check(range.value === '1' && !range.disabled && modelCalls.length === 0, 'failed change lost previous selection or switched model');
+  check(!document.body.textContent.includes('待生效') && !document.body.textContent.includes('已生效'), 'success labels must stay absent');
+  window.testKey = { keyCode: 'Escape' }; await until(() => !window.testKey); await tick();
+  check(!document.querySelector('[role=dialog]') && document.activeElement === trigger, 'Escape did not close and restore focus');
+  check(trigger.innerText.includes('Model') && !trigger.innerText.includes('选择强度'), 'closed entry must restore model and effort');
+  window.testResult = { passed: true, calls, text: document.body.textContent };
+} catch (error) { window.testResult = { passed: false, error: error.stack }; } })();

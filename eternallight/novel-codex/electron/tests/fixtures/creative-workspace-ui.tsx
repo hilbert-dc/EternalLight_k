@@ -1,3 +1,4 @@
+import { emptyCreationIssueSummary } from "../helpers/creation-issues";
 import "../../../src/styles.css";
 import React from "react";
 import { createAgentRun } from "../../../src/agent-events";
@@ -14,7 +15,14 @@ const waitForFocus = async (label) => {
   check(document.activeElement?.getAttribute("aria-label") === label, `Focus did not reach ${label}`);
 };
 const button = (text) => [...document.querySelectorAll("button")].find((item) => item.textContent === text || item.getAttribute("aria-label") === text);
-const click = async (text) => { const element = button(text); check(element && !element.matches(":disabled"), `Unavailable: ${text}`); await revealControl(element); element.click(); await tick(); };
+const click = async (text) => {
+  const sceneAction = /^(?:上移场景|下移场景|删除场景|保护场景|取消保护场景) (\d+)$/.exec(text);
+  if (sceneAction && !document.querySelector(`[role="menu"][aria-label="场景 ${sceneAction[1]} 操作"]`)) {
+    const trigger = document.querySelector<HTMLButtonElement>(`button[aria-label="场景 ${sceneAction[1]} 操作"]`);
+    check(trigger && !trigger.matches(":disabled"), `Unavailable scene menu: ${text}`); await revealControl(trigger); trigger.scrollIntoView({ block: "nearest" }); await tick(); trigger.focus({ preventScroll: true }); trigger.click(); await tick();
+  }
+  const element = button(text); check(element && !element.matches(":disabled"), `Unavailable: ${text}`); await revealControl(element); element.click(); await tick();
+};
 const input = async (label, value) => {
   const element = document.querySelector(`textarea[aria-label="${label}"]`);
   check(element && !element.matches(":disabled"), `Unavailable: ${label}`);
@@ -86,11 +94,6 @@ const api = { runtime: {
   startFactAudit: async () => { factAuditJob = { id: "fact-audit-00000000000000000000000000000001", projectId: "ui-test", status: "queued", version: 0, sourceCount: 11, sourceMaxRowid: 11, sourceGeneration: 0, nextRowid: 0, verifiedConsistent: null, error: null, audit: { facts: 0, invalidLinks: 0, invalidPayloads: 0, affectedFacts: [] } }; return structuredClone(factAuditJob); },
   controlFactAudit: async (_projectId, _jobId, command) => { factAuditJob = { ...factAuditJob, version: factAuditJob.version + 1, status: command === "pause" ? "paused" : command === "resume" ? "queued" : "cancelled" }; return structuredClone(factAuditJob); },
   listPlanningImpacts: async () => ({ data: [], nextCursor: null, counts: { total: 0, open: 0, retained: 0, lockedConflict: 0 } }),
-  getWriterPreview: async (projectId, projectRevision, readingChapter, sceneOrder, povCharacterId, storyTime) => ({ id: "context-ui", purpose: "writer", taskId: null, snapshotId: "snapshot-ui", contentHash: "preview-ui",
-    target: { projectId, projectRevision, position: { readingChapter, sceneOrder, povCharacterId, storyTime } },
-    plannedEffects: workspace.chapterPlanBindings?.map(binding => ({ source: "plan", value: { planRevisionId: binding.plan_revision_id, chapters: [{ ...binding.writerProjection, chapterPlanId: binding.chapter_plan_id }] } })) ?? [], relevantText: [{ objectId: "draft-previous", sourceRevisionId: "previous-source-1", authority: "candidate", textRepresentation: "body", content: { chapterId: "previous", chapterNumber: 0, title: "序章", body: "候选前文" } }],
-    coverage: { complete: false, semanticCompleteness: "unknown", missingScope: ["knowledgeModeling"], truncationReasons: [], scannedScope: { factsIncluded: 0, draftsIncluded: 1 } },
-    budgetsUsed: { byteLimit: 60000, byteSize: 1000, entryLimit: 24 } }),
   saveDraftCheckpoint: async (_, payload) => { saveResult = payload; if (failSave) throw new Error("磁盘写入失败"); await new Promise((resolve) => { releaseSave = resolve; }); workspace = { ...workspace, revision: 2, chapters: [{ ...workspace.chapters[0], candidate: { ...revision, ...payload, id: "draft-2" } }] }; return { revisionId: "draft-2" }; },
   createReview: async (_, kind, revisionId, proposals, __, modelingBatchId) => {
     if (modelingBatchId) {
@@ -144,7 +147,7 @@ async function run() {
   let commitmentDetail = { projectId: "ui-test", objectId: "commitment-ui-commitment", revisionId: "commitment-ui-1", snapshotId: "commitment-snapshot-1", payload: commitmentPayload,
     extractionOrigin: { chapterId: "chapter-1", reportRevisionId: "report-ui-1", proposalId: "proposal-ui-1" }, sourceCurrent: true, confirmationState: "candidate", confirmationCommitId: null,
     authorControls: { projectRevision: 1, undoAvailable: false }, interpretation: "sourceBoundNarrativeClaim", literaryFulfillmentVerified: false };
-  api.runtime.getCommitmentExtraction = async () => ({ revisionId: "report-ui-1", snapshotId: "snapshot-ui-1", projectRevision: 1, sourceCurrent: true,
+  api.runtime.getCommitmentExtraction = async () => ({ revisionId: "report-ui-1", snapshotId: "snapshot-ui-1", projectRevision: 1, authority: "candidateProposalBatch", reportCurrent: true, sourceCurrent: true,
     established: [{ proposalId: "proposal-ui-1", commitmentId: "ui-commitment" }], payload: { chapterId: "chapter-1", sourceRevisionId: "draft-1", examinedRanges: [{ start: 0, end: 5 }], candidates: [{ ...commitmentPayload, id: "proposal-ui-1" }] } });
   api.runtime.getCommitment = async () => structuredClone(commitmentDetail);
   api.runtime.saveCommitment = async (_projectId, _id, request) => {
@@ -154,15 +157,20 @@ async function run() {
     return { revisionId: commitmentDetail.revisionId, snapshotId: commitmentDetail.snapshotId };
   };
   const editProps = { onDirtyChange: (value) => { dirtyEditor = value; }, onSaveHandlerChange: (handler) => { saveEditor = handler; }, onDiscardHandlerChange: (handler) => { discardEditor = handler; } };
-  workTasks = [{ id: "extraction-ui", goal: "提取本章伏笔", status: "completed", deliveryStatus: "ready_for_review", deliveryReport: emptyDeliveryReport, resumeBlockReason: null, resumeMode: null, version: 1,
-    steps: [{ id: "extraction-step", operation: "extractCommitments", status: "completed", target: { chapterId: chapter.id }, attempts: [], changes: [], outputRefs: [], readingProgress: null }] }];
+  workTasks = [{ id: "extraction-ui", projectId: "ui-test", threadId: "thread-ui", goal: "提取本章伏笔", status: "completed", deliveryStatus: "ready_for_review", deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], ...emptyDeliveryReport, evidence: [{ stepId: "extraction-step", attemptId: "extraction-attempt", kind: "commitmentExtraction", state: "recorded", referenceId: "report-ui-1" }] }, resumeBlockReason: null, resumeMode: null, version: 1,
+    steps: [{ id: "extraction-step", currentAttemptId: "extraction-attempt", operation: "extractCommitments", status: "completed", target: { chapterId: chapter.id, chapterNumber: 1, sourceRevisionId: "draft-1" }, attempts: [{ id: "extraction-attempt", status: "completed" }], changes: [], outputRefs: [], readingProgress: null }] }];
   await render(editProps);
-  check(taskConversationContainer.contains(document.querySelector(".commitment-panel")) && !document.querySelector(".creative-workspace-view .commitment-panel"), "Narrative results did not follow the conversation");
-  check(document.querySelector(".commitment-panel").open, "Current chapter proposals stayed hidden after extraction");
+  check(taskConversationContainer.querySelector('[data-commitment-result="report-ui-1"]') && !taskConversationContainer.querySelector('.commitment-panel'), "Choices did not belong to the original task or global panel remained in conversation");
+  check(document.querySelector('.chapter-commitment-management').hidden, "Task extraction automatically opened chapter management");
   await tick(); await tick();
-  await click("调整后再决定");
+  await click("调整后再决定"); await tick(); await tick();
+  check(document.querySelector('.commitment-management-dialog[open]') && document.querySelector('.commitment-editor'), "Inline adjustment did not open the single chapter editor");
+  check(document.activeElement?.closest('.commitment-editor'), "Adjustment focus did not reach its editor");
   await input("承诺摘要", "导航保护中的作者输入"); await tick();
   check(dirtyEditor && document.querySelector('textarea[aria-label="场景 1 正文"]')?.disabled, "Commitment editor escaped global protection or allowed concurrent draft edits");
+  const editDialog = document.querySelector('.commitment-management-dialog');
+  editDialog.dispatchEvent(new Event('cancel', { cancelable: true })); await tick();
+  check(editDialog.open && button("关闭伏笔调整").disabled, "Dirty adjustment allowed Escape or close to discard input");
   workspace.modeling = [{ objectId: "draft-chapter-1", status: "model_pending", sourceRevisionId: "draft-1" }];
   await render({ ...editProps, refreshToken: 700 });
   check(document.querySelector('[aria-label="承诺摘要"]').value === "导航保护中的作者输入" && dirtyEditor, "Workspace refresh unmounted dirty commitment editor");
@@ -176,15 +184,18 @@ async function run() {
   await input("承诺摘要", "将放弃的本地修改"); await tick();
   check(dirtyEditor && discardEditor() === true, "Global discard did not accept local-only abandonment"); await tick(); await tick();
   check(!dirtyEditor && !document.querySelector(".commitment-editor") && commitmentDetail.payload.summary === "导航保护中的作者输入", "Discard changed persisted commitment or left stale protection");
-  document.querySelector(".commitment-panel summary").click(); await tick();
+  await click("关闭伏笔调整");
+  check(!document.querySelector(".commitment-management-dialog"), "Clean adjustment could not close");
   workspace.modeling = [];
   await render();
   check(!document.querySelector('.workspace-diagnostics') && diagnosticReads === 0, "Writing opened technical diagnostics");
   workTasks = []; await render({ refreshToken: "clear-extraction-history" });
   check(!document.querySelector('.work-task-panel'), "Idle writing displayed an empty task card");
-  check(document.querySelector('.conversation-chapter-results').hidden, "Idle chapter showed unused extraction results");
-  await revealControl(button("查看伏笔与悬念")); await click("查看伏笔与悬念");
-  check(!document.querySelector('.conversation-chapter-results').hidden, "Existing commitments became unreachable without loaded task history");
+  check(document.querySelector('.chapter-commitment-management').hidden, "Idle chapter showed unused extraction results");
+  check(!button("查看伏笔与悬念") && !document.querySelector(".chapter-manual-tools,.writer-runtime-preview,.fact-proposal-form"), "Chapter retained duplicate analysis or technical tool controls");
+  await render({ requestedCommitment: { requestId: "directory-ui-commitment", chapterId: chapter.id,
+    request: { projectId: "ui-test", snapshotId: commitmentDetail.snapshotId, commitmentId: commitmentPayload.id, revisionId: commitmentDetail.revisionId } } });
+  check(!document.querySelector('.chapter-commitment-management').hidden && document.querySelector('.creative-workspace-view .commitment-panel') && !taskConversationContainer.querySelector('.commitment-panel'), "Explicit chapter management became unreachable or returned to conversation bottom");
   showDiagnostics = true;
   await render();
   const diagnostics = document.querySelector('[aria-label="当前作品诊断"] .workspace-diagnostics');
@@ -261,14 +272,14 @@ async function run() {
   workTasks = [{ id: "finished-ui-task", goal: "已保存本章正文", status: "completed", deliveryStatus: "ready_for_review", deliveryReport: emptyDeliveryReport, resumeBlockReason: null, resumeMode: null, steps: [], version: 1 }];
   await render({ refreshToken: 91 });
   const idleHistory = document.querySelector('.work-task-panel');
-  check(idleHistory && idleHistory.tagName === "SECTION" && idleHistory.querySelector(".user-message").textContent.includes("已保存本章正文") && !idleHistory.querySelector(".work-task-execution").open, "Finished work did not become a readable conversation turn");
+  check(idleHistory && idleHistory.tagName === "SECTION" && idleHistory.querySelector(".user-message").textContent.includes("已保存本章正文") && !idleHistory.querySelector(".work-task-execution"), "Finished work did not become a readable conversation turn");
   check(taskConversationContainer.contains(idleHistory) && !document.querySelector(".creative-workspace-view .work-task-panel"), "Finished work was not moved into the conversation");
-  const chromeSnapshot = { history: "作者要求 → 执行过程 → 保存的回复", placement: "右侧对话时间线", processCollapsed: !idleHistory.querySelector(".work-task-execution").open, writingAuditReads: 0, diagnosticsEntry: "用户设置 · 当前作品诊断" };
+  const chromeSnapshot = { history: "作者要求 → 执行过程 → 保存的回复", placement: "右侧对话时间线", processCollapsed: !idleHistory.querySelector(".work-task-execution"), writingAuditReads: 0, diagnosticsEntry: "用户设置 · 当前作品诊断" };
   check(document.body.innerText.includes("已保存本章正文") && !idleHistory.querySelector('.work-task-history'), "A single record required redundant nested history expansion");
-  workTasks[0] = { ...workTasks[0], deliveryReport: { ...emptyDeliveryReport, pendingActionIds: ["requires-author-confirmation"] } };
+  workTasks[0] = { ...workTasks[0], deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], ...emptyDeliveryReport, pendingActionIds: ["requires-author-confirmation"] } };
   await render({ refreshToken: 92 });
   const attentionPanel = document.querySelector('.work-task-panel');
-  check(attentionPanel?.innerText.includes("行动提案待确认") && !attentionPanel.querySelector(".work-task-execution").open, "Finished execution hid author decisions still needed");
+  check(attentionPanel?.innerText.includes("行动提案待确认") && !attentionPanel.querySelector(".work-task-execution"), "Finished execution hid author decisions still needed");
   check(taskConversationContainer.contains(attentionPanel) && taskConversationContainer.innerText.includes("行动提案待确认") && !document.querySelector(".creative-workspace-view .work-task-panel"), "Pending author action was not visible in the conversation");
   chromeSnapshot.attention = "待确认事项直接可见";
   workTasks = [];
@@ -277,8 +288,8 @@ async function run() {
     second: { tasks: [{ id: "work-history", goal: "历史任务", status: "completed", deliveryStatus: "pending", deliveryReport: emptyDeliveryReport, resumeBlockReason: null, resumeMode: null, steps: [], version: 2 }], nextCursor: null, activeCount: 1 },
   };
   await render({ refreshToken: 10 });
-  check(document.body.textContent.includes("1 项执行未结束") && document.body.textContent.includes("旧的暂停任务"), "Paged task list hid the older actionable task or active count");
-  check(taskConversationContainer.innerText.includes("继续任务"), "Paused task controls were hidden in conversation");
+  check(!button("继续任务") && document.body.textContent.includes("旧的暂停任务"), "Paged task list hid the older actionable task or active count");
+  check(taskConversationContainer.innerText.includes("已暂停"), "Paused task controls were hidden in conversation");
   await click("加载更早对话");
   await tick();
   check(document.body.innerText.includes("历史任务"), "Expanded history hid its result");
@@ -291,67 +302,24 @@ async function run() {
   check(document.body.textContent.includes("刷新后的任务") && !document.body.textContent.includes("状态变更后的任务") && !button("加载更早对话"), "Stale task cursor did not refresh the first page");
   staleWorkTaskPage = false;
   pagedWorkTasks = null;
-  workTasks = [{ id: "work-ui", projectId: "ui-test", threadId: "thread-ui", goal: "续写白塔", kind: "direct", status: "blocked", deliveryStatus: "partial", deliveryReport: {
+  workTasks = [{ id: "work-ui", projectId: "ui-test", threadId: "thread-ui", goal: "续写白塔", kind: "direct", status: "blocked", deliveryStatus: "partial", deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [],
     evidence: [{ stepId: "step-ui", attemptId: "attempt-ui", kind: "draft", referenceId: "draft-1", state: "recorded" }], pendingActionIds: [], unsettledAttemptIds: [] }, resumeBlockReason: "partialOutput", resumeMode: "continueExecution", version: 3, error: null,
     steps: [{ id: "step-ui", operation: "generateChapter", expectedOutputKind: "draft", instruction: null, sourceTaskId: null, target: {}, status: "blocked", inputRevision: 1,
       dependsOnStepId: null, currentAttemptId: "attempt-ui", readingProgress: null, attempts: [{ id: "attempt-ui", threadId: "thread-ui", turnId: "turn-ui", status: "failed", error: "建模中断" }],
       outputRefs: [{ kind: "draft", objectId: `draft-${chapter.id}`, revisionId: "draft-1" }], changes: [] }] }];
   await render({ refreshToken: 11 });
   check(document.body.textContent.includes("已保存部分内容") && document.body.textContent.includes("建模中断"), "Blocked task hid its partial result or failure reason");
-  check(taskConversationContainer.innerText.includes("建模中断"), "Blocked task failure should remain visible");
-  check(button("继续任务")?.matches(":disabled") && document.body.textContent.includes("先核对产物"), "Partial write offered an unsafe resume action");
+  check(taskConversationContainer.textContent.includes("建模中断"), "Blocked task failure should remain visible");
+  check(!button("继续任务") && document.body.textContent.includes("请先查看成果，避免重复生成"), "Partial write offered an unsafe resume action");
   check(!document.querySelector(".work-reading-progress"), "Absent checkpoint invented reading progress");
-  const reading = { status: "current", version: 2, pages: 2, acknowledgedCharacters: 240, traversal: "reading" };
   const readingTask = workTasks[0];
-  workTasks = [{ ...readingTask, resumeBlockReason: null, resumeMode: "recoverSavedResult" }];
-  await render({ refreshToken: "offline-local-recovery", agentAvailable: false });
-  await click("核验并恢复");
-  check(recoveredWorkTask === "work-ui" && !resumedWorkTask
-    && document.querySelector('[role="status"]')?.textContent.includes("已核验恢复"), "Offline recovery used model execution or failed to show its result");
-  workTasks = [{ ...readingTask, resumeBlockReason: "pendingRecovery" }];
-  await render({ refreshToken: "pending-recovery" });
-  check(button("继续任务")?.disabled && document.body.textContent.includes("尚未核对的写入结果"), "Unknown write offered a duplicate execution or hid reconciliation guidance");
   for (const status of ["paused", "blocked", "completed", "cancelled"]) {
-    workTasks = [{ ...readingTask, status, steps: [{ ...readingTask.steps[0], readingProgress: reading }] }];
-    await render({ refreshToken: `reading-${status}` });
-    const execution = document.querySelector<HTMLDetailsElement>(".work-task-execution");
-    if (execution && !execution.open) execution.querySelector<HTMLElement>("summary")!.click();
-    const progress = document.querySelector(".work-reading-progress");
-    check(document.body.innerText.includes("已确认 2 页原文 · 240 字符"), "Explicitly opened history hid reading progress");
-    check(progress?.textContent.includes("已确认 2 页原文 · 240 字符") && progress.textContent.includes("理解完整性尚未验证"), "Task state erased or overstated source traversal");
-    if (status === "paused") {
-      const panel = document.querySelector(".work-task-panel");
-      panel.style.width = "320px";
-      panel.scrollIntoView({ block: "start" });
-      await tick();
-      check(panel.scrollWidth <= panel.clientWidth + 1, "Narrow reading task panel overflowed horizontally");
-      window.readingUiReady = true;
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      window.readingUiReady = false;
-      panel.style.width = "";
-    }
-    if (["completed", "cancelled"].includes(status)) check(!button("继续任务") && !button("取消任务"), "Historical progress re-enabled task controls");
-    else check(button("继续任务")?.disabled, "Reading counts bypassed partial-output resume gate");
+    workTasks = [{ ...readingTask, status }];
+    await render({ refreshToken: `single-flow-${status}` });
+    check(!document.querySelector(".work-task-execution, .work-task-controls, .work-reading-progress"), "Task bookkeeping returned to the conversation");
   }
-  for (const traversal of ["acknowledgedEnd", "budgetExhausted"]) {
-    workTasks = [{ ...readingTask, steps: [{ ...readingTask.steps[0], readingProgress: { ...reading, traversal } }] }];
-    await render({ refreshToken: traversal });
-    check(document.querySelector(".work-reading-progress")?.textContent.includes(traversal === "acknowledgedEnd"
-      ? "不代表全书或内容理解完成" : "不会重置此预算"), "Traversal end or budget claimed semantic completion or reset");
-  }
-  for (const status of ["stale", "unavailable"]) {
-    workTasks = [{ ...readingTask, steps: [{ ...readingTask.steps[0], readingProgress: { status } }] }];
-    await render({ refreshToken: status });
-    const progress = document.querySelector(".work-reading-progress");
-    check(progress?.dataset.sourceState === status && !progress.textContent.includes("已确认"), "Invalid source exposed certified counts");
-    check(!button("取消任务")?.disabled, "Invalid checkpoint disabled safe cancellation");
-  }
-  workTasks = [{ ...readingTask, status: "running", steps: [{ ...readingTask.steps[0], readingProgress: { ...reading, pages: 1 } }] }];
+  workTasks = [{ ...readingTask, status: "running" }];
   await render({ refreshToken: "live-reading", agentRunning: true });
-  workTasks[0].steps[0].readingProgress = reading;
-  const deadline = performance.now() + 2300;
-  while (!document.querySelector(".work-reading-progress")?.textContent.includes("已确认 2 页") && performance.now() < deadline) await tick();
-  check(document.querySelector(".work-reading-progress")?.textContent.includes("已确认 2 页"), "Running task progress did not refresh without a new turn");
   const listWorkTasks = api.runtime.listWorkTasks;
   let finishList, finishNextProject, listCalls = 0;
   api.runtime.listWorkTasks = async (projectId) => {
@@ -375,141 +343,15 @@ async function run() {
   await render({ refreshToken: 12 });
   workTasks = [{ ...workTasks[0], steps: [{ ...workTasks[0].steps[0], inputRevision: 0 }], resumeBlockReason: "inputChanged" }];
   await render({ refreshToken: 13 });
-  check(button("继续任务")?.matches(":disabled") && document.body.textContent.includes("作品版本已变化"), "Stale task input offered an unsafe resume action");
+  check(!button("继续任务") && document.body.textContent.includes("作品版本已变化"), "Stale task input offered an unsafe resume action");
   workTasks = [{ ...workTasks[0], goal: "自动分析章节知识", resumeBlockReason: "attemptBudget" }];
   await render({ refreshToken: 131 });
-  check(button("继续任务")?.matches(":disabled") && document.body.textContent.includes("已用完三次尝试") && !button("取消任务")?.disabled, "Automatic modeling budget did not block retries while preserving cancellation");
-  workTasks = [{ ...workTasks[0], steps: [{ ...workTasks[0].steps[0], inputRevision: 1 }], resumeBlockReason: null }];
-  await render({ refreshToken: 14 });
-  await click("继续任务");
-  check(resumedWorkTask === "work-ui", "Task resume control did not use the persisted task ID");
-  const resumeWorkTask = api.agent.resumeWorkTask;
-  workTasks = [{ ...readingTask, resumeBlockReason: null }];
-  let finishTaskControl, controlCalls = 0, lateFormalRefreshes = 0;
-  api.agent.resumeWorkTask = async () => {
-    controlCalls += 1;
-    const result = { ...workTasks[0], status: "completed" };
-    return new Promise((resolve) => { finishTaskControl = () => resolve(result); });
-  };
-  await render({ refreshToken: 15, onFormalChange: async () => { lateFormalRefreshes += 1; } });
-  button("继续任务").click(); button("继续任务").click(); await tick();
-  check(controlCalls === 1, "Same-frame resume created duplicate control requests");
-  check(document.querySelector('.draft-main-column > small[role="status"]')?.textContent.includes("正在继续任务…") && document.querySelector('[aria-label="场景 1 正文"]').disabled && !button("正在保存…"), "Pending resume claimed it was saving chapter prose");
-  const resumeEditor = document.querySelector('[aria-label="场景 1 正文"]');
-  const resumeBody = resumeEditor.value, resumeRevision = workspace.chapters[0].candidate.id;
-  const beforeResumePoll = workspaceReads;
-  const previousResumeTask = workTasks[0];
-  workTasks = [{ ...previousResumeTask, goal: "恢复中的当前尝试", status: "running", version: previousResumeTask.version + 1,
-    steps: previousResumeTask.steps.map(step => ({ ...step, operation: "modelKnowledge", target: { chapterId: chapter.id }, status: "running",
-      attempts: [...step.attempts, { id: "attempt-resumed", status: "running", error: null }] })) }];
-  const resumeDeadline = performance.now() + 2300;
-  while (!document.querySelector('.draft-main-column > small[role="status"]')?.textContent.includes("正文已保存，正在继续分析…") && performance.now() < resumeDeadline) await tick();
-  check(taskConversationContainer.innerText.includes("恢复中的当前尝试") && document.querySelector('.draft-main-column > small[role="status"]')?.textContent.includes("正文已保存，正在继续分析…") && resumeEditor.disabled,
-    "Pending resume did not read its current attempt without an App agent turn or refresh signal");
-  check(workspaceReads > beforeResumePoll && document.querySelector('[aria-label="场景 1 正文"]') === resumeEditor
-    && resumeEditor.value === resumeBody && workspace.chapters[0].candidate.id === resumeRevision && controlCalls === 1,
-    "Resume polling rewrote prose, changed its revision, or replayed execution");
-  workTasks = [previousResumeTask];
-  await render({ projectId: "control-project-B", refreshToken: 16 });
-  finishTaskControl(); await tick(); await tick();
-  check(lateFormalRefreshes === 0 && !button("继续任务")?.disabled, "Late control refreshed another project or left its UI busy");
-  api.agent.resumeWorkTask = resumeWorkTask;
-  const controlWorkTask = api.agent.controlWorkTask;
-  let finishResume, rejectResume, finishInterruption, interruptionCalls = 0;
-  api.agent.resumeWorkTask = async () => {
-    const result = { ...workTasks[0], status: "completed" };
-    return new Promise((resolve, reject) => { finishResume = () => resolve(result); rejectResume = reject; });
-  };
-  api.agent.controlWorkTask = async (_projectId, _taskId, command) => {
-    interruptionCalls += 1;
-    await new Promise((resolve) => { finishInterruption = resolve; });
-    workTasks = workTasks.map((task) => task.id === _taskId ? { ...task, status: command === "pause" ? "paused" : "cancelled" } : task);
-  };
-  let saveDuringResume, discardDuringResume;
-  await render({ refreshToken: "resume-interrupt", onSaveHandlerChange: (handler) => { saveDuringResume = handler; },
-    onDiscardHandlerChange: (handler) => { discardDuringResume = handler; } });
-  button("继续任务").click();
-  check(discardDuringResume() === false && await saveDuringResume() === false, "Same-frame resumed execution allowed a conflicting save or discard");
-  await tick();
-  workTasks = [{ ...workTasks[0], status: "running" }];
-  await render({ refreshToken: "resume-running", agentRunning: true });
-  check(!button("暂停后续步骤")?.disabled && !button("取消任务")?.disabled, "Waiting for resumed execution removed stop controls");
-  button("暂停后续步骤").click(); button("暂停后续步骤").click(); await tick();
-  check(interruptionCalls === 1 && button("取消任务")?.disabled, "Short control was duplicated or lacked mutual exclusion");
-  finishInterruption(); await tick(); await tick();
-  check(button("继续任务")?.disabled && !button("取消任务")?.disabled, "Pause released the pending resume slot or blocked cancellation");
-  await click("取消任务");
-  check(interruptionCalls === 2, "Cancellation could not run before resume settled");
-  finishInterruption(); await tick(); await tick();
-  rejectResume(new Error("TASK_CANCELLED: resumed attempt interrupted")); await tick(); await tick();
-  check(document.querySelector('[role="status"]')?.textContent.includes("已确认取消任务")
-    && !document.querySelector(".creative-alert.error"), "Cancelled resume overwrote the confirmed control outcome");
-
-  workTasks = [{ ...readingTask, resumeBlockReason: null }];
-  await render({ refreshToken: "resume-first", agentRunning: false });
-  await click("继续任务");
-  workTasks = [{ ...workTasks[0], status: "running" }];
-  await render({ refreshToken: "resume-first-running", agentRunning: true });
-  await click("取消任务");
-  finishResume(); await tick(); await tick();
-  check(button("取消任务")?.disabled, "Resume completion prematurely released an in-flight cancel guard");
-  finishInterruption(); await tick(); await tick();
-
-  workTasks = [{ ...readingTask, resumeBlockReason: null }];
-  await render({ refreshToken: "resume-error-first", agentRunning: false });
-  await click("继续任务");
-  workTasks = [{ ...workTasks[0], status: "running" }];
-  await render({ refreshToken: "resume-error-first-running", agentRunning: true });
-  await click("取消任务");
-  rejectResume(new Error("TASK_CANCELLED: exits before cancel receipt")); await tick(); await tick();
-  check(button("取消任务")?.disabled, "Execution error released the pending cancellation slot");
-  finishInterruption(); await tick(); await tick();
-  check(!document.querySelector(".creative-alert.error") && document.querySelector('[role="status"]')?.textContent.includes("已确认取消任务"), "Earlier resume exit survived the matching cancellation receipt");
-
-  workTasks = [{ ...readingTask, resumeBlockReason: null }, { ...readingTask, id: "work-other", goal: "另一项暂停任务", resumeBlockReason: null }];
-  await render({ refreshToken: "other-task-cancel", agentRunning: false });
-  [...document.querySelector('[data-work-task-id="work-ui"]').querySelectorAll("button")].find(element => element.textContent === "继续任务").click(); await tick();
-  workTasks = workTasks.map((task) => task.id === readingTask.id ? { ...task, status: "running" } : task);
-  await render({ refreshToken: "other-task-running", agentRunning: true });
-  const otherRow = [...document.querySelectorAll(".work-task-row")].find((row) => row.textContent.includes("另一项暂停任务"));
-  const otherCancel = [...otherRow.querySelectorAll("button")].find((element) => element.textContent === "取消任务");
-  check(!otherCancel.disabled, "Different-task cancellation was blocked by resumed execution");
-  otherCancel.click(); await tick(); finishInterruption(); await tick(); await tick();
-  workTasks = workTasks.map((task) => task.id === readingTask.id ? { ...task, status: "blocked" } : task);
-  rejectResume(new Error("当前任务真实执行失败")); await tick(); await tick();
-  check(document.querySelector(".creative-alert.error")?.textContent.includes("当前任务真实执行失败"), "Cancelling another task suppressed the resumed task's real error");
-
-  workTasks = [{ ...readingTask, resumeBlockReason: null }, { ...readingTask, id: "work-other", goal: "另一项暂停任务", resumeBlockReason: null }];
-  await render({ refreshToken: "other-cancel-after-error", agentRunning: false });
-  [...document.querySelector('[data-work-task-id="work-ui"]').querySelectorAll("button")].find(element => element.textContent === "继续任务").click(); await tick();
-  rejectResume(new Error("取消其他任务前已显示的执行失败")); await tick(); await tick();
-  const reverseRow = [...document.querySelectorAll(".work-task-row")].find((row) => row.textContent.includes("另一项暂停任务"));
-  [...reverseRow.querySelectorAll("button")].find((element) => element.textContent === "取消任务").click(); await tick();
-  check(document.querySelector(".creative-alert.error")?.textContent.includes("取消其他任务前已显示的执行失败"), "Starting another task's control erased an existing execution error");
-  finishInterruption(); await tick(); await tick();
-  check(document.querySelector(".creative-alert.error")?.textContent.includes("取消其他任务前已显示的执行失败")
-    && document.querySelector('[role="status"]')?.textContent.includes("已确认取消任务"), "Another task's cancellation receipt erased the prior execution error");
-
-  workTasks = [{ ...readingTask, resumeBlockReason: null }];
-  await render({ refreshToken: "resume-failure", agentRunning: false });
-  await click("继续任务");
-  workTasks = [{ ...workTasks[0], goal: "失败后持久任务仍可核对", status: "blocked" }];
-  rejectResume(new Error("实际模型执行失败")); await tick(); await tick();
-  check(document.body.textContent.includes("失败后持久任务仍可核对")
-    && document.querySelector(".creative-alert.error")?.textContent.includes("实际模型执行失败"), "Failed resume did not reconcile durable state or hid the execution error");
-
-  api.agent.resumeWorkTask = async () => { workTasks = [{ ...workTasks[0], status: "completed" }]; return structuredClone(workTasks[0]); };
-  await render({ refreshToken: "post-control-read-error", onFormalChange: async () => { throw new Error("作品读取测试失败"); } });
-  await click("继续任务"); await tick();
-  check(document.querySelector(".creative-alert.error")?.textContent.includes("操作已返回成功，但作品界面刷新失败")
-    && document.querySelector('[role="status"]')?.textContent.includes("继续执行已结束"), "Confirmed execution was presented as a failed mutation after a read error");
-  api.agent.resumeWorkTask = resumeWorkTask;
-  api.agent.controlWorkTask = controlWorkTask;
+  check(!button("继续任务") && document.body.textContent.includes("已停止重复尝试") && !button("取消任务")?.disabled, "Automatic modeling budget did not block retries while preserving cancellation");
+  // Explicit retry/stop races now run through the actual App composer fixture.
   workTasks = [];
   await render({ refreshToken: 0 });
   check(!button("让 AI 起草本章") && !button("讨论本章") && !button("新建章节"), "Saved chapter retained duplicate creation/writer/discussion entries");
   await revealControl(document.querySelector(".writer-runtime-preview"));
-  check(document.querySelector('.writer-runtime-preview').textContent.includes("尚未发布的内容"), "Writer preview hid the actual source authority");
   workspace.modeling = [{ objectId: "draft-chapter-1", sourceRevisionId: "draft-1", status: "model_pending", batchId: null, entities: [], assertions: [], confirmationState: "candidate" }];
   await render({ refreshToken: 1 });
   check(!button("继续分析本章") && !document.querySelector(".chapter-analysis-status"), "Pending knowledge became an author todo without a running task");
@@ -636,11 +478,11 @@ async function run() {
   await render({ view: "brief", agentRunning: false, refreshToken: 108 });
   await click("按评估要求重试本章");
   check(retriedRun === "generation-feedback", "A partial feedback repair did not offer the safe retry entry");
-  generationRuns = [{ ...generationRuns[0], usageUnsettled: true }];
+  generationRuns = [{ ...generationRuns[0], usageCheck: { state: "unavailable", phase: "usageSettlement", code: null } }];
   await render({ view: "brief", agentRunning: false, refreshToken: "usage-unsettled" });
-  check(document.body.textContent.includes("模型用量待核账") && button("按评估要求重试本章")?.disabled, "Unsettled provider usage still offered a retry");
-  generationRuns = [{ ...generationRuns[0], usageUnsettled: false }];
-  await click("重新核账"); await tick(); await tick();
+  check(document.body.textContent.includes("原任务费用登记尚未完成") && button("按评估要求重试本章")?.disabled, "Unsettled provider usage still offered a retry");
+  generationRuns = [{ ...generationRuns[0], usageCheck: { state: "current" } }];
+  await click("重新核对状态"); await tick(); await tick();
   check(!button("按评估要求重试本章")?.disabled, "Reconciled usage did not restore the author retry entry");
   generationRuns = [{ ...generationRuns[0], id: "generation-checkpoint", pendingCurrentIntentGeneration: null, feedbackRepairPrompt: null }];
   await render({ view: "brief", agentRunning: false, refreshToken: "checkpoint-retry" });
@@ -668,24 +510,11 @@ async function run() {
   const readsBeforeRecovery = workspaceReads;
   await click("重新读取作品");
   check(workspaceReads > readsBeforeRecovery && document.body.textContent.includes("作品已重新读取") && document.querySelector('.chapter-plan-rebind [role="status"]')?.textContent.includes(`作品版本 ${workspace.revision}`) && !document.querySelector('[aria-label="场景 1 正文"]').disabled, "Read-only recovery did not reload the committed version");
-  const factKey = document.querySelector<HTMLInputElement>('.fact-proposal-form input[placeholder="例如：knows-father-lied"]');
-  await revealControl(factKey);
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(factKey, "letter-hidden");
-  factKey.dispatchEvent(new Event("input", { bubbles: true })); await tick();
-  const evidence = document.querySelector<HTMLInputElement>('.fact-proposal-form input[placeholder="引用支持该事实的正文"]');
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(evidence, document.querySelector<HTMLTextAreaElement>('[aria-label="场景 1 正文"]').value);
-  evidence.dispatchEvent(new Event("input", { bubbles: true })); await tick();
-  document.querySelector('.chapter-settings > summary').click(); await tick();
-  check(!document.querySelector<HTMLDetailsElement>('.chapter-settings').open && document.querySelector('.chapter-review-dirty')?.textContent === "设定或检查有未保存修改" && document.querySelector('.chapter-save-state')?.textContent === "正文已保存", "Folding settings hid unsaved fact edits or marked the saved body dirty");
-  chromeSnapshot.foldedFactEdit = { body: document.querySelector('.chapter-save-state').textContent, settings: document.querySelector('.chapter-review-dirty').textContent, settingsOpen: false };
-  api.runtime.saveDraftCheckpoint = async (_, payload) => {
-    workspace.revision++;
-    const saved = { ...revision, ...payload, id: `draft-${workspace.revision}` };
-    workspace.chapters[0].candidate = saved;
-    return { revisionId: saved.id };
-  };
-  await click("保存"); await tick(); await tick();
-  check(!document.querySelector('.chapter-review-dirty') && document.querySelector('.chapter-save-state')?.textContent === "正文已保存" && !document.querySelector<HTMLDetailsElement>('.chapter-settings').open, "Saving did not persist fact suggestions and clear their visible dirty state");
+  const settings = document.querySelector<HTMLDetailsElement>('.chapter-settings');
+  check(settings?.closest('.chapter-page-actions') && !document.querySelector('.fact-proposal-form,.writer-runtime-preview,.chapter-manual-tools') && !document.body.textContent.includes("记录本章新事实") && !document.body.textContent.includes("查看生成记录"), "Chapter settings kept technical author forms or failed to move into its heading");
+  settings.querySelector('summary').click(); await tick();
+  check(!settings.open && !document.querySelector('.chapter-review-dirty') && document.querySelector('.chapter-save-state')?.textContent === "正文已保存", "Closing chapter settings changed saved prose or introduced fake dirty state");
+  chromeSnapshot.chapterControls = { body: document.querySelector('.chapter-save-state').textContent, settings: "页头 · 章节设置", technicalForms: false, manualToolbox: false };
   return { passed: true, retrySnapshot, chromeSnapshot };
 }
 run().then((result) => { window.testResult = result; }).catch((error) => { window.testResult = { passed: false, error: (window.testResult?.error ?? error.stack) + "\nDOM:" + document.body.innerText }; });

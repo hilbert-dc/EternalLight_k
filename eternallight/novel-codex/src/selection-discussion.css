@@ -13,7 +13,7 @@
 .discussion-excerpt header button { border: 0; background: transparent; color: inherit; cursor: pointer; padding: 0 4px; }
 .discussion-excerpt small { display: block; opacity: .7; overflow-wrap: anywhere; }
 .discussion-excerpt summary { cursor: pointer; margin-top: 5px; }
-.discussion-excerpt summary span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
-.discussion-excerpt summary em { display: block; font-size: 10px; font-style: normal; opacity: .65; }
+.discussion-excerpt summary span { overflow-wrap: anywhere; }
+.discussion-excerpt summary em { margin-left: 6px; font-size: 10px; font-style: normal; opacity: .65; }
 .discussion-excerpt blockquote { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .discussion-excerpt-notice { margin: 0; font-size: 11px; opacity: .75; }

@@ -1,0 +1,14 @@
+.creation-issues { margin: 10px 0; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.creation-issue { margin: 7px 0; }
+.creation-issue > summary { cursor: pointer; }
+.creation-issue > summary strong { font-weight: 500; }
+.creation-issue > summary span { display: block; padding-left: 15px; color: var(--nc-ink-muted); font-size: 12px; }
+.creation-issue-observations { padding: 4px 0 4px 15px; }
+.creation-issue-observations > section { margin: 10px 0; border-top: 1px solid var(--nc-border); padding-top: 5px; }
+.creation-issue-observations p { margin: 4px 0; }
+.creation-issue-observation-state { color: var(--nc-ink-muted); font-size: 12px; }
+.creation-issue-observations blockquote { margin: 6px 0; border-left: 2px solid var(--nc-border); padding-left: 10px; white-space: pre-wrap; }
+.creation-issue-observations small, .creation-issue-observations dl { color: var(--nc-ink-muted); font-size: 12px; }
+.creation-issue-observations dl { margin: 5px 0; }
+.creation-issue-observations dd { margin-left: 0; }
+.creation-issue-observations pre { white-space: pre-wrap; overflow-wrap: anywhere; }

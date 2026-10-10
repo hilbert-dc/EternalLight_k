@@ -1,25 +1,21 @@
+import type { DiscussionExcerpt, ViewId } from "../shared/discussion-excerpts.mjs";
+export type { DiscussionExcerpt, ViewId } from "../shared/discussion-excerpts.mjs";
+
 export type DiscussionReference = { projectId: string; snapshotId: string } & (
   { kind: "scene"; objectId: string; revisionId: string; sceneGroupId: string }
   | { kind: "claim"; objectId: string; revisionId: string; modelingBatchId: string; assertionIndex: number }
   | { kind: "commitment"; commitmentId: string; revisionId: string }
 );
-export type DiscussionExcerpt = {
-  id: string; projectId: string; view: ViewId; label: string; text: string;
-  state: "displayed" | "unsaved"; locator: string;
-  snapshotId: string | null; revisionId: string | null; objectId: string | null;
-  start: number; end: number;
-};
 export type ConversationFocus = { view: ViewId; chapterId?: string; chapterNumber?: number; reference?: DiscussionReference; chapterStructureTaskId?: string; excerpts?: readonly DiscussionExcerpt[]; readOnly?: true };
 export type DiscussionSource = { focus: ConversationFocus & { reference: DiscussionReference }; label: string };
 export type CommitmentNavigationRequest = { projectId: string; snapshotId: string; commitmentId: string; revisionId: string };
 export type CommitmentNavigationSelection = { requestId: string; request: CommitmentNavigationRequest; chapterId: string };
-export type ViewId = "brief" | "outline" | "plans" | "chapters" | "characters" | "plot" | "timeline" | "world";
 export interface DesiredOutcome {
   id: string;
   criterion: string;
   groupIds: string[];
 }
-export type ActionTarget = Record<string, unknown> & { desiredOutcomes?: DesiredOutcome[] };
+export type ActionTarget = Record<string, unknown> & { desiredOutcomes?: DesiredOutcome[]; chapterAcceptance?: ChapterAcceptanceReport["chapterAcceptance"] };
 export interface ProposedAction {
   id: string;
   sourceTaskId: string;
@@ -104,8 +100,8 @@ export interface RuntimeState {
   project: { id: string; title: string; logline: string; updated_at: string };
   canon: StoryCanon; narrativeIr: NarrativeIr; novelEdition: NovelEdition;
 }
-export interface ProjectSummary { id: string; title: string; logline: string; created_at?: string; updated_at: string; }
-export interface RuntimeStatus { state: "online" | "offline"; mode: "local" | "novel-agent-engine"; error: string | null; }
+export interface ProjectSummary { id: string; title: string; logline: string; created_at?: string | number; updated_at: string | number; }
+export interface RuntimeStatus { state: "starting" | "slow" | "online" | "offline"; mode: "local" | "novel-agent-engine"; error: string | null; }
 export interface ChapterDiff { id: string; chapter_id: string; fromText: string; toText: string; summary: string; createdAt: string | null; addedChars: number; removedChars: number; }
 export type SearchKind = "draft" | "brief" | "outline" | "plan";
 export interface SearchResult { id: string; title: string; kind: SearchKind; snippet: string; source: "story-revision"; sourceRevisionId: string; sourcePath: string; evidence: { quote: string; start: number; end: number }; }
@@ -329,7 +325,7 @@ export interface CreativeWorkspace {
     id: string; taskKind: string; purpose: "planner" | "writer" | "critic"; status: string;
     stage: string; deliveryStatus: "pending" | "ready_for_review" | "incomplete";
     threadId: string; inputRevision: number; error: string | null;
-    target: { type?: string; chapterId?: string; chapterNumber?: number; chapterTitle?: string; sceneOrder?: number; scope?: { type: "wholeChapter" } | { type: "throughScene"; endSceneOrder: number }; povCharacterId?: string; storyTime?: number };
+    target: { type?: string; chapterId?: string; chapterNumber?: number; chapterTitle?: string; sceneOrder?: number; scope?: { type: "wholeChapter" } | { type: "throughScene"; endSceneOrder: number } | { type: "selectedScenes"; sourceRevisionId: string; groupIds: string[]; bodyRanges?: { groupId: string; start: number; end: number }[] }; readScope?: { type: "throughChapter" } | { type: "throughScene"; endSceneOrder: number }; povCharacterId?: string; storyTime?: number };
     outputRefs: { kind: string; revisionId: string; objectId: string; workingBaseRevisionId?: string }[];
   }[];
 }
@@ -408,12 +404,14 @@ export type HypothesisAssumption =
   | { kind: "suppressClaim"; modelingBatchId: string; sourceRevisionId: string; assertionIndex: number }
   | { kind: "assumeClaim"; subjectId: string; predicate: string; value: string | number | boolean | null; storyTime: number | null };
 export interface ThreadSummary {
+  readState?: ThreadReadState | null;
   projectId?: string; version?: number; isArchived?: boolean; forkedFromId?: string | null; lastTurnId?: string | null;
   id: string; name: string | null; preview: string | null; modelProvider: string | null;
   status: string | null; createdAt: number | null; updatedAt: number | null;
   isPinned: boolean; ephemeral: boolean;
 }
-export interface ThreadItemSummary { id: string; type: string | null; status: string | null; text: string | null; phase: "commentary" | "final_answer" | null; }
+export interface ThreadReadState { revision: string; firstUnread: { type: "threadStart" } | { type: "turn"; turnId: string } | null; }
+export interface ThreadItemSummary { id: string; type: string | null; status: string | null; text: string | null; phase: "commentary" | "final_answer" | null; mediaAttachments?: { assetRevisionId: string; name: string; previewUrl: string }[]; }
 export interface ThreadTurnSummary { id: string; status: string | null; startedAt: number | null; completedAt: number | null; items: ThreadItemSummary[]; }
 export interface ThreadDetail { thread: ThreadSummary; turns: ThreadTurnSummary[]; }
 export interface RecoveryRequest { requestId: string; turnId: string | null; kind: "model" | "read" | "write"; operation: string | null; state: string; receiptRef: string | null; hasIdempotencyKey: boolean; recovery: "none" | "resume-core" | "manual-reconciliation"; }
@@ -453,7 +451,7 @@ export interface GenerationRunSummary {
   id: string;
   revisionPredecessor: RevisionPredecessor | null;
   authorMessageId: string;
-  usageUnsettled?: boolean;
+  usageCheck?: import("../shared/work-recovery-presentation.mjs").UsageCheck;
   currentChapterId: string | null;
   currentChapterNumber: number | null;
   status: "running" | "blocked" | "paused" | "completed" | "cancelled";
@@ -535,10 +533,57 @@ export interface TaskFinalReply {
   recordedAt: number;
 }
 
+export interface CreationIssueLink {
+  issueId: string;
+  newIssue: { summary: string } | null;
+  resolutionOf: string[];
+}
+export interface CreationIssueObservation {
+  issueId: string;
+  observationId: string;
+  taskId: string;
+  reportRevisionId: string | null;
+  draftRevisionId: string | null;
+  criterionId: string | null;
+  status: "unmet" | "insufficientEvidence" | "supported";
+  reason: string;
+  source: "revisionOutcome" | "deliveryReview";
+  current: boolean;
+  recheckRequired: boolean;
+  superseded: boolean;
+  resolutionOf: string[];
+  evidence: unknown[];
+}
+export interface CreationIssue {
+  issueId: string;
+  summary: string;
+  status: "open" | "stale" | "disputed" | "resolved";
+  chapterId: string | null;
+  currentDraftRevisionId: string | null;
+  observations: CreationIssueObservation[];
+  observationCount: number;
+  hasMoreObservations: boolean;
+}
+export interface CreationIssueSummary {
+  totalCount: number;
+  openCount: number;
+  staleCount: number;
+  disputedCount: number;
+  entries: CreationIssue[];
+  hasMore: boolean;
+}
+export interface CreationIssuePage { entries: CreationIssue[]; totalCount: number; nextCursor: number | null }
+export interface CreationIssueObservationPage { issueId: string; entries: CreationIssueObservation[]; totalCount: number; nextCursor: number | null }
+export interface ChapterAcceptanceRequirement { id: string; text: string }
+
 export interface RevisionOutcomeReport {
+  uncoveredRequirements: {
+    issue: CreationIssueLink; requirement: string; reason: string;
+    authorSourceChecks: { sourceId: string; contentHash: string; quote: string }[];
+  }[];
   writerTaskId: string;
   chapterId: string;
-  originalRevisionId: string;
+  originalRevisionId: string | null;
   draftRevisionId: string;
   knowledgeBatchId: string | null;
   outcomes: {
@@ -546,6 +591,7 @@ export interface RevisionOutcomeReport {
     status: "supported" | "unmet" | "insufficientEvidence";
     reason: string;
     evidence: { groupId: string; quote: string; start: number; end: number }[];
+    issue: CreationIssueLink | null;
   }[];
 }
 export interface RevisionOutcome {
@@ -553,6 +599,7 @@ export interface RevisionOutcome {
   authority: "candidateAnalysis";
   state: "current" | "stale";
   assessment: RevisionOutcomeReport;
+  issues: CreationIssue[];
   decisions: RevisionOutcomeDecision[];
 }
 
@@ -596,22 +643,37 @@ export interface RevisionContinuationPreparation {
   revisionPredecessor: RevisionPredecessor;
 }
 
+export interface ChapterAcceptanceReport {
+  writerTaskId: string; chapterId: string; draftRevisionId: string;
+  chapterAcceptance: { requirements: ChapterAcceptanceRequirement[]; length: { requirement: string; minCharacters: number | null; maxCharacters: number | null }; verification?: { method: "direct" | "independent"; reason: string } };
+  reportRevisionId: string | null; current: boolean;
+  verdict: "pending" | "stale" | "notMet" | "insufficientEvidence" | "passed";
+  length: { characterCount: number; minCharacters: number | null; maxCharacters: number | null; satisfied: boolean; countUnit: string };
+  checks: { id: string; status: "supported" | "unmet" | "insufficientEvidence"; reason: string; issueId: string | null }[];
+}
+
 export interface WorkTaskSummary {
+  interlude?: {id:string;parentId:string|null;messageId:string;stepId:string;controlRevision:number;revision:number;autoReturn:boolean;phase:"waiting"|"answering"|"answered"|"failed"}|null;
+  pauseAfterStep?: { controlRevision: number; remainingAttempts: number } | null;
+  controlDelivery?: { commandId: string; command: "pause" | "pauseAfterStep" | "resume" | "cancel" | "recoverSavedResult"; state: "deliveryUnknown" };
   id: string; projectId: string; threadId: string; goal: string; kind: "conversation" | "direct" | "generation";
-  status: "running" | "paused" | "blocked" | "completed" | "cancelled"; deliveryStatus: "pending" | "partial" | "ready_for_review" | "discussion_ended"; version: number; error: string | null;
+  status: "running" | "paused" | "blocked" | "completed" | "cancelled"; deliveryStatus: "pending" | "partial" | "ready_for_review" | "discussion_ended"; version: number; controlRevision: number; error: string | null;
   deliveryReport: {
+    issues: CreationIssueSummary;
+    chapterAcceptanceReports: ChapterAcceptanceReport[];
     evidence: { stepId: string; attemptId: string | null; kind: string; referenceId: string | null;
       state: "pending" | "missing" | "recorded" | "superseded" }[];
     pendingActionIds: string[]; unsettledAttemptIds: string[];
-    deliveryReview?: { goalStatus: "fulfilled" | "partial" | "needsAuthorDecision"; goalAssessment: string; checkedScope: string; unresolved: string[]; authorDecisions: string[] } | null;
+    deliveryReview?: { goalStatus: "fulfilled" | "partial" | "needsAuthorDecision"; goalAssessment: string; checkedScope: string; unresolved: { issue: CreationIssueLink; observationId: string | null; reason: string }[]; issueResolutions: { issue: CreationIssueLink; reason: string }[]; authorDecisions: string[] } | null;
   };
-  resumeBlockReason: "partialOutput" | "inputChanged" | "attemptBudget" | "pendingRecovery" | "readerRestart" | null;
+  resumeBlockReason: "recoveryStalled" | "partialOutput" | "inputChanged" | "attemptBudget" | "pendingRecovery" | "pendingUsage" | "pendingWriteAndUsage" | "executionBlocked" | "readerRestart" | "unknownUsage" | null;
   resumeMode: "recoverSavedResult" | "continueExecution" | null;
+  pendingContinuation: boolean;
   steps: { id: string; operation: string; expectedOutputKind: string | null; instruction: string | null; sourceTaskId: string | null; target: ActionTarget;
     status: "queued" | "running" | "completed" | "blocked" | "cancelled" | "superseded"; inputRevision: number;
     dependsOnStepId: string | null; currentAttemptId: string | null;
     readingProgress: AuthorReadingProgress | null;
-    attempts: { id: string; attemptNumber: number; startedAt: number; completedAt: number | null; threadId: string; turnId: string | null; status: string; error: string | null }[];
+    attempts: { failureObservations?: { issuer: "engine"; phase: "modelRequest"; runId: string; requestId: string; errorCode?: string; errorStatusCode?: number }[] | null; id: string; attemptNumber: number; startedAt: number; completedAt: number | null; threadId: string; turnId: string | null; status: string; error: string | null }[];
     outputRefs: { kind: string; revisionId: string; objectId: string; workingBaseRevisionId?: string }[];
     changes: { commitId: string; operation: string; baseRevision: number; resultRevision: number; undoneByCommitId: string | null }[] }[];
 }
@@ -680,7 +742,7 @@ export interface NarrativeCommitment {
 export interface CommitmentEvidence { objectId: string; revisionId: string; quote: string; start: number; end: number }
 export interface CommitmentExtractionReport {
   established: { proposalId: string; commitmentId: string }[];
-  revisionId: string; snapshotId: string; projectRevision: number; authority: "candidateProposalBatch"; sourceCurrent: boolean;
+  revisionId: string; snapshotId: string; projectRevision: number; authority: "candidateProposalBatch"; sourceCurrent: boolean; reportCurrent: boolean;
   payload: { chapterId: string; sourceRevisionId: string; examinedRanges: { start: number; end: number }[]; candidates: NarrativeCommitment[] };
   coverage: { semanticCompleteness: "unknown"; modelReportedRanges: true; literaryFulfillmentVerified: false; globalCompletenessClaimed: false };
 }
@@ -696,12 +758,20 @@ export interface CommitmentPage {
 }
 
 export interface GenerationHandoffProposal {
+  resumeRun?: { id: string; expectedVersion: number } | null;
   proposalId: string; projectId: string; sourceTaskId: string; threadId: string;
   authorIntent: string; targetChapters: number; expectedRevision: number;
   sourceDigest: string; baseSnapshotId: string; state: "proposed";
 }
 
+export type MessageTrigger = {kind:"steer";taskId:string} | { kind: "interlude"; interludeId: string; workTaskId: string } | { kind: "immediate" } | { kind: "afterWork"; workTaskId: string; controlRevision: number } | { kind: "afterTurn"; taskId: string; turnId: string; controlRevision: number };
+export type ConversationMessageInput = { text: string; focus: ConversationFocus | null; connectionId: string | null; media?: import("../shared/multimedia-types").MediaTurnInput | null };
+export type ConversationMessage = { id: string; projectId: string; threadId: string; revision: number; position: number;
+  input: ConversationMessageInput; trigger: MessageTrigger; sessionId: string; requiresContinue?: boolean; triggerReady?: boolean; holdReason?: string | null;
+  status: "queued" | "claimed" | "sending" | "delivered" | "failed" | "cancelled"; taskId: string | null; turnId: string | null; error: string | null; createdAt: number };
+
 export interface NovelCodexApi {
+  multimedia: import("../shared/multimedia-types").MultimediaApi;
   platform: string; version: string;
   app: {
     confirmClose: () => Promise<{ closing: boolean }>;
@@ -710,8 +780,9 @@ export interface NovelCodexApi {
   };
   runtime: {
     status: () => Promise<RuntimeStatus>;
+    retryStartup: () => Promise<RuntimeStatus>;
     listProjects: () => Promise<{ projects: ProjectSummary[] }>;
-    createProject: (title: string, logline: string) => Promise<RuntimeState>;
+    createProject: (title: string, logline: string, medium: import("../shared/multimedia-types").CreativeMedium, idempotencyKey: string) => Promise<import("../shared/multimedia-types").CreativeProjectCreated>;
     getState: (projectId: string) => Promise<RuntimeState>;
     getLocalMetrics: () => Promise<LocalMetricsSummary>;
     recordStageAbandonment: (stage: "brief" | "outline" | "plan" | "draft", idempotencyKey: string) => Promise<LocalMetricsSummary>;
@@ -740,7 +811,7 @@ export interface NovelCodexApi {
     previewGenerationReplan: (projectId: string, runId: string) => Promise<GenerationReplanPreview>;
     replanGeneration: (projectId: string, runId: string, request: GenerationReplanRequest) => Promise<GenerationRunSummary>;
     getSceneAssessment: (projectId: string, chapterId: string) => Promise<SceneAssessmentSummary>;
-    getCommitmentExtraction: (projectId: string, chapterId: string) => Promise<CommitmentExtractionReport | null>;
+    getCommitmentExtraction: (projectId: string, chapterId: string, reportRevisionId?: string | null) => Promise<CommitmentExtractionReport | null>;
     establishCommitment: (projectId: string, chapterId: string, request: { reportRevisionId: string; proposalId: string; baseSnapshotId: string; expectedRevision: number; idempotencyKey: string }) => Promise<{ commitmentId: string; revisionId: string; snapshotId: string; confirmationState: "candidate" }>;
     getCommitment: (projectId: string, id: string, snapshotId?: string | null) => Promise<CommitmentDetail>;
     listCommitments: (projectId: string, cursor?: string | null, limit?: number) => Promise<CommitmentPage>;
@@ -770,6 +841,7 @@ export interface NovelCodexApi {
     startFactAudit: (projectId: string) => Promise<FactAuditJobSummary>;
     controlFactAudit: (projectId: string, jobId: string, command: "pause" | "resume" | "cancel", expectedVersion: number) => Promise<FactAuditJobSummary>;
     getWorkTask: (projectId: string, workTaskId: string) => Promise<WorkTaskSummary>;
+    getWorkIssues: (projectId: string, workTaskId: string, input: { issueId: string | null; cursor: number; limit: number }) => Promise<CreationIssuePage | CreationIssueObservationPage>;
     getTaskFinalReply: (projectId: string, taskId: string) => Promise<TaskFinalReply | null>;
     getRevisionOutcome: (projectId: string, writerTaskId: string) => Promise<RevisionOutcome | null>;
     decideRevisionOutcome: (projectId: string, writerTaskId: string, request: RevisionOutcomeDecisionRequest) => Promise<RevisionOutcomeDecision>;
@@ -801,15 +873,27 @@ export interface NovelCodexApi {
     search: (projectId: string, query: string, limit?: number, kind?: SearchKind, cursor?: string) => Promise<SearchResponse>;
   };
   agent: {
-    setWorkspaceContext: (context: { projectId: string | null; dirty: boolean }) => Promise<{ selected: string | null }>;
+    setWorkspaceContext: (context: { projectId: string | null; dirty: boolean; mediaScope: import("../shared/multimedia-types").EditionScope | null }) => Promise<{ selected: string | null }>;
     retryChapterStructureCheck: (projectId: string, changeId: string) => Promise<void>;
-    status: () => Promise<{ configured: boolean; state: string; mode: "novel-agent-engine"; error: string | null; provider?: string; model?: string; commandSource?: string | null; cliPath?: string | null; isolatedHome?: string | null }>;
+    status: () => Promise<{ configured: boolean; state: string; mode: "novel-agent-engine"; error: string | null; provider?: string; model?: string; reasoningEffort?: string | null; commandSource?: string | null; cliPath?: string | null; isolatedHome?: string | null }>;
     recoveryReport: () => Promise<RecoveryRun[]>;
-    listConnections: () => Promise<{ connections: { id: string; provider: string; model: string; protocol: "auto" | "responses" | "chat-completions" | "messages" | "generate-content"; selectedProtocol: string | null; declaredCapabilities: string[]; verifiedCapabilities: string[]; failedCapabilities: string[]; collaborationStatus: "ready" | "unverified" | "failed"; operations: string[]; status: "unverified" | "verified" | "failed"; certificationIds: string[]; accountStatus: "configured" | "missing-credential"; isDefault: boolean }[] }>;
-    verifyConnection: (provider: string, model: string) => Promise<{ certificationIds?: string[]; reportId: string; selectedProtocol: string; attempts: { protocol: string; status: string; category?: string; message?: string }[]; records: { capability: string; status: string; scope: unknown; checkedAt: string; expiresAt: string }[]; access?: { status: "available"; protocol: string } }>;
+    listConnections: (provider?: string, model?: string, reasoningEffort?: string | null) => Promise<{ connections: { id: string; provider: string; model: string; protocol: "auto" | "responses" | "chat-completions" | "messages" | "generate-content"; selectedProtocol: string | null; declaredCapabilities: string[]; verifiedCapabilities: string[]; failedCapabilities: string[]; collaborationStatus: "ready" | "unverified" | "failed"; operations: string[]; status: "unverified" | "verified" | "failed"; certificationIds: string[]; accountStatus: "configured" | "missing-credential"; isDefault: boolean; reasoning?: { effort: string; defaultEffort: string; options: { effort: string; label: string; description: string }[] } | null }[] }>;
+    verifyConnection: (provider: string, model: string, reasoningEffort?: string | null) => Promise<{ certificationIds?: string[]; reportId: string; selectedProtocol: string; attempts: { protocol: string; status: string; category?: string; message?: string }[]; records: { capability: string; status: string; scope: unknown; checkedAt: string; expiresAt: string }[]; access?: { status: "available"; protocol: string } }>;
+    verifyImageInput: (provider: string, model: string, reasoningEffort?: string | null) => Promise<{ reportId: string; selectedProtocol: string; attempts: { protocol: string; status: string; category?: string; message?: string }[]; records: { capability: string; status: string; scope: unknown; checkedAt: string; expiresAt: string }[] }>;
     verifyConnectionEdge: (parentProvider: string, parentModel: string, childProvider: string, childModel: string) => Promise<{ reportId: string; parentConnectionId: string; childConnectionId: string; selectedProtocols: { parent: string; child: string }; attempt: { protocol: string; status: string; category?: string; message?: string }; record: { capability: string; status: string; scope: unknown; checkedAt: string; expiresAt: string } }>;
-    configure: (provider: string, model: string) => Promise<{ configured: boolean; state: string; mode: "novel-agent-engine"; error: string | null; provider?: string; model?: string; commandSource?: string | null; cliPath?: string | null; isolatedHome?: string | null }>;
-    sendPrompt: (projectId: string, prompt: string, repairSource?: RevisionPredecessor | null, conversationFocus?: ConversationFocus | null, threadId?: string | null) => Promise<{ mode: string; message: string; projectId: string; proposedActions: ProposedAction[]; generationHandoff?: GenerationHandoffProposal | null; candidateResults?: { taskId: string; action: ProposedAction }[]; executionFailure?: { message: string; code: string; sourceTaskId: string; workTaskId: string | null; stepId: string | null }; workflow?: { task?: unknown; context?: unknown; revision?: number; headSnapshotId?: string; sourceDigest?: string } }>;
+    setReasoningEffort: (provider: string, model: string, effort: string) => Promise<{ reasoningEffort: string }>;
+    configure: (provider: string, model: string, reasoningEffort?: string | null) => Promise<{ configured: boolean; state: string; mode: "novel-agent-engine"; error: string | null; provider?: string; model?: string; reasoningEffort?: string | null; commandSource?: string | null; cliPath?: string | null; isolatedHome?: string | null }>;
+    listExecutions: (projectId: string) => Promise<Array<{ executionId: string; requestId: string; projectId: string; threadId: string | null;
+      taskId: string | null; executionThreadId: string | null; turnId: string | null; prompt: string; workflow: unknown;
+      cursor:number; events:import("../shared/execution-event-journal.mjs").ExecutionEvent[]; truncated:boolean; questions: Array<{projectId: string; executionId: string; requestId: string | number;
+        method: "item/tool/requestUserInput"; params: Record<string, unknown>; threadId?: string | null; turnId?: string | null}> }>>;
+    beginInterlude: (projectId:string,workId:string,input:{id:string;threadId:string;expectedControlRevision:number;parentId:string|null;autoReturn:boolean;text:string;focus:ConversationFocus|null;media?:import("../shared/multimedia-types").MediaTurnInput})=>Promise<WorkTaskSummary>;
+    returnInterlude: (projectId:string,workId:string,input:{commandId:string;interludeId:string;threadId:string;expectedControlRevision:number;expectedRevision:number})=>Promise<WorkTaskSummary>;
+    readMessage: (projectId: string, threadId: string, messageId: string) => Promise<ConversationMessage>;
+    listMessages: (projectId: string, threadId: string) => Promise<ConversationMessage[]>;
+    submitMessage: (projectId: string, threadId: string, message: { messageId: string; input: ConversationMessageInput; trigger: MessageTrigger }) => Promise<ConversationMessage>;
+    changeMessage: (projectId: string, threadId: string, id: string, change: { action: "cancel" | "continue" | "move" | "edit" | "reconcile"; expectedRevision: number; [key: string]: unknown }) => Promise<ConversationMessage>;
+    sendPrompt: (projectId: string, prompt: string, repairSource?: RevisionPredecessor | null, conversationFocus?: ConversationFocus | null, threadId?: string | null, mediaInput?: import("../shared/multimedia-types").MediaTurnInput | null) => Promise<{ mode: string; message: string; projectId: string; proposedActions: ProposedAction[]; generationHandoff?: GenerationHandoffProposal | null; candidateResults?: { taskId: string; action: ProposedAction }[]; executionFailure?: { message: string; code: string; sourceTaskId: string; workTaskId: string | null; stepId: string | null }; workflow?: { task?: unknown; context?: unknown; revision?: number; headSnapshotId?: string; sourceDigest?: string } }>;
     listProposedActions: (projectId: string) => Promise<{ actions: ProposedAction[] }>;
     readActionPermission: (projectId: string, sourceTaskId: string, actionId: string) => Promise<{ permission: ActionPermission | null }>;
     readExecutionScope: (projectId: string, sourceTaskId: string) => Promise<{ scope: ExecutionScopePermit | null }>;
@@ -830,17 +914,18 @@ export interface NovelCodexApi {
       resumeFailure?: { code: "WORK_RESUME_NOT_STARTED"; message: string; workTaskId: string };
     }>;
     recoverWorkTask: (projectId: string, workTaskId: string) => Promise<WorkTaskSummary>;
-    controlWorkTask: (projectId: string, workTaskId: string, command: "pause" | "cancel") => Promise<WorkTaskSummary>;
+    controlWorkTask: (projectId: string, workTaskId: string, command: "pause" | "pauseAfterStep" | "cancel", expectedControlRevision: number, expectedThreadId: string) => Promise<WorkTaskSummary>;
     reviewPlanning: (projectId: string, request: PlanningReviewStartRequest) => Promise<{ projectId: string; run: PlanningReviewRun }>;
-    steer: (projectId: string, prompt: string, threadId?: string | null) => Promise<{ steered: boolean }>;
-    interrupt: () => Promise<{ interrupted: boolean }>;
-    listThreads: (projectId: string, archived?: boolean, cursor?: string | null) => Promise<{ threads: ThreadSummary[]; nextCursor: string | null }>;
-    createThread: (projectId: string, options: { sourceThreadId?: string; lastTurnId?: string }) => Promise<{ thread: ThreadSummary }>;
+    steer: (projectId: string, prompt: string, threadId?: string | null) => Promise<{ steered: boolean; retained?: boolean; messageId?: string }>;
+    interrupt: (target: { requestId: string; projectId: string }) => Promise<{ interrupted: boolean }>;
+    listThreads: (projectId: string, archived?: boolean, cursor?: string | null, scopeId?: string) => Promise<{ threads: ThreadSummary[]; nextCursor: string | null }>;
+    createThread: (projectId: string, options: { sourceThreadId?: string; lastTurnId?: string; scopeId?: string }) => Promise<{ thread: ThreadSummary }>;
     renameThread: (projectId: string, threadId: string, title: string) => Promise<{ thread: ThreadSummary }>;
     readConversation: (projectId: string, threadId: string) => Promise<ThreadDetail>;
     resumeThread: (projectId: string, threadId: string) => Promise<{ thread: ThreadSummary }>;
     reconnectThread: (projectId: string, threadId: string, expectedTurnId: string | null) => Promise<{ thread: { id: string }; recovery: { turnId: string | null; state: "running" | "waiting" | "completed" | "cancelled" | "error" } | null }>;
     readThread: (projectId: string, threadId: string) => Promise<ThreadDetail>;
+    updateThreadReadState: (projectId: string, threadId: string, request: { operation: "read" | "unread"; expectedRevision: string }) => Promise<{ readState: ThreadReadState }>;
     reviewThread: (projectId: string, threadId: string) => Promise<{ started: boolean; turn: unknown }>;
     compactThread: (projectId: string, threadId: string) => Promise<{ started: boolean }>;
     listBackgroundTerminals: (projectId: string, threadId: string) => Promise<{ terminals: BackgroundTerminal[] }>;
@@ -848,8 +933,8 @@ export interface NovelCodexApi {
     setThreadPinned: (projectId: string, threadId: string, isPinned: boolean) => Promise<{ thread: ThreadSummary }>;
     archiveThread: (projectId: string, threadId: string) => Promise<{ archived: boolean }>;
     unarchiveThread: (projectId: string, threadId: string) => Promise<{ thread: ThreadSummary }>;
-    resolveUserInput: (requestId: string | number, response: { answers: Record<string, string | string[]> }) => Promise<{ resolved: boolean }>;
+    resolveUserInput: (target: { projectId: string; executionId: string; requestId: string | number }, response: { answers: Record<string, string | string[]> }) => Promise<{ resolved: boolean }>;
     onEvent: (listener: (payload: unknown) => void) => () => void;
-    onUserInputRequest: (listener: (payload: { requestId: string | number; method: "item/tool/requestUserInput"; params: Record<string, unknown>; threadId?: string | null; turnId?: string | null; itemId?: string | null }) => void) => () => void;
+    onUserInputRequest: (listener: (payload: { projectId: string; executionId: string; requestId: string | number; method: "item/tool/requestUserInput"; params: Record<string, unknown>; threadId?: string | null; turnId?: string | null; itemId?: string | null }) => void) => () => void;
   };
 }

@@ -25,6 +25,31 @@ const contracts: Record<string, { kind: TaskResultDestination["kind"]; evidence:
 const identifier = (value: unknown): value is string => typeof value === "string" && value.trim() === value
   && value.length > 0 && new TextEncoder().encode(value).length <= 160 && !/[\p{Cc}]/u.test(value);
 
+export type CommitmentDecisionResult = Extract<TaskResultDestination, { kind: "commitmentExtraction" }> & {
+  deliveryState: "recorded" | "superseded";
+};
+
+/** Immutable proposal history is readable without widening current result authority. */
+export function getCommitmentDecisionResults(task: WorkTaskSummary): CommitmentDecisionResult[] {
+  if (!identifier(task.projectId) || !identifier(task.id)) return [];
+  return task.steps.flatMap(step => {
+    if (step.operation !== "extractCommitments" || !identifier(step.id) || !identifier(step.currentAttemptId)
+      || !identifier(step.target.chapterId)) return [];
+    const attempts = step.attempts.filter(attempt => attempt.id === step.currentAttemptId);
+    if (attempts.length !== 1 || !["completed", "failed", "cancelled"].includes(attempts[0].status)) return [];
+    const records = task.deliveryReport.evidence.filter(item => item.stepId === step.id);
+    if (records.length !== 1 || records[0].kind !== "commitmentExtraction" || records[0].attemptId !== step.currentAttemptId
+      || !identifier(records[0].referenceId) || !["recorded", "superseded"].includes(records[0].state)) return [];
+    const source = step.target.sourceRevisionId;
+    if (source !== undefined && source !== null && !identifier(source)) return [];
+    return [{ projectId: task.projectId, workTaskId: task.id, stepId: step.id, attemptId: step.currentAttemptId,
+      referenceId: records[0].referenceId, kind: "commitmentExtraction", chapterId: step.target.chapterId,
+      chapterNumber: Number.isSafeInteger(step.target.chapterNumber) && Number(step.target.chapterNumber) > 0 ? Number(step.target.chapterNumber) : null,
+      sourceRevisionId: identifier(source) ? source : null,
+      deliveryState: records[0].state === "superseded" || step.status === "superseded" ? "superseded" : "recorded" }];
+  });
+}
+
 /** Navigation describes verified delivery, never permissions or a guess from a model reply. */
 export function getTaskResults(task: WorkTaskSummary): TaskResultDestination[] {
   if (!identifier(task.projectId) || !identifier(task.id)) return [];
@@ -86,5 +111,22 @@ export function taskResultLabel(result: TaskResultDestination): string {
     case "propertyRules": return "检查世界规则";
     case "planningReview": return `查看${{ structure: "结构与因果", character: "人物与主题", experience: "阅读体验" }[result.role]}报告`;
     case "hypothesis": return "查看这次假设分析";
+  }
+}
+
+/** This is called only for destinations admitted by persisted delivery evidence. */
+export function taskResultSummary(result: TaskResultDestination): string {
+  const chapter = "chapterNumber" in result && result.chapterNumber !== null ? `第 ${result.chapterNumber} 章` : "对应章节";
+  switch (result.kind) {
+    case "chapter": return `已保存${chapter}正文`;
+    case "knowledge": return `已保存${chapter}设定分析`;
+    case "commitmentExtraction": return `已保存${chapter}伏笔建议`;
+    case "commitment": return "已保存伏笔修订";
+    case "brief": return "已保存创作简报";
+    case "outline": return "已保存全书大纲";
+    case "plan": return "已保存章节规划";
+    case "propertyRules": return "已保存作品规则";
+    case "planningReview": return `已保存${{ structure: "结构与因果", character: "人物与主题", experience: "阅读体验" }[result.role]}报告`;
+    case "hypothesis": return "已保存假设分析";
   }
 }

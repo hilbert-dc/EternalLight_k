@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../../src/App";
@@ -40,7 +41,7 @@ const readCatalog = id => { const catalog = structuredClone(catalogs.get(id)); c
 const reads = []; let writes = 0, models = 0, versionReads = 0, eventListener, captureVersionDiscussion = false;
 const discussionSends = [];
 const stateFor = id => ({ project: projects.find(item => item.id === id), canon: { characters: [], relationships: [], events: [], locations: [], plotThreads: [], worldRules: [], notes: [] }, narrativeIr: { version: "1", scenes: [], anchors: [] }, novelEdition: { chapters: workspaces.get(id).chapters } });
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
  app: { onCloseRequested: () => () => {} },
  runtime: { listChapterStructureChanges: async (projectId: string) => ({ projectId, items: [], nextCursor: null }),
   getWorkCatalog: async id => readCatalog(id),
@@ -56,7 +57,7 @@ window.novelCodex = {
   saveArtifact: async (id, kind, payload, expectedRevision, expectedCandidate) => { const workspace = workspaces.get(id); check(kind === "outline" && expectedRevision === workspace.revision && expectedCandidate === workspace.artifacts.outline.candidate.id, "Outline save lost frozen CAS"); writes++; workspace.artifacts.outline.candidate = { id: "outline-saved", version: 3, payload: structuredClone(payload) }; workspace.sourceDigest = "b".repeat(64); return { revisionId: "outline-saved" }; },
   saveDraftCheckpoint: async () => { writes++; throw Error("Unexpected write"); },
  },
- agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: listener => { eventListener = listener; return () => { if (eventListener === listener) eventListener = null; }; }, onUserInputRequest: () => () => {}, sendPrompt: async (projectId, prompt, repairSource, focus) => {
+ agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: listener => { eventListener = listener; return () => { if (eventListener === listener) eventListener = null; }; }, onUserInputRequest: () => () => {}, sendPrompt: async (projectId, prompt, repairSource, focus) => {
    if (!captureVersionDiscussion) { models++; throw Error("Unexpected model call"); }
    discussionSends.push({ projectId, prompt, repairSource, focus }); await tick();
    const threadId = "local-version-discussion", turnId = "local-version-turn";

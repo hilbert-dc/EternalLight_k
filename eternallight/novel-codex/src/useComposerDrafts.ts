@@ -22,6 +22,8 @@ export function useComposerDrafts(projectId: string, threadId: string | null = n
     } catch { return empty(); }
   };
   const editVersion = useRef(0);
+  const revisions = useRef(new Map<string, number>());
+  const bump = () => { editVersion.current++; revisions.current.set(scope, (revisions.current.get(scope) ?? 0) + 1); };
   const drafts = useRef(new Map<string, Draft>());
   const [input, setInput] = useState({ projectId, scope, ...read() });
   const [error, setError] = useState<string | null>(null);
@@ -44,14 +46,14 @@ export function useComposerDrafts(projectId: string, threadId: string | null = n
   function setValue(next: SetStateAction<string>) {
     if (current.current.scope !== scope) return;
     const value = typeof next === "function" ? next(current.current.value) : next;
-    editVersion.current++;
+    bump();
     current.current = { ...current.current, value };
     setInput(current.current);
     setError(save());
   }
   function setSource(source: DiscussionSource | null) {
     if (current.current.scope !== scope || source && source.focus.reference.projectId !== projectId) return;
-    editVersion.current++;
+    bump();
     current.current = { ...current.current, source };
     setInput(current.current);
     setError(save());
@@ -69,7 +71,7 @@ export function useComposerDrafts(projectId: string, threadId: string | null = n
     return !saveError;
   }
   function clear() {
-    editVersion.current++;
+    bump();
     drafts.current.clear();
     current.current = { projectId, scope, ...empty() };
     setInput(current.current);
@@ -96,7 +98,7 @@ export function useComposerDrafts(projectId: string, threadId: string | null = n
     const message = discussionExcerptsError(excerpts);
     setError(message);
     if (message) return false;
-    editVersion.current++;
+    bump();
     current.current = { ...current.current, excerpts };
     setInput(current.current);
     setError(save());
@@ -104,17 +106,31 @@ export function useComposerDrafts(projectId: string, threadId: string | null = n
   }
   function removeExcerpt(id: string) {
     if (current.current.scope !== scope) return;
-    editVersion.current++;
+    bump();
     current.current = { ...current.current, excerpts: current.current.excerpts.filter(item => item.id !== id) };
     setInput(current.current); setError(save());
   }
   function clearExcerpts() {
     if (current.current.scope !== scope) return;
-    editVersion.current++;
+    bump();
     current.current = { ...current.current, excerpts: [] };
     setInput(current.current);
     setError(save());
   }
-  return { version: () => `${current.current.scope}:${editVersion.current}`, value: visible.value, source: visible.source, excerpts: visible.excerpts,
+  function acceptance() {
+    const revision = revisions.current.get(scope) ?? 0;
+    const original = JSON.stringify({value: visible.value, source: visible.source, excerpts: visible.excerpts});
+    return () => {
+      if ((revisions.current.get(scope) ?? 0) !== revision) return;
+      const value = current.current.scope === scope ? current.current : drafts.current.get(scope);
+      if (!value || JSON.stringify({value:value.value,source:value.source,excerpts:value.excerpts}) !== original) return;
+      try { localStorage.removeItem(storageKey); } catch { setError("消息已接收，但本机草稿清理失败。"); return; }
+      drafts.current.delete(scope); revisions.current.set(scope, revision + 1);
+      if (current.current.scope === scope) {
+        editVersion.current++; current.current = {projectId, scope, ...empty()}; setInput(current.current);
+      }
+    };
+  }
+  return { acceptance, version: () => `${current.current.scope}:${editVersion.current}`, value: visible.value, source: visible.source, excerpts: visible.excerpts,
     setValue, setSource, addExcerpt, removeExcerpt, clearExcerpts, preserve, clear, bindNewConversation, error };
 }

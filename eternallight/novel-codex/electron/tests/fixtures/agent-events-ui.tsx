@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import "../../../src/styles.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -7,18 +8,19 @@ import { saveAuthor } from "../helpers/author-session";
 window.addEventListener("error", event => { window.testResult = { passed: false, error: event.error?.stack ?? event.message }; });
 const tick = () => new Promise(resolve => setTimeout(resolve, 30));
 const check = (value, message) => { if (!value) throw new Error(message); };
-const until = async (predicate, label) => { for (let i = 0; i < 100 && !predicate(); i++) await tick(); check(predicate(), `Event UI did not settle: ${label}`); };
+const until = async (predicate, label) => { for (let i = 0; i < 100 && !predicate(); i++) await tick(); check(predicate(), `Event UI did not settle: ${label}; state=${currentTurn()?.className}; error=${document.querySelector(".transcript-error")?.textContent ?? "none"}`); };
 const project = { id: "project-event-ui", title: "事件归属夹具", logline: "仅本地测试", updated_at: "" };
 const state = { project, canon: { characters: [], relationships: [], events: [], locations: [], plotThreads: [], worldRules: [], notes: [] }, narrativeIr: { version: "1.0", scenes: [], anchors: [] }, novelEdition: { chapters: [] } };
 const workspace = { project, revision: 1, headSnapshotId: "ui-snapshot", sourceDigest: "a".repeat(64), index: { status: "ready" },
   artifacts: Object.fromEntries(["brief", "outline", "plan"].map(kind => [kind, { candidate: null, accepted: null, locked: false }])),
   chapters: [], workingBaselines: [], continuationIntents: [], planningReviews: [], commits: [], tasks: [], modeling: [], factProposals: [], reviews: [], chapterPlanBindings: [] };
 saveAuthor({ name: "事件夹具作者", email: "event@example.invalid", passwordSalt: "fixture", passwordHash: "fixture" });
+localStorage.setItem(`novel-codex:selected-conversation:${JSON.stringify(["event@example.invalid", project.id])}`, "event-thread");
 let onEvent, release, turnNumber = 0;
 const event = (method, params, turnId = `turn-${turnNumber}`) => onEvent({ method, params: { threadId: "event-thread", turnId, ...params } });
 const message = (id, text, phase) => ({ id, type: "agentMessage", text, phase });
 const currentTurn = () => [...document.querySelectorAll(".conversation-turn")].at(-1);
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} },
   runtime: { listChapterStructureChanges: async (projectId: string) => ({ projectId, items: [], nextCursor: null }),
   getWorkCatalog: async () => ({ revision: 0, volumes: [], placements: [] }),
@@ -30,11 +32,13 @@ window.novelCodex = {
   },
   agent: {
     status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", error: null, provider: "fixture", model: "fixture-model" }),
-    listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }),
+    listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }),
     listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onUserInputRequest: () => () => {},
     onEvent: listener => { onEvent = listener; return () => { onEvent = null; }; },
+    readConversation: async () => ({ thread: { id: "event-thread", projectId: project.id }, turns: [] }),
     sendPrompt: async () => {
       const id = `turn-${++turnNumber}`;
+      event("agent/workflow", { workflow: { task: { id: `attempt-${turnNumber}`, projectId: project.id, operation: "advisory", threadId: "event-thread" } } });
       event("turn/started", { turn: { id } });
       await new Promise(resolve => { release = resolve; });
       return { message: `第${turnNumber}轮最终结论`, proposedActions: [] };

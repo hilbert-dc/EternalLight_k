@@ -1,39 +1,44 @@
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { threadHistory } from "./thread-history";
 import { MarkdownContent } from "./MarkdownContent";
-import type { RecoveryRun, ThreadDetail } from "./types";
+import type { RecoveryRun, ThreadDetail, WorkTaskSummary } from "./types";
+import { recoveryRunName } from "./work-step-presentation";
 import "./conversation-recovery.css";
 
-const operations: Record<string, string> = {
-  advisory: "创作讨论", generateBrief: "生成简报", generateOutline: "生成大纲",
-  generatePlan: "生成近章规划", generateChapter: "生成章节", modelKnowledge: "分析章节设定",
-  extractCommitments: "提取伏笔候选", reviseCommitment: "修改伏笔候选",
-  generatePropertyRules: "生成规则候选", assessRevisionOutcome: "评估修改结果",
-  reviewPlanningSeat: "规划检查", assessSceneOutcome: "检查场景结果", reviewQuality: "独立读者审阅",
-};
 const statuses: Record<string, string> = {
   completed: "执行已结束", failed: "执行失败", cancelled: "执行已取消",
   running: "执行中", paused: "执行已暂停",
 };
 
-export function ConversationRecovery({ runs, threadId, busy, onInspect, onReconcile }: {
+export function ConversationRecovery({ runs, tasks, threadId, busy, onInspect, onReconcile, onClose }: {
   runs: RecoveryRun[];
+  tasks: WorkTaskSummary[];
   threadId: string | null;
   busy: boolean;
   onInspect: (run: RecoveryRun) => Promise<ThreadDetail>;
   onReconcile: (run: RecoveryRun) => Promise<boolean>;
+  onClose: () => void;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ runId: string; detail: ThreadDetail } | null>(null);
-  if (!runs.length) return null;
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null, element = dialog.current;
+    element?.showModal(); closeButton.current?.focus();
+    return () => { element?.close(); if (previous?.isConnected) previous.focus({ preventScroll: true }); };
+  }, []);
   const current = (run: RecoveryRun) => Boolean(threadId) && run.threadId === threadId;
   const ordered = [...runs].sort((a, b) => Number(current(b)) - Number(current(a)));
-  return <details className="conversation-recovery">
-    <summary>{runs.length} 项保存待核对</summary>
-    <p>系统会根据实际保存记录核对这些任务。重新核对不会再次生成、保存或采纳内容。</p>
-    {ordered.map(run => <div className="conversation-recovery-row" data-recovery-run={run.runId} key={run.runId}>
-      <strong>{operations[run.operation ?? ""] ?? "创作任务"}</strong>
+  return <dialog ref={dialog} className="conversation-recovery" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); onClose(); }}>
+    <header><h2 id={titleId}>保存记录</h2><button ref={closeButton} type="button" className="text-button" onClick={onClose}>关闭保存记录</button></header>
+    <p>{runs.length ? `${runs.length} 项操作的保存结果尚未确认。重新核对只读取已有记录，不会重复执行。` : "保存结果已核对。"}</p>
+    {ordered.map(run => {
+      const name = recoveryRunName(run, tasks);
+      return <div className="conversation-recovery-row" data-recovery-run={run.runId} key={run.runId}>
+      <strong title={name.fullLabel} aria-label={name.fullLabel}>{name.label}</strong>
       <small>{current(run) ? "当前对话" : "其他对话"} · {statuses[run.runtimeStatus ?? ""] ?? "执行状态待核对"} · 保存待核对</small>
       <div className="conversation-recovery-actions">
         <button type="button" className="secondary-button" disabled={busy || pending !== null} onClick={async () => {
@@ -41,7 +46,7 @@ export function ConversationRecovery({ runs, threadId, busy, onInspect, onReconc
           setPending(run.runId); setError(null); setPreview(null);
           try {
             const detail = await onInspect(run);
-            if (detail.thread.id !== run.threadId) throw new Error("读取结果不属于此对话");
+            if (detail.thread.id !== run.threadId || detail.thread.projectId !== run.projectId) throw new Error("读取结果不属于此作品和对话");
             setPreview({ runId: run.runId, detail });
           } catch (cause) { setError(`对话读取失败：${cause instanceof Error ? cause.message : "请重试"}`); }
           finally { setPending(null); }
@@ -65,7 +70,7 @@ export function ConversationRecovery({ runs, threadId, busy, onInspect, onReconc
           {turn.commentary && <details><summary>过程记录</summary><MarkdownContent text={turn.commentary} /></details>}
         </article>)}
       </section>}
-    </div>)}
+    </div>; })}
     {error && <p role="alert">{error}</p>}
-  </details>;
+  </dialog>;
 }

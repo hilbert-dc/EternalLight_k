@@ -180,8 +180,8 @@ export function DiscussionExcerptCards({ excerpts, disabled, readOnly, onRemove 
     {excerpts.map(item => <article key={item.id} className="discussion-excerpt">
       <header><span>{item.label}</span>{onRemove && <button type="button" aria-label={`移除引用：${item.label}`} disabled={disabled} onClick={() => onRemove(item.id)}>×</button>}</header>
       <small title={item.revisionId ?? undefined}>{item.state === "unsaved" ? "未保存的编辑内容" : "选中时的显示内容"}{item.revisionId ? " · 已记录来源版本" : ""}</small>
-      <details><summary><span>{item.text}</span><em>展开原文 · {item.text.length} 字符</em></summary><blockquote>{item.text}</blockquote></details>
+      <details><summary><span>查看引用内容</span><em>{item.text.length} 字符</em></summary><blockquote>{item.text}</blockquote></details>
     </article>)}
-    {readOnly && <p className="discussion-excerpt-notice" role="status">包含未保存内容，本轮先讨论；保存后可请求应用修改。</p>}
+    {readOnly && <p className="discussion-excerpt-notice" role="status">引用包含未保存内容；保存来源后可应用修改。</p>}
   </section>;
 }

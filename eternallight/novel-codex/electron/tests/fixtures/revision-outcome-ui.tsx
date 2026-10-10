@@ -1,3 +1,5 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
+import { emptyCreationIssueSummary, revisionOutcomeFixture } from "../helpers/creation-issues";
 import { chapterRuntimeReads } from "../helpers/chapter-runtime";
 import "../../../src/styles.css";
 import React from "react";
@@ -23,9 +25,10 @@ const criteria: DesiredOutcome[] = [
   { id: "keep_secret", criterion: "主角不向守卫泄露密函的位置。", groupIds: ["letter", "guard"] },
   { id: "wait_signal", criterion: "主角等待白塔亮灯后再离开。", groupIds: ["guard"] },
 ];
+const chapterAcceptance = { requirements: [{ id: "acceptance-1", text: "保留整章上下文与既有故事规则。" }], length: { requirement: "本次保持原有篇幅。", minCharacters: null, maxCharacters: null } };
 const proposal: ProposedAction = {
   id: `action-${"d".repeat(32)}`, sourceTaskId: `task-${"e".repeat(32)}`, operation: "generateChapter",
-  target: { chapterId: "chapter-2", chapterNumber: 2, scope: { type: "selectedScenes", sourceRevisionId: "original-2", groupIds: ["letter", "guard"] }, desiredOutcomes: criteria },
+  target: { chapterId: "chapter-2", chapterNumber: 2, scope: { type: "selectedScenes", sourceRevisionId: "original-2", groupIds: ["letter", "guard"] }, chapterAcceptance, desiredOutcomes: criteria },
   instruction: "只修改密函与守卫场景。", inputRevision: 2, intentRevision: 0, status: "proposed",
 };
 const pending: { args: string[]; resolve: (value: RevisionOutcome | null) => void; reject: (error: unknown) => void }[] = [];
@@ -38,14 +41,15 @@ const runtime = new Proxy({ getTaskFinalReply: async () => null,
   get: (target, property) => property in target ? target[property as keyof typeof target] : forbidden(`runtime.${String(property)}`),
 });
 const api = new Proxy({}, { get: (_target, property) => property === "runtime" ? runtime : forbidden(String(property)) }) as NovelCodexApi;
-const receipt = (writerTaskId = writerA, state: RevisionOutcome["state"] = "current"): RevisionOutcome => ({
+const receipt = (writerTaskId = writerA, state: RevisionOutcome["state"] = "current"): RevisionOutcome => revisionOutcomeFixture({
   revisionId: "revision-outcome-report-2", authority: "candidateAnalysis", state, decisions: [],
-  assessment: { writerTaskId, chapterId: "chapter-2", originalRevisionId: "original-2", draftRevisionId: "draft-2", knowledgeBatchId: "modeling-2",
+  assessment: { uncoveredRequirements: [], writerTaskId, chapterId: "chapter-2", originalRevisionId: "original-2", draftRevisionId: "draft-2", knowledgeBatchId: "modeling-2",
     // Reverse the first two results to prove mapping uses IDs rather than position.
     outcomes: [
       { id: "keep_secret", status: "unmet", reason: "主角仍向守卫透露藏信位置。", evidence: [{ groupId: "guard", quote: "信就在我的袖里。", start: 0, end: 8 }] },
       { id: "hide_letter", status: "supported", reason: "新正文写明主角藏起密函。", evidence: [{ groupId: "letter", quote: "他藏好密函。🔒", start: 0, end: 7 }] },
       { id: "wait_signal", status: "insufficientEvidence", reason: "允许修改的正文没有亮灯后的行动证据。", evidence: [] },
+      { id: "acceptance-1", status: "supported", reason: "未改动的开场仍明确白塔的规则。", evidence: [{ groupId: "opening", quote: "白塔熄灯前，不可出城。", start: 0, end: 11 }] },
     ] },
 });
 const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent === label || item.getAttribute("aria-label") === label)!;
@@ -54,6 +58,7 @@ const text = () => details().textContent ?? "";
 const snapshot = () => ({
   summary: details().querySelector("summary")!.textContent,
   criteria: details().querySelector('[aria-label="已批准的修改标准"]')?.textContent,
+  chapterCriteria: details().querySelector('[aria-label="已冻结的章节标准"]')?.textContent,
   paragraphs: [...details().querySelectorAll(":scope > p")].map(node => node.textContent),
   status: details().querySelector('[role="status"]')?.textContent ?? null,
   alert: details().querySelector('[role="alert"]')?.textContent ?? null,
@@ -64,7 +69,7 @@ const snapshot = () => ({
 const snapshots: Record<string, unknown> = {};
 function render(projectId = "project-a", writerTaskId = writerA, connection: NovelCodexApi | undefined = api, desiredOutcomes = criteria, version = "2:4") {
   flushSync(() => root.render(<RevisionOutcomeDetails api={connection} projectId={projectId} writerTaskId={writerTaskId}
-    chapterId="chapter-2" desiredOutcomes={desiredOutcomes} version={version} />));
+    chapterId="chapter-2" chapterAcceptance={chapterAcceptance} desiredOutcomes={desiredOutcomes} version={version} />));
 }
 async function request(projectId: string, writerTaskId: string, action: () => void) {
   const count = pending.length;
@@ -131,16 +136,15 @@ void (async () => {
     attempts: [attempt(writerA, "completed"), attempt(writerB, "failed"), attempt(writerC, "cancelled"), attempt("running-attempt", "running")] };
   const task: WorkTaskSummary = { id: "work-a", projectId: "project-a", threadId: "thread-a", goal: proposal.instruction,
     kind: "conversation", status: "completed", deliveryStatus: "pending", version: 2, error: null, resumeBlockReason: null, resumeMode: null,
-    deliveryReport: { evidence: [], pendingActionIds: [], unsettledAttemptIds: [] },
+    deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], evidence: [], pendingActionIds: [], unsettledAttemptIds: [] },
     steps: [step, { ...step, id: "no-goal", target: { chapterId: "chapter-2" } }, { ...step, id: "analysis", operation: "assessRevisionOutcome" }] };
   flushSync(() => root.render(<WorkTaskPanel api={api} projectId="project-a" tasks={[task]} activeCount={0} nextCursor={null}
-    loadingMore={false} loaded reading={false} readError={null} onRetry={() => {}} revision={4} busy={false} interruptionBusy={false}
-    agentRunning={false} agentAvailable dirty={false} onControl={() => {}} onUndo={() => {}} onLoadMore={() => {}} />));
+    loadingMore={false} loaded reading={false} readError={null} onRetry={() => {}} revision={4} busy={false}
+    agentRunning={false} dirty={false} onUndo={() => {}} onLoadMore={() => {}} />));
   await tick();
   check(document.querySelectorAll(".revision-outcome-details").length === 3 && pending.length === 0, "Work panel assessed a no-goal, non-writer or nonterminal step, or read eagerly");
-  snapshots.workPanel = [...document.querySelectorAll(".work-task-execution > ol > li")].map(node => ({
-    operation: node.querySelector("span")!.textContent, judgments: node.querySelectorAll(".revision-outcome-details").length,
-  }));
+  check(!document.querySelector(".work-task-execution"), "Revision results returned to a second process list");
+  snapshots.workPanel = { judgments: document.querySelectorAll(".revision-outcome-details").length, adjacentToReply: true, executionList: false };
   let read = await request("project-a", writerA, () => details().querySelector<HTMLElement>("summary")!.click());
   read.resolve(null); await wait(() => text().includes("尚无修改结果判断"), "Work panel did not read by terminal writer Attempt");
   const failedWriter = document.querySelectorAll<HTMLDetailsElement>(".revision-outcome-details")[1];
@@ -160,9 +164,11 @@ void (async () => {
   read = await request("project-a", writerA, () => button("重试读取修改结果").click());
   await saved(read);
   const rows = [...details().querySelectorAll('[aria-label="逐项修改结果"] > li')];
-  check(rows[0].textContent!.includes("hide_letter · 有证据支持") && rows[1].textContent!.includes("keep_secret · 未满足")
-    && rows[2].textContent!.includes("wait_signal · 证据不足"), "Assessment relied on positional outcome mapping");
-  check(rows[0].textContent!.includes("🔒") && rows[0].textContent!.includes("[0, 7)"), "Unicode quote or offset provenance was lost");
+  check(rows.length === 4 && rows[0].textContent!.includes(`${chapterAcceptance.requirements[0].text} · 有证据支持`)
+    && rows[1].textContent!.includes(`${criteria[0].criterion} · 有证据支持`) && rows[2].textContent!.includes(`${criteria[1].criterion} · 未满足`)
+    && rows[3].textContent!.includes(`${criteria[2].criterion} · 证据不足`), "Current full acceptance report or ID mapping was lost");
+  check(rows[0].textContent!.includes("白塔") && rows[0].textContent!.includes("场景 opening"), "Whole-chapter standards incorrectly limited evidence to selected repair scenes");
+  check(rows[1].textContent!.includes("🔒") && rows[1].textContent!.includes("[0, 7)"), "Unicode quote or offset provenance was lost");
   snapshots.current = snapshot();
   const beforePoll = pending.length;
   render("project-a", writerA, api, structuredClone(criteria)); await tick();
@@ -179,6 +185,7 @@ void (async () => {
     (value: RevisionOutcome) => { value.assessment.outcomes[0].id = "foreign-criterion"; },
     (value: RevisionOutcome) => { value.assessment.outcomes[0].id = "hide_letter"; },
     (value: RevisionOutcome) => { value.assessment.outcomes.pop(); },
+    (value: RevisionOutcome) => { value.assessment.outcomes.at(-1)!.id = "acceptance-2"; },
     (value: RevisionOutcome) => { value.assessment.outcomes[1].evidence = []; },
     (value: RevisionOutcome) => { value.assessment.outcomes[1].evidence[0].groupId = "protected-scene"; },
     (value: RevisionOutcome) => { value.authority = "canon" as RevisionOutcome["authority"]; },
@@ -225,11 +232,19 @@ void (async () => {
   const approvalMessages: Record<string, string | null> = {};
   saveAuthor({ name: "测试作者", email: "author@example.test", passwordSalt: "local-salt", passwordHash: "local-hash" });
   localStorage.setItem("novel-codex-active-project", project.id);
+  const proposalThread = { id: "proposal-thread", projectId: project.id, name: "密函修改", preview: null, modelProvider: "fixture",
+    status: "idle", createdAt: 100, updatedAt: 100, isPinned: false, ephemeral: false };
+  const proposalWork: WorkTaskSummary = { ...task, id: "proposal-work", threadId: proposalThread.id, deliveryStatus: "discussion_ended",
+    steps: [{ ...step, id: "proposal-source", operation: "advisory", target: {}, currentAttemptId: proposal.sourceTaskId,
+      attempts: [{ ...attempt(proposal.sourceTaskId, "completed"), threadId: proposalThread.id, turnId: "proposal-turn" }] }] };
+  localStorage.setItem(`novel-codex:selected-conversation:${JSON.stringify(["author@example.test", project.id])}`, proposalThread.id);
   for (const status of ["savedFailure", "failure", "recorded"] as const) {
     let available = true;
     const approvedIds: string[][] = [];
     const appRuntime = {
       ...chapterRuntimeReads(() => project),
+      listWorkTasks: async () => ({ tasks: [proposalWork], nextCursor: null, activeCount: 0 }),
+      getTaskFinalReply: async () => null,
       status: async () => ({ state: "online", mode: "local", error: null }),
       listProjects: async () => ({ projects: [project] }),
       getState: async () => ({ project, canon: { characters: [], relationships: [], events: [], locations: [], plotThreads: [], worldRules: [], notes: [] },
@@ -239,7 +254,8 @@ void (async () => {
       onEvent: () => () => {}, onUserInputRequest: () => () => {},
       status: async () => ({ configured: false, state: "idle", mode: "novel-agent-engine", error: null }),
       listConnections: async () => ({ connections: [] }), recoveryReport: async () => [],
-      listThreads: async () => ({ threads: [], nextCursor: null }), setWorkspaceContext: async () => ({ selected: true }),
+      listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [proposalThread], nextCursor: null }),
+      readConversation: async () => ({ thread: proposalThread, turns: [] }), setWorkspaceContext: async () => ({ selected: true }),
       listProposedActions: async () => ({ actions: available ? [proposal] : [] }),
       approveAction: async (...args: string[]) => {
         approvedIds.push(args); available = false;
@@ -250,7 +266,7 @@ void (async () => {
     };
     const trap = (target: object, path: string) => new Proxy(target, { get: (value, property) =>
       Object.hasOwn(value, property) ? Reflect.get(value, property) : forbidden(`${path}.${String(property)}`) });
-    window.novelCodex = { app: { onCloseRequested: () => () => {} }, runtime: trap(appRuntime, "app.runtime"), agent: trap(appAgent, "app.agent") } as NovelCodexApi;
+    window.novelCodex = { multimedia: novelFixtureMedia, app: { onCloseRequested: () => () => {} }, runtime: trap(appRuntime, "app.runtime"), agent: trap(appAgent, "app.agent") } as NovelCodexApi;
     flushSync(() => root.render(<App key={status} />));
     await wait(() => document.querySelector('[aria-label="待确认的创作建议"]'), "App did not render the proposal");
     button("批准生成候选").click();

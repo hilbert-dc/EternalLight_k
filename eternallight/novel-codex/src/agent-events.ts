@@ -1,3 +1,4 @@
+import { operationPresentation, operationHeading, operationResult, type OperationPresentation } from "./operation-presentation";
 import { snapshotExecution, retainRecentExecutions, type DisplayExecution } from "./conversation-process";
 import { collaborationFromItem, type Collaborator } from "./collaboration-progress";
 import type { DiscussionExcerpt } from "./types";
@@ -23,8 +24,9 @@ export interface AgentStep {
   text?: string;
   status: AgentStepStatus;
   messagePhase?: "commentary" | "final_answer" | null;
-  sourceType?: "reasoning";
+  sourceType?: "reasoning" | "userMessage" | "contextCompaction";
   collaborators?: Collaborator[];
+  operation?: OperationPresentation;
 }
 
 export interface AgentPhase {
@@ -204,7 +206,7 @@ function completedSteps(run: AgentRun): AgentStep[] {
 }
 
 function itemDetail(item: JsonRecord): string | undefined {
-  const command = stringValue(item.command);
+  const command = commandText(item);
   const cwd = stringValue(item.cwd);
   const changes = Array.isArray(item.changes) ? item.changes.map(record).filter((change): change is JsonRecord => change !== null) : [];
   const paths = changes.map((change) => stringValue(change.path)).filter((path): path is string => path !== null);
@@ -260,40 +262,6 @@ function itemId(item: JsonRecord, fallback: string): string {
   return stringValue(item.id) ?? fallback;
 }
 
-const TOOL_TITLES: Record<string, string> = {
-  read_context: "读取故事上下文",
-  read_task_source: "读取写作资料",
-  read_work_status: "核对创作进展",
-  request_work_action: "安排下一步",
-  request_generation_handoff: "准备续写安排",
-  read_chapter_structure_source: "读取删前章节",
-  save_brief: "保存创作简报",
-  save_outline: "保存大纲",
-  save_chapter_plans: "保存章纲",
-  save_draft_checkpoint: "保存章节",
-  publish_knowledge_batch: "保存故事设定分析",
-  query_story: "查询故事证据",
-  read_creative_strategy: "参考创作方法",
-  read_quality_notebook: "读取创作回看",
-  read_quality_review: "核对阅读反馈",
-  record_quality_note: "记录作品质量线索",
-  read_quality_packet: "阅读匿名文本",
-  submit_quality_reading: "保存读者体验报告",
-  analyze_story_impact: "检查故事关联影响",
-  resolve_story_evidence: "定位正文依据",
-  simulate_story_hypothesis: "分析故事假设",
-  request_planning_review: "安排多视角规划检查",
-  request_candidate_task: "登记本轮创作任务",
-  submit_commitment_extraction: "保存伏笔候选",
-  search_story: "查找故事内容",
-  read_commitment: "读取故事伏笔与承诺",
-  search_relations: "查询人物关系",
-  read_reading_progress: "读取阅读进度",
-  checkpoint_reading: "保存阅读进度",
-  submit_revision_outcome: "保存修改检查结果",
-  submit_planning_review_report: "提交审阅报告",
-  complete_task: "完成任务",
-};
 
 function shortLine(value: string, limit = 42): string {
   const line = value.replace(/\s+/g, " ").trim();
@@ -312,36 +280,30 @@ function pathLeaf(path: string): string {
   return shortLine(path.split(/[/\\]/).filter(Boolean).pop() ?? path, 32);
 }
 
-function toolLeaf(name: string): string {
-  const dotted = name.split(".").pop() ?? name;
-  const parts = dotted.split("__").filter(Boolean);
-  return parts[parts.length - 1] ?? dotted;
-}
-
-function toolTitle(item: JsonRecord): string {
-  const name = stringValue(item.tool);
-  if (!name) return "调用工具";
-  const leaf = toolLeaf(name);
-  return TOOL_TITLES[leaf] ?? shortLine(leaf.replace(/_/g, " "));
-}
-
-function itemStep(item: JsonRecord, status: AgentStepStatus): AgentStep {
+function itemStep(item: JsonRecord, status: AgentStepStatus, sources: NonNullable<OperationPresentation["sources"]> = []): AgentStep {
   const type = stringValue(item.type) ?? "unknown";
   const normalized = type.toLowerCase();
   if (normalized === "collabagenttoolcall") return { id: itemId(item, `item:${type}`), kind: "interaction", title: collabAgentTitle(stringValue(item.tool)), detail: collabAgentDetail(item), collaborators: collaborationFromItem(item), status };
-  if (normalized.includes("contextcompaction")) return { id: itemId(item, `item:${type}`), kind: "system", title: "压缩上下文", detail: itemDetail(item) ?? "正在整理历史上下文", status };
+  if (normalized === "contextcompaction") return { id: itemId(item, `item:${type}`), kind: "system", title: "压缩上下文", sourceType: "contextCompaction", detail: itemDetail(item) ?? "正在整理历史上下文", status };
   if (normalized.includes("hook")) return { id: itemId(item, `item:${type}`), kind: "system", title: "运行 Hook", detail: itemDetail(item), status };
   if (normalized.includes("enteredreview") || normalized.includes("exitedreview") || normalized.includes("review")) return { id: itemId(item, `item:${type}`), kind: "system", title: "审查任务", detail: itemDetail(item), status };
   if (normalized.includes("command") || normalized.includes("shell")) {
-    const command = commandText(item);
-    return { id: itemId(item, `item:${type}`), kind: "tool", title: command ? shortLine(command) : "执行命令", detail: itemDetail(item), status };
+    return { id: itemId(item, `item:${type}`), kind: "system", title: "内部命令", detail: itemDetail(item), status };
   }
   if (normalized.includes("file") || normalized.includes("patch") || normalized.includes("change")) {
     const changes = Array.isArray(item.changes) ? item.changes.map(record).filter((change): change is JsonRecord => change !== null) : [];
     const path = changes.map((change) => stringValue(change.path)).find((value): value is string => value !== null);
     return { id: itemId(item, `item:${type}`), kind: "tool", title: path ? `修改 ${pathLeaf(path)}` : "修改文件", detail: itemDetail(item), status };
   }
-  if (normalized.includes("mcp") || normalized.includes("tool")) return { id: itemId(item, `item:${type}`), kind: "tool", title: toolTitle(item), detail: itemDetail(item), status };
+  if (normalized.includes("mcp") || normalized.includes("tool")) {
+    const operation = operationPresentation({ ...item, status }, sources);
+    const errorContent = record(item.result)?.content;
+    const failureText = Array.isArray(errorContent) ? errorContent.map(entry => stringValue(record(entry)?.text)).filter(Boolean).join("\n") : "";
+    const detail = itemDetail(item) ?? (status === "failed" ? bounded(stringValue(record(item.error)?.message) ?? stringValue(item.error) ?? failureText, MAX_DETAIL_TEXT) || undefined
+      : operation.category === "diagnostic" ? `工具：${operation.tool}` : undefined);
+    return { id: itemId(item, `item:${type}`), kind: "tool", title: operationHeading(operation), operation, detail, status };
+  }
+  if (normalized === "usermessage") return { id: itemId(item, "item:userMessage"), kind: "system", title: "作者指令", sourceType: "userMessage", status };
   if (normalized === "reasoning") return { id: itemId(item, "item:reasoning"), kind: "system", title: "正在分析", sourceType: "reasoning", status };
   if (type === "agentMessage") return { id: `message:${itemId(item, "unknown")}`, kind: item.phase === "commentary" ? "system" : "assistant", title: item.phase === "commentary" ? "Agent 进度" : "Agent 回复", text: bounded(typeof item.text === "string" ? item.text : "", MAX_DISPLAY_TEXT), status, messagePhase: item.phase === "commentary" || item.phase === "final_answer" ? item.phase : null };
   return { id: itemId(item, `item:${type}`), kind: "system", title: "执行步骤", detail: itemDetail(item) ?? type, status };
@@ -581,11 +543,11 @@ export function reduceAgentEvent(run: AgentRun, event: unknown): AgentRun {
 
   if (method === "agent/compactionStarted") {
     if (activeRun(run) && run.turnId) return run;
-    return upsertStep({ ...run, turnId: null, contextCompactions: run.contextCompactions + 1 }, { id: "context-compaction", kind: "system", title: "压缩上下文", detail: "正在整理历史上下文，保留当前故事约束。", status: "running" });
+    return upsertStep({ ...run, turnId: null, contextCompactions: run.contextCompactions + 1 }, { id: "context-compaction", kind: "system", title: "压缩上下文", sourceType: "contextCompaction", detail: "正在整理历史上下文，保留当前故事约束。", status: "running" });
   }
 
   if (method === "agent/compactionCompleted") {
-    return upsertStep(run, { id: "context-compaction", kind: "system", title: "压缩上下文", detail: "上下文压缩完成。", status: "completed" });
+    return upsertStep(run, { id: "context-compaction", kind: "system", title: "压缩上下文", sourceType: "contextCompaction", detail: "上下文压缩完成。", status: "completed" });
   }
 
   if (method === "agent/steer") {
@@ -646,9 +608,29 @@ export function reduceAgentEvent(run: AgentRun, event: unknown): AgentRun {
   if (method === "item/started" || method === "item/completed") {
     const item = record(params?.item) ?? {};
     const isCompleted = method === "item/completed";
-    const status = isCompleted ? stepStatus(item.status, "completed") : "running";
-    const step = itemStep(item, status);
-    const existing = run.steps.find((entry) => entry.id === step.id);
+    const status = isCompleted ? record(item.result)?.isError === true || item.success === false || Boolean(item.error) ? "failed" : stepStatus(item.status, "completed") : "running";
+    const sources = run.steps.flatMap(step => step.operation?.sources ?? []);
+    const existing = run.steps.find(entry => entry.id === item.id);
+    const sameTool = !item.tool || item.tool === existing?.operation?.tool;
+    const step = itemStep({ ...item, tool: item.tool ?? existing?.operation?.tool,
+      arguments: item.arguments ?? (existing?.operation ? { sourceId: existing.operation.sourceId,
+        ...(item.arguments === undefined && sameTool && existing.operation.tool === "submit_revision_outcome"
+          && existing.operation.reportWriterTaskId ? { writerTaskId: existing.operation.reportWriterTaskId } : {}),
+        ...(existing.operation.targetId ? { payload: { chapterId: existing.operation.targetId } } : {}) } : undefined) }, status, sources);
+    if (existing?.operation && step.operation && !item.arguments) {
+      // Completion items can omit arguments. Keep the same call's known chapter
+      // when completion supplies neither a replacement chapter nor another tool.
+      const hasChapter = Object.hasOwn(operationResult(item) ?? {}, "chapterNumber");
+      const keepObject = existing.operation.tool === step.operation.tool
+        && (!existing.operation.object.startsWith("第 ") || !hasChapter)
+        && (step.operation.object === "写作资料" || step.operation.object === "章节"
+          || existing.operation.object.startsWith("第 ") && !step.operation.object.startsWith("第 "));
+      step.operation = { ...existing.operation, ...step.operation,
+        ...(existing.operation.reportWriterTaskId ? { reportWriterTaskId: step.operation.reportWriterTaskId } : {}),
+        ...(existing.operation.retryKey && (!step.operation.sourceId || existing.operation.sourceId === step.operation.sourceId) ? { retryKey: existing.operation.retryKey } : {}),
+        object: keepObject ? existing.operation.object : step.operation.object };
+      step.title = operationHeading(step.operation);
+    }
     if (existing && existing.status !== "running" && existing.status !== "waiting") return run;
     if (item.type === "agentMessage") {
       if (!stringValue(item.id) || (item.phase != null && item.phase !== "commentary" && item.phase !== "final_answer")) return run;
@@ -661,7 +643,7 @@ export function reduceAgentEvent(run: AgentRun, event: unknown): AgentRun {
     const next = advancePhase(upsertStep({ ...run, error: null }, step), phaseForItem(item), status === "failed" ? "failed" : status === "completed" ? "completed" : status === "cancelled" ? "skipped" : "running", normalizedType === "reasoning" ? undefined : itemDetail(item));
     const withMetadata = {
       ...next,
-      contextCompactions: next.contextCompactions + (isCompleted && normalizedType.includes("contextcompaction") ? 1 : 0),
+      contextCompactions: next.contextCompactions + (isCompleted && normalizedType === "contextcompaction" ? 1 : 0),
       review: normalizedType.includes("enteredreview") ? "running" : normalizedType.includes("exitedreview") ? "completed" : next.review,
     } as AgentRun;
     const artifact = artifactFromItem(item, artifactStatus(item, isCompleted));
@@ -723,7 +705,7 @@ export function reduceAgentEvent(run: AgentRun, event: unknown): AgentRun {
     if (method === "error" && params?.willRetry === true) {
       return upsertStep({ ...run, diagnostics: [...run.diagnostics, error].slice(-6) }, { id: `retry:${run.turnId}`, kind: "system", title: "正在重试当前请求", detail: error, status: "running" });
     }
-    return upsertStep({ ...failActivePhases(run), state: "error", error, summary: "本轮未完成，可检查错误后重试。", steps: run.steps.map((step) => step.status === "running" || step.status === "waiting" ? { ...step, status: "failed" } : step), completedAt: Date.now(), diagnostics: [...run.diagnostics, error].slice(-6) }, { id: `error:${Date.now()}`, kind: "error", title: "执行失败", detail: error, status: "failed" });
+    return upsertStep({ ...failActivePhases(run), state: "error", error, summary: "本轮未完成，请查看错误详情与恢复安排。", steps: run.steps.map((step) => step.status === "running" || step.status === "waiting" ? { ...step, status: "failed" } : step), completedAt: Date.now(), diagnostics: [...run.diagnostics, error].slice(-6) }, { id: `error:${Date.now()}`, kind: "error", title: "执行失败", detail: error, status: "failed" });
   }
 
   if (method === "agent/stderr") {

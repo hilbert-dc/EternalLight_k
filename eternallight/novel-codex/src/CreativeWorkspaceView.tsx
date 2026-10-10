@@ -1,3 +1,4 @@
+import { generationUsageBlocked, generationUsageDescription, workStopDescription } from "../shared/work-recovery-presentation.mjs";
 import { displayChapters, savedChapterTitle, type ChapterTitlePreview } from "./chapter-title";
 import type { SidebarChapterCreationRequest } from "./SidebarWorkDirectory";
 import { ModuleRecordsButton } from "./ModuleRecordsButton";
@@ -5,13 +6,13 @@ import { OutlineLinkPanel } from "./OutlineLinkPanel";
 import { PlanningReadingView } from "./PlanningReadingView";
 import { WorkOverview } from "./WorkOverview";
 import { CreationDirectionSummary } from "./CreationDirectionSummary";
-import type { CommitmentNavigationSelection, DiscussionSource } from "./types";
+import type { CommitmentDetail, CommitmentNavigationSelection, DiscussionSource } from "./types";
 import type { ResolvedTaskResult } from "./task-result-navigation";
-import type { TaskResultDestination } from "./task-results";
+import type { CommitmentDecisionResult, TaskResultDestination } from "./task-results";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { newDraftScene, firstOutlineEditorError, formatFactValue, generationStatusLabel, outlinePathLabels, parseFactValue, rebaseEditorBaseline, selectionAwareReviewChecksPass } from "./creative-product-logic";
+import { newDraftScene, firstOutlineEditorError, formatFactValue, outlinePathLabels, rebaseEditorBaseline, selectionAwareReviewChecksPass } from "./creative-product-logic";
 import type { Chapter, ChapterPlanPayload, ChapterPlanRebindRequest, CreativeArtifactKind, CreativeArtifactPayload, CreativeReview, CreativeWorkspace, GenerationRunSummary, NovelCodexApi, OutlineNode, ProvisionalPlanningImpact, RollingPlanPayload, RuntimeState, SceneAssessmentSummary, ViewId } from "./types";
 import { PlanningCharacterProvider, PlanningCharacterSelect } from "./PlanningCharacterContext";
 import { PlanningWorkspaceHeader } from "./PlanningWorkspaceHeader";
@@ -28,12 +29,11 @@ import type { WorkTaskList } from "./useWorkTaskList";
 import { chapterEditorContent } from "./chapter-editor-content";
 import type { WorkTaskControls } from "./useWorkTaskControls";
 import { describeAgentError } from "./agent-error-description";
-import { ImpactAnalysisPanel } from "./ImpactAnalysisPanel";
 import { CommitmentPanel } from "./CommitmentPanel";
+import { CommitmentManagementDialog } from "./CommitmentManagementDialog";
 import { SceneFeedbackDetails } from "./SceneFeedbackDetails";
 import { GenerationReplanPanel } from "./GenerationReplanPanel";
 import { ChapterPlanRebindPanel } from "./ChapterPlanRebindPanel";
-import { useWriterPreview, WriterPreviewPanel } from "./WriterPreviewPanel";
 import { StatePropertyDetails } from "./StatePropertyDetails";
 import { StoryEventDetails } from "./StoryEventDetails";
 import { useSupplementalEditor } from "./supplemental-editor";
@@ -46,7 +46,6 @@ import { revisionPredecessorIsCurrent } from "./revision-outcome-decision";
 import type { RevisionContinuationPreparation, RevisionPredecessor, RevisionRepairPreparation } from "./types";
 
 type WorkspaceView = Extract<ViewId, "brief" | "outline" | "plans" | "chapters">;
-type CreativeTask = CreativeWorkspace["tasks"][number];
 type EditableChapterPlan = Omit<ChapterPlanPayload, "dependencyKeys"> & { id: string; dependencyKeys: string };
 type EditorSession = {
   identity: string;
@@ -56,18 +55,8 @@ type EditorSession = {
 };
 type DirectionDecision = "" | "return-draft" | "accept-and-open-impact" | "false-positive";
 type DirectionDecisionValue = { decision: DirectionDecision; note: string };
-type FactKind = "world" | "reader" | "character" | "author-secret";
-type EpistemicState = "unknown" | "suspected" | "known" | "false";
 type PlanningTarget = { key: string; kind: "outline" | "plan"; revisionId: string; nodeId: string; label: string; currentArrangement: string; protected: boolean; protectionLabel: string };
 type ReviewUiSnapshot = {
-  factKind: FactKind;
-  factSubjectId: string;
-  factPredicate: string;
-  factValue: string;
-  factEpistemicOwnerId: string;
-  factEpistemicState: EpistemicState;
-  factEvidence: string;
-  factSceneGroupId: string;
   factDecisions: Record<string, "confirmed" | "rejected">;
   noConfirmedChanges: boolean;
   factDependencyTargets: Record<string, string[]>;
@@ -89,8 +78,11 @@ interface Props {
   requestedChapterCreation?: SidebarChapterCreationRequest | null;
   onChapterCreationPrepared?: (requestId: string) => void;
   requestedCommitment?: CommitmentNavigationSelection | null;
+  requestedCommitmentEdit?: { requestId: string; result: CommitmentDecisionResult; detail: CommitmentDetail } | null;
+  onCommitmentEditPrepared?: (requestId: string) => void;
   taskResultSelection?: (ResolvedTaskResult & { requestId: string }) | null;
   onOpenTaskResult?: (result: TaskResultDestination) => void;
+  onDiscussTaskResult?: (request: import("./task-result-excerpt").TaskResultDiscussion) => void;
   onDiscuss?: (prompt: string, source?: DiscussionSource) => void;
   api?: NovelCodexApi;
   taskConversationContainer: HTMLElement | null;
@@ -139,14 +131,6 @@ const generationStageLabels: Record<GenerationRunSummary["stage"], string> = { c
 
 function emptyReviewUi(sceneGroupIds: string[] = []): ReviewUiSnapshot {
   return {
-    factKind: "world",
-    factSubjectId: "",
-    factPredicate: "",
-    factValue: "true",
-    factEpistemicOwnerId: "",
-    factEpistemicState: "known",
-    factEvidence: "",
-    factSceneGroupId: sceneGroupIds[0] ?? "",
     factDecisions: {},
     noConfirmedChanges: false,
     factDependencyTargets: {},
@@ -253,7 +237,7 @@ async function provisionalImpactId(factId: string, target: PlanningTarget, predi
   return `provisional-impact-${hex.slice(0, 32)}`;
 }
 
-export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = false, outlineCatalogError = null, outlineVolume = null, onCloseOutlineVolume, onOpenVersions, onOutlineRecordScopeChange, onOpenOutlineNode, onLinkOutline, requestedChapterCreation = null, onChapterCreationPrepared, requestedCommitment = null, taskResultSelection = null, onOpenTaskResult, onDiscuss, api, taskList, taskControls, taskConversationContainer, conversation = null, projectId, view, state, selectedChapterId, onSelectChapter, onGenerateWork, onContinueWork, onRetryWork, onResolveFeedback, onReviewPlanning, onCancelPlanningReview, onExport, onPrepareChapterWriting, onGenerateChapter, onOpenPlanningTarget, onReturnToFeedback, onFormalChange, onDirtyChange, onChapterTitlePreview, onSaveHandlerChange, onPlanningSaveHandlerChange, onDiscardHandlerChange, agentAvailable, agentRunning, refreshToken, revisionContinuation = null, onPrepareRevisionContinuation, onPrepareRevisionRepair, onDismissRevisionContinuation }: Props) {
+export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = false, outlineCatalogError = null, outlineVolume = null, onCloseOutlineVolume, onOpenVersions, onOutlineRecordScopeChange, onOpenOutlineNode, onLinkOutline, requestedChapterCreation = null, onChapterCreationPrepared, requestedCommitment = null, requestedCommitmentEdit = null, onCommitmentEditPrepared, taskResultSelection = null, onOpenTaskResult, onDiscussTaskResult, onDiscuss, api, taskList, taskControls, taskConversationContainer, conversation = null, projectId, view, state, selectedChapterId, onSelectChapter, onGenerateWork, onContinueWork, onRetryWork, onResolveFeedback, onReviewPlanning, onCancelPlanningReview, onExport, onPrepareChapterWriting, onGenerateChapter, onOpenPlanningTarget, onReturnToFeedback, onFormalChange, onDirtyChange, onChapterTitlePreview, onSaveHandlerChange, onPlanningSaveHandlerChange, onDiscardHandlerChange, agentAvailable, agentRunning, refreshToken, revisionContinuation = null, onPrepareRevisionContinuation, onPrepareRevisionRepair, onDismissRevisionContinuation }: Props) {
   const supplementalEditor = useSupplementalEditor();
   const writingRef = useRef(false);
   const [workspace, setWorkspace] = useState<CreativeWorkspace | null>(null);
@@ -330,11 +314,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
     || activeGenerationStep.target.chapterId !== currentGenerationRun.currentChapterId
     || currentGenerationRun.pendingCurrentIntentGeneration !== null
     || (currentGenerationRun.maxTaskAttempts !== null && currentGenerationRun.usedTaskAttempts >= currentGenerationRun.maxTaskAttempts);
-  async function updateWorkTask(workTaskId: string, command: "pause" | "cancel" | "resume" | "recoverSavedResult") {
-    if (!api || workspaceBusy || writingRef.current || dirty || reviewDirty || supplementalEditor.active
-      || ((command === "resume" || command === "recoverSavedResult") && agentRunning)) return;
-    await taskControls.control(api, workTaskId, command);
-  }
   async function undoWorkChange(commitId: string) {
     if (!api || !workspace || agentRunning) return;
     await taskControls.run("undo", commitId, () => api.runtime.undoCommit(projectId, commitId, workspace.revision),
@@ -386,14 +365,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
   const creationScopeRef = useRef<string | null>(`${projectId}:${view}`);
   creationScopeRef.current = `${projectId}:${view}`;
   useEffect(() => () => { creationScopeRef.current = null; }, []);
-  const [factKind, setFactKind] = useState<FactKind>("world");
-  const [factSubjectId, setFactSubjectId] = useState("");
-  const [factPredicate, setFactPredicate] = useState("");
-  const [factValue, setFactValue] = useState("true");
-  const [factEpistemicOwnerId, setFactEpistemicOwnerId] = useState("");
-  const [factEpistemicState, setFactEpistemicState] = useState<EpistemicState>("known");
-  const [factEvidence, setFactEvidence] = useState("");
-  const [factSceneGroupId, setFactSceneGroupId] = useState("");
   const [factDecisions, setFactDecisions] = useState<Record<string, "confirmed" | "rejected">>({});
   const [noConfirmedChanges, setNoConfirmedChanges] = useState(false);
   const [factDependencyTargets, setFactDependencyTargets] = useState<Record<string, string[]>>({});
@@ -403,6 +374,9 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
   const [selectedSceneGroups, setSelectedSceneGroups] = useState<string[]>([]);
   const [reviewDirty, setReviewDirty] = useState(false);
   const [commitmentResultsScope, setCommitmentResultsScope] = useState<string | null>(null);
+  const [inlineCommitmentEdit, setInlineCommitmentEdit] = useState<{ requestId: string; result: CommitmentDecisionResult; detail: CommitmentDetail } | null>(null);
+  const [commitmentManagementBusy, setCommitmentManagementBusy] = useState(false);
+  useEffect(() => { setInlineCommitmentEdit(null); setCommitmentManagementBusy(false); }, [projectId]);
   const [publicationTarget, setPublicationTarget] = useState<ChapterPublicationTarget | null>(null);
   const [publicationOpen, setPublicationOpen] = useState(false);
   const [publicationPreparing, setPublicationPreparing] = useState(false);
@@ -423,8 +397,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
   const [associationPlanId, setAssociationPlanId] = useState("");
   const [impactCursor, setImpactCursor] = useState<string | null>(null);
   const [impactCounts, setImpactCounts] = useState({ total: 0, open: 0, retained: 0, lockedConflict: 0 });
-  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
-  const [previewScope, setPreviewScope] = useState<"chapter" | "scene">("chapter");
   const [feedbackTarget, setFeedbackTarget] = useState<{ impactId: string; targetKind: "outline" | "plan"; targetNodeId: string; targetLabel: string } | null>(null);
   const reviewRef = useRef<HTMLElement | null>(null);
   const planningEditorRef = useRef<HTMLDetailsElement | null>(null);
@@ -441,7 +413,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
   const selectedChapter = state.novelEdition.chapters.find((chapter) => chapter.id === selectedChapterId) ?? state.novelEdition.chapters[0];
   const workspaceChapter = workspace?.chapters.find((chapter) => chapter.id === selectedChapter?.id);
   const chapterModeling = workspace?.modeling?.find((item) => item.objectId === `draft-${selectedChapter?.id}`);
-  const latestChapterTask = workspace?.tasks.find((task) => task.target?.chapterId === selectedChapter?.id && task.purpose === "writer");
   const viewKind: CreativeArtifactKind | "draft" = view === "plans" ? "plan" : view === "chapters" ? "draft" : view;
   const artifact = viewKind === "draft" ? null : workspace?.artifacts[viewKind];
   const [readingOutlineNodeId, setReadingOutlineNodeId] = useState<string | null>(null);
@@ -492,16 +463,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
   const boundPlanIds = new Set(workspace?.chapterPlanBindings?.map((binding) => binding.chapter_plan_id) ?? []);
   const chapterBinding = workspace?.chapterPlanBindings?.find((binding) => binding.chapter_id === selectedChapter?.id);
   const chapterPlan = chapterBinding?.writerProjection;
-  const activeSceneIndex = draftSceneRows.findIndex(scene => scene.id === activeSceneId);
-  const activeSceneOrder = activeSceneIndex < 0 ? null : activeSceneIndex + 1;
-  const previewSceneOrder = previewScope === "scene" && activeSceneOrder !== null ? activeSceneOrder : 2_147_483_647;
-  const workingSourceIdentity = workspace?.workingBaselines.map((item) => `${item.objectKind}:${item.objectId}:${item.revisionId}:${item.selectionRevision}`).join("|") ?? "";
-  const writerPreviewIdentity = view === "chapters" && workspace && selectedChapter
-    ? `${projectId}:${workspace.revision}:${selectedChapter.id}:${previewSceneOrder}:${workingSourceIdentity}:${chapterBinding?.plan_revision_id ?? ""}:${chapterBinding?.chapter_plan_id ?? ""}:${chapterPlan?.povCharacterId ?? ""}:${chapterPlan?.storyTime ?? ""}`
-    : null;
-  const writerPreviewRead = useWriterPreview({ api, projectId, revision: workspace?.revision ?? null,
-    chapterNumber: selectedChapter?.number ?? null, sceneOrder: previewSceneOrder, binding: chapterBinding, identity: writerPreviewIdentity });
-  const writerPreview = writerPreviewRead.read?.status === "current" ? writerPreviewRead.read.value : null;
   const availableAssociationPlans = workspace?.planLineageStatus === "current" ? acceptedPlanChapters.filter((entry) => entry.chapterPlanId && !boundPlanIds.has(entry.chapterPlanId) && entry.chapterNumber === selectedChapter?.number) : [];
   const outlineForPlan = workspace?.artifacts.outline.working ?? workspace?.artifacts.outline.accepted;
   const outlinePaths = useMemo(() => {
@@ -530,21 +491,13 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
     return targets;
   }, [workspace?.artifacts.outline.accepted?.id, workspace?.artifacts.plan.accepted?.id, outlinePaths]);
   const reviewUiSnapshot = useMemo<ReviewUiSnapshot>(() => ({
-    factKind,
-    factSubjectId,
-    factPredicate,
-    factValue,
-    factEpistemicOwnerId,
-    factEpistemicState,
-    factEvidence,
-    factSceneGroupId,
     factDecisions,
     noConfirmedChanges,
     factDependencyTargets,
     directionChangeDecisions,
     manualDirectionDecisions,
     selectedSceneGroups,
-  }), [factKind, factSubjectId, factPredicate, factValue, factEpistemicOwnerId, factEpistemicState, factEvidence, factSceneGroupId, factDecisions, noConfirmedChanges, factDependencyTargets, directionChangeDecisions, manualDirectionDecisions, selectedSceneGroups]);
+  }), [factDecisions, noConfirmedChanges, factDependencyTargets, directionChangeDecisions, manualDirectionDecisions, selectedSceneGroups]);
   const editorIdentity = `${projectId}:${view}:${view === "chapters" ? selectedChapter?.id ?? "new" : viewKind}`;
   const activeIdentityRef = useRef({ scope: editorIdentity, api });
   if (activeIdentityRef.current.scope !== editorIdentity || activeIdentityRef.current.api !== api) activeIdentityRef.current = { scope: editorIdentity, api };
@@ -560,7 +513,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
     target: publicationTarget, bodyOnlyConfirmed: noConfirmedChanges, dirty,
     isBlocked: () => writingRef.current || taskControls.hasPendingRequests() || generating || agentRunning || supplementalEditor.active,
     save: saveCurrent, savedRevision: () => lastSavedRevisionIdRef.current,
-    manualProposals: next => manualFactProposals(next),
     onWorkspace: next => { setWorkspace(next); loadEditor(next); },
     onTarget: target => {
       if (target.revisionId !== publicationTarget?.revisionId) { setNoConfirmedChanges(false); setFactDecisions({}); }
@@ -578,14 +530,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
   const closePublication = () => { setPublicationOpen(false); document.querySelector<HTMLButtonElement>('[data-publish-chapter]')?.focus({ preventScroll: true }); };
 
   function restoreReviewUi(snapshot: ReviewUiSnapshot) {
-    setFactKind(snapshot.factKind);
-    setFactSubjectId(snapshot.factSubjectId);
-    setFactPredicate(snapshot.factPredicate);
-    setFactValue(snapshot.factValue);
-    setFactEpistemicOwnerId(snapshot.factEpistemicOwnerId);
-    setFactEpistemicState(snapshot.factEpistemicState);
-    setFactEvidence(snapshot.factEvidence);
-    setFactSceneGroupId(snapshot.factSceneGroupId);
     setFactDecisions(snapshot.factDecisions);
     setNoConfirmedChanges(snapshot.noConfirmedChanges);
     setFactDependencyTargets(snapshot.factDependencyTargets);
@@ -776,8 +720,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
 
   useEffect(() => {
     setFeedbackTarget(null);
-    setActiveSceneId(null);
-    setPreviewScope("chapter");
   }, [projectId, selectedChapter?.id]);
 
 
@@ -959,17 +901,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
         setError("请填写空场景正文，或删除不需要的空场景。");
         return false;
       }
-      const hasFactDraft = Boolean(factPredicate.trim() || factEvidence.trim());
-      if (hasFactDraft && (!factPredicate.trim() || !factEvidence.trim())) {
-        setError("新增事实必须同时填写事实键和正文证据。");
-        return false;
-      }
-      if (hasFactDraft && factValue.trim()) {
-        try { parseFactValue(factValue); } catch (reason) {
-          setError(reason instanceof Error ? reason.message : "事实值格式无效");
-          return false;
-        }
-      }
       const sceneGroups = draftSceneRows.map((scene) => ({ id: scene.id, sceneId: scene.sceneId ?? null, body: scene.body, locked: lockedSceneGroups.includes(scene.id) }));
       const normalizedBody = sceneGroups.map((scene) => scene.body.trim()).join("\n\n---\n\n");
       const payload = { ...(selectedChapter ? { chapterId: selectedChapter.id, chapterNumber: selectedChapter.number } : { chapterNumber: 1 }), title: draftTitle.trim(), body: normalizedBody, sceneGroups };
@@ -981,8 +912,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
         if (activeIdentityRef.current !== editorOwner) return;
         pendingChapterSave.current = { scope: editorIdentity, signature, revisionId: saved.revisionId };
         lastSavedRevisionIdRef.current = saved.revisionId;
-        if (hasFactDraft) writeReviewUi(`novel-codex:review-ui:${projectId}:${selectedChapter?.id ?? "none"}:candidate:${saved.revisionId}`,
-          { ...reviewUiSnapshot, selectedSceneGroups: sceneGroups.map(scene => scene.id) });
         await onFormalChange();
       }, "这一章已保存；发布后更新已发布内容。", next => {
         if (next.project.id !== projectId || candidateRevisionId(next) !== pendingChapterSave.current?.revisionId) throw new Error("已保存的章节内容已变化，请重新读取确认；本地编辑仍保留。");
@@ -1039,21 +968,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
   async function enterReview(expectedRevisionId?: string) {
     const reviewRevisionId = expectedRevisionId ?? candidateId;
     if (!api || !reviewRevisionId) return;
-    const hasFactDraft = Boolean(factPredicate.trim() || factEvidence.trim());
-    if (hasFactDraft && (!factPredicate.trim() || !factEvidence.trim())) {
-      setError("新增事实必须同时填写事实键和正文证据。");
-      return;
-    }
-    let parsedValue: unknown = null;
-    if (hasFactDraft) {
-      try { parsedValue = parseFactValue(factValue); } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "事实值格式无效");
-        return;
-      }
-    }
-    const factSceneOrder = workspaceChapter?.candidate?.sceneGroups.findIndex((group) => group.id === factSceneGroupId) ?? -1;
-    const factScene = workspaceChapter?.candidate?.sceneGroups[factSceneOrder];
-    const proposals = viewKind === "draft" && hasFactDraft ? [{ sceneGroupId: factSceneGroupId, sceneId: factScene?.sceneId ?? null, factKind, subjectId: factSubjectId.trim() || null, predicate: factPredicate.trim(), value: parsedValue, epistemicOwnerId: factEpistemicOwnerId.trim() || null, epistemicState: factEpistemicState, storyTime: chapterPlan?.storyTime ?? null, readingChapter: selectedChapter?.number ?? 1, sceneOrder: Math.max(1, factSceneOrder + 1), evidence: factEvidence.trim() }] : [];
     const created = await perform("正在生成审阅包…", async () => {
       if (expectedRevisionId) {
         const fresh = await api.runtime.getCreativeWorkspace(projectId);
@@ -1062,7 +976,7 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
         const ready = fresh.reviews.find(review => review.artifactKind === viewKind && review.artifactRevisionId === expectedRevisionId && review.projectRevision === fresh.revision && review.status === "ready");
         if (ready) return;
       }
-      await api.runtime.createReview(projectId, viewKind, reviewRevisionId, proposals);
+      await api.runtime.createReview(projectId, viewKind, reviewRevisionId, []);
     }, "审阅包已生成，请检查后决定是否采用。");
     if (created) {
       if (view !== "chapters" && planningEditorRef.current) {
@@ -1081,6 +995,17 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
   }
 
   useEffect(() => {
+    if (!requestedCommitmentEdit || requestedCommitmentEdit.result.projectId !== projectId || !api || loading || !workspace
+      || workspace.project.id !== projectId || busy || generating || agentRunning || dirty || reviewDirty
+      || supplementalEditor.active || inlineCommitmentEdit) return;
+    const { result, detail } = requestedCommitmentEdit;
+    if (detail.projectId !== projectId || !detail.authorControls || !detail.sourceCurrent
+      || detail.extractionOrigin?.chapterId !== result.chapterId || detail.extractionOrigin.reportRevisionId !== result.referenceId) return;
+    setInlineCommitmentEdit(requestedCommitmentEdit);
+    onCommitmentEditPrepared?.(requestedCommitmentEdit.requestId);
+  }, [requestedCommitmentEdit, projectId, api, loading, workspace, busy, generating, agentRunning, dirty, reviewDirty, supplementalEditor.active, inlineCommitmentEdit]);
+
+  useEffect(() => {
     const selection = taskResultSelection;
     if (!selection || selection.result.projectId !== projectId || selection.view !== view || loading || !workspace
       || workspace.project.id !== projectId || selection.chapterId && selection.chapterId !== selectedChapter?.id
@@ -1091,17 +1016,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
     else if (result.kind === "brief" || result.kind === "outline" || result.kind === "plan") void enterReview(result.referenceId);
     else if (result.kind === "commitmentExtraction" || result.kind === "commitment") setCommitmentResultsScope(editorIdentity);
   }, [taskResultSelection, view, projectId, selectedChapter?.id, loading, workspace, busy, agentRunning, dirty, reviewDirty, supplementalEditor.active]);
-
-  function manualFactProposals(next: CreativeWorkspace): Record<string, unknown>[] {
-    if (!factPredicate.trim() && !factEvidence.trim()) return [];
-    if (!factPredicate.trim() || !factEvidence.trim()) throw new Error("新增事实必须同时填写事实键和正文证据。");
-    const groups = next.chapters.find(chapter => chapter.id === selectedChapter?.id)?.candidate?.sceneGroups ?? [];
-    const index = groups.findIndex(group => group.id === factSceneGroupId);
-    if (index < 0) throw new Error("新增事实的来源场景已变化，请重新选择。");
-    return [{ sceneGroupId: groups[index].id, sceneId: groups[index].sceneId ?? null, factKind, subjectId: factSubjectId.trim() || null,
-      predicate: factPredicate.trim(), value: parseFactValue(factValue), epistemicOwnerId: factEpistemicOwnerId.trim() || null, epistemicState: factEpistemicState,
-      storyTime: chapterPlan?.storyTime ?? null, readingChapter: selectedChapter?.number ?? 1, sceneOrder: index + 1, evidence: factEvidence.trim() }];
-  }
 
   async function recoverPublication() {
     if (pendingChapterAccept.current?.scope !== editorIdentity) return;
@@ -1342,7 +1256,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
   const canAccept = Boolean(currentReview) && !dirty && reviewChecksPass && (viewKind !== "draft" || (publicationTarget?.scope === editorIdentity && publicationTarget.revisionId === candidateId && publicationSourceMatches && !activeChapterDelivery && selectedSceneGroups.length > 0 && factsComplete && automaticLockedDecisionsComplete && manualLockedDecisionsComplete));
   const returnsDraft = provisionalImpacts.some((impact) => confirmedFactIds.has(impact.factProposalId) && directionChangeDecisions[impact.id]?.decision === "return-draft")
     || selectedReviewFacts.some((fact) => confirmedFactIds.has(fact.id) && (factDependencyTargets[fact.id] ?? []).some((targetKey) => manualDirectionDecisions[manualDecisionKey(fact.id, targetKey)]?.decision === "return-draft"));
-  const latestTaskStatus = latestChapterTask ? generationStatusLabel(latestChapterTask) : null;
   const draftInteractionLocked = busy || generating || agentRunning || (viewKind === "draft" && activeChapterDelivery) || supplementalEditor.active || createdChapterPending?.projectId === projectId || pendingChapterSave.current?.scope === editorIdentity;
   const undecidedReviewCount = selectedReviewFacts.filter(fact => !factDecisions[fact.id]).length;
   const bulkReviewAllowed = view === "chapters" && publicationOpen && publicationTarget?.scope === editorIdentity
@@ -1392,25 +1305,6 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
     onChapterCreationPrepared?.(requestedChapterCreation.requestId);
   }, [requestedChapterCreation, projectId, view, standaloneCreationLocked, workspace, editorIdentity, onChapterCreationPrepared]);
   const discussionRevision = workspaceChapter?.candidate ?? workspaceChapter?.accepted;
-  const sceneDiscussionDisabled = draftInteractionLocked || dirty || reviewDirty || loading || !discussionRevision;
-  function prepareSceneDiscussion(sceneGroupId: string) {
-    if (!onDiscuss || !workspace || !selectedChapter || !discussionRevision || sceneDiscussionDisabled
-      || activeIdentityRef.current !== editorOwner || dirtyRef.current || reviewDirtyRef.current || runningNow.current
-      || workspace.project.id !== projectId || editorSessionRef.current?.identity !== editorIdentity) return;
-    const groups = discussionRevision.sceneGroups.filter(group => group.id === sceneGroupId);
-    const local = draftSceneRows.filter(group => group.id === sceneGroupId);
-    if (groups.length !== 1 || local.length !== 1 || groups[0].body !== local[0].body) {
-      setError("场景正文与已保存来源不一致，请保存后再讨论。");
-      return;
-    }
-    const index = discussionRevision.sceneGroups.indexOf(groups[0]);
-    onDiscuss("请讨论这个场景的节奏，先不要改写。", {
-      label: `第 ${selectedChapter.number} 章 · 场景 ${index + 1} · v${discussionRevision.version}`,
-      focus: { view: "chapters", chapterId: selectedChapter.id, chapterNumber: selectedChapter.number,
-        reference: { kind: "scene", projectId, snapshotId: workspace.headSnapshotId,
-          objectId: `draft-${selectedChapter.id}`, revisionId: discussionRevision.id, sceneGroupId } },
-    });
-  }
   const info = labels[view];
   const analyzingChapter = taskList.tasks.some(task => task.status === "running" && task.steps.some(step =>
     step.operation === "modelKnowledge" && step.status === "running" && step.target.chapterId === selectedChapter?.id));
@@ -1574,41 +1468,62 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
   const actionableTasks = Boolean(taskList.error) || taskList.activeCount > 0
     || taskList.tasks.some(task => (task.status !== "completed" && task.status !== "cancelled")
       || task.deliveryReport.pendingActionIds.length > 0 || task.deliveryReport.unsettledAttemptIds.length > 0);
-  const chapterTools = selectedChapter ? <><button className="secondary-button" type="button" onClick={() => setCommitmentResultsScope(editorIdentity)}>查看伏笔与悬念</button><details key={`settings:${editorIdentity}`} className="chapter-settings"><summary>章节设置</summary>
+  const chapterSettingsRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (chapterSettingsRef.current) chapterSettingsRef.current.open = false;
+  }, [editorIdentity]);
+  useEffect(() => {
+    const outside = (event: PointerEvent) => {
+      const settings = chapterSettingsRef.current;
+      if (settings?.open && !settings.contains(event.target as Node)) {
+        settings.open = false;
+        requestAnimationFrame(() => {
+          if (chapterSettingsRef.current === settings && !settings.open && settings.contains(document.activeElement)) {
+            settings.querySelector<HTMLElement>(":scope > summary")?.focus({ preventScroll: true });
+          }
+        });
+      }
+    };
+    document.addEventListener("pointerdown", outside, true);
+    return () => document.removeEventListener("pointerdown", outside, true);
+  }, []);
+  const chapterSettings = selectedChapter ? <details ref={chapterSettingsRef} key={`settings:${editorIdentity}`} className="chapter-settings" onKeyDown={event => {
+    if (event.key !== "Escape") return;
+    event.preventDefault(); event.currentTarget.open = false;
+    event.currentTarget.querySelector<HTMLElement>(":scope > summary")?.focus({ preventScroll: true });
+  }}><summary>章节设置</summary><div className="chapter-settings-content">
+        {chapterBinding && <p>关联章纲：{chapterPlan?.publicTitle || `第 ${selectedChapter.number} 章`}</p>}
         {api && chapterBinding && <ChapterPlanRebindPanel api={api} projectId={projectId} chapterId={selectedChapter.id} disabled={draftInteractionLocked || dirty || reviewDirty} hasUpdate={Boolean((workspace?.artifacts.plan.candidate ?? workspace?.artifacts.plan.accepted)?.id !== chapterBinding.plan_revision_id)} submit={submitChapterPlanRebind} refresh={async () => {
           if (dirty || reviewDirty || draftInteractionLocked) throw new Error("请先保存修改并等待当前操作完成");
           if (!await perform("正在重新读取作品…", onFormalChange, "作品已重新读取。")) throw new Error("重新读取作品失败");
         }} />}
-          {latestChapterTask && latestTaskStatus && <details className="chapter-extra"><summary>查看生成记录</summary><GenerationTaskStatus task={latestChapterTask} outputName="本章正文修订" /></details>}
-        <WriterPreviewPanel read={writerPreviewRead.read} retry={writerPreviewRead.retry} dirty={dirty} activeSceneOrder={activeSceneOrder} scope={previewScope} onScopeChange={setPreviewScope} />
-        {!chapterBinding && <section className="standalone-planning-card"><div><strong>这是独立章节</strong><small>保持独立不会伪造大纲来源；也可以关联同章号且尚未开写的正式章纲。</small></div>{availableAssociationPlans.length > 0 ? <><select disabled={draftInteractionLocked} aria-label="可关联的正式章纲" value={associationPlanId} onChange={(event) => setAssociationPlanId(event.target.value)}>{availableAssociationPlans.map((entry) => <option key={entry.chapterPlanId} value={entry.chapterPlanId}>{entry.publicTitle || entry.title || `第 ${entry.chapterNumber} 章章纲`}</option>)}</select><button className="secondary-button" disabled={busy || draftInteractionLocked || dirty || !associationPlanId} onClick={() => void associateChapterPlan()}>关联章纲</button></> : <button className="secondary-button" disabled={draftInteractionLocked} onClick={() => onOpenPlanningTarget("plan")}>从正文建立章纲</button>}{workspaceChapter?.candidate && <small>关联会推进作品版本；已写的正文仍会保留。</small>}</section>}
-
-        <details className="chapter-extra"><summary>记录本章新事实</summary><fieldset className="fact-proposal-form" disabled={draftInteractionLocked || dirty || !candidateId}>
-          <h3 className="sr-only">本章新事实</h3>
-          <small>保存时记录事实建议，发布前再确认是否更新故事设定。</small>
-          {(workspaceChapter?.candidate?.sceneGroups.length ?? 0) > 1 && <label><span>来源场景</span><select value={factSceneGroupId} onChange={(event) => { setFactSceneGroupId(event.target.value); markReviewDirty(); }}>{workspaceChapter?.candidate?.sceneGroups.map((group, index) => <option key={group.id} value={group.id}>场景 {index + 1}</option>)}</select></label>}
-          <label><span>事实种类</span><select value={factKind} onChange={(event) => { setFactKind(event.target.value as FactKind); markReviewDirty(); }}><option value="world">世界事实</option><option value="reader">读者已知</option><option value="character">人物认知</option><option value="author-secret">作者秘密</option></select></label>
-          <label><span>主体 ID（可选）</span><input value={factSubjectId} onChange={(event) => { setFactSubjectId(event.target.value); markReviewDirty(); }} placeholder="例如：linxi" /></label>
-          <label><span>事实键</span><input value={factPredicate} onChange={(event) => { setFactPredicate(event.target.value); markReviewDirty(); }} placeholder="例如：knows-father-lied" /></label>
-          <label><span>事实值（JSON）</span><input value={factValue} onChange={(event) => { setFactValue(event.target.value); markReviewDirty(); }} placeholder={'true、false、"秘密" 或 3'} /></label>
-          <label><span>认知状态</span><select value={factEpistemicState} onChange={(event) => { setFactEpistemicState(event.target.value as EpistemicState); markReviewDirty(); }}><option value="unknown">未知</option><option value="suspected">怀疑</option><option value="known">已知</option><option value="false">已证伪</option></select></label>
-          <label><span>认知持有者 ID（可选）</span><input value={factEpistemicOwnerId} onChange={(event) => { setFactEpistemicOwnerId(event.target.value); markReviewDirty(); }} placeholder="人物认知由谁持有" /></label>
-          <label><span>正文证据</span><input value={factEvidence} onChange={(event) => { setFactEvidence(event.target.value); markReviewDirty(); }} placeholder="引用支持该事实的正文" /></label>
-        </fieldset></details>
-        </details>
-      {view === "chapters" && selectedChapter && <ImpactAnalysisPanel onDiscuss={onDiscuss} agentRunning={agentRunning} api={api ?? null} projectId={projectId} workspace={workspace} chapterId={selectedChapter.id} dirty={dirty} refreshToken={refreshToken} />}</> : null;
+        {!chapterBinding && <section className="standalone-planning-card">
+          <div><strong>这是独立章节</strong><small>{availableAssociationPlans.length ? "可以关联同章号且尚未使用的章纲。" : "暂无可关联的章纲，可先在近章规划中安排本章。"}</small></div>
+          {availableAssociationPlans.length > 0 ? <>
+            <select disabled={draftInteractionLocked} aria-label="可关联的正式章纲" value={associationPlanId} onChange={event => setAssociationPlanId(event.target.value)}>{availableAssociationPlans.map(entry => <option key={entry.chapterPlanId} value={entry.chapterPlanId}>{entry.publicTitle || entry.title || `第 ${entry.chapterNumber} 章章纲`}</option>)}</select>
+            <button className="secondary-button" disabled={busy || draftInteractionLocked || dirty || !associationPlanId} onClick={() => void associateChapterPlan()}>关联章纲</button>
+          </> : <button className="secondary-button" disabled={draftInteractionLocked} onClick={() => onOpenPlanningTarget("plan")}>打开近章规划</button>}
+          {availableAssociationPlans.length > 0 && workspaceChapter?.candidate && <small>关联章纲后，已有正文会保留。</small>}
+        </section>}
+    </div></details> : null;
   const hasCatalogSelection = requestedCommitment?.request.projectId === projectId && requestedCommitment.chapterId === selectedChapter?.id;
-  const hasCommitmentResult = taskList.tasks.some(task => task.steps.some(step => step.operation === "extractCommitments" && step.target.chapterId === selectedChapter?.id));
-  const commitmentResults = <div className="conversation-chapter-results" hidden={!hasCatalogSelection && !hasCommitmentResult && commitmentResultsScope !== editorIdentity && !supplementalEditor.active}>
-      {view === "chapters" && selectedChapter && <CommitmentPanel requestedCommitment={requestedCommitment?.chapterId === selectedChapter.id && requestedCommitment.request.projectId === projectId ? requestedCommitment : null} requestedResult={taskResultSelection?.result.kind === "commitment" || taskResultSelection?.result.kind === "commitmentExtraction" ? { requestId: taskResultSelection.requestId, result: taskResultSelection.result } : null} autoOpen={hasCommitmentResult || commitmentResultsScope === editorIdentity} api={api} projectId={projectId} chapterId={selectedChapter.id} sourceRevisionId={candidateId ?? workspaceChapter?.accepted?.id ?? null} dirty={dirty || reviewDirty} blocked={busy || generating || agentRunning} refreshToken={refreshToken} onFormalChange={onFormalChange} registerEditor={supplementalEditor.register}
-        chapters={state.novelEdition.chapters.map((chapter) => ({ id: chapter.id, title: `第 ${chapter.number} 章 · ${chapter.title}` }))}
-        sources={(workspace?.chapters ?? []).flatMap((chapter) => {
-          const revision = chapter.candidate ?? chapter.accepted;
-          return revision ? [{ chapterId: chapter.id, title: `第 ${chapter.number} 章 · ${chapter.title}`, objectId: `draft-${chapter.id}`, revisionId: revision.id, body: revision.body }] : [];
-        })} />}
+  const commitmentChapters = state.novelEdition.chapters.map(chapter => ({ id: chapter.id, title: `第 ${chapter.number} 章 · ${chapter.title}` }));
+  const commitmentSources = (workspace?.chapters ?? []).flatMap(chapter => {
+    const revision = chapter.candidate ?? chapter.accepted;
+    return revision ? [{ chapterId: chapter.id, title: `第 ${chapter.number} 章 · ${chapter.title}`, objectId: `draft-${chapter.id}`, revisionId: revision.id, body: revision.body }] : [];
+  });
+  const editingCommitment = inlineCommitmentEdit?.result.projectId === projectId ? inlineCommitmentEdit : null;
+  const commitmentResults = <div className="chapter-commitment-management" hidden={Boolean(editingCommitment) || !hasCatalogSelection && commitmentResultsScope !== editorIdentity}>
+      {view === "chapters" && selectedChapter && <CommitmentPanel requestedCommitment={requestedCommitment?.chapterId === selectedChapter.id && requestedCommitment.request.projectId === projectId ? requestedCommitment : null} requestedResult={taskResultSelection?.result.kind === "commitment" || taskResultSelection?.result.kind === "commitmentExtraction" ? { requestId: taskResultSelection.requestId, result: taskResultSelection.result } : null} autoOpen={hasCatalogSelection || commitmentResultsScope === editorIdentity} api={api} projectId={projectId} chapterId={selectedChapter.id} sourceRevisionId={candidateId ?? workspaceChapter?.accepted?.id ?? null} dirty={dirty || reviewDirty} blocked={busy || generating || agentRunning} refreshToken={refreshToken} onFormalChange={onFormalChange} registerEditor={supplementalEditor.register}
+        chapters={commitmentChapters} sources={commitmentSources} />}
   </div>;
   const renderTaskPanel = () => (
-    <WorkTaskPanel onOpenResult={onOpenTaskResult} key={projectId} conversation={conversation} api={api} projectId={projectId} tasks={taskList.tasks} activeCount={taskList.activeCount} nextCursor={taskList.nextCursor} loadingMore={taskList.loadingMore} loaded={taskList.loaded} reading={taskList.reading} readError={taskList.error} onRetry={() => void taskList.refresh()} revision={workspace?.revision} busy={busy} interruptionBusy={workspaceBusy || taskControls.controlling} agentRunning={agentRunning} agentAvailable={agentAvailable} dirty={dirty || reviewDirty || supplementalEditor.active} onControl={(id, command) => void updateWorkTask(id, command)} onUndo={(commitId) => void undoWorkChange(commitId)} onLoadMore={() => void taskList.loadMore()}
+    <WorkTaskPanel onFormalChange={onFormalChange} onAdjustCommitment={(result, detail) => {
+      if (busy || generating || agentRunning || dirty || reviewDirty || supplementalEditor.current.current || editingCommitment
+        || result.projectId !== projectId || detail.projectId !== projectId || !detail.authorControls || !detail.sourceCurrent
+        || detail.extractionOrigin?.chapterId !== result.chapterId || detail.extractionOrigin.reportRevisionId !== result.referenceId) return;
+      setInlineCommitmentEdit({ requestId: crypto.randomUUID(), result, detail });
+    }} onDiscussResult={onDiscussTaskResult} onOpenResult={onOpenTaskResult} key={projectId} conversation={conversation} api={api} projectId={projectId} tasks={taskList.tasks} activeCount={taskList.activeCount} nextCursor={taskList.nextCursor} loadingMore={taskList.loadingMore} loaded={taskList.loaded} reading={taskList.reading} readError={taskList.error} onRetry={() => void taskList.refresh()} revision={workspace?.revision} busy={busy} agentRunning={agentRunning} dirty={dirty || reviewDirty || supplementalEditor.active || Boolean(editingCommitment)} onUndo={(commitId) => void undoWorkChange(commitId)} onLoadMore={() => void taskList.loadMore()}
         onPrepareRevisionRepair={onPrepareRevisionRepair ? preparation => {
           if (busy || agentRunning || dirty || reviewDirty || supplementalEditor.active || !agentAvailable || preparation.projectId !== projectId) return;
           onPrepareRevisionRepair(preparation);
@@ -1623,7 +1538,7 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
         } : undefined} />
   );
   const conversationPortal = taskConversationContainer
-    ? createPortal(<>{(conversation || actionableTasks || (taskList.loaded && (taskList.tasks.length > 0 || taskList.nextCursor))) && renderTaskPanel()}{commitmentResults}</>, taskConversationContainer) : null;
+    ? createPortal(<>{(conversation || actionableTasks || (taskList.loaded && (taskList.tasks.length > 0 || taskList.nextCursor))) && renderTaskPanel()}</>, taskConversationContainer) : null;
   const planningHeader = view !== "chapters" ? <PlanningWorkspaceHeader view={view} title={info.title} description={info.description}
         artifact={artifact ?? undefined} dirty={dirty} blocked={busy || draftInteractionLocked || lockedDraftConflict}
         prepareDirtyDiscussion={Boolean(onPlanningSaveHandlerChange) && canSavePlanningForDiscussion}
@@ -1767,15 +1682,15 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
       {view === "brief" && (generationReadError || currentGenerationRun) && <section className="planning-intent-card">
         {view === "brief" && generationReadError && !currentGenerationRun && <div className="creative-alert error" role="alert">创作运行状态读取失败，暂不能确认是否有未完成任务。<button className="text-button" type="button" onClick={() => setGenerationReload(value => value + 1)}>重新读取</button></div>}
         {view === "brief" && currentGenerationRun && <div className="creative-alert" role="status">
-          自动创作：{currentGenerationRun.completedChapters - currentGenerationRun.startChapterNumber + 1}/{currentGenerationRun.targetChapters - currentGenerationRun.startChapterNumber + 1} 章 · {currentGenerationRun.status === "blocked" ? currentGenerationRun.blockedReason === "scene_feedback_needs_author" ? "场景评估待作者处理" : currentGenerationRun.blockedReason === "chapter_plan_rebound" ? "章纲已更新，需重新规划" : `已阻断（${currentGenerationRun.blockedReason ?? "需要处理"}）` : currentGenerationRun.status === "paused" ? "已暂停" : `进行到 ${generationStageLabels[currentGenerationRun.stage]}`}
-          {currentGenerationRun.usageUnsettled && <small>模型用量待核账，暂不能继续；请点击重新核账或稍后重试。已保存的候选不会丢失。</small>}
+          自动创作：{currentGenerationRun.completedChapters - currentGenerationRun.startChapterNumber + 1}/{currentGenerationRun.targetChapters - currentGenerationRun.startChapterNumber + 1} 章 · {currentGenerationRun.status === "blocked" ? workStopDescription(currentGenerationRun.blockedReason) : currentGenerationRun.status === "paused" ? "已暂停" : `进行到 ${generationStageLabels[currentGenerationRun.stage]}`}
+          {generationUsageBlocked(currentGenerationRun) && <small>{generationUsageDescription(currentGenerationRun)}</small>}
           {generationReadError && <small>创作运行状态暂未刷新，确认最新状态前不能继续。</small>}
-          {(currentGenerationRun.usageUnsettled || generationReadError) && <button className="text-button" type="button" onClick={() => setGenerationReload(value => value + 1)}>重新核账</button>}
-          {currentGenerationRun.status === "running" && <button className="secondary-button" type="button" disabled={busy || agentRunning || dirty || !agentAvailable || currentGenerationRun.usageUnsettled || generationReadError} onClick={() => void onContinueWork(currentGenerationRun.id)}>继续创作</button>}
-          {currentGenerationRun.status === "blocked" && ["agent_task_failed", "agent_task_cancelled", "agent_task_failed_after_output", "agent_task_cancelled_after_output"].includes(currentGenerationRun.blockedReason ?? "") && <button className="secondary-button" type="button" disabled={busy || agentRunning || dirty || !agentAvailable || currentGenerationRun.usageUnsettled || generationReadError} onClick={() => void onRetryWork(currentGenerationRun.id)}>{currentGenerationRun.feedbackRepairPrompt !== null ? "按评估要求重试本章" : currentGenerationRun.pendingCurrentIntentGeneration !== null ? "按新要求重写本章" : currentGenerationRun.blockedReason?.endsWith("_after_output") ? "从已保存候选继续" : "重试这一步"}</button>}
+          {(generationUsageBlocked(currentGenerationRun) || generationReadError) && <button className="text-button" type="button" onClick={() => setGenerationReload(value => value + 1)}>重新核对状态</button>}
+          {currentGenerationRun.status === "running" && <button className="secondary-button" type="button" disabled={busy || agentRunning || dirty || !agentAvailable || generationUsageBlocked(currentGenerationRun) || generationReadError} onClick={() => void onContinueWork(currentGenerationRun.id)}>继续创作</button>}
+          {currentGenerationRun.status === "blocked" && ["agent_task_failed", "agent_task_cancelled", "agent_task_failed_after_output", "agent_task_cancelled_after_output"].includes(currentGenerationRun.blockedReason ?? "") && <button className="secondary-button" type="button" disabled={busy || agentRunning || dirty || !agentAvailable || generationUsageBlocked(currentGenerationRun) || generationReadError} onClick={() => void onRetryWork(currentGenerationRun.id)}>{currentGenerationRun.feedbackRepairPrompt !== null ? "按评估要求重试本章" : currentGenerationRun.pendingCurrentIntentGeneration !== null ? "按新要求重写本章" : currentGenerationRun.blockedReason?.endsWith("_after_output") ? "从已保存候选继续" : "重试这一步"}</button>}
         </div>}
       {view === "brief" && api && currentGenerationRun && ["paused", "blocked"].includes(currentGenerationRun.status) && <GenerationReplanPanel
-          api={api} projectId={projectId} runId={currentGenerationRun.id} disabled={busy || agentRunning || dirty || currentGenerationRun.usageUnsettled === true || generationReadError}
+          api={api} projectId={projectId} runId={currentGenerationRun.id} disabled={busy || agentRunning || dirty || generationUsageBlocked(currentGenerationRun) || generationReadError}
           onConfirmed={run => {
             setGenerationRuns(previous => previous.map(item => item.id === run.id ? run : item));
             setError(null); setNotice("重规划已保存，可继续创作。");
@@ -1818,11 +1733,11 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
       {view === "chapters" && createdChapterPending?.projectId === projectId && <div className="creative-alert warning" role="alert">章节已创建，工作区读取失败：{createdChapterPending.error}。重新读取不会重复创建章节。<button type="button" className="secondary-button" disabled={busy || generating || agentRunning || dirty || reviewDirty || supplementalEditor.active} onClick={() => void materializeStandalone()}>重新读取已创建章节</button></div>}
       {view === "chapters" && (selectedChapter ? <div className="draft-workspace">
         <div className="chapter-page-toolbar"><ChapterSwitcher chapters={visibleChapters} selectedId={selectedChapter.id} disabled={draftInteractionLocked} onSelect={chapter => { const original = state.novelEdition.chapters.find(item => item.id === chapter.id); if (original) onSelectChapter(original); }} />
-        <div className="chapter-page-actions">{onOpenVersions && <ModuleRecordsButton label={`第 ${selectedChapter.number} 章 · ${selectedChapter.title}`} open={recordsOpen} onClick={() => onOpenVersions()} />}{onExport && <button type="button" className="text-button" onClick={onExport}>导出</button>}</div></div>
+        <div className="chapter-page-actions">{chapterSettings}{onOpenVersions && <ModuleRecordsButton label={`第 ${selectedChapter.number} 章 · ${selectedChapter.title}`} open={recordsOpen} onClick={() => onOpenVersions()} />}{onExport && <button type="button" className="text-button" onClick={onExport}>导出</button>}</div></div>
         {newChapterOpen && <StandaloneChapterForm key={`${projectId}:${chapterCreationRequest}`} requestId={chapterCreationRequest} volumeTitle={newChapterVolume.projectId === projectId ? newChapterVolume.volumeTitle ?? undefined : undefined} nextNumber={nextChapterNumber} disabled={standaloneCreationLocked} busy={busy} onCreate={materializeStandalone} onCancel={() => setNewChapterOpen(false)} />}
         <div className="draft-main-column">
         <div data-discussion-revision={discussionRevision?.id ?? ""} data-discussion-object={`draft-${selectedChapter.id}`}>
-        {editorSessionRef.current?.identity === editorIdentity ? <ChapterDocumentView key={`${projectId}:${selectedChapter.id}`} scope={`${projectId}:${selectedChapter.id}`} scenes={draftSceneRows} accepted={workspaceChapter?.accepted ?? null} title={draftTitle} sourcePlanRefs={(workspaceChapter?.candidate ?? workspaceChapter?.accepted)?.sourcePlanRefs ?? null} onTitleChange={title => { setDraftTitle(title); updateChapterDirty(title, draftSceneRows, lockedSceneGroups); }} lockedIds={lockedSceneGroups} disabled={draftInteractionLocked} dirty={dirty} onActiveScene={setActiveSceneId} onChange={(scenes) => { setDraftSceneRows(scenes); updateChapterDirty(draftTitle, scenes, lockedSceneGroups); }} tools={chapterTools} toolsDirty={reviewDirty || supplementalEditor.dirty} emptyWriting={chapterBodyEmpty ? { disabled: !onPrepareChapterWriting, onPrepare: prepareChapterWriting } : undefined} sceneDiscussion={onDiscuss ? { disabled: sceneDiscussionDisabled, notice: dirty || reviewDirty ? "保存后讨论此场景" : !discussionRevision ? "请先保存本章正文，再讨论场景。" : null, onPrepare: prepareSceneDiscussion } : undefined} onLocksChange={locked => { setLockedSceneGroups(locked); updateChapterDirty(draftTitle, draftSceneRows, locked); }} /> : <p role="status">正在恢复当前章节内容…</p>}
+        {editorSessionRef.current?.identity === editorIdentity ? <ChapterDocumentView key={`${projectId}:${selectedChapter.id}`} scope={`${projectId}:${selectedChapter.id}`} scenes={draftSceneRows} accepted={workspaceChapter?.accepted ?? null} title={draftTitle} sourcePlanRefs={(workspaceChapter?.candidate ?? workspaceChapter?.accepted)?.sourcePlanRefs ?? null} onTitleChange={title => { setDraftTitle(title); updateChapterDirty(title, draftSceneRows, lockedSceneGroups); }} lockedIds={lockedSceneGroups} disabled={draftInteractionLocked} dirty={dirty} onChange={(scenes) => { setDraftSceneRows(scenes); updateChapterDirty(draftTitle, scenes, lockedSceneGroups); }} emptyWriting={chapterBodyEmpty ? { disabled: !onPrepareChapterWriting, onPrepare: prepareChapterWriting } : undefined} onLocksChange={locked => { setLockedSceneGroups(locked); updateChapterDirty(draftTitle, draftSceneRows, locked); }} /> : <p role="status">正在恢复当前章节内容…</p>}
         </div>
         {draftInteractionLocked && <small role="status">{chapterBusyLabel}当前操作结束后可继续编辑。</small>}
           {firstWriteTitleNotice?.identity === editorIdentity && <div role="alert"><p>章节标题尚未保存，当前正文为空。首次生成将使用已创建章节的标题“{firstWriteTitleNotice.savedTitle}”；本地标题仍保留。可以恢复章节标题后开始，或先手写正文并一起保存。</p><button className="secondary-button" type="button" disabled={draftInteractionLocked || reviewDirty || draftSceneRows.length !== 1 || lockedSceneGroups.length > 0 || draftSceneRows.some(scene => scene.body.trim())} onClick={() => { setDraftTitle(firstWriteTitleNotice.savedTitle); dirtyRef.current = false; setDirty(false); setFirstWriteTitleNotice(null); }}>恢复章节标题</button></div>}
@@ -1835,6 +1750,17 @@ export function CreativeWorkspaceView({ moduleActionsContainer, recordsOpen = fa
 
 
 
+      {view === "chapters" && commitmentResults}
+      {editingCommitment && <CommitmentManagementDialog key={editingCommitment.requestId}
+        dirty={supplementalEditor.dirty}
+        protectedInput={supplementalEditor.dirty || supplementalEditor.busy || commitmentManagementBusy || busy || agentRunning}
+        onClose={() => { if (!supplementalEditor.current.current?.dirty && !supplementalEditor.current.current?.busy && !commitmentManagementBusy && !busy && !agentRunning) setInlineCommitmentEdit(null); }}>
+        <CommitmentPanel api={api} projectId={projectId} chapterId={editingCommitment.result.chapterId}
+          sourceRevisionId={editingCommitment.result.sourceRevisionId ?? commitmentSources.find(source => source.chapterId === editingCommitment.result.chapterId)?.revisionId ?? null}
+          dirty={dirty || reviewDirty} blocked={busy || generating || agentRunning} refreshToken={refreshToken} onFormalChange={onFormalChange}
+          registerEditor={supplementalEditor.register} onBusyChange={setCommitmentManagementBusy} autoOpen initialEdit={{ requestId: editingCommitment.requestId, detail: editingCommitment.detail }}
+          requestedResult={{ requestId: editingCommitment.requestId, result: editingCommitment.result }} chapters={commitmentChapters} sources={commitmentSources} />
+      </CommitmentManagementDialog>}
       {view === "chapters" && publicationDialog}
 
       {workspace && workspace.impacts.length > 0 && <section className="impact-panel">
@@ -1938,13 +1864,6 @@ function ChapterSwitcher({ chapters, selectedId, disabled, onSelect }: { chapter
     <button type="button" className="chapter-switcher-step" disabled={disabled || index === chapters.length - 1} onClick={() => choose(chapters[index + 1])} aria-label="下一章" title="下一章">›</button>
     {open && <div className="chapter-switcher-menu" role="listbox" aria-label="全部章节">{chapters.map((chapter) => <button type="button" role="option" aria-selected={chapter.id === selected.id} className={chapter.id === selected.id ? "active" : ""} key={chapter.id} onClick={() => choose(chapter)}><span>{String(chapter.number).padStart(2, "0")}</span><b>{chapter.title}</b></button>)}</div>}
   </nav>;
-}
-
-function GenerationTaskStatus({ task, outputName }: { task: CreativeTask; outputName: string }) {
-  const status = generationStatusLabel(task);
-  const revisionCount = new Set(task.outputRefs.filter(reference => reference.kind === task.taskKind
-    && (task.taskKind !== "draft" || reference.objectId === `draft-${task.target.chapterId}`)).map(reference => reference.revisionId)).size;
-  return <div className={`generation-task-status ${task.deliveryStatus}${status.failed ? " failed" : ""}`} role="status" aria-live="polite"><strong>{status.label}</strong><span>{revisionCount > 0 ? `已保存 ${revisionCount} 个${outputName}` : `没有保存${outputName}`}</span>{task.error && <small>{task.error}</small>}</div>;
 }
 
 function ArtifactEditor({ fields, value, onChange, disabled }: { fields: { key: string; label: string; hint: string }[]; value: Record<string, string>; onChange: (key: string, value: string) => void; disabled?: boolean }) {

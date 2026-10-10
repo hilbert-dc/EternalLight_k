@@ -1,6 +1,9 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
+import { emptyCreationIssueSummary } from "../helpers/creation-issues";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../../src/App";
+import type { ThreadDetail, WorkTaskSummary } from "../../../src/types";
 import "../../../src/styles.css";
 import { saveAuthor } from "../helpers/author-session";
 
@@ -24,7 +27,7 @@ const workspaces = new Map(projects.map(project => [project.id, workspaceFor(pro
 const saves = [], generations = [], discussions = [], steers = [], snapshots = [];
 let listener, execution, holdPreflight = false, preflight, failNextSave = false, turn = 0, activeOperation = null, stateReads = 0, delegateWriter = false, delegatedWriters = [];
 const event = (method, params) => listener({ method, params });
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} },
   runtime: { listChapterStructureChanges: async (projectId: string) => ({ projectId, items: [], nextCursor: null }),
   getWorkCatalog: async () => ({ revision: 0, volumes: [], placements: [] }),
@@ -39,7 +42,7 @@ window.novelCodex = {
     setWorkingBaseline: async (id, _, chapterId, revisionId) => { const chapter = workspaces.get(id).chapters.find(chapter => chapter.id === chapterId); chapter.workingSelection = { revisionId, selectionRevision: 1 }; chapter.working = chapter.candidate; },
     saveContinuationIntent: async () => ({}),
   },
-  agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
+  agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
     generateChapter: async (projectId, request) => { generations.push({ projectId, ...structuredClone(request) }); activeOperation = "writer"; execution = deferred(); turn++; event("thread/started", { thread: { id: "thread" } }); event("turn/started", { threadId: "thread", turn: { id: `turn-${turn}` } }); return execution.promise; },
     steer: async (projectId, prompt) => { check(activeOperation === "advisory", "当前作品没有可追加指令的对话任务"); steers.push({ projectId, prompt }); return { steered: true }; },
     sendPrompt: async (projectId, prompt, repairSource, conversationFocus) => { const chapter = conversationFocus && workspaces.get(projectId).chapters.find(item => item.id === conversationFocus.chapterId); discussions.push({ projectId, prompt, repairSource, conversationFocus: structuredClone(conversationFocus), body: chapter?.candidate?.body ?? null }); activeOperation = delegateWriter ? "writer" : "advisory"; execution = deferred(); turn++;
@@ -54,18 +57,39 @@ window.novelCodex = {
 };
 
 const calls = [], cases = [];
+const conversations = new Map<string, ThreadDetail>();
 let proposalCounter = 0, heldProposal = null, works = [];
 const makeProposal = (projectId, prompt, taskId) => ({ proposalId: `proposal-${++proposalCounter}`, projectId, sourceTaskId: taskId, threadId: "root-thread", authorIntent: prompt, targetChapters: 2, expectedRevision: workspaces.get(projectId).revision, sourceDigest: workspaces.get(projectId).sourceDigest, baseSnapshotId: "head", state: "proposed" });
-window.novelCodex.runtime.getTaskFinalReply = async () => ({ state: "absent" });
+window.novelCodex.runtime.getTaskFinalReply = async () => null;
 window.novelCodex.runtime.listWorkTasks = async () => ({ tasks: structuredClone(works), activeCount: 0, nextCursor: null });
 window.novelCodex.agent.generateChapter = async () => { throw Error("Direct writer route must not run"); };
+window.novelCodex.agent.listThreads = async (projectId, archived = false) => ({
+  threads: [...conversations.values()].filter(detail => detail.thread.projectId === projectId && detail.thread.isArchived === archived)
+    .map(detail => structuredClone(detail.thread)), nextCursor: null,
+});
+window.novelCodex.agent.readConversation = async (projectId, threadId) => {
+  const detail = conversations.get(threadId);
+  if (!detail || detail.thread.projectId !== projectId) throw Error("Conversation history must belong to an actually registered fixture thread");
+  return structuredClone(detail);
+};
 window.novelCodex.agent.sendPrompt = async (projectId, prompt, repair, focus) => {
   calls.push({ kind: "send", projectId, prompt, focus }); const id = `author-${proposalCounter + 1}`;
+  let detail = conversations.get("root-thread");
+  if (!detail) {
+    detail = { thread: { id: "root-thread", projectId, version: 0, name: prompt, preview: prompt, modelProvider: "fixture", status: "idle",
+      createdAt: 1, updatedAt: 1, isPinned: false, ephemeral: false, isArchived: false, forkedFromId: null, lastTurnId: null }, turns: [] };
+    conversations.set(detail.thread.id, detail);
+  }
+  check(detail.thread.projectId === projectId && !detail.thread.isArchived, "Send must preserve the original fixture conversation owner");
+  detail.turns.push({ id: `turn-${id}`, status: "completed", startedAt: 1, completedAt: 2,
+    items: [{ id: `input-${id}`, type: "userMessage", status: "completed", text: prompt, phase: null }] });
+  detail.thread.lastTurnId = `turn-${id}`;
   const task = { id, projectId, threadId: "root-thread", operation: "advisory", target: {} };
   event("agent/workflow", { workflow: { task } }); event("thread/started", { thread: { id: "root-thread" } });
   event("turn/started", { threadId: "root-thread", turn: { id: `turn-${id}` } });
   event("turn/completed", { threadId: "root-thread", turn: { id: `turn-${id}`, status: "completed", items: [] } });
-  return { message: "已准备两章续写安排，待你批准范围。", workflow: { task }, proposedActions: [], generationHandoff: makeProposal(projectId, prompt, id) };
+  heldProposal = makeProposal(projectId, prompt, id);
+  return { message: "已准备两章续写安排，待你批准范围。", workflow: { task }, proposedActions: [], generationHandoff: heldProposal };
 };
 window.novelCodex.agent.generateWork = async (...args) => {
   calls.push({ kind: "generate", args }); execution = deferred(); return execution.promise;
@@ -77,6 +101,10 @@ const navigate = async label => { [...document.querySelectorAll(".nav-item")].fi
   await until(() => composer() && send() && !composer().disabled, "App did not initialize"); await navigate("角色");
   await input("创作指令", "接着当前人物冲突写两章，各约三千字，不发布。"); send().click();
   await until(() => button("批准生成 2 章"), "Proposal from nonchapter page was not visible");
+  const approvalCard = document.querySelector<HTMLElement>(".conversation-generation-handoff");
+  check(approvalCard?.innerText.includes("当前未设用量上限，可随时暂停或停止。")
+    && approvalCard.innerText.includes("模型用量按实际计费，工作稿不会自动采用或发布。")
+    && calls.filter(c => c.kind === "generate").length === 0, "Approval did not explain current unbounded usage before starting generation");
   check(!document.querySelector('.generation-permit-dialog') && !document.querySelector('.conversation-generation-handoff textarea'), "Proposal repeated author goal in a form");
   const draftNode = composer(); await input("创作指令", "下一轮先讨论动机"); button("暂不开始").click(); await tick();
   check(!button("批准生成 2 章") && composer() === draftNode && composer().value === "下一轮先讨论动机" && calls.filter(c => c.kind === "generate").length === 0, "Cancel consumed draft or started creation");
@@ -99,7 +127,7 @@ const navigate = async label => { [...document.querySelectorAll(".nav-item")].fi
 
   const attempt = { id: "author-3", threadId: "root-thread", turnId: "turn-author-3", status: "completed", error: null, startedAt: 1, completedAt: 2, changes: [] };
   const work = (id, kind, target, attemptId) => ({ id, kind, projectId: projects[0].id, threadId: "root-thread", goal, version: 1,
-    status: "completed", error: null, deliveryStatus: "discussion_ended", deliveryReport: { evidence: [], pendingActionIds: [], unsettledAttemptIds: [] },
+    status: "completed", error: null, deliveryStatus: "discussion_ended", deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], evidence: [], pendingActionIds: [], unsettledAttemptIds: [] },
     resumeMode: "none", resumeBlockReason: null, steps: [{ id: `step-${id}`, operation: "advisory", expectedOutputKind: "completionReport", status: "completed", target,
       sourceTaskId: null, currentAttemptId: attemptId, attempts: [{ ...attempt, id: attemptId }], changes: [], readingProgress: null }] });
   works = [work("author-work", "conversation", {}, attempt.id), work("generation-work", "generation", { workDecision: { workTaskId: "generation-work", originTaskId: attempt.id } }, "decision-task")];
@@ -110,13 +138,33 @@ const navigate = async label => { [...document.querySelectorAll(".nav-item")].fi
   check(document.querySelectorAll('[data-work-task-id] > .user-message').length === 1, "One author goal was duplicated after generation approval");
   cases.push({ case: "exact scope approval", goalUnchanged: true, targetChapters: args[2], proposalId: args[7], generateCalls: 1, draftPreserved: true, authorMessages: 1 });
   await input("创作指令", "按当前故事继续写两章，不发布。"); send().click(); await until(() => button("批准生成 2 章"), "Pre-task failure proposal missing");
+  const initialProposal = structuredClone(heldProposal);
+  const originalAuthorTurn = conversations.get(initialProposal.threadId).turns.find(item => item.id === `turn-${initialProposal.sourceTaskId}`);
+  check(originalAuthorTurn?.items.some(item => item.type === "userMessage" && item.text === initialProposal.authorIntent), "Initial proposal lost its actual original author turn");
   await input("创作指令", "下一轮还未发送的修改要求"); const pendingEditor = composer(); pendingEditor.setSelectionRange(1, 5);
   const beforeUnbound = document.querySelectorAll('[data-conversation-row^="turn:"]').length;
   button("批准生成 2 章").click(); await until(() => calls.filter(c => c.kind === "generate").length === 2, "Original proposal did not begin start request");
   check(document.querySelectorAll('[data-conversation-row^="turn:"]').length === beforeUnbound, "Proposal approval invented a second author turn before a real task");
-  execution.resolve({ id: "generation-not-started", status: "paused", resumeFailure: { code: "WORK_RESUME_NOT_STARTED", message: "MCP 首次启动超时", workTaskId: "work-generation-not-started" }, pausedWork: { id: "work-generation-not-started", projectId: projects[0].id, threadId: "root-thread", status: "paused", version: 1 } });
+  const originalAuthorWork: WorkTaskSummary = { id: `work-${initialProposal.sourceTaskId}`, projectId: initialProposal.projectId,
+    threadId: initialProposal.threadId, goal: initialProposal.authorIntent, kind: "conversation", version: 1,
+    status: "completed", error: null, deliveryStatus: "discussion_ended", deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], evidence: [], pendingActionIds: [], unsettledAttemptIds: [] },
+    resumeMode: null, resumeBlockReason: null, pendingContinuation: false,
+    steps: [{ id: `step-${initialProposal.sourceTaskId}`, operation: "advisory", expectedOutputKind: "completionReport", instruction: initialProposal.authorIntent,
+      sourceTaskId: null, target: {}, status: "completed", inputRevision: initialProposal.expectedRevision, dependsOnStepId: null,
+      currentAttemptId: initialProposal.sourceTaskId, readingProgress: null, outputRefs: [], changes: [],
+      attempts: [{ id: initialProposal.sourceTaskId, attemptNumber: 1, threadId: initialProposal.threadId, turnId: originalAuthorTurn.id,
+        status: "completed", error: null, startedAt: originalAuthorTurn.startedAt, completedAt: originalAuthorTurn.completedAt }] }] };
+  const pausedWork: WorkTaskSummary = { ...originalAuthorWork, id: "work-generation-not-started", kind: "generation", status: "paused", deliveryStatus: "pending",
+    resumeMode: "continueExecution", steps: [{ ...originalAuthorWork.steps[0], id: "step-generation-not-started", status: "queued", currentAttemptId: null, attempts: [],
+      target: { workDecision: { workTaskId: "work-generation-not-started", originTaskId: initialProposal.sourceTaskId, sourceTaskId: null } } }] };
+  works.push(originalAuthorWork, pausedWork);
+  execution.resolve({ id: "generation-not-started", status: pausedWork.status, resumeFailure: { code: "WORK_RESUME_NOT_STARTED", message: "MCP 首次启动超时", workTaskId: pausedWork.id },
+    pausedWork: { id: pausedWork.id, projectId: pausedWork.projectId, threadId: pausedWork.threadId, status: pausedWork.status, version: pausedWork.version } });
   await until(() => document.body.innerText.includes("原任务尚未启动：MCP 首次启动超时") && !document.querySelector('[aria-label="停止当前执行"]'), "Initial generation pre-task proof was treated as success or stayed busy");
   check(composer() === pendingEditor && composer().value === "下一轮还未发送的修改要求" && pendingEditor.selectionStart === 1 && pendingEditor.selectionEnd === 5, "Initial pre-task failure discarded next draft or caret");
+  check(pausedWork.steps[0].status === "queued" && pausedWork.steps[0].currentAttemptId === null && !pausedWork.steps[0].attempts.length
+    && !document.querySelector('.conversation-final-reply-error') && document.querySelectorAll('[data-work-task-id] > .user-message').length === 2,
+    "Initial pre-task failure invented an attempt, reply ownership error, or duplicate author goal");
   check(!button("批准生成 2 章") && calls.filter(c => c.kind === "generate").length === 2, "Consumed permit was restored or silently replayed");
   cases.push({ case: "initial generation host-proven not started", localError: "原任务尚未启动：MCP 首次启动超时", duplicateAuthorTurn: false, consumedPermitRestored: false, draftDOMAndCaretPreserved: true, automaticReplay: false });
   for (const theme of ["light", "dark"]) { document.documentElement.dataset.theme = theme; await tick(); check(document.body.scrollWidth <= innerWidth + 2, "Handoff overflows viewport"); }

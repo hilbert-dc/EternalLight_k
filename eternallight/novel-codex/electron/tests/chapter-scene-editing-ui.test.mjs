@@ -9,10 +9,10 @@ import { test } from "node:test";
 import { build } from "esbuild";
 import electron from "electron";
 
-test("chapter scene discussion preserves exact saved identities and editor state without executing", async t => {
-  const directory = await mkdtemp(join(tmpdir(), "novel-scene-discussion-"));
+test("chapter scene menus preserve protected content, saved identities, focus and project isolation without a model", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "novel-scene-editing-"));
   try {
-    await build({ entryPoints: [fileURLToPath(new URL("./fixtures/chapter-scene-discussion-ui.tsx", import.meta.url))], outfile: join(directory, "test.js"), bundle: true, platform: "browser", jsx: "automatic" });
+    await build({ entryPoints: [fileURLToPath(new URL("./fixtures/chapter-scene-editing-ui.tsx", import.meta.url))], outfile: join(directory, "test.js"), bundle: true, platform: "browser", jsx: "automatic" });
     await writeFile(join(directory, "index.html"), '<html lang="zh-CN"><head><meta charset="utf-8"><link rel="stylesheet" href="test.css"></head><body><div id="root"></div><script src="test.js"></script></body></html>');
     let output;
     try { output = await promisify(execFile)(electron, [fileURLToPath(new URL("./fixtures/creative-workspace-ui-main.cjs", import.meta.url)), join(directory, "index.html")], { timeout: 30000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "" } }); }

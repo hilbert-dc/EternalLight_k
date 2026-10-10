@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../../src/App";
@@ -24,7 +25,7 @@ const workspaces = new Map(projects.map(project => [project.id, workspaceFor(pro
 const saves = [], generations = [], discussions = [], steers = [], snapshots = [];
 let listener, execution, holdPreflight = false, preflight, failNextSave = false, turn = 0, activeOperation = null, stateReads = 0, delegateWriter = false, delegatedWriters = [];
 const event = (method, params) => listener({ method, params });
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} },
   runtime: { listChapterStructureChanges: async (projectId: string) => ({ projectId, items: [], nextCursor: null }),
   getWorkCatalog: async () => ({ revision: 0, volumes: [], placements: [] }),
@@ -34,12 +35,11 @@ window.novelCodex = {
     getCreativeWorkspace: async id => { const data = structuredClone(workspaces.get(id)); if (holdPreflight) { holdPreflight = false; preflight = deferred(); return preflight.promise; } return data; },
     listWorkTasks: async () => ({ tasks: [], activeCount: 0, nextCursor: null }), listGenerationRuns: async () => ({ runs: [] }),
     listPlanningImpacts: async () => ({ data: [], nextCursor: null, counts: { total: 0, open: 0 } }),
-    getWriterPreview: async () => ({ target: { position: { readingChapter: 1, sceneOrder: 1 } }, relevantText: [], plannedEffects: [], coverage: { complete: true, missingScope: [], truncationReasons: [] } }),
     saveDraftCheckpoint: async (id, payload) => { if (failNextSave) { failNextSave = false; throw Error("正文保存失败，未启动模型"); } saves.push(structuredClone(payload)); const workspace = workspaces.get(id); const chapter = workspace.chapters.find(chapter => chapter.id === payload.chapterId); chapter.candidate = { ...revision(`saved-${saves.length}`, payload.body), title: payload.title, sceneGroups: payload.sceneGroups }; workspace.revision++; return { revisionId: chapter.candidate.id }; },
     setWorkingBaseline: async (id, _, chapterId, revisionId) => { const chapter = workspaces.get(id).chapters.find(chapter => chapter.id === chapterId); chapter.workingSelection = { revisionId, selectionRevision: 1 }; chapter.working = chapter.candidate; },
     saveContinuationIntent: async () => ({}),
   },
-  agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
+  agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], readConversation: async (projectId, id) => ({ thread: { id, projectId, name: "作品讨论", status: "idle" }, turns: [] }), listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
     generateChapter: async (projectId, request) => { generations.push({ projectId, ...structuredClone(request) }); activeOperation = "writer"; execution = deferred(); turn++; event("thread/started", { thread: { id: "thread" } }); event("turn/started", { threadId: "thread", turn: { id: `turn-${turn}` } }); return execution.promise; },
     steer: async (projectId, prompt) => { check(activeOperation === "advisory", "当前作品没有可追加指令的对话任务"); steers.push({ projectId, prompt }); return { steered: true }; },
     sendPrompt: async (projectId, prompt, repairSource, conversationFocus) => { const chapter = conversationFocus && workspaces.get(projectId).chapters.find(item => item.id === conversationFocus.chapterId); discussions.push({ projectId, prompt, repairSource, conversationFocus: structuredClone(conversationFocus), body: chapter?.candidate?.body ?? null }); activeOperation = delegateWriter ? "writer" : "advisory"; execution = deferred(); turn++;
@@ -76,7 +76,7 @@ const cancelMode = async () => { button("取消写作")?.click(); await tick(); 
   check(document.querySelector<HTMLInputElement>('[aria-label="章节标题"]')?.value === "新章", "Same-project startup refresh stole the selected chapter");
   snapshots.push({ case: phase, selectedChapterPreserved: true });
   button("上一章").click(); await until(() => document.querySelector<HTMLInputElement>('[aria-label="章节标题"]')?.value === "本章", "First chapter did not restore");
-  check(document.querySelectorAll('.draft-editor-wrap textarea').length === 1 && !document.querySelector(".chapter-manual-tools").open && !document.querySelector(".chapter-versions"), "Default chapter has extra inputs, expanded tools or an empty published comparison");
+  check(document.querySelectorAll('.draft-editor-wrap textarea').length === 1 && !document.querySelector(".chapter-manual-tools,.writer-runtime-preview,.fact-proposal-form") && !document.querySelector(".chapter-versions"), "Default chapter has extra inputs, technical tools or an empty published comparison");
   for (const theme of ["light", "dark"]) {
     document.documentElement.dataset.theme = theme; await tick();
     const panel = document.querySelector(".main-panel.chapter-main-panel"), prose = document.querySelector(".chapter-document textarea");
@@ -118,7 +118,7 @@ const cancelMode = async () => { button("取消写作")?.click(); await tick(); 
   phase = "failed prepare preserves input";
   await input("创作指令", "保存成功后再分析"); await input("场景 1 正文", "失败保存仍保留这段作者正文。");
   failNextSave = true; check(send().disabled, "Dirty discussion was sendable before save"); button("保存").click();
-  await until(() => !button("保存").disabled && document.body.innerText.includes("正文保存失败，未启动模型"), "Failed save did not settle");
+  await until(() => !button("保存").disabled && document.body.textContent.includes("正文保存失败，未启动模型"), "Failed save did not settle");
   check(discussions.length === 1 && generations.length === 0 && composer().value === "保存成功后再分析"
     && document.querySelector<HTMLTextAreaElement>('[aria-label="场景 1 正文"]').value === "失败保存仍保留这段作者正文。", "Failed preparation lost input, edited body or started a task");
   snapshots.push({ case: phase, modelNotStarted: true, inputAndBodyRetained: true });
@@ -164,7 +164,7 @@ const cancelMode = async () => { button("取消写作")?.click(); await tick(); 
   check(delegatedWriters.length === 3 && composer().value === firstIntent, "Deferred preparation started writer or consumed original input");
   document.querySelector<HTMLButtonElement>(".project-switcher").click(); await tick();
   [...document.querySelectorAll(".project-menu-item")].find(node => node.textContent.includes(projects[1].title)).click();
-  await until(() => document.querySelector(".project-card strong")?.textContent === projects[1].title && !composer().disabled, "Project switch did not settle");
+  await until(() => document.querySelector(".project-switcher span[title]")?.textContent === projects[1].title && !composer().disabled, "Project switch did not settle");
   check(!document.querySelector(".chapter-writing-mode") && composer().value === "", "Project switch retained another chapter mode or draft");
   await input("创作指令", "B作品独立草稿"); lateRead.resolve(structuredClone(workspaces.get(projects[0].id))); await tick(); await tick();
   check(delegatedWriters.length === 3 && discussions.length === 6 && composer().value === "B作品独立草稿"
@@ -189,7 +189,7 @@ const cancelMode = async () => { button("取消写作")?.click(); await tick(); 
   phase = "success preserves new draft"; delegateWriter = true;
   document.querySelector<HTMLButtonElement>(".project-switcher").click(); await tick();
   [...document.querySelectorAll(".project-menu-item")].find(node => node.textContent.includes(projects[0].title)).click();
-  await until(() => document.querySelector(".project-card strong")?.textContent === projects[0].title && !composer().disabled, "Return project did not settle"); await navigate("作品目录");
+  await until(() => document.querySelector(".project-switcher span[title]")?.textContent === projects[0].title && !composer().disabled, "Return project did not settle"); await navigate("作品目录");
   await until(() => document.querySelector('[aria-label="章节标题"]') && button("下一章"), "Chapter navigation did not settle");
   if (document.querySelector<HTMLInputElement>('[aria-label="章节标题"]')?.value !== "新章") button("下一章").click();
   await until(() => document.querySelector<HTMLInputElement>('[aria-label="章节标题"]')?.value === "新章", "Empty chapter did not restore");

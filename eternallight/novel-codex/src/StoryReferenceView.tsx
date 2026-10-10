@@ -119,7 +119,7 @@ export function StoryReferenceView({ api, projectId, view, refreshToken, onDiscu
       {entry.assertion.kind !== "event" && entry.assertion.value !== undefined && <p className="story-reference-value">{valueText(entry.assertion.value)}</p>}
       {quote && <blockquote>{quote}</blockquote>}
       {source(entry.sourceObjectId, entry.sourceRevisionId)}
-      <button type="button" className="secondary-button" disabled={loading || Boolean(error)} onClick={() => onDiscuss(`请核对这条${kinds[entry.assertion.kind] || "正文主张"}的依据，先讨论，不改写正文。`, { label: sourceLabel, focus: { view, reference: { kind: "claim", projectId, snapshotId: visible!.workspace.headSnapshotId, objectId: entry.sourceObjectId, revisionId: entry.sourceRevisionId, modelingBatchId: entry.modelingBatchId, assertionIndex: entry.assertionIndex } } })}>在对话中讨论</button>
+      <button type="button" className="secondary-button" disabled={loading || Boolean(error)} onClick={() => onDiscuss("", { label: sourceLabel, focus: { view, reference: { kind: "claim", projectId, snapshotId: visible!.workspace.headSnapshotId, objectId: entry.sourceObjectId, revisionId: entry.sourceRevisionId, modelingBatchId: entry.modelingBatchId, assertionIndex: entry.assertionIndex } } })}>在对话中讨论</button>
     </article>;
   }
   const [title, description] = copy[view];
@@ -148,7 +148,7 @@ export function StoryReferenceView({ api, projectId, view, refreshToken, onDiscu
             <header><strong>{item.summary}</strong><span>{item.confirmationState === "confirmed" ? "作者已确认" : "未确认候选"} · {commitmentStates[item.status]}</span></header>
             {!item.sourceCurrent && <p>正文证据已变化，需重新核对。</p>}
             <div className="story-reference-actions"><button type="button" className="secondary-button" disabled={loading || Boolean(error)} onClick={() => void openCommitment(item.id)}>查看原文与记录</button>
-              <button type="button" className="text-button" disabled={loading || Boolean(error) || !item.sourceCurrent} onClick={() => onDiscuss("请讨论这条伏笔的铺垫与兑现方向，先不要修改或确认。", { label: `伏笔 · ${item.summary.slice(0, 60)}`, focus: { view: "plot", reference: { kind: "commitment", projectId, snapshotId: visible.workspace.headSnapshotId, commitmentId: item.id, revisionId: item.revisionId } } })}>在对话中讨论</button><button type="button" className="text-button" disabled={loading || Boolean(error) || !item.sourceCurrent} onClick={() => onOpenCommitment({ projectId, snapshotId: visible.workspace.headSnapshotId, commitmentId: item.id, revisionId: item.revisionId })}>到章节查看与决定</button></div>
+              <button type="button" className="text-button" disabled={loading || Boolean(error) || !item.sourceCurrent} onClick={() => onDiscuss("", { label: `伏笔 · ${item.summary.slice(0, 60)}`, focus: { view: "plot", reference: { kind: "commitment", projectId, snapshotId: visible.workspace.headSnapshotId, commitmentId: item.id, revisionId: item.revisionId } } })}>在对话中讨论</button><button type="button" className="text-button" disabled={loading || Boolean(error) || !item.sourceCurrent} onClick={() => onOpenCommitment({ projectId, snapshotId: visible.workspace.headSnapshotId, commitmentId: item.id, revisionId: item.revisionId })}>到章节查看与决定</button></div>
           </article>)}</div>
           {visible.commitments?.nextCursor && <><p>还有未加载的承诺，当前列表不是完整目录。</p><button type="button" className="secondary-button" disabled={paging || loading || Boolean(error)} onClick={() => void more()}>{paging ? "正在读取…" : "加载更多"}</button></>}
           {trimmed > 0 && <p>已收起前 {trimmed} 条加载结果；对象未删除，重新读取可从目录首批开始。</p>}

@@ -15,8 +15,10 @@ exports[`desktop scope confirmation freezes intent and limits, isolates stale pr
       "operation": "generateChapter",
       "target": {
         "chapterId": "chapter-2",
+        "chapterNumber": 2,
         "scope": {
           "type": "selectedScenes",
+          "sourceRevisionId": "revision-letter",
           "groupIds": [
             "letter"
           ]

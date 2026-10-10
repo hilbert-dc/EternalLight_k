@@ -1,9 +1,9 @@
 exports[`conversation respects author identity, process choices and reading intent 1`] = `
 {
   "prompt": "作者要修改第二章结尾。",
-  "process": "读取本章正文\\n查看过程",
-  "defaultCollapsed": true,
-  "flow": "创作流程 · 1 步",
+  "process": "读取本章正文 · 0秒",
+  "publicProgressVisible": true,
+  "flow": "对话中的操作原地展开",
   "privateArgumentsHidden": true,
   "preservedReading": true,
   "controlsExecuted": 0,

@@ -13,7 +13,7 @@ exports[`actual App shares original task recovery across every page and isolates
     "resumeCalls": 1,
     "cancelCalls": 1,
     "newTurns": 0,
-    "notice": "已确认取消任务。"
+    "notice": "已确认暂停任务。"
   },
   {
     "case": "visible-recovery-failure",

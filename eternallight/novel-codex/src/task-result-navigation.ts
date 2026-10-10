@@ -7,7 +7,7 @@ export type ResolvedTaskResult = { result: TaskResultDestination; chapterId?: st
 /** Re-read delivery and its exact source before opening an author decision. Never substitutes the latest output. */
 export async function resolveTaskResult(api: NovelCodexApi, result: TaskResultDestination): Promise<ResolvedTaskResult> {
   const task = await api.runtime.getWorkTask(result.projectId, result.workTaskId);
-  if (!getTaskResults(task).some(current => JSON.stringify(current) === JSON.stringify(result))) {
+  if (!getTaskResults(task).some(current => Object.keys(current).length === Object.keys(result).length && Object.entries(current).every(([key, value]) => value === (result as unknown as Record<string, unknown>)[key]))) {
     throw new Error("这项任务结果已变化或被后续版本替换，请从当前结果重新选择。");
   }
   if (result.kind === "planningReview") {
@@ -54,8 +54,8 @@ export async function resolveTaskResult(api: NovelCodexApi, result: TaskResultDe
       || result.sourceRevisionId && result.sourceRevisionId !== source.id) throw new Error("这批故事设定的正文来源已变化，不能检查另一批结果代替。");
   }
   if (result.kind === "commitmentExtraction") {
-    const report = await api.runtime.getCommitmentExtraction(result.projectId, result.chapterId);
-    if (!report?.sourceCurrent || report.revisionId !== result.referenceId || report.payload.chapterId !== result.chapterId
+    const report = await api.runtime.getCommitmentExtraction(result.projectId, result.chapterId, result.referenceId);
+    if (report?.reportCurrent !== true || !report.sourceCurrent || report.revisionId !== result.referenceId || report.payload.chapterId !== result.chapterId
       || report.payload.sourceRevisionId !== source.id || result.sourceRevisionId && result.sourceRevisionId !== source.id) {
       throw new Error("这份伏笔报告或原文已变化，未打开最新报告代替。");
     }

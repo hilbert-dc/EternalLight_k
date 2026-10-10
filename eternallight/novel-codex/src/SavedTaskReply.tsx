@@ -2,20 +2,11 @@ import { ConversationReplyActions, ConversationReplyBoundary } from "./Conversat
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { NovelCodexApi, TaskFinalReply, WorkTaskSummary } from "./types";
 import { MarkdownContent } from "./MarkdownContent";
+import type { FinalReplyDisplayState } from "./ConversationOutput";
 
-export function GeneratedReplyDescription({ projectId, taskId, text, children }: {
-  projectId: string; taskId: string; text: string; children: ReactNode;
-}) {
-  return <details className="generated-reply-description" data-conversation-detail={`task:${taskId}:description`}>
-    <summary>查看结果说明</summary>
-    <ConversationReplyBoundary identity={`${projectId}:${taskId}`} text={text} label="复制结果说明">{children}</ConversationReplyBoundary>
-  </details>;
-}
+type ReplyAttempt = Pick<WorkTaskSummary["steps"][number]["attempts"][number], "id" | "threadId" | "turnId">;
 
-export function SavedTaskReply({ api, projectId, attempt, foldDescription = false }: {
-  api: NovelCodexApi | undefined; projectId: string; attempt: WorkTaskSummary["steps"][number]["attempts"][number];
-  foldDescription?: boolean;
-}) {
+export function useTaskFinalReply(api: NovelCodexApi | undefined, projectId: string, attempt: ReplyAttempt) {
   const scope = useMemo(() => ({ api, projectId, taskId: attempt.id, threadId: attempt.threadId, turnId: attempt.turnId }),
     [api, projectId, attempt.id, attempt.threadId, attempt.turnId]);
   const [retry, setRetry] = useState(0);
@@ -39,22 +30,66 @@ export function SavedTaskReply({ api, projectId, attempt, foldDescription = fals
     return () => { active = false; };
   }, [scope, retry, api, projectId]);
   const visible = state?.scope === scope ? state : null;
+  const finalReplyState: FinalReplyDisplayState = !visible || visible.error ? "unknown" : visible.receipt?.state ?? "absent";
+  return { loading: !visible, receipt: visible?.receipt ?? null, error: visible?.error ?? null,
+    finalReplyState, retry: () => setRetry(value => value + 1) };
+}
+
+type ReplyRead = ReturnType<typeof useTaskFinalReply>;
+
+/** An unfinished local turn needs this extra read. Its original stream remains
+ * available separately, while a proven saved reply takes the normal answer slot. */
+export function FailedTaskReply({ api, projectId, attempt, render }: {
+  api: NovelCodexApi | undefined; projectId: string; attempt: ReplyAttempt;
+  render: (state: FinalReplyDisplayState) => ReactNode;
+}) {
+  const read = useTaskFinalReply(api, projectId, attempt);
+  return <>
+    {read.loading ? <p className="conversation-process-meta" role="status">正在核对保存的回复…</p>
+      : read.error ? <div className="conversation-final-reply-error" role="alert"><p>{read.error}</p>
+        <button type="button" className="text-button" onClick={read.retry}>重新核对回复</button></div>
+        : read.receipt && read.receipt.state !== "absent"
+          ? <SavedTaskReplyView projectId={projectId} taskId={attempt.id} read={read} /> : null}
+    {render(read.finalReplyState)}
+  </>;
+}
+
+export function GeneratedReplyDescription({ projectId, taskId, text, children }: {
+  projectId: string; taskId: string; text: string; children: ReactNode;
+}) {
+  return <details className="generated-reply-description" data-conversation-detail={`task:${taskId}:description`}>
+    <summary>查看结果说明</summary>
+    <ConversationReplyBoundary identity={`${projectId}:${taskId}`} text={text} label="复制结果说明">{children}</ConversationReplyBoundary>
+  </details>;
+}
+
+export function SavedTaskReply({ api, projectId, attempt, foldDescription = false }: {
+  api: NovelCodexApi | undefined; projectId: string; attempt: WorkTaskSummary["steps"][number]["attempts"][number];
+  foldDescription?: boolean;
+}) {
+  const read = useTaskFinalReply(api, projectId, attempt);
+  return <SavedTaskReplyView projectId={projectId} taskId={attempt.id} read={read} foldDescription={foldDescription} />;
+}
+
+function SavedTaskReplyView({ projectId, taskId, read, foldDescription = false }: {
+  projectId: string; taskId: string; read: ReplyRead; foldDescription?: boolean;
+}) {
   return <article className="conversation-message assistant-message saved-task-reply">
     <span className="conversation-avatar assistant" aria-hidden="true">✦</span>
     <div className="conversation-message-body">
       <div className="conversation-message-meta"><strong>Novel Engine</strong><span>回复</span></div>
-      {!visible ? <p role="status">正在读取保存的回复…</p> : visible.error ? <div role="alert"><p>{visible.error}</p>
-        <button type="button" onClick={() => setRetry(value => value + 1)}>重新读取回复</button></div>
-        : !visible.receipt ? <p>没有保存的最终回复，执行摘要不能代替模型答复。</p>
-          : visible.receipt.state === "absent" ? <p>本轮执行已结束，没有最终文本回复。</p> : <>
-            {(visible.receipt.state === "truncated" || visible.receipt.binding.truncated) && <p role="status">保存的回复超过上限，以下为部分内容。</p>}
-            {foldDescription && visible.receipt.state === "recorded" && !visible.receipt.binding.truncated && visible.receipt.binding.text.trim()
-              ? <GeneratedReplyDescription projectId={projectId} taskId={attempt.id} text={visible.receipt.binding.text}>
-                <div className="conversation-answer"><MarkdownContent text={visible.receipt.binding.text} /></div>
+      {read.loading ? <p role="status">正在读取保存的回复…</p> : read.error ? <div role="alert"><p>{read.error}</p>
+        <button type="button" onClick={read.retry}>重新读取回复</button></div>
+        : !read.receipt ? <p>本轮尚无回复。</p>
+          : read.receipt.state === "absent" ? <p>本轮执行已结束，没有最终文本回复。</p> : <>
+            {(read.receipt.state === "truncated" || read.receipt.binding.truncated) && <p role="status">保存的回复超过上限，以下为部分内容。</p>}
+            {foldDescription && read.receipt.state === "recorded" && !read.receipt.binding.truncated && read.receipt.binding.text.trim()
+              ? <GeneratedReplyDescription projectId={projectId} taskId={taskId} text={read.receipt.binding.text}>
+                <div className="conversation-answer"><MarkdownContent text={read.receipt.binding.text} /></div>
               </GeneratedReplyDescription>
-              : <><div className="conversation-answer"><MarkdownContent text={visible.receipt.binding.text} /></div>
-                <ConversationReplyActions identity={`${projectId}:${attempt.id}`} text={visible.receipt.binding.text}
-                  label={visible.receipt.state === "truncated" || visible.receipt.binding.truncated ? "复制已显示内容" : "复制回复"} /></>}
+              : <><div className="conversation-answer"><MarkdownContent text={read.receipt.binding.text} /></div>
+                <ConversationReplyActions identity={`${projectId}:${taskId}`} text={read.receipt.binding.text}
+                  label={read.receipt.state === "truncated" || read.receipt.binding.truncated ? "复制已显示内容" : "复制回复"} /></>}
           </>}
     </div>
   </article>;

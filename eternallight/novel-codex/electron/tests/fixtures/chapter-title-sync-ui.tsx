@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../../src/App";
@@ -25,7 +26,7 @@ const workspaces = new Map(projects.map(project => [project.id, workspaceFor(pro
 const snapshots = []; const renderErrors = []; window.addEventListener("error", event => renderErrors.push(event.message));
 let saves = 0, modelCalls = 0, stateReads = 0, failSave = false, failState = false, holdA = false, listener;
 const delayed = [];
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} }, runtime: {
     ...chapterRuntimeReads(id => projects.find(project => project.id === id)),
     status: async () => ({ state: "online", mode: "local", error: null }), listProjects: async () => ({ projects }),
@@ -34,7 +35,7 @@ window.novelCodex = {
     getCreativeWorkspace: async id => { const data = structuredClone(workspaces.get(id)); if (holdA && id === projects[0].id) return new Promise(resolve => delayed.push(() => resolve(data))); return data; },
     saveDraftCheckpoint: async (id, payload) => { if (failSave) { failSave = false; throw Error("标题保存失败，正文未改"); } saves++; const workspace = workspaces.get(id), chapter = workspace.chapters.find(row => row.id === payload.chapterId); chapter.candidate = { ...revision(`saved-${saves}`, payload.title), body: payload.body, sceneGroups: payload.sceneGroups }; workspace.revision++; return { revisionId: chapter.candidate.id }; },
   }, agent: {
-    status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
+    status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
     sendPrompt: async () => { modelCalls++; throw Error("unexpected model"); }, generateChapter: async () => { modelCalls++; throw Error("unexpected writer"); }, generateWork: async () => { modelCalls++; throw Error("unexpected generation"); },
   },
 };

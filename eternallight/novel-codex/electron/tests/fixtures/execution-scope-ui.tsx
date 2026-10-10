@@ -8,7 +8,7 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 30));
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 const wait = async predicate => { for (let n = 0; n < 100 && !predicate(); n++) await tick(); check(predicate(), "UI did not settle"); };
 const action = { id: `action-${"a".repeat(32)}`, sourceTaskId: `task-${"b".repeat(32)}`, operation: "generateChapter",
-  target: { chapterId: "chapter-2", scope: { type: "selectedScenes", groupIds: ["letter"] } },
+  target: { chapterId: "chapter-2", chapterNumber: 2, scope: { type: "selectedScenes", sourceRevisionId: "revision-letter", groupIds: ["letter"] } },
   instruction: "只修改密函场景，将烧信改为藏信", status: "proposed", inputRevision: 2, intentRevision: 0 };
 const previews = [], confirmations = [], completions = [];
 let starts = 0, persisted = null;
@@ -34,6 +34,14 @@ function changeNumber(label, value) {
 }
 void (async () => {
   await render("旧作品");
+  await wait(() => document.querySelector(".scope-choice small"));
+  const actionName = document.querySelector(".scope-choice small");
+  check(actionName?.textContent.includes("第 2 章") && actionName.textContent.includes("选定")
+    && actionName.textContent.includes("场景"), "Scope choice lost its chapter or selected-scene intent");
+  check(actionName?.getAttribute("title") === actionName?.getAttribute("aria-label")
+    && !actionName?.textContent.includes("generateChapter"), "Scope choice exposed an internal code or lost its full readable name");
+  check(document.querySelector(".scope-choice details summary")?.textContent === "精确目标"
+    && !document.querySelector(".scope-choice details").open, "Naming changed the existing target disclosure");
   check(button("确认范围并继续").disabled && previews.length === 0, "Cannot confirm before a read-only preview");
   button("预览范围").click(); await wait(() => previews.length === 1);
   await render("港城");

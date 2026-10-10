@@ -29,7 +29,7 @@ export async function revealControl(element: Element | null) {
 
 /** Fixture shell owns the same project reader as the production App. */
 export function CreativeWorkspaceView(props) {
-  const taskList = useWorkTaskList(props.api, props.projectId, props.refreshToken, props.agentRunning);
+  const taskList = useWorkTaskList(props.api, props.projectId, props.refreshToken, props.agentRunning, true);
   const [error, setError] = useState(null), [notice, setNotice] = useState(null), [dirty, setDirty] = useState(false);
   const taskControls = useWorkTaskControls({ scope: taskList.scope,
     isBlocked: () => dirty || !!taskList.error || !taskList.loaded,

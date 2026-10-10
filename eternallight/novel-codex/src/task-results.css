@@ -11,3 +11,5 @@
   overflow-wrap: anywhere;
   text-align: left;
 }
+.task-result-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 10px 12px; border: 1px solid var(--nc-border); border-radius: 8px; color: var(--nc-ink); }
+.task-result-card strong { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 550; }

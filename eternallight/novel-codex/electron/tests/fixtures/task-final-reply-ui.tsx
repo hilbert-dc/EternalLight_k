@@ -65,7 +65,7 @@ const retry = () => details().querySelector<HTMLButtonElement>("[role='alert'] b
 async function saved(read: typeof pending[number], receipt: TaskFinalReply) {
   read.resolve(receipt);
   await wait(() => details().querySelector(".conversation-markdown"), "Saved Markdown did not render");
-  check(text().includes("回复记录不代表创作目标已达成"), "Receipt was presented as proof of completion");
+  check(!text().includes("作者要求代次") && !text().includes("目标已达成"), "Reply exposed internal metadata or claimed completion");
 }
 
 void (async () => {

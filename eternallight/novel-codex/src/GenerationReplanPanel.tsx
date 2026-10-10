@@ -7,7 +7,7 @@ const choices: Record<ReplanStage, { label: string; detail: string }> = {
   brief: { label: "从创作简报开始", detail: "允许调整创作方向，由创作助手按需要重新安排；已有正文保留。" },
   outline: { label: "从全书大纲开始", detail: "保留当前简报，允许调整全书故事脉络，由创作助手安排后续步骤；已有正文保留。" },
   rollingPlan: { label: "只重建近章规划", detail: "保留当前简报、大纲和已有正文。" },
-  currentChapter: { label: "基于当前章重写", detail: "以作者修改后的当前稿为依据重写本章，由创作助手安排必要检查；前文与当前规划绑定保留。" },
+  currentChapter: { label: "基于当前章重写", detail: "以当前已保存稿为依据重写本章；尚无正文时重新起草，由创作助手安排必要检查。" },
 };
 
 export function GenerationReplanPanel(props: Props) {

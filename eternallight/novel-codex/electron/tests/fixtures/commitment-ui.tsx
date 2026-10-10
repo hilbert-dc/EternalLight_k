@@ -16,7 +16,7 @@ async function until(predicate, message) {
 const proposal = { id: "lamp", kind: "foreshadowing", summary: "白塔只亮四十七秒", fulfillmentCriteria: "揭示灯时的原因",
   relatedEntityIds: [], plotThreadId: null, characterArcId: null, targetWindow: { kind: "open" }, status: "open", decisionReason: null,
   setupEvidenceRefs: [{ objectId: "draft-chapter-one", revisionId: "source-1", quote: "白塔亮了四十七秒", start: 0, end: 9 }], fulfillmentEvidenceRefs: [] };
-let report = { revisionId: "report-1", snapshotId: "snapshot-report", projectRevision: 7, authority: "candidateProposalBatch", sourceCurrent: true,
+let report = { revisionId: "report-1", snapshotId: "snapshot-report", projectRevision: 7, authority: "candidateProposalBatch", reportCurrent: true, sourceCurrent: true,
   established: [], payload: { chapterId: "chapter-one", sourceRevisionId: "source-1", examinedRanges: [{ start: 0, end: 9 }], candidates: [proposal] },
   coverage: { semanticCompleteness: "unknown", modelReportedRanges: true, literaryFulfillmentVerified: false, globalCompletenessClaimed: false } };
 let detail = { projectId: "project-a", authorControls: { projectRevision: 7, undoAvailable: false }, snapshotId: "snapshot-established", objectId: "commitment-independent", revisionId: "commitment-rev-1",
@@ -262,7 +262,7 @@ async function run() {
   check(!button("批量承诺 0") && button("批量承诺 219") && text().includes("已收起早期 20 项") && document.querySelectorAll(".commitment-catalog li").length === 200, "Memory cap blocked later objects or accumulated unbounded rows");
   check(calls.filter((call) => call.establish).length === 1 && calls.some((call) => call.undo === "accept-1"), "Write sequence invalid");
   // A completed extraction opens its proposals, but only an author click writes.
-  const scopedReport = { revisionId: "scoped-report", snapshotId: "scoped-snapshot", projectRevision: 12, authority: "candidateProposalBatch", sourceCurrent: true,
+  const scopedReport = { revisionId: "scoped-report", snapshotId: "scoped-snapshot", projectRevision: 12, authority: "candidateProposalBatch", reportCurrent: true, sourceCurrent: true,
     established: [], payload: { chapterId: "chapter-one", sourceRevisionId: "source-1", examinedRanges: [], candidates: [proposal] }, coverage: { semanticCompleteness: "unknown", modelReportedRanges: true, literaryFulfillmentVerified: false, globalCompletenessClaimed: false } };
   const scopedDetail = { ...structuredClone(detail), objectId: "commitment-scoped", revisionId: "scoped-revision", payload: { ...structuredClone(proposal), id: "scoped" },
     authorControls: { projectRevision: 12, undoAvailable: false }, confirmationState: "candidate", confirmationCommitId: null,

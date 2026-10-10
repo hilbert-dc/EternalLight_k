@@ -1,12 +1,13 @@
+import { ReasoningModelPicker } from "./ReasoningModelPicker";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { NovelCodexApi } from "./types";
 
 type AgentConnection = Awaited<ReturnType<NovelCodexApi["agent"]["listConnections"]>>["connections"][number];
 import "./composer-model-picker.css";
 
-export function ComposerModelPicker({ connections, provider, model, label, disabled, onSelect }: {
-  connections: AgentConnection[]; provider?: string | null; model?: string | null;
-  label: string; disabled: boolean; onSelect: (connection: AgentConnection) => void;
+function ModelConnectionPicker({ connections, provider, model, label, disabled, onSelect }: {
+  connections: AgentConnection[]; provider?: string | null; model?: string | null; reasoningEffort?: string | null;
+  label: string; disabled: boolean; reasoningDisabled?: boolean; onReasoningChange?: (effort: string) => void; onSelect: (connection: AgentConnection) => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -59,6 +60,13 @@ export function ComposerModelPicker({ connections, provider, model, label, disab
       }}><span className="composer-model-label">{label}</span><svg className="composer-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6 3.5 3.5L11.5 6" /></svg></button>
     {visible && <div ref={menu} id={id} className="composer-model-menu" role="menu" aria-label="选择模型连接" tabIndex={-1}
       onKeyDown={event => {
+        if (event.key === "Tab") {
+          // Anchor native tab order on the persistent trigger before removing the menu.
+          // Otherwise Chromium may restart at the document when the focused item unmounts.
+          trigger.current?.focus({ preventScroll: true });
+          if (event.shiftKey) event.preventDefault(); else setOpen(false);
+          return;
+        }
         if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
         const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[role='menuitemradio']")];
@@ -91,4 +99,14 @@ export function ComposerModelPicker({ connections, provider, model, label, disab
       })}
     </div>}
   </div>;
+}
+
+export function ComposerModelPicker(props: Parameters<typeof ModelConnectionPicker>[0]) {
+  const connection = props.connections.find(item => item.provider === props.provider && item.model === props.model);
+  if (!connection?.reasoning) return <ModelConnectionPicker {...props} />;
+  return <ReasoningModelPicker model={props.label} reasoning={connection.reasoning}
+    effort={props.reasoningEffort ?? connection.reasoning.effort}
+    disabled={Boolean(props.reasoningDisabled || !props.onReasoningChange)}
+    onChange={props.onReasoningChange}
+    modelPicker={<ModelConnectionPicker {...props} />} />;
 }

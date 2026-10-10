@@ -1,4 +1,4 @@
-exports[`chapter editing and publication preserve scene identity, bookmarks and preview recovery 1`] = `
+exports[`chapter editing and publication preserve contextual scene controls, bookmarks and saved-result recovery 1`] = `
 {
   "dirtyRoundTrip": [
     {
@@ -92,13 +92,6 @@ exports[`chapter editing and publication preserve scene identity, bookmarks and 
     "已完成检查，可以发布这一章。",
     "已完成检查，可按决定返回编辑。",
     "先保存章节。"
-  ],
-  "generationStatuses": [
-    "内容已保存已保存 2 个本章正文修订",
-    "内容已保存已保存 1 个本章正文修订",
-    "生成部分完成已保存 2 个本章正文修订",
-    "生成失败没有保存本章正文修订",
-    "生成已停止没有保存本章正文修订"
   ],
   "journey": {
     "saveCalls": 2,

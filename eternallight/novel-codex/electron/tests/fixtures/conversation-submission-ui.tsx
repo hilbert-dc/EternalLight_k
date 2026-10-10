@@ -1,3 +1,5 @@
+import { novelFixtureMedia, fixtureCreatedNovel } from "../helpers/novel-edition";
+import { emptyCreationIssueSummary } from "../helpers/creation-issues";
 import "../../../src/styles.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -8,6 +10,9 @@ window.addEventListener("error", event => { window.testResult = { passed: false,
 const tick = () => new Promise(resolve => setTimeout(resolve, 30));
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 const until = async predicate => { for (let i = 0; i < 80 && !predicate(); i++) await tick(); check(predicate(), "UI state did not settle"); };
+const currentTurn = () => document.querySelector<HTMLElement>(".agent-transcript > .conversation-turn:not(.is-earlier)");
+const currentTurnOwns = (turnId: string) => currentTurn()?.querySelector(".conversation-request")?.getAttribute("data-conversation-detail") === `turn:ui-thread:${turnId}:prompt`;
+const currentTurnError = () => currentTurn()?.querySelector(".transcript-error");
 const project = { id: "project-last-lamp", title: "对话恢复夹具", logline: "测试作品", updated_at: "" };
 const state = { project, canon: { characters: [], relationships: [], events: [], locations: [], plotThreads: [], worldRules: [], notes: [] }, narrativeIr: { version: "1.0", scenes: [], anchors: [] }, novelEdition: { chapters: [] } };
 let availableProjects = [project], returnedState = state;
@@ -31,7 +36,7 @@ const finishTurn = (id, text) => {
   eventListener?.({ method: "item/completed", params: { threadId: "ui-thread", turnId: id, item: { type: "agentMessage", id: `${id}-reply`, text, phase: "final_answer" } } });
   eventListener?.({ method: "turn/completed", params: { threadId: "ui-thread", turn: { id, status: "completed" } } });
 };
-const api = {
+const api = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} },
   runtime: { listChapterStructureChanges: async (projectId: string) => ({ projectId, items: [], nextCursor: null }),
   getWorkCatalog: async () => ({ revision: 0, volumes: [], placements: [] }), getIdentityCatalog: async () => ({ entries: [], ambiguousNames: [], identityRevisionId: null, identityDecisions: [], truncated: false, ambiguityScanComplete: true }), status: async () => ({ state: "online", mode: "local", error: null }), listProjects: async () => ({ projects: availableProjects }), getState: async () => {
@@ -40,10 +45,11 @@ const api = {
     if (failReads) throw new Error("fixture workspace read interrupted");
     return returnedState;
   },
-    createProject: async (title, logline) => {
+    createProject: async (title, logline, medium, key) => {
+      check(medium === "novel" && typeof key === "string", "Project medium or idempotency identity missing");
       const created = { ...project, id: "first-work", title, logline };
       availableProjects = [created]; returnedState = { ...state, project: created };
-      return returnedState;
+      return fixtureCreatedNovel(created);
     },
     getCreativeWorkspace: async () => { workspaceReads++; return structuredClone({ ...workspace, project: returnedState.project }); },
     saveArtifact: async (projectId, kind, payload, expectedRevision, expectedCandidate) => {
@@ -59,21 +65,22 @@ const api = {
   },
   agent: {
     status: async () => ({ configured, state: "ready", mode: "novel-agent-engine", error: null, provider: "fixture", model: "fixture-model" }),
-    listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listThreads: async projectId => {
+    listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async projectId => {
       historyProjects.push(projectId); return { threads: [], nextCursor: null };
     },
+    readConversation: async (projectId, id) => ({ thread: { id, projectId, name: "讨论", status: "idle" }, turns: [] }),
     listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {},
     onUserInputRequest: listener => { inputListener = listener; return () => { inputListener = null; }; },
     resolveUserInput: async (requestId, response) => {
       answerCalls.push({ requestId, response: structuredClone(response) });
       await new Promise((resolve, reject) => { releaseAnswer = { resolve, reject }; });
-      eventListener?.({ method: "serverRequest/resolved", params: { requestId } });
+      eventListener?.({ method: "serverRequest/resolved", params: { requestId: requestId.requestId, projectId: requestId.projectId, threadId: requestId.threadId, turnId: requestId.turnId } });
     },
     onEvent: listener => { eventListener = listener; return () => { eventListener = null; }; },
     steer: async (projectId, prompt) => {
       steers.push({ projectId, prompt });
       await new Promise(resolve => { releaseSteer = resolve; });
-      return { steered: true };
+      return steers.length === 1 ? { steered: false, retained: true, messageId: "retained-steer" } : { steered: true };
     },
     sendPrompt: async (projectId, prompt) => {
       calls.push({ projectId, prompt });
@@ -88,8 +95,9 @@ const api = {
   },
 };
 window.novelCodex = api;
+localStorage.setItem(`novel-codex:selected-conversation:${JSON.stringify(["fixture@example.invalid", project.id])}`, "ui-thread");
 let root = createRoot(document.getElementById("root"));
-  workTasks = [{ id: "conversation-record", goal: "已保存的创作结果", status: "completed", deliveryStatus: "ready_for_review", deliveryReport: { evidence: [], pendingActionIds: [], unsettledAttemptIds: [] }, resumeBlockReason: null, resumeMode: null, steps: [], version: 1 }];
+  workTasks = [{ id: "conversation-record", projectId: project.id, threadId: "ui-thread", goal: "已保存的创作结果", status: "completed", deliveryStatus: "ready_for_review", deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], evidence: [], pendingActionIds: [], unsettledAttemptIds: [] }, resumeBlockReason: null, resumeMode: null, steps: [], version: 1 }];
 root.render(<App />);
 (async () => {
 try {
@@ -97,8 +105,8 @@ try {
   // a controlled completion intended for the conversation refresh.
   await until(() => stateReads >= 2 && document.querySelector('textarea[aria-label="创作指令"]')?.disabled === false);
   [...document.querySelectorAll(".nav-item")].find(node => node.textContent.includes("作品概况")).click();
-  await until(() => document.querySelector(".conversation-task-records .work-task-panel"));
-  const record = document.querySelector(".conversation-task-records .work-task-panel");
+  await until(() => document.querySelector(".conversation-rail-scroll .work-task-panel"));
+  const record = document.querySelector(".conversation-rail-scroll .work-task-panel");
   check(record.tagName === "SECTION" && !document.querySelector(".main-panel .work-task-panel"), "App conversation displaced the author workspace");
   check(document.querySelector(".conversation-rail-scroll").innerText.includes("已保存的创作结果"), "Conversation record could not be read");
   check(record.scrollWidth <= record.clientWidth + 1, "Conversation record overflowed its narrow pane");
@@ -117,21 +125,30 @@ try {
   await tick();
   check(calls.length === 1, "rapid Enter produced duplicate root submissions");
   release();
-  await until(() => document.querySelector(".transcript-error button"));
+  await until(() => document.querySelector(".composer-retry"));
+  const failedTurnIdentity = currentTurn()?.querySelector(".conversation-timeline")?.getAttribute("data-conversation-detail");
+  check(currentTurn()?.classList.contains("is-error") && currentTurnError() && failedTurnIdentity,
+    "Retry control must belong to the current failed root turn");
   const retryInput = document.querySelector('textarea[aria-label="创作指令"]');
   check(!retryInput.disabled, "transient failure disabled configured model's composer");
   check(!retryInput.placeholder.includes("配置"), "transient failure is mislabeled as missing configuration");
-  const retrySnapshot = { error: document.querySelector(".transcript-error span").textContent, inputDisabled: retryInput.disabled,
-    placeholder: retryInput.placeholder, retry: document.querySelector(".transcript-error button").textContent };
+  const retrySnapshot = { error: currentTurnError().querySelector("span").textContent, inputDisabled: retryInput.disabled,
+    placeholder: retryInput.placeholder, retry: document.querySelector(".composer-retry").getAttribute("aria-label") };
   await setInput("尚未发送的新草稿");
   failReads = true;
-  document.querySelector(".transcript-error button").click();
+  document.querySelector(".composer-retry").click();
   await until(() => document.querySelector(".discussion-sync-notice"));
   check(document.querySelector(".conversation-answer")?.textContent.includes("重试已恢复"), "read failure lost the successful reply");
   check(calls.length === 2, "retry failed to reach the configured model exactly once");
   check(calls[1].prompt === calls[0].prompt, "retry lost the author's original prompt");
   check(retryInput.value === "尚未发送的新草稿", "retry discarded an unrelated unsent draft");
-  check(!document.querySelector(".transcript-error"), "workspace read failure offers a model execution retry");
+  check(currentTurnOwns("turn-2") && currentTurn()?.classList.contains("is-completed")
+    && !currentTurnError() && !document.querySelector(".composer-retry"), "Workspace read failure mislabels the current successful root turn or offers a paid model retry");
+  const historicFailure = [...document.querySelectorAll<HTMLElement>(".conversation-turn.is-earlier .conversation-timeline")]
+    .find(node => node.getAttribute("data-conversation-detail") === failedTurnIdentity);
+  check(historicFailure?.classList.contains("is-error") && historicFailure.querySelector(".transcript-error")
+    && historicFailure.querySelector("pre")?.textContent === "fixture connection interrupted",
+    "The exact prior root failure must remain inspectable without becoming the current error");
   check(document.querySelector(".save-state").textContent === "工作区待同步", "failed refresh falsely claims the workspace is synchronized");
   const syncSnapshot = { message: document.querySelector(".discussion-sync-notice p").textContent,
     action: document.querySelector(".discussion-sync-notice button").textContent, draft: retryInput.value, modelRetry: false };
@@ -142,7 +159,8 @@ try {
   check(stateReads === beforeRead + 1, "rapid refresh started duplicate reads");
   releaseRead();
   await until(() => document.querySelector(".discussion-sync-notice button")?.disabled === false);
-  check(!document.querySelector(".transcript-error") && calls.length === 2, "failed local refresh changed or reran model execution");
+  check(currentTurnOwns("turn-2") && currentTurn()?.classList.contains("is-completed") && !currentTurnError()
+    && !document.querySelector(".composer-retry") && calls.length === 2, "Failed local refresh changed or reran the current model execution");
   holdRead = false; failReads = false;
   document.querySelector(".discussion-sync-notice button").click();
   await until(() => !document.querySelector(".discussion-sync-notice"));
@@ -155,7 +173,7 @@ try {
   check(calls.length === 2, "newline or input-method confirmation submitted a prompt");
   next.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   await until(() => releaseTurn);
-  const question = { requestId: "question-ui", method: "item/tool/requestUserInput", threadId: "ui-thread", turnId: "turn-3",
+  const question = { requestId: "question-ui", projectId: project.id, executionId: "execution-ui", method: "item/tool/requestUserInput", threadId: "ui-thread", turnId: "turn-3",
     params: { questions: [{ id: "direction", question: "下一章希望怎样展开？", options: [] }] } };
   inputListener(question);
   eventListener({ id: question.requestId, method: question.method, params: { ...question.params, threadId: question.threadId, turnId: question.turnId } });
@@ -165,7 +183,8 @@ try {
   inputListener({ ...question, requestId: "stale-question", turnId: "turn-2" });
   eventListener({ method: "serverRequest/resolved", params: { threadId: "ui-thread", turnId: "turn-2", requestId: question.requestId } });
   await tick();
-  check(document.querySelector(".user-input-card") && !document.querySelector(".transcript-error") && !document.body.textContent.includes("之后还有"), "stale event mutated the current question queue or transcript");
+  check(document.querySelector(".user-input-card") && currentTurnOwns("turn-3") && currentTurn()?.classList.contains("is-waiting")
+    && !currentTurnError() && !document.body.textContent.includes("之后还有"), "Stale event mutated the current root turn, question queue or transcript");
   const waitingDraft = await setInput("等回答提交后再讨论人物动机");
   check(!waitingDraft.disabled && document.querySelector(".composer-draft-notice")?.textContent.includes("本轮"), "waiting interaction blocked drafting or hid its reason");
   waitingDraft.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
@@ -179,7 +198,8 @@ try {
   check(!document.querySelector('.chapter-structure-notice'), "another project's structural check error leaked into the current workspace");
   eventListener({ method: "structure/error", params: { projectId: project.id, message: "fixture structure check interrupted" } });
   await until(() => document.querySelector('.chapter-structure-notice'));
-  check(document.querySelector(".user-input-card") && !document.querySelector(".transcript-error") && document.querySelector(".composer-waiting") && answer.value === "从人物误解开始" && waitingDraft.value === "等回答提交后再讨论人物动机", "background error changed the active run, question, answer or draft");
+  check(document.querySelector(".user-input-card") && currentTurnOwns("turn-3") && currentTurn()?.classList.contains("is-waiting")
+    && !currentTurnError() && document.querySelector(".composer-waiting") && answer.value === "从人物误解开始" && waitingDraft.value === "等回答提交后再讨论人物动机", "Background error changed the active root turn, question, answer or draft");
   check(calls.length === 3 && steers.length === 0 && answerCalls.length === 0, "background error invoked or answered a model task");
   const backgroundSnapshot = { message: document.querySelector('.chapter-structure-notice').textContent,
     waiting: Boolean(document.querySelector(".composer-waiting")), answer: answer.value, draft: waitingDraft.value, modelCalls: calls.length };
@@ -208,7 +228,8 @@ try {
   check(steers.length === 1 && calls.length === 3, "rapid Enter duplicated steer or started a root turn");
   await setInput("追加等待期间新写的草稿");
   releaseSteer(); await tick();
-  check(steerInput.value === "追加等待期间新写的草稿", "successful steer discarded subsequent input");
+  check(steerInput.value === "追加等待期间新写的草稿", "retained steer discarded subsequent input");
+  check(document.body.textContent.includes("追加要求尚未发送，已保留"), "retained input was presented as delivered or lost");
   await setInput("结束前的追加指令");
   releaseSteer = null;
   steerInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
@@ -249,7 +270,7 @@ try {
   [...document.querySelectorAll(".planning-save-actions button")].find(button => button.textContent === "保存").click();
   await until(() => !document.querySelector(".discussion-sync-notice"));
   await tick(); await tick();
-  check(planningSaves === 1 && stateReads === readsBeforeSaveSync + 1 && calls.length === 3 && premise.value === "读取等待期间修改的故事命题" && dirtyDraft.value === "保存后再分析最新的故事命题", "saving dirty planning did not perform exactly one readonly sync or consumed a draft");
+  check(planningSaves === 1 && stateReads === readsBeforeSaveSync + 1 && calls.length === 3 && premise.value === "读取等待期间修改的故事命题" && dirtyDraft.value === "保存后再分析最新的故事命题", "saving dirty planning did not perform exactly one readonly sync or consumed a draft: " + JSON.stringify({planningSaves,stateReads,readsBeforeSaveSync,calls:calls.length,premise:premise.value,draft:dirtyDraft.value}));
   dirtySnapshot.afterSave = { saves: planningSaves, readSyncs: stateReads - readsBeforeSaveSync, modelCalls: calls.length, draft: dirtyDraft.value };
   // A second completed reply is held while the author edits, then discarding
   // also releases exactly one deferred readonly refresh without another turn.

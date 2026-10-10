@@ -1,3 +1,5 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
+import { emptyCreationIssueSummary } from "../helpers/creation-issues";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../../src/App";
@@ -30,7 +32,7 @@ const calls = [], snapshots = [], renderErrors = []; window.addEventListener("er
 let structurePending = false, structureWork = null, structureReads = 0;
 let followup = null;
 let saves = 0, modelCalls = 0, stateReads = 0, mode = "normal", failRead = false, listener, pendingDelete;
-window.novelCodex = { app: { onCloseRequested: () => () => {} }, runtime: {
+window.novelCodex = { multimedia: novelFixtureMedia, app: { onCloseRequested: () => () => {} }, runtime: {
   ...reads,
   listChapterStructureChanges: async projectId => ({ projectId, items: structurePending ? [{ id: "change-ui", projectId, chapterNumber: 4, assessment: { state: "pending" } }] : [], nextCursor: null }),
   listWorkTasks: async () => { structureReads++; return { tasks: structureWork ? [structureWork] : [], nextCursor: null, activeCount: structureWork && structureWork.status !== "completed" ? 1 : 0 }; },
@@ -51,7 +53,7 @@ window.novelCodex = { app: { onCloseRequested: () => () => {} }, runtime: {
     if (mode === "lost") throw Error("删除回执连接中断"); if (mode === "read-failed") failRead = true; return receipt;
   },
 }, agent: {
-  status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
+  status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
   sendPrompt: async (projectId, prompt, repairSource, focus) => { modelCalls++; followup = { projectId, prompt, repairSource, focus }; return { mode: "novel-agent-engine", message: "可以先讨论，不改正文。", projectId, proposedActions: [] }; }, generateChapter: async () => { modelCalls++; throw Error("unexpected writer"); }, generateWork: async () => { modelCalls++; throw Error("unexpected generation"); },
 } };
 const root = createRoot(document.getElementById("root")); let phase = "startup";
@@ -120,7 +122,7 @@ const closeDelete = async () => { document.querySelector<HTMLButtonElement>(".ch
   await until(() => !button("重试检查"), "Exact event completion did not clear its recovery");
   structurePending = false;
   structureWork = { id: "work-auto", projectId: projects[0].id, goal: "检查章节删除后的故事衔接", status: "running", kind: "direct", version: 0, error: null, deliveryStatus: "pending", resumeMode: null, resumeBlockReason: null,
-    deliveryReport: { evidence: [], pendingActionIds: [], unsettledAttemptIds: [] },
+    deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], evidence: [], pendingActionIds: [], unsettledAttemptIds: [] },
     steps: [{ id: "step-auto", operation: "assessChapterStructure", status: "running", target: { type: "project", structureChangeId: "change-ui" }, changes: [], outputRefs: [], readingProgress: null,
       attempts: [{ id: "task-auto", threadId: "thread-auto", turnId: null, status: "running", error: null, startedAt: 1, attemptNumber: 1 }] }] };
   listener({ method: "agent/structure-started", params: { projectId: projects[0].id, taskId: "task-auto", threadId: "thread-auto", operation: "assessChapterStructure" } });

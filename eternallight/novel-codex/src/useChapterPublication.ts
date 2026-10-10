@@ -6,7 +6,6 @@ type Options = {
   scope: string; api?: NovelCodexApi; projectId: string; chapterId?: string;
   target: ChapterPublicationTarget | null; bodyOnlyConfirmed: boolean; dirty: boolean;
   isBlocked: () => boolean; save: () => Promise<boolean>; savedRevision: () => string | null;
-  manualProposals: (workspace: CreativeWorkspace) => Record<string, unknown>[];
   onWorkspace: (workspace: CreativeWorkspace) => void;
   onTarget: (target: ChapterPublicationTarget) => void; onError: (message: string) => void;
 };
@@ -61,18 +60,17 @@ export function useChapterPublication(options: Options) {
       if (savedCheck) existing = sourceReviews.find(review => review.id === savedCheck.reviewId && review.projectRevision === next.revision);
       else if (sourceReviews.length !== 1 && !knownReview) existing = undefined;
       let factIds = savedCheck ? savedCheck.factIds : existing ? knownReview ? scope.target!.factIds : [...new Set(next.factProposals.filter(fact => fact.draft_revision_id === revision.id).map(fact => fact.id))] : [];
-      const proposals = batchId ? [] : scope.manualProposals(next);
       const hasFacts = Boolean(existing && factIds.length);
       const consent = bodyOnlyConfirmed || (scope.target?.scope === scope.scope && scope.target.revisionId === revision.id && scope.bodyOnlyConfirmed);
       scope.onWorkspace(next);
-      if (!batchId && !proposals.length && !hasFacts && !consent) {
+      if (!batchId && !hasFacts && !consent) {
         scope.onTarget({ scope: scope.scope, revisionId: revision.id, reviewId: null, knowledge, sceneIds: revision.sceneGroups.map(group => group.id), factIds: [], bodyOnlyConfirmed: false });
         return;
       }
       if (savedCheck && !existing) throw new Error("已创建的发布检查已变化，请重新读取确认。");
       let reviewId = existing?.id;
       if (!reviewId) {
-        const created = await scope.api.runtime.createReview(scope.projectId, "draft", revision.id, proposals, batchId ? { modelingBatchId: batchId } : {}, batchId);
+        const created = await scope.api.runtime.createReview(scope.projectId, "draft", revision.id, [], batchId ? { modelingBatchId: batchId } : {}, batchId);
         reviewId = created.id;
         factIds = [...new Set(created.factProposals.map(fact => fact.id))];
       }

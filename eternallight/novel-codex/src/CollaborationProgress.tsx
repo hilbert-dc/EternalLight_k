@@ -2,7 +2,7 @@ import type { TimelineRun } from "./conversation-process";
 import { collaborationProgress } from "./collaboration-progress";
 import "./collaboration-progress.css";
 
-const labels: Record<string, string> = { pendingInit: "准备中", running: "进行中", completed: "已完成",
+const labels: Record<string, string> = { pendingInit: "准备中", running: "进行中", completed: "子任务已返回",
   errored: "未完成", interrupted: "已停止", shutdown: "已关闭", notFound: "未找到", unknown: "状态未确认", turnStopped: "本轮已停止" };
 
 export function CollaborationProgress({ run }: { run: TimelineRun }) {
@@ -20,7 +20,7 @@ export function CollaborationProgress({ run }: { run: TimelineRun }) {
         </summary>
         <div className="collaboration-detail">
           {agent.task && <p>{agent.task}</p>}
-          {agent.result ? <p>{agent.result}</p> : <p className="collaboration-empty">{agent.status === "completed" ? "任务已完成，未返回文字摘要。" : "暂无返回结果。"}</p>}
+          {agent.result ? <p>{agent.result}</p> : <p className="collaboration-empty">{agent.status === "completed" ? "子任务已结束，未返回文字摘要。" : "暂无返回结果。"}</p>}
         </div>
       </details>;
     })}

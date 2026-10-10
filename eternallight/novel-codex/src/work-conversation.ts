@@ -2,26 +2,33 @@ import type { ReactNode } from "react";
 import type { AgentRun, AgentRunSummary } from "./agent-events";
 import type { WorkTaskSummary } from "./types";
 import type { TaskResultDestination } from "./task-results";
-import { isPublicExecutionStep, type TimelineRun } from "./conversation-process";
+import { isInternalExecutionStep, isPublicExecutionStep, type TimelineRun } from "./conversation-process";
+import type { FinalReplyDisplayState } from "./ConversationOutput";
 
 export type WorkConversationContent = {
   threadId: string | null;
   run: AgentRun;
-  renderCurrent: (options: { taskBound: boolean }) => ReactNode;
-  renderHistory: (entry: AgentRunSummary, options: { taskBound: boolean }) => ReactNode;
+  renderCurrent: (options: { taskBound: boolean; finalReplyState?: FinalReplyDisplayState }) => ReactNode;
+  renderHistory: (entry: AgentRunSummary, options: { taskBound: boolean; finalReplyState?: FinalReplyDisplayState }) => ReactNode;
 };
 
 type BoundTurn = { threadId: string | null; turnId: string | null; taskId?: string | null };
 
 export function conversationWorkSteps(run: Pick<TimelineRun, "steps">) {
-  return run.steps.filter(isPublicExecutionStep);
+  return run.steps.filter(step => isPublicExecutionStep(step)
+    && (!isInternalExecutionStep(step) || step.sourceType === "contextCompaction"));
 }
 
-export function conversationActivity(run: Pick<TimelineRun, "steps" | "answer">) {
+export function conversationActivity(run: Pick<TimelineRun, "steps" | "answer" | "state">) {
   const steps = conversationWorkSteps(run);
   const current = [...run.steps].reverse().find(step => ["running", "waiting"].includes(step.status)
-    && (step.sourceType === "reasoning" || steps.some(visible => visible.id === step.id)));
+    && (step.sourceType === "reasoning" || steps.some(visible => visible.id === step.id)
+      || step.sourceType === "contextCompaction" || step.id.startsWith("retry:")));
   const commentary = [...steps].reverse().find(step => step.messagePhase === "commentary" && step.text?.trim())?.text ?? "";
+  if (run.state === "running" && current && (current.sourceType === "contextCompaction" || current.id.startsWith("retry:"))) {
+    return { title: current.id.startsWith("retry:") ? "正在重试请求，稍后继续" : "正在整理对话，稍后继续", commentary };
+  }
+  if (current && isInternalExecutionStep(current) && current.sourceType !== "reasoning") return { title: "正在处理", commentary };
   return { title: current?.sourceType === "reasoning" ? "正在分析" : current?.messagePhase === "commentary" ? "正在处理" : current?.title ?? (run.answer.trim() ? "正在写回复" : "正在处理"),
     commentary: commentary.length > 280 ? `${commentary.slice(0, 280)}…` : commentary };
 }
@@ -72,23 +79,6 @@ export function primaryReply(task: WorkTaskSummary) {
     ?? [...finished].reverse().find(item => item.operation === "advisory") ?? finished.at(-1);
   const attempt = step?.attempts.filter(item => ["completed", "failed", "cancelled"].includes(item.status)).at(-1);
   return attempt ? { attempt, operation: step!.operation } : null;
-}
-
-/** Internal replies belong to their execution step once later work is admitted.
- * Failures only fold when Native explicitly supersedes their step for recovery. */
-export function intermediateReplyStep(task: WorkTaskSummary,
-  turn: BoundTurn & { state: AgentRun["state"]; error?: string | null }) {
-  if (!["completed", "error", "cancelled"].includes(turn.state)) return null;
-  const matches = task.steps.flatMap((step, index) => step.attempts
-    .filter(attempt => attemptContainsRun(attempt, turn)).map(attempt => ({ step, index, attempt })));
-  if (matches.length !== 1) return null;
-  const { step, index, attempt } = matches[0];
-  const cleanCompletion = turn.state === "completed" && !turn.error && attempt.status === "completed" && !attempt.error;
-  const supersededFailure = step.status === "superseded" && ["failed", "cancelled"].includes(attempt.status);
-  if (!cleanCompletion && !supersededFailure) return null;
-  const laterAttempt = step.attempts.some((item, i) => i > step.attempts.indexOf(attempt) && item.status !== "cancelled");
-  const laterStep = task.steps.slice(index + 1).some(item => !["cancelled", "superseded"].includes(item.status));
-  return laterAttempt || laterStep ? { stepId: step.id, attemptId: attempt.id } : null;
 }
 
 function completedDelivery(task: WorkTaskSummary) {
@@ -179,4 +169,16 @@ export function conversationItems(tasks: WorkTaskSummary[], conversation: WorkCo
     items.push({ kind: "current", time: run.startedAt ?? Number.MAX_SAFE_INTEGER });
   }
   return items.sort((a, b) => a.time - b.time);
+}
+
+/** Only current failed attempts describe an unresolved execution error. */
+export function currentWorkError(task: WorkTaskSummary): string | null {
+  if (task.error) return task.error;
+  if (!["blocked", "cancelled"].includes(task.status)) return null;
+  for (const step of [...task.steps].reverse()) {
+    if (!["blocked", "cancelled"].includes(step.status)) continue;
+    const attempt = step.attempts.find(item => item.id === step.currentAttemptId);
+    if (attempt && ["failed", "cancelled"].includes(attempt.status) && attempt.error) return attempt.error;
+  }
+  return null;
 }

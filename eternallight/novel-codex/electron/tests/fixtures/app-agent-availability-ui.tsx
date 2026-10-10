@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../../src/App";
@@ -17,7 +18,7 @@ let configured = false, stateReads = 0, listener, pending, saved = null;
 const calls = { sends: [], saves: 0, verify: 0, apply: 0, formal: 0 }, snapshots = [];
 const base = chapterRuntimeReads(() => project);
 const status = () => ({ configured, state: configured ? "ready" : "error", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: configured ? null : unavailable });
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} },
   runtime: { ...base, status: async () => ({ state: "online", mode: "local", error: null }), listProjects: async () => ({ projects: [project] }),
     getState: async () => { stateReads++; return { project, canon: { characters: [], relationships: [], events: [], locations: [], plotThreads: [], worldRules: [], notes: [] }, narrativeIr: { version: "1", scenes: [], anchors: [] }, novelEdition: { chapters: [] } }; },
@@ -26,7 +27,7 @@ window.novelCodex = {
     getHistoricalKnowledgeState: async (id, snapshotId) => ({ projectId: id, snapshotId, entries: [{ modelingBatchId: "batch-exact", assertionIndex: 0, sourceObjectId: "draft-source", sourceRevisionId: "source-exact", confirmationState: "candidate", assertion: { kind: "world", predicate: "信件", value: "尚未打开", evidence: { quote: "他没有拆开那封信。" } } }], coverage: { complete: true, truncatedEntries: false, pendingSources: [] } }),
     acceptReview: async () => { calls.formal++; throw Error("Unexpected adoption"); }, setWorkingBaseline: async () => { calls.formal++; throw Error("Unexpected working selection"); },
   },
-  agent: { status: async () => status(), listConnections: async () => ({ connections: [connection] }), recoveryReport: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
+  agent: { status: async () => status(), listConnections: async () => ({ connections: [connection] }), recoveryReport: async () => [], listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
     verifyConnection: async () => { calls.verify++; throw Error("Unexpected automatic paid verification"); },
     configure: async () => { calls.apply++; configured = true; return status(); },
     sendPrompt: async (...args) => { calls.sends.push(structuredClone(args)); return new Promise((resolve, reject) => { pending = { resolve, reject }; }); },
@@ -36,7 +37,7 @@ const composer = () => document.querySelector<HTMLTextAreaElement>('[aria-label=
 const send = () => document.querySelector<HTMLButtonElement>('[aria-label="发送创作指令"]');
 const input = async (node, value) => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(node, value); node.dispatchEvent(new Event("input", { bubbles: true })); await tick(); };
 const enter = () => composer().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-const apply = async () => { const before = calls.apply; document.querySelector<HTMLButtonElement>(".composer-option").click(); await tick(); document.querySelector<HTMLButtonElement>('.composer-model-menu [role="menuitemradio"]').click(); await until(() => calls.apply === before + 1 && !send().disabled, "Explicit model application did not enable send"); };
+const apply = async () => { const before = calls.apply; document.querySelector<HTMLButtonElement>(".composer-model-picker .composer-option").click(); await tick(); document.querySelector<HTMLButtonElement>('.composer-model-menu [role="menuitemradio"]').click(); await until(() => calls.apply === before + 1 && !send().disabled, "Explicit model application did not enable send"); };
 const navigate = async (label, view) => { [...document.querySelectorAll<HTMLButtonElement>(".nav-item")].find(node => node.textContent.includes(label)).click(); await until(() => document.querySelector<HTMLElement>(".main-panel")?.dataset.view === view, `Navigate ${view}`); await tick(); await tick(); };
 const begin = async () => { const count = calls.sends.length; pending = null; enter(); enter(); await until(() => pending, "Send did not reach controlled Host"); check(calls.sends.length === count + 1, "Duplicate Enter created two requests"); };
 const reject = async (message = unavailable) => { configured = message === unavailable ? false : configured; pending.reject(Error(message)); await until(() => document.querySelector(".transcript-error") && !document.querySelector('[aria-label="停止当前执行"]'), "Rejected Host request did not settle"); await tick(); };

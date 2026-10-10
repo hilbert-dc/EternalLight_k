@@ -25,13 +25,7 @@
 .chapter-scene-diff [data-change-kind="新增"] { border-left: 3px solid var(--nc-green); }
 .chapter-scene-diff [data-change-kind="删除"] { border-left: 3px solid var(--nc-red); }
 .chapter-scene-diff [data-change-kind="修改"], .chapter-scene-diff [data-change-kind="重排"] { border-left: 3px solid var(--nc-amber); }
-.chapter-document .draft-scene-actions button { color: var(--nc-ink-soft); }
 .chapter-document .draft-add-scene { color: var(--nc-blue); }
-.writer-preview-state { margin: 8px 0; font-size: 12px; line-height: 1.7; }
-.writer-preview-state > p { margin: 6px 0; }
-.writer-preview-range { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.writer-preview-range button { font: inherit; color: var(--nc-ink); background: var(--nc-surface); border: 1px solid var(--nc-border); }
-.writer-preview-range button:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
 @media (max-width: 640px) { .chapter-diff-columns { grid-template-columns: 1fr; } .chapter-published-reading { padding: 12px 8px; } }
 
 /* Chapter layout owns its surface and controls, regardless of global CSS import order. */
@@ -86,13 +80,16 @@
 }
 .chapter-document .draft-editor-wrap > section:only-of-type .draft-editor { min-height: min(50vh, 440px); }
 .chapter-document .draft-editor-wrap > section .draft-editor:focus-visible { box-shadow: none; outline: none; caret-color: var(--nc-ink); }
-.chapter-scene-management, .chapter-settings { color: var(--nc-ink-soft); font-size: 12px; }
-.chapter-scene-management > summary, .chapter-settings > summary { cursor: pointer; padding: 8px 0; }
-.chapter-scene-management > div { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 0; }
-.chapter-scene-management .draft-scene-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-.scene-discussion-notice { margin: 8px 0; color: var(--nc-ink-soft); line-height: 1.7; }
-.chapter-settings { width: 100%; max-width: 760px; margin: 0 auto; padding: 0 20px; }
-.chapter-settings[open] { display: grid; gap: 12px; }
+.chapter-scene-heading { display: flex; justify-content: space-between; align-items: center; min-height: 32px; gap: 8px; color: var(--nc-ink-soft); font-size: 12px; }
+.chapter-document .chapter-scene-menu-trigger { margin-left: auto; min-width: 32px; min-height: 32px; border: 0; border-radius: 6px; padding: 2px 8px; background: transparent; box-shadow: none; color: var(--nc-ink-soft); font-size: 22px; line-height: 1; cursor: pointer; }
+.chapter-document .chapter-scene-menu-trigger:hover:not(:disabled), .chapter-document .chapter-scene-menu-trigger[aria-expanded="true"] { background: var(--nc-canvas); color: var(--nc-ink); }
+.chapter-settings { color: var(--nc-ink-soft); font-size: 12px; }
+.chapter-settings > summary { cursor: pointer; min-height: 32px; padding: 6px 9px; border-radius: 6px; }
+.chapter-settings > summary:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+.chapter-settings-content { position: absolute; z-index: 5; right: 0; top: calc(100% + 8px); display: grid; gap: 12px; width: min(440px, calc(100vw - 48px)); max-width: 100%; max-height: min(70dvh, 600px); overflow: auto; padding: 16px; border: 1px solid var(--nc-border); border-radius: 10px; background: var(--nc-surface); box-shadow: 0 8px 28px #0003; }
+.chapter-settings-content > * { min-width: 0; }
+.chapter-settings-content .standalone-planning-card { border: 0; padding: 0; box-shadow: none; }
+.chapter-settings-content .standalone-planning-card small { line-height: 1.7; }
 .chapter-writing-entry { justify-self: start; }
 .chapter-word-count, .chapter-save-state { font-size: 12px; color: var(--nc-ink-soft); }
 .candidate-toolbar.chapter-save-toolbar {
@@ -119,17 +116,9 @@
 .chapter-writing-mode { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--nc-blue); padding: 6px 0; }
 .chapter-writing-mode > span { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 900px) {
-  .chapter-document, .chapter-settings { padding-inline: 0; }
+  .chapter-document { padding-inline: 0; }
   .chapter-document .chapter-title input { font-size: 25px; }
 }
 
-.chapter-manual-tools { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--nc-border); color: var(--nc-ink-soft); font-size: 12px; }
-.chapter-manual-tools > summary { cursor: pointer; padding: 8px 0; }
-.chapter-manual-tools > summary:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 3px; }
-.chapter-manual-tools > p { font: inherit; line-height: 1.7; }
-.chapter-manual-tools .chapter-settings { padding: 0; max-width: none; }
-.chapter-scene-tools { min-width: 0; margin: 0; padding: 0; border: 0; }
-.chapter-scene-tools .draft-scene-actions label { display: inline-flex; align-items: center; gap: 6px; }
-.chapter-scene-tools input[type="checkbox"] { width: 16px; min-height: 16px; accent-color: var(--nc-blue); }
 .conversation-chapter-results:not([hidden]) { padding: 12px 0; border-top: 1px solid var(--nc-border); }
 .conversation-chapter-results .commitment-panel { border: 0; border-radius: 0; padding: 0; }

@@ -1,0 +1,291 @@
+exports[`chapter scene menus preserve protected content, saved identities, focus and project isolation without a model 1`] = `
+[
+  {
+    "label": "protected",
+    "sceneIds": [
+      "group-one",
+      "group-two",
+      "group-locked"
+    ],
+    "editors": [
+      {
+        "body": "相同场景。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "相同场景。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "保护的原文。",
+        "readOnly": true,
+        "disabled": false
+      }
+    ],
+    "actions": [
+      {
+        "label": "取消保护此段",
+        "accessibleName": "取消保护场景 3",
+        "disabled": false
+      },
+      {
+        "label": "上移场景 3",
+        "accessibleName": "上移场景 3",
+        "disabled": true
+      },
+      {
+        "label": "下移场景 3",
+        "accessibleName": "下移场景 3",
+        "disabled": true
+      },
+      {
+        "label": "删除场景 3",
+        "accessibleName": "删除场景 3",
+        "disabled": true
+      }
+    ]
+  },
+  {
+    "label": "saved-reorder",
+    "sceneIds": [
+      "group-two",
+      "group-one",
+      "group-locked"
+    ],
+    "editors": [
+      {
+        "body": "相同场景。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "未保存的修改。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "保护的原文。",
+        "readOnly": true,
+        "disabled": false
+      }
+    ],
+    "actions": null
+  },
+  {
+    "label": "running",
+    "sceneIds": [
+      "group-two",
+      "group-one",
+      "group-locked"
+    ],
+    "editors": [
+      {
+        "body": "相同场景。",
+        "readOnly": false,
+        "disabled": true
+      },
+      {
+        "body": "未保存的修改。",
+        "readOnly": false,
+        "disabled": true
+      },
+      {
+        "body": "保护的原文。",
+        "readOnly": true,
+        "disabled": true
+      }
+    ],
+    "actions": null
+  },
+  {
+    "label": "light-330",
+    "sceneIds": [
+      "group-two",
+      "group-one",
+      "group-locked"
+    ],
+    "editors": [
+      {
+        "body": "相同场景。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "未保存的修改。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "保护的原文。",
+        "readOnly": true,
+        "disabled": false
+      }
+    ],
+    "actions": [
+      {
+        "label": "保护此段",
+        "accessibleName": "保护场景 1",
+        "disabled": false
+      },
+      {
+        "label": "上移场景 1",
+        "accessibleName": "上移场景 1",
+        "disabled": true
+      },
+      {
+        "label": "下移场景 1",
+        "accessibleName": "下移场景 1",
+        "disabled": false
+      },
+      {
+        "label": "删除场景 1",
+        "accessibleName": "删除场景 1",
+        "disabled": true
+      }
+    ]
+  },
+  {
+    "label": "light-740",
+    "sceneIds": [
+      "group-two",
+      "group-one",
+      "group-locked"
+    ],
+    "editors": [
+      {
+        "body": "相同场景。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "未保存的修改。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "保护的原文。",
+        "readOnly": true,
+        "disabled": false
+      }
+    ],
+    "actions": [
+      {
+        "label": "保护此段",
+        "accessibleName": "保护场景 1",
+        "disabled": false
+      },
+      {
+        "label": "上移场景 1",
+        "accessibleName": "上移场景 1",
+        "disabled": true
+      },
+      {
+        "label": "下移场景 1",
+        "accessibleName": "下移场景 1",
+        "disabled": false
+      },
+      {
+        "label": "删除场景 1",
+        "accessibleName": "删除场景 1",
+        "disabled": true
+      }
+    ]
+  },
+  {
+    "label": "dark-330",
+    "sceneIds": [
+      "group-two",
+      "group-one",
+      "group-locked"
+    ],
+    "editors": [
+      {
+        "body": "相同场景。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "未保存的修改。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "保护的原文。",
+        "readOnly": true,
+        "disabled": false
+      }
+    ],
+    "actions": [
+      {
+        "label": "保护此段",
+        "accessibleName": "保护场景 1",
+        "disabled": false
+      },
+      {
+        "label": "上移场景 1",
+        "accessibleName": "上移场景 1",
+        "disabled": true
+      },
+      {
+        "label": "下移场景 1",
+        "accessibleName": "下移场景 1",
+        "disabled": false
+      },
+      {
+        "label": "删除场景 1",
+        "accessibleName": "删除场景 1",
+        "disabled": true
+      }
+    ]
+  },
+  {
+    "label": "dark-740",
+    "sceneIds": [
+      "group-two",
+      "group-one",
+      "group-locked"
+    ],
+    "editors": [
+      {
+        "body": "相同场景。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "未保存的修改。",
+        "readOnly": false,
+        "disabled": false
+      },
+      {
+        "body": "保护的原文。",
+        "readOnly": true,
+        "disabled": false
+      }
+    ],
+    "actions": [
+      {
+        "label": "保护此段",
+        "accessibleName": "保护场景 1",
+        "disabled": false
+      },
+      {
+        "label": "上移场景 1",
+        "accessibleName": "上移场景 1",
+        "disabled": true
+      },
+      {
+        "label": "下移场景 1",
+        "accessibleName": "下移场景 1",
+        "disabled": false
+      },
+      {
+        "label": "删除场景 1",
+        "accessibleName": "删除场景 1",
+        "disabled": true
+      }
+    ]
+  }
+]
+`;

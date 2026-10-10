@@ -10,7 +10,14 @@ export function useConversationReading(api: NovelCodexApi | undefined, projectId
   const memory = useMemo(() => {
     let projects = api && projectsByApi.get(api);
     if (!projects) { projects = new Map(); if (api) projectsByApi.set(api, projects); }
-    const state = projects.get(projectId) ?? { open: new Map(), scrollTop: 0, follow: true, anchor: null };
+    let saved: ReadingState | undefined;
+    try {
+      const value = JSON.parse(localStorage.getItem(`novel-codex:reading:${projectId}`) ?? "null");
+      if (value && Number.isFinite(value.scrollTop) && value.scrollTop >= 0 && typeof value.follow === "boolean" && Array.isArray(value.open)
+        && value.open.length <= 128 && value.open.every((item: unknown[]) => Array.isArray(item) && typeof item[0] === "string" && typeof item[1] === "boolean")
+        && (!value.anchor || typeof value.anchor.key === "string" && Number.isFinite(value.anchor.offset))) saved = { ...value, open: new Map(value.open) };
+    } catch { /* Optional reading position. */ }
+    const state = projects.get(projectId) ?? saved ?? { open: new Map(), scrollTop: 0, follow: true, anchor: null };
     projects.delete(projectId); projects.set(projectId, state);
     while (projects.size > 16) projects.delete(projects.keys().next().value!);
     return state;
@@ -22,6 +29,7 @@ export function useConversationReading(api: NovelCodexApi | undefined, projectId
     const scroller = panel?.closest(".conversation-rail-scroll");
     if (!enabled || !panel || !(scroller instanceof HTMLElement)) return;
     let frame = 0, applying = false, restoredTop: number | null = null;
+    const persist = () => { try { localStorage.setItem(`novel-codex:reading:${projectId}`, JSON.stringify({ ...memory, open: [...memory.open] })); } catch { /* The conversation itself remains durable. */ } };
     const rows = () => [...panel.querySelectorAll<HTMLElement>("[data-conversation-row]")];
     const capture = () => {
       memory.scrollTop = scroller.scrollTop;
@@ -55,7 +63,7 @@ export function useConversationReading(api: NovelCodexApi | undefined, projectId
     const scroll = () => {
       if (applying || restoredTop === scroller.scrollTop) { restoredTop = null; return; }
       memory.follow = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 32;
-      capture(); renderReading();
+      capture(); persist(); renderReading();
     };
     const userIntent = () => { restoredTop = null; memory.follow = false; capture(); renderReading(); };
     const editors = "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox']";
@@ -87,11 +95,14 @@ export function useConversationReading(api: NovelCodexApi | undefined, projectId
       if (!document.activeElement?.closest(editors) && selection && !selection.isCollapsed
         && selection.anchorNode && selection.focusNode && panel.contains(selection.anchorNode) && panel.contains(selection.focusNode)) userIntent();
     };
+    const remember = (key: string, open: boolean) => {
+      memory.open.set(key, open);
+      while (memory.open.size > 128) memory.open.delete(memory.open.keys().next().value!);
+    };
     const toggle = (event: Event) => {
       const detail = event.target;
       if (!(detail instanceof HTMLDetailsElement) || !detail.dataset.conversationDetail) return;
-      memory.open.set(detail.dataset.conversationDetail, detail.open);
-      while (memory.open.size > 128) memory.open.delete(memory.open.keys().next().value!);
+      remember(detail.dataset.conversationDetail, detail.open); persist();
       schedule();
     };
     jumpRef.current = () => { memory.follow = true; restore(); };
@@ -99,12 +110,15 @@ export function useConversationReading(api: NovelCodexApi | undefined, projectId
     const mutation = new MutationObserver(schedule);
     mutation.observe(panel, { childList: true, subtree: true, characterData: true });
     const resize = new ResizeObserver(schedule); resize.observe(panel);
+    scroller.addEventListener("conversation:reveal", userIntent);
     scroller.addEventListener("scroll", scroll); scroller.addEventListener("wheel", wheelIntent);
     scroller.addEventListener("pointerdown", pointerIntent); scroller.addEventListener("keydown", keyIntent);
     document.addEventListener("selectionchange", selectionIntent);
     panel.addEventListener("toggle", toggle, true);
     return () => {
+      persist();
       if (frame) cancelAnimationFrame(frame); mutation.disconnect(); resize.disconnect();
+      scroller.removeEventListener("conversation:reveal", userIntent);
       scroller.removeEventListener("scroll", scroll); scroller.removeEventListener("wheel", wheelIntent);
       scroller.removeEventListener("pointerdown", pointerIntent); scroller.removeEventListener("keydown", keyIntent);
       document.removeEventListener("selectionchange", selectionIntent);

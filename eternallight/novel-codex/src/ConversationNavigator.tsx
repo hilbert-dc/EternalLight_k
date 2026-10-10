@@ -1,3 +1,4 @@
+import { describeAgentError } from "./agent-error-description";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ThreadSummary } from "./types";
 import "./conversation-navigator.css";
@@ -5,7 +6,7 @@ import "./conversation-navigator.css";
 export type ConversationNavigatorProps = {
   threads: ThreadSummary[];
   selectedId: string | null;
-  runningId: string | null;
+  runningIds: string[];
   busy: boolean;
   loading: boolean;
   error: string | null;
@@ -19,7 +20,7 @@ export type ConversationNavigatorProps = {
   onRetry: () => void;
 };
 
-export function ConversationNavigator({ threads, selectedId, runningId, busy, loading,
+export function ConversationNavigator({ threads, selectedId, runningIds, busy, loading,
   error, archived, onSelect, onCreate, onRename, onPin, onArchive,
   onToggleArchived, onRetry }: ConversationNavigatorProps) {
   const [query, setQuery] = useState("");
@@ -81,12 +82,12 @@ export function ConversationNavigator({ threads, selectedId, runningId, busy, lo
     </div>
     {archived && <p className="conversation-archive-heading">已归档对话 · 恢复后可继续</p>}
     {loading && <p className="conversation-navigator-notice" role="status">正在读取对话…</p>}
-    {error && <div className="conversation-navigator-error" role="alert"><p>{error}</p><button type="button" disabled={loading} onClick={onRetry}>重试</button></div>}
+    {error && <div className="conversation-navigator-error" role="alert"><p>{describeAgentError(error) !== error ? describeAgentError(error) : error.length > 80 ? "对话操作未完成，请重试。" : error}</p>{(error.length > 80 || describeAgentError(error) !== error) && <details><summary>查看错误详情</summary><p>{error}</p></details>}<button type="button" disabled={loading} onClick={onRetry}>重试</button></div>}
     <div className="conversation-navigator-list">
       {filtered.map(thread => {
         const title = thread.name?.trim() || "新对话";
         const current = thread.id === selectedId;
-        const running = thread.id === runningId;
+        const running = runningIds.includes(thread.id);
         const waiting = running && thread.status === "waiting";
         const expanded = actionsId === thread.id;
         const editor = editing?.id === thread.id ? editing : null;

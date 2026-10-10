@@ -1,3 +1,4 @@
+import { emptyCreationIssueSummary } from "../helpers/creation-issues";
 import "../../../src/styles.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -22,9 +23,10 @@ const api = { runtime: { getTaskFinalReply: async (projectId, taskId) => {
 const step = id => ({ id: `step-${id}`, operation: "generateChapter", target: { chapterId: "chapter-two" }, status: "completed",
   attempts: [{ id, threadId: `thread-${id}`, turnId: `turn-${id}`, status: "completed", startedAt: id === "live" ? 20 : Number(id),
     completedAt: 21, error: null }], changes: [], outputRefs: [], readingProgress: null });
-const task = id => ({ id: `work-${id}`, projectId: "A", goal: id === "live" ? "作者要修改第二章结尾。" : `作者历史指令${id}`,
+const task = id => ({ id: `work-${id}`, projectId, threadId: "root-thread", goal: id === "live" ? "作者要修改第二章结尾。" : `作者历史指令${id}`,
   kind: "direct", status: "completed", version: 1, error: null, resumeMode: null, resumeBlockReason: null,
-  deliveryStatus: "ready_for_review", deliveryReport: { evidence: [], pendingActionIds: [], unsettledAttemptIds: [] }, steps: [step(id)] });
+  deliveryStatus: "ready_for_review", deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], evidence: [], pendingActionIds: [], unsettledAttemptIds: [] }, steps: [step(id)] });
+let projectId = "A";
 let tasks = [task("live"), ...[7, 6, 5, 4, 3, 2, 1].map(id => task(String(id)))];
 let run = { ...createAgentRun("internal analysis instruction"), state: "running", threadId: "thread-live", turnId: "turn-live",
   answer: "开始写公开回复。", steps: [
@@ -32,13 +34,11 @@ let run = { ...createAgentRun("internal analysis instruction"), state: "running"
     { id: "reason", kind: "system", sourceType: "reasoning", title: "正在分析", status: "completed" },
     { id: "tool", kind: "tool", title: "读取本章正文", detail: '{"internalTaskId":"fixture-id"}', status: "running" },
   ] };
-let projectId = "A";
 async function render() {
   root.render(<div className="conversation-rail-scroll" style={{ width: 360, height: 240, maxHeight: 240, overflowY: "auto" }}>
     <WorkTaskPanel key={panelVersion} api={api} projectId={projectId} tasks={tasks} activeCount={1} nextCursor={null} loadingMore={false} loaded reading={false}
-      readError={null} onRetry={() => {}} revision={1} busy={false} interruptionBusy={false} agentRunning agentAvailable dirty={false}
-      onControl={(id, command) => controls.push({ id, command })} onUndo={() => { throw Error("Unexpected undo"); }} onLoadMore={() => {}}
-      conversation={{ run, renderCurrent: ({ taskBound }) => <div className="fixture-live">
+      readError={null} onRetry={() => {}} revision={1} busy={false} agentRunning dirty={false} onUndo={() => { throw Error("Unexpected undo"); }} onLoadMore={() => {}}
+      conversation={{ run, threadId: "root-thread", renderCurrent: ({ taskBound }) => <div className="fixture-live">
         {!taskBound && <article className="user-message">{run.prompt}</article>}
         <ConversationTimeline key={`${run.threadId}:${run.turnId}`} run={run} />
         <article className="assistant-message">{run.answer}<button className="fixture-copy" type="button" onClick={() => void navigator.clipboard.writeText(run.answer)}>复制回复</button><input className="fixture-reading-input" aria-label="下一轮输入" defaultValue="尚未发送的草稿" /></article>{run.error && <p role="alert">{run.error}</p>}
@@ -53,8 +53,8 @@ const text = () => document.body.innerText;
   try {
     await render(); await until(() => !text().includes("正在读取保存的回复"));
     check(text().split("作者要修改第二章结尾。").length - 1 === 1 && !text().includes("internal analysis instruction"), "Internal prompt replaced or duplicated author input");
-    check(!timeline().open && timeline().querySelector("summary").innerText.includes("读取本章正文")
-      && timeline().querySelector("summary").innerText.includes("查看过程"), "Collapsed activity lost current tool or process entry");
+    check(timeline().tagName === "SECTION" && timeline().querySelector(".conversation-process-header").innerText.includes("读取本章正文")
+      && text().includes("我会保留现有线索"), "Default flow hid current progress");
     const marker = timeline().querySelector(".conversation-state-marker");
     for (const theme of ["light", "dark"]) {
       document.documentElement.dataset.theme = theme;
@@ -66,24 +66,27 @@ const text = () => document.body.innerText;
         check(getComputedStyle(timeline().querySelector(".conversation-activity-label")).animationName
           === (matchMedia("(prefers-reduced-motion: reduce)").matches ? "none" : "conversation-activity-breathe"),
           "Activity text did not respect motion preferences");
-        check(timeline().querySelector("summary").scrollWidth <= timeline().querySelector("summary").clientWidth,
+        check(timeline().querySelector(".conversation-process-header").scrollWidth <= timeline().querySelector(".conversation-process-header").clientWidth,
           "Compact activity overflowed the conversation rail");
       }
     }
     delete document.documentElement.dataset.theme; rail().style.removeProperty("width");
-    tasks = tasks.map(t => t.id === "work-live" ? { ...t, status: "running", deliveryReport: { ...t.deliveryReport, unsettledAttemptIds: ["pending-usage"] } } : t);
+    tasks = tasks.map(t => t.id === "work-live" ? { ...t, status: "running", deliveryReport: { issues: emptyCreationIssueSummary(), chapterAcceptanceReports: [], ...t.deliveryReport, unsettledAttemptIds: ["pending-usage"] } } : t);
     await render(); check(!text().includes("用量记录待核对"), "Running turn exposed ordinary accounting noise");
-    check(getComputedStyle(timeline().querySelector("summary")).display === "grid"
+    check(getComputedStyle(timeline().querySelector(".conversation-process-header")).display === "grid"
       && getComputedStyle(timeline().querySelector(".transcript-steps")).overflowY === "visible",
     "Global styles displaced the activity summary or created an inner scroll owner");
     check(!text().includes("fixture-id") && !timeline().querySelector(".transcript-steps").textContent.includes("正在分析"), "Default UI showed raw parameters or reasoning rows");
-    timeline().querySelector("summary").click(); await until(() => timeline().open);
-    const progressItem = timeline().querySelector<HTMLDetailsElement>("details.conversation-work-item.system");
-    progressItem.querySelector("summary").click(); await until(() => progressItem.open);
-    check(timeline().innerText.includes("我会保留现有线索") && timeline().innerText.includes("2 项执行记录")
-      && timeline().innerText.includes("用时"), "Expanded process lost public commentary or timing");
+    check(text().includes("我会保留现有线索"), "Progress should be directly readable");
+    const diagnostics = timeline().querySelector<HTMLDetailsElement>(".conversation-operation-details");
+    check(!diagnostics.open && timeline().innerText.includes("我会保留现有线索")
+      && !timeline().innerText.includes("Agent 进度") && !timeline().innerText.includes("执行记录")
+      && timeline().querySelector(".conversation-process-header").innerText.includes("秒"), "Expanded process hid actual progress or exposed internal row labels");
+    diagnostics.querySelector<HTMLElement>("summary").click(); await until(() => diagnostics.open);
+    check(diagnostics.innerText.includes("读取本章正文"), "Diagnostic operation disappeared");
+    diagnostics.querySelector<HTMLElement>("summary").click(); await until(() => !diagnostics.open);
     run = { ...run, state: "completed", completedAt: Date.now(), steps: run.steps.map(s => ({ ...s, status: "completed" })) };
-    await render(); check(timeline().open, "Completion discarded the user's expansion");
+    await render(); check(text().includes("我会保留现有线索") && !diagnostics.open, "Completion hid the narrative or expanded operation details");
     check(getComputedStyle(timeline().querySelector(".conversation-activity-label")).animationName === "none",
       "Finished activity kept animating");
     run = { ...run, state: "error", error: "precise failure" };
@@ -93,10 +96,10 @@ const text = () => document.body.innerText;
     check(document.querySelectorAll('[role="alert"]').length === 1, "Same bound failure was displayed twice");
     tasks = tasks.map(t => t.id === "work-live" ? { ...t, error: "other durable failure" } : t);
     await render(); check(document.querySelectorAll('[role="alert"]').length === 2, "Different error evidence was hidden");
-    timeline().querySelector("summary").click(); await until(() => !timeline().open);
+    check(!diagnostics.open, "Operation details unexpectedly reopened");
     run = { ...run, state: "running", error: null, steps: run.steps.map(s => ({ ...s, status: s.id === "tool" ? "running" : "completed" })) };
     tasks = tasks.map(t => t.id === "work-live" ? { ...t, status: "running", error: null } : t);
-    await render(); check(!timeline().open, "Retry forced the process open");
+    await render(); check(!diagnostics.open && text().includes("我会保留现有线索"), "Retry lost detail choice or narrative");
     run = { ...run, state: "cancelled", steps: run.steps.map(s => ({ ...s, status: s.id === "tool" ? "cancelled" : "completed" })) };
     await render();
     check(timeline().querySelector(".conversation-work-item.cancelled small")?.textContent === "已停止"
@@ -136,9 +139,10 @@ const text = () => document.body.innerText;
       rail().scrollTop = rail().scrollHeight; rail().dispatchEvent(new Event("scroll")); await tick();
       check(rail().scrollHeight - rail().scrollTop - rail().clientHeight < 3, "Reading case did not begin at latest");
     };
-    const readingDetails = () => document.querySelector<HTMLDetailsElement>("[data-work-task-id='work-live'] .work-task-execution");
+    const readingDetails = () => document.querySelector<HTMLDetailsElement>("[data-work-task-id='work-live'] .conversation-operation-details");
     for (const method of ["pointer", "keyboard"]) {
-      await resumeFollowing(); const summary = readingDetails().querySelector<HTMLElement>(":scope > summary"), previousTop = rail().scrollTop;
+      await resumeFollowing(); const summary = readingDetails().querySelector<HTMLElement>(":scope > summary");
+      summary.scrollIntoView({ block: "center" }); await tick(); const previousTop = rail().scrollTop;
       const summaryRect = summary.getBoundingClientRect(), railRect = rail().getBoundingClientRect();
       check(summaryRect.top >= railRect.top && summaryRect.bottom <= railRect.bottom, "Details intent setup clicked an offscreen summary");
       check(!readingDetails().open && summary.isConnected, `Visible details ${method} did not begin closed`);
@@ -150,8 +154,9 @@ const text = () => document.body.innerText;
       check(readingDetails().open && Math.abs(rail().scrollTop - previousTop) < 3 && document.querySelector(".conversation-jump-latest"), `Details ${method} lost its reading anchor during output`);
       explicitReadingPreserved.push(`details-${method}`); await tick(); await tick(); readingDetails().querySelector<HTMLElement>(":scope > summary").click(); await until(() => !readingDetails().open, `Visible details ${method} did not close`); await tick(); await tick();
     }
-    await resumeFollowing(); const selectedTop = rail().scrollTop, range = document.createRange(), selection = window.getSelection();
+    await resumeFollowing(); const range = document.createRange(), selection = window.getSelection();
     const selectionSource = readingDetails().querySelector(":scope > summary"), selectedText = selectionSource.textContent;
+    selectionSource.scrollIntoView({ block: "center" }); await tick(); const selectedTop = rail().scrollTop;
     check(selectionSource.getBoundingClientRect().top >= rail().getBoundingClientRect().top && selectionSource.getBoundingClientRect().bottom <= rail().getBoundingClientRect().bottom, "Selection setup was not visible");
     range.selectNodeContents(selectionSource); selection.removeAllRanges(); selection.addRange(range);
     document.dispatchEvent(new Event("selectionchange")); await tick(); check(selection.toString() === selectedText, "Real noncollapsed selection setup failed");
@@ -172,18 +177,21 @@ const text = () => document.body.innerText;
     check(Math.abs(anchor.getBoundingClientRect().top - rail().getBoundingClientRect().top - offset) < 3, "Loading earlier rows lost the visible anchor");
     document.querySelector(".conversation-jump-latest").click(); await tick();
     check(rail().scrollHeight - rail().scrollTop - rail().clientHeight < 3 && !document.querySelector(".conversation-jump-latest"), "Return to latest did not resume following");
-    const snapshot = { prompt: "作者要修改第二章结尾。", process: timeline().querySelector("summary").innerText.replace(/\d+秒/g, "用时"),
-      defaultCollapsed: !timeline().open, flow: document.querySelector(".work-task-execution > summary").innerText,
+    check(!document.querySelector(".work-task-execution > ol"), "Execution numbering was confused with chapter numbers");
+    check([...document.querySelectorAll<HTMLDetailsElement>(".work-execution-step")].every(el => !el.open), "Internal step details should start collapsed");
+    check(!document.querySelector(".work-task-execution"), "Internal step count dominated task summary");
+    const snapshot = { prompt: "作者要修改第二章结尾。", process: timeline().querySelector(".conversation-process-header").innerText.replace(/\d+秒/g, "用时"),
+      publicProgressVisible: timeline().tagName === "SECTION" && text().includes("我会保留现有线索"), flow: "对话中的操作原地展开",
       privateArgumentsHidden: !text().includes("fixture-id"), preservedReading: true, controlsExecuted: controls.length, neutralInteractionsFollow, explicitReadingPreserved };
     projectId = "B"; run = createAgentRun(); tasks = []; await render();
     check(!text().includes("作者要修改") && !document.querySelector(".conversation-jump-latest"), "Project switch leaked conversation state");
     projectId = "single"; tasks = [task("single")]; await render();
     await until(() => text().includes("保存的公开回复"));
-    rail().dispatchEvent(new WheelEvent("wheel", { deltaY: -60 })); rail().scrollTop = 90; rail().dispatchEvent(new Event("scroll")); await tick();
-    check(Math.abs(rail().scrollTop - 90) < 3, "Single-record reading setup did not scroll");
+    rail().dispatchEvent(new WheelEvent("wheel", { deltaY: -60 })); rail().scrollTop = 20; rail().dispatchEvent(new Event("scroll")); await tick();
+    check(Math.abs(rail().scrollTop - 20) < 3, "Single-record reading setup did not scroll");
     holdReplies = true; panelVersion++; await render(); await until(() => pendingReplies.length > 0);
     check(text().includes("正在读取保存的回复"), "Remount did not exercise short loading placeholder");
-    pendingReplies.shift()(); await until(() => text().includes("保存的公开回复") && Math.abs(rail().scrollTop - 90) < 3);
+    pendingReplies.splice(0).forEach(resolve => resolve()); await until(() => text().includes("保存的公开回复") && Math.abs(rail().scrollTop - 20) < 3);
     snapshot.restoredAfterShortPlaceholder = true;
     holdReplies = false; projectId = "A"; panelVersion++;
     const writer = step("live");
@@ -191,19 +199,19 @@ const text = () => document.body.innerText;
       { ...step("followup"), status: "queued", attempts: [] }] }];
     run = { ...createAgentRun(), state: "completed", threadId: "thread-live", turnId: "turn-live", answer: "内部写作已保存，后续检查待执行。" };
     await render();
-    check(document.querySelector(".fixture-live")?.closest(".work-task-execution"), "Live intermediate answer escaped its execution step");
+    check(!document.querySelector(".fixture-live")?.closest("details"), "Public progress was hidden in execution details");
     tasks = [{ ...tasks[0], steps: [{ ...writer, status: "superseded", attempts: [{ ...writer.attempts[0], status: "failed", error: "invalid arguments" }] }, tasks[0].steps[1]] }];
     run = { ...run, state: "error", error: "invalid arguments" };
     await render();
-    check(document.querySelector(".fixture-live")?.closest(".work-task-execution"), "Superseded failure escaped the recovery flow");
+    check(!document.querySelector(".fixture-live")?.closest("details"), "Superseded failure hid its public reply");
     tasks = [{ ...tasks[0], steps: [writer, tasks[0].steps[1]] }];
     run = createAgentRun(); panelVersion++; await render();
     await until(() => document.body.textContent.includes("保存的公开回复"));
-    const savedReply = [...document.querySelectorAll(".work-task-execution")].find(el => el.textContent.includes("保存的公开回复"));
-    check(savedReply, "Restored intermediate reply escaped its execution step");
+    const savedReply = [...document.querySelectorAll(".saved-task-reply")].find(el => el.textContent.includes("保存的公开回复") && !el.closest("details"));
+    check(savedReply, "Restored public progress was hidden");
     tasks = [{ ...tasks[0], status: "completed", steps: [writer] }]; panelVersion++; await render();
     await until(() => text().includes("保存的公开回复"));
-    check(!document.querySelector(".work-task-execution").textContent.includes("保存的公开回复"), "Last reply was hidden with intermediate records");
+    check(!document.querySelector(".work-task-execution"), "Last reply was hidden with intermediate records");
     root.unmount(); window.testResult = { passed: true, snapshot };
-  } catch (error) { window.testResult = { passed: false, error: error.stack + "\nDOM:" + text() }; }
+  } catch (error) { window.testResult = { passed: false, error: error.stack + `\nScroll: ${rail()?.scrollTop}/${rail()?.scrollHeight}; pending: ${pendingReplies.length}; reply: ${text().includes("保存的公开回复")}` + "\nDOM:" + text() }; }
 })();

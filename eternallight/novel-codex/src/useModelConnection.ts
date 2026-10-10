@@ -3,7 +3,7 @@ import type { NovelCodexApi } from "./types";
 type Connections = Awaited<ReturnType<NovelCodexApi["agent"]["listConnections"]>>["connections"];
 type Status = Awaited<ReturnType<NovelCodexApi["agent"]["configure"]>>;
 type Mode = "verify" | "apply" | "verifyAndApply";
-export type ConnectionProgress = { scope: string; provider: string; model: string; startedAt: number;
+export type ConnectionProgress = { scope: string; provider: string; model: string; startedAt: number; reasoningEffort: string | null;
   phase: "verifying" | "reading" | "applying" | "ready" | "failed"; error: string | null; mode: Mode };
 
 export function useModelConnection({ api, scope, blocked, onStatus, onConnections }: {
@@ -21,30 +21,30 @@ export function useModelConnection({ api, scope, blocked, onStatus, onConnection
   const progress = snapshot?.owner === owner ? snapshot.progress : null;
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  async function run(provider: string, model: string, mode: Mode) {
+  async function run(provider: string, model: string, mode: Mode, reasoningEffort: string | null = null) {
     if (!api || pending.current || current.current.blocked) return false;
     const operation = {};
     pending.current = operation;
     const isCurrent = () => mounted.current && lifetime.current.owner === owner && !current.current.blocked;
-    const value: ConnectionProgress = { scope, provider, model, mode, startedAt: Date.now(), phase: mode === "apply" ? "applying" : "verifying", error: null };
+    const value: ConnectionProgress = { scope, provider, model, mode, reasoningEffort, startedAt: Date.now(), phase: mode === "apply" ? "applying" : "verifying", error: null };
     const publish = (progress: ConnectionProgress) => setSnapshot({ owner, progress });
     setBusy(true); publish(value);
     try {
       if (mode !== "apply") {
-        await api.agent.verifyConnection(provider, model);
+        await api.agent.verifyConnection(provider, model, reasoningEffort);
         if (!isCurrent()) return false;
         publish({ ...value, phase: "reading" });
-        const available = await api.agent.listConnections();
+        const available = await api.agent.listConnections(provider, model, reasoningEffort);
         if (!isCurrent()) return false;
         current.current.onConnections(available.connections);
-        if (!available.connections.some(item => item.provider === provider && item.model === model && item.status === "verified")) {
+        if (!available.connections.some(item => item.provider === provider && (item.model === model || item.id === model) && (reasoningEffort === null || item.reasoning?.effort === reasoningEffort) && item.status === "verified")) {
           throw new Error("连接尚未通过创作所需能力验证，请检查模型服务后重试。");
         }
       }
       if (mode !== "verify") {
         if (!isCurrent()) return false;
         publish({ ...value, phase: "applying" });
-        const status = await api.agent.configure(provider, model);
+        const status = await api.agent.configure(provider, model, reasoningEffort);
         if (!isCurrent()) return false;
         current.current.onStatus(status);
       }
@@ -56,5 +56,5 @@ export function useModelConnection({ api, scope, blocked, onStatus, onConnection
     } finally { pending.current = null; if (mounted.current) setBusy(false); }
   }
   return { busy, progress: progress?.scope === scope ? progress : null, run,
-    retry: () => progress?.scope === scope ? run(progress.provider, progress.model, progress.mode) : Promise.resolve(false) };
+    retry: () => progress?.scope === scope ? run(progress.provider, progress.model, progress.mode, progress.reasoningEffort) : Promise.resolve(false) };
 }

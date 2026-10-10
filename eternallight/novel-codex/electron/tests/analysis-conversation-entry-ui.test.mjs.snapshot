@@ -1,10 +1,8 @@
-exports[`analysis discussion prepares one composer while retaining exact manual capabilities 1`] = `
+exports[`planning discussion preserves the author draft and explicit multi-role review 1`] = `
 [
   {
-    "impact": "在对话中检查本章改动影响",
     "planning": "在对话中讨论这份规划",
-    "manualImpact": "手动检查与假设模拟",
-    "multiRole": "多视角规划深审",
+    "multiRole": "指定规划检查视角",
     "draftPreserved": true,
     "manualFieldsMounted": true,
     "structuredStarts": 1,

@@ -1,9 +1,9 @@
 exports[`actual conversation blocks duplicate Enter and retries transient failures 1`] = `
 {
-  "error": "fixture connection interrupted",
+  "error": "本轮遇到问题，尚未完成。请查看错误详情和任务恢复安排。",
   "inputDisabled": false,
   "placeholder": "想如何继续这个故事……",
-  "retry": "重试讨论"
+  "retry": "重试当前任务"
 }
 `;
 
@@ -89,10 +89,11 @@ exports[`actual workspace preserves scene identity, author intent, and save boun
   "writingAuditReads": 0,
   "diagnosticsEntry": "用户设置 · 当前作品诊断",
   "attention": "待确认事项直接可见",
-  "foldedFactEdit": {
+  "chapterControls": {
     "body": "正文已保存",
-    "settings": "设定或检查有未保存修改",
-    "settingsOpen": false
+    "settings": "页头 · 章节设置",
+    "technicalForms": false,
+    "manualToolbox": false
   }
 }
 `;
@@ -121,7 +122,7 @@ exports[`conversation unifies exact turns and reads durable replies without repl
   },
   {
     "state": "missing",
-    "visible": "没有保存的最终回复，执行摘要不能代替模型答复。"
+    "visible": "本轮尚无回复。"
   }
 ]
 `;
@@ -131,40 +132,40 @@ exports[`project conversation persists across views and isolates reads without e
   {
     "view": "角色",
     "records": 4,
-    "expanded": true,
+    "replyVisible": true,
     "scroll": 90
   },
   {
     "view": "近章规划",
     "records": 4,
-    "expanded": true,
+    "replyVisible": true,
     "scroll": 90
   },
   {
     "view": "作品目录",
     "records": 4,
-    "expanded": true,
+    "replyVisible": true,
     "scroll": 90
   },
   {
     "view": "first record in new project",
     "records": 1,
-    "expanded": true,
+    "replyVisible": true,
     "scroll": 90
   }
 ]
 `;
 
 exports[`task list serializes reads, preserves failures, and isolates project lifetimes 1`] = `
-"你的创作指令\\n局部交付\\n执行结束 · 已保存部分内容\\n\\n有 1 项行动提案待确认；尚未执行。\\n\\n用量记录待核对。\\n\\n创作流程 · 1 步\\n生成章节 · 已完成原产物已被后续版本替换\\n\\n本轮没有保存的最终回复。"
+"你的创作指令\\n局部交付\\n已保存部分内容\\n\\n有 1 项行动提案待确认；尚未执行。\\n\\n用量记录待核对。\\n\\n本轮尚无回复。"
 `;
 
 exports[`task list serializes reads, preserves failures, and isolates project lifetimes 2`] = `
-"你的创作指令\\n自动安排\\n进行中\\n\\n正在安排后续创作步骤…\\n\\n创作流程 · 0 步\\n暂停后续步骤\\n取消任务"
+"你的创作指令\\n自动安排\\n进行中\\n\\n正在安排后续创作步骤…"
 `;
 
 exports[`task list serializes reads, preserves failures, and isolates project lifetimes 3`] = `
-"你的创作指令\\n恢复已保存结果\\n需处理\\n创作流程 · 0 步\\n核验并恢复\\n取消任务\\n只核验并恢复已保存产物，不调用模型；如有后续步骤，将保持暂停。"
+"你的创作指令\\n恢复已保存结果\\n需处理"
 `;
 
 exports[`task list serializes reads, preserves failures, and isolates project lifetimes 4`] = `
@@ -173,7 +174,7 @@ exports[`task list serializes reads, preserves failures, and isolates project li
   "last": "需要保留的暂停任务",
   "chronological": true,
   "turns": 7,
-  "collapsedProcesses": 7,
+  "executionLists": 0,
   "preservedUndo": true,
   "failureVisible": true
 }

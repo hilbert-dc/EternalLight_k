@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { NovelCodexApi, TaskFinalReply } from "./types";
 import { MarkdownContent } from "./MarkdownContent";
 
-export function TaskFinalReplyDetails({ api, projectId, taskId }: { api: NovelCodexApi | undefined; projectId: string; taskId: string }) {
+export function TaskFinalReplyDetails({ api, projectId, taskId, label = "查看回复" }: { label?: string; api: NovelCodexApi | undefined; projectId: string; taskId: string }) {
   const scope = useMemo(() => ({ api, projectId, taskId }), [api, projectId, taskId]);
   const [open, setOpen] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -25,11 +25,10 @@ export function TaskFinalReplyDetails({ api, projectId, taskId }: { api: NovelCo
   }, [open, retry, scope, api, projectId, taskId]);
   const visible = state?.scope === scope ? state : null;
   return <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary>查看已保存的最终回复</summary>
+    <summary>{label}</summary>
     {open && (!visible ? <p role="status">读取最终回复中…</p> : visible.error ? <div role="alert">
       <p>{visible.error}</p><button type="button" onClick={() => setRetry((value) => value + 1)}>重新读取回复</button>
     </div> : !visible.receipt ? <p>没有最终回复凭据；任务摘要不能代替最终回复。</p> : <>
-      <p>作者要求代次 {visible.receipt.binding.intentRevision} · 回复记录不代表创作目标已达成。</p>
       {visible.receipt.state === "absent" ? <p>引擎回合结束，但没有最终文本回复。</p> : <>
         {visible.receipt.state === "truncated" && <p>回复超过保存上限，以下为部分内容，不是完整回复。</p>}
         <MarkdownContent text={visible.receipt.binding.text} />

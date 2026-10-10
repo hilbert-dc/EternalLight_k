@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import "../../../src/styles.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -21,7 +22,7 @@ const finish = name => {
   listener?.({ method: "turn/completed", params: { threadId: "execution", turn: { id, status: "completed", items: [{ id: `${id}-answer`, type: "agentMessage", phase: "final_answer", text: `${name}结果已保存` }] } } });
 };
 const execute = async name => { calls.push(name); finish(name); return { message: `${name}已保存`, status: "completed", run: { status: "completed", roles: [], reports: [] } }; };
-const api = {
+const api = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} },
   runtime: { listChapterStructureChanges: async (projectId: string) => ({ projectId, items: [], nextCursor: null }),
   getWorkCatalog: async () => ({ revision: 0, volumes: [], placements: [] }), getIdentityCatalog: async () => ({ entries: [], ambiguousNames: [], identityRevisionId: null, identityDecisions: [], truncated: false, ambiguityScanComplete: true }), listWorkTasks: async () => ({ tasks: [], nextCursor: null, activeCount: 0 }),
@@ -34,7 +35,7 @@ const api = {
   agent: {
     status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", error: null, provider: "fixture", model: "fixture" }),
     listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {},
-    listThreads: async () => ({ threads: [thread("A"), thread("B"), thread("empty"), thread("error")], nextCursor: null }),
+    listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [thread("A"), thread("B"), thread("empty"), thread("error")], nextCursor: null }),
     onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
     generatePlanning: async (_id, operation) => execute(operation), generateWork: async () => execute("work"),
     continueWork: async () => execute("continue"), retryWork: async () => execute("retry"),

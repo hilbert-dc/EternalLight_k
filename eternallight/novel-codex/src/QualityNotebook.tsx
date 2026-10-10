@@ -3,7 +3,7 @@ import type { NovelCodexApi } from "./types";
 import type { QualityChange, QualityKind, QualityNotebook as Notebook, QualityPacket, QualityReview } from "./quality-types";
 import "./quality-notebook.css";
 
-const names: Record<QualityKind, string> = { preference: "审美偏好", goal: "期待效果", strength: "保留亮点", observation: "质量观察", trial: "场景试写" };
+const names: Record<QualityKind, string> = { preference: "审美偏好", goal: "期待效果", strength: "保留亮点", observation: "质量观察", trial: "场景试写", method: "方法草案" };
 const statusNames: Record<string, string> = { prepared: "待阅读", queued: "准备中", running: "阅读中", completed: "已完成", failed: "未完成", cancelled: "已停止" };
 export function QualityNotebook({ api, projectId }: { api: NovelCodexApi; projectId: string }) {
   const [state, setState] = useState<Notebook | null>(null);
@@ -51,25 +51,27 @@ export function QualityNotebook({ api, projectId }: { api: NovelCodexApi; projec
     {!state ? <p role="status">正在读取…</p> : <>
       <details><summary>记下一项创作取向</summary>
         <form onSubmit={event => { event.preventDefault(); void act(async () => {
-          await save({ action: "note", note: { kind, scope, text, evidence: revision && quote.trim() ? [{ revisionId: revision, quote, role: "current" }] : [], question: kind === "trial" ? question : null, body: kind === "trial" ? body : null, relatesTo: kind === "observation" && relatesTo ? relatesTo : null, verdict: kind === "observation" && relatesTo ? verdict : null } });
+          await save({ action: "note", note: { kind, scope, text, evidence: revision && quote.trim() ? [{ revisionId: revision, quote, role: "current" }] : [], question: kind === "trial" || kind === "method" ? question : null, body: kind === "trial" || kind === "method" ? body : null, relatesTo: kind === "observation" && relatesTo ? relatesTo : null, verdict: kind === "observation" && relatesTo ? verdict : null } });
           if (mounted.current) { setText(""); setQuote(""); setBody(""); }
         }); }}>
           <label>记录类型<select value={kind} onChange={e => setKind(e.target.value as QualityKind)}>{Object.entries(names).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>
           <label>适用范围<select value={scope} onChange={e => setScope(e.target.value as "work" | "task")}><option value="work">这部作品</option><option value="task">仅本次，不用于后续任务</option></select></label>
           <label>内容<textarea required maxLength={500} value={text} onChange={e => setText(e.target.value)} placeholder="例如：用动作表达关心，少用旁白解释。" /></label>
-          <label>原文来源<select required={kind !== "preference"} value={revision} onChange={e => setRevision(e.target.value)}><option value="">选择已保存正文</option>{sources.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label>
-          <label>逐字引文{kind === "preference" && "（可选）"}<textarea required={kind !== "preference"} maxLength={600} value={quote} onChange={e => setQuote(e.target.value)} /></label>
-          {kind === "observation" && <><label>回看的目标或亮点（可选）<select value={relatesTo} onChange={e => setRelatesTo(e.target.value)}><option value="">独立观察</option>{state.notes.filter(n => ["goal", "strength"].includes(n.note.kind) && n.status !== "withdrawn").map(n => <option key={n.id} value={n.id}>{n.note.text}</option>)}</select></label>{relatesTo && <label>正文中的效果<select value={verdict} onChange={e => setVerdict(e.target.value as typeof verdict)}><option value="insufficientEvidence">证据不足</option><option value="supported">有证据支持</option><option value="unmet">尚未达到</option></select></label>}</>}
+          <label>原文来源<select required={kind !== "preference" && kind !== "method"} value={revision} onChange={e => setRevision(e.target.value)}><option value="">选择已保存正文</option>{sources.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label>
+          <label>逐字引文{(kind === "preference" || kind === "method") && "（可选）"}<textarea required={kind !== "preference" && kind !== "method"} maxLength={600} value={quote} onChange={e => setQuote(e.target.value)} /></label>
+          {kind === "observation" && <><label>回看的目标、亮点或方法（可选）<select value={relatesTo} onChange={e => setRelatesTo(e.target.value)}><option value="">独立观察</option>{state.notes.filter(n => ["goal", "strength", "method"].includes(n.note.kind) && n.status !== "withdrawn").map(n => <option key={n.id} value={n.id}>{names[n.note.kind]} · {n.note.text}</option>)}</select></label>{relatesTo && <label>正文中的效果<select value={verdict} onChange={e => setVerdict(e.target.value as typeof verdict)}><option value="insufficientEvidence">证据不足</option><option value="supported">有证据支持</option><option value="unmet">尚未达到</option></select></label>}</>}
           {kind === "trial" && <><label>共同探索的问题<input required maxLength={250} value={question} onChange={e => setQuestion(e.target.value)} /></label><label>实际试写片段<textarea required maxLength={2400} value={body} onChange={e => setBody(e.target.value)} /></label><p>试写只作为比较材料，不写入章节。</p></>}
+          {kind === "method" && <><label>适用的问题<input required maxLength={250} value={question} onChange={e => setQuestion(e.target.value)} /></label><label>方法与使用限制<textarea required maxLength={2400} value={body} onChange={e => setBody(e.target.value)} /></label><p>方法草案供按需参考，保存不表示效果已验证，也不会自动启用。</p></>}
           <button disabled={busy} type="submit">保存记录</button>
         </form>
       </details>
       <div className="quality-notes">{state.notes.length === 0 && <p>暂无记录。可以先记下你希望保留的作品特点。</p>}{state.notes.map(item => <article key={item.id}>
-        <div className="quality-meta">{names[item.note.kind]} · {item.authorKind === "model" ? "模型建议" : "作者记录"} · {item.status === "confirmed" ? "作者已确认" : item.status === "withdrawn" ? "已撤回" : "待作者判断"}{!item.sourceCurrent && " · 来源已变化"}{item.note.scope === "task" && " · 仅本次"}</div>
+        <div className="quality-meta">{names[item.note.kind]} · {item.authorKind === "model" ? "模型建议" : "作者记录"} · {item.status === "confirmed" ? "作者已确认" : item.status === "withdrawn" ? "已撤回" : item.note.kind === "method" ? "效果未验证" : "待作者判断"}{!item.sourceCurrent && " · 来源已变化"}{item.note.scope === "task" && (item.note.kind === "method" ? " · 本次创作任务内参考" : " · 仅本次")}</div>
         <p>{item.note.text}</p>
+        {item.note.relatesTo && <p>{(() => { const related = state.notes.find(n => n.id === item.note.relatesTo); return related ? `回看：${names[related.note.kind]} · ${related.note.text}` : "关联记录在较早页面，可读取更多记录查看。"; })()}</p>}
         {item.note.verdict && <p>效果判断：{{ supported: "有证据支持", unmet: "尚未达到", insufficientEvidence: "证据不足" }[item.note.verdict]}</p>}
         {item.note.evidence.map((e, i) => <blockquote key={i}>{e.role === "reference" && <small>对照材料 · </small>}{e.quote}</blockquote>)}
-        {item.note.body && <details><summary>查看试写</summary><p className="quality-prose">{item.note.body}</p></details>}
+        {item.note.body && <details><summary>{item.note.kind === "method" ? "查看方法" : "查看试写"}</summary>{item.note.kind === "method" && <p>适用问题：{item.note.question}</p>}<p className="quality-prose">{item.note.body}</p></details>}
         {item.note.kind === "trial" && item.sourceCurrent && item.status !== "withdrawn" && <label className="quality-select"><input type="checkbox" checked={selected.includes(item.id)} disabled={busy || (selected.length >= 6 && !selected.includes(item.id))} onChange={e => { const checked = e.currentTarget.checked; setSelected(old => checked ? [...old, item.id] : old.filter(id => id !== item.id)); }} />加入匿名比较</label>}
         <div className="quality-actions">{item.status !== "confirmed" && item.sourceCurrent && <button disabled={busy} onClick={() => void act(async () => { await save({ action: "decide", id: item.id, status: "confirmed", reason: "作者在创作回看中明确确认" }); })}>确认这项记录</button>}{item.status !== "withdrawn" && <button disabled={busy} onClick={() => void act(async () => { await save({ action: "decide", id: item.id, status: "withdrawn", reason: "作者撤回；保留历史，不影响正文" }); })}>撤回</button>}</div>
       </article>)}</div>

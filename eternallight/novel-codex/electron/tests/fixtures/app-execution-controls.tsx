@@ -17,8 +17,8 @@ export function CreativeWorkspaceView(props) {
   };
   return <div>{props.taskConversationContainer && createPortal(<WorkTaskPanel conversation={props.conversation}
     api={props.api} projectId={props.projectId} tasks={[]} activeCount={0} nextCursor={null} loadingMore={false}
-    loaded reading={false} readError={null} onRetry={() => {}} revision={1} busy={false} interruptionBusy={false}
-    agentRunning={false} agentAvailable dirty={false} onControl={() => {}} onUndo={() => {}} onLoadMore={() => {}} />,
+    loaded reading={false} readError={null} onRetry={() => {}} revision={1} busy={false}
+    agentRunning={false} dirty={false} onUndo={() => {}} onLoadMore={() => {}} />,
     props.taskConversationContainer)}
     {Object.entries(actions).map(([name, action]) => <button key={name} data-execute={name} onClick={() => { Promise.resolve(action()).catch(error => { window.executionError = error.message; }); }}>{name}</button>)}
   </div>;

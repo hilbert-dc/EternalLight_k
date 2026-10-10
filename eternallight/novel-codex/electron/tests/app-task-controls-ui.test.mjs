@@ -19,11 +19,16 @@ test("actual App shares original task recovery across every page and isolates la
     catch (error) { throw new Error(`${error.stdout ?? ""}\n${error.stderr ?? ""}`, { cause: error }); }
     const result = JSON.parse(output.stdout.trim());
     assert.equal(result.passed, true, `${result.error}\n${JSON.stringify(result.calls)}\n${result.dom ?? ""}`);
-    assert.equal(result.calls.resume.length, 7);
-    assert.equal(result.calls.cancel.length, 1);
+    assert.equal(result.calls.resume.length, 9);
+    assert.equal(result.calls.cancel.length, 3);
     assert.equal(result.calls.recover.length, 1);
     assert.equal(result.calls.send, 0);
     assert.equal(result.calls.models, 0);
+    assert.equal(result.menuPausedPendingResume, true);
+    assert.equal(result.naturalDrain, true);
+    assert.equal(result.interludeJourney, true);
+    assert.equal(result.calls.interludes.length, 1);
+    assert.equal(result.calls.returns.length, 1);
     t.assert.snapshot(result.snapshots);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

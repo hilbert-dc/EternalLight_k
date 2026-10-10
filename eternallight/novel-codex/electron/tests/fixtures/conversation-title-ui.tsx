@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import { chapterRuntimeReads } from "../helpers/chapter-runtime";
 import "../../../src/styles.css";
 import React from "react";
@@ -18,13 +19,13 @@ let threads = [old, named], listener, complete, sendCount = 0;
 const reads = [], resumes = [];
 const state = project => ({ project, canon: { characters: [], relationships: [], events: [], locations: [], plotThreads: [], worldRules: [], notes: [] }, narrativeIr: { version: "1.0", scenes: [], anchors: [] }, novelEdition: { chapters: [] } });
 const threadFor = (projectId, id) => projectId === projects[1].id ? makeThread(id) : threads.find(t => t.id === id);
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} },
   runtime: { ...chapterRuntimeReads(id => projects.find(project => project.id === id)), listWorkTasks: async () => ({ tasks: [], nextCursor: null, activeCount: 0 }), status: async () => ({ state: "online", mode: "local", error: null }),
     listProjects: async () => ({ projects }), getState: async id => state(projects.find(p => p.id === id)) },
   agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", error: null }),
     listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {},
-    listThreads: async projectId => ({ threads: projectId === projects[1].id ? [makeThread("live")] : threads, nextCursor: null }),
+    listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async projectId => ({ threads: projectId === projects[1].id ? [makeThread("live")] : threads, nextCursor: null }),
     onEvent: fn => { listener = fn; return () => {}; }, onUserInputRequest: () => () => {},
     sendPrompt: async (projectId, prompt) => {
       check(projectId === projects[0].id && prompt === originalPrompt, "Title presentation changed the author request"); sendCount++;

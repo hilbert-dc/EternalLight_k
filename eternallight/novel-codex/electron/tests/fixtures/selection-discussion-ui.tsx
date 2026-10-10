@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "../../../src/App";
@@ -14,15 +15,6 @@ const click = async label => { const node = buttons(label)[0]; check(node && !no
 const composer = () => document.querySelector<HTMLTextAreaElement>('[aria-label="创作指令"]');
 const input = async value => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(composer(), value); composer().dispatchEvent(new Event("input", { bubbles: true })); await tick(); };
 const navigate = async (label, view) => { const node = () => view === "chapters" ? document.querySelector<HTMLButtonElement>("[data-directory-chapter-id]") : [...document.querySelectorAll<HTMLButtonElement>(".nav-item")].find(node => node.textContent.includes(label)); await until(() => node() && !node().disabled, "Navigation ready " + view); node()!.click(); await until(() => document.querySelector<HTMLElement>(".main-panel")?.dataset.view === view, `Missing ${view}`); await tick(); await tick(); };
-const openSceneTools = async () => {
- await navigate("作品目录", "chapters");
- await until(() => document.querySelector(".chapter-scene-management"), "Chapter scenes");
- for (const selector of [".chapter-manual-tools", ".chapter-scene-management"]) {
-  const details = document.querySelector<HTMLDetailsElement>(selector)!;
-  if (!details.open) details.querySelector<HTMLElement>(":scope > summary")!.click();
- }
- await tick();
-};
 const projects = ["project-last-lamp", "project-b"].map(id => ({ id, title: id, logline: "", updated_at: "" }));
 const projectFor = id => projects.find(project => project.id === id);
 const chapters = [{ id: "chapter-01", number: 1, title: "旧钟", status: "draft", summary: "", updated_at: "", passages: [] }];
@@ -33,7 +25,7 @@ const state = id => ({ project: projectFor(id), canon: { characters: [], relatio
 const detail = (id, commitmentId, snapshotId) => ({ projectId: id, snapshotId, revisionId: `revision-${commitmentId}`, sourceCurrent: true, confirmationState: "candidate", confirmationCommitId: null, authorControls: { projectRevision: 1, undoAvailable: false }, extractionOrigin: { chapterId: "chapter-01", reportRevisionId: "report-original", proposalId: "proposal-one" }, payload: { id: commitmentId, summary: `准确伏笔 ${commitmentId}`, kind: "foreshadowing", status: "open", fulfillmentCriteria: "后文解释", setupEvidenceRefs: [{ objectId: "draft-chapter-01", revisionId: sourceId(id), quote: "相同摘录。", start: 0, end: 5 }], fulfillmentEvidenceRefs: [] } });
 const calls = { sends: [], writes: 0 }, snapshots = [];
 let failSend = true, releaseDetail, holdDetail = false, onEvent;
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
  app: { onCloseRequested: () => () => {} },
  runtime: { ...baseReads, status: async () => ({ state: "online", mode: "local", error: null }), listProjects: async () => ({ projects }), getState: async id => state(id), getCreativeWorkspace: workspace,
   getWriterPreview: async () => ({ target: { position: {} }, plannedEffects: [], relevantText: [], coverage: { complete: true, missingScope: [], truncationReasons: [] } }),
@@ -43,7 +35,7 @@ window.novelCodex = {
   getCommitmentExtraction: async () => null,
   establishCommitment: async () => { calls.writes++; throw Error("Unexpected establish"); }, createCommitmentReview: async () => { calls.writes++; throw Error("Unexpected review"); }, acceptReview: async () => { calls.writes++; throw Error("Unexpected accept"); },
  },
- agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: listener => { onEvent = listener; return () => {}; }, onUserInputRequest: () => () => {},
+ agent: { status: async () => ({ configured: true, state: "ready", mode: "novel-agent-engine", provider: "fixture", model: "fixture", error: null }), listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => {}, onEvent: listener => { onEvent = listener; return () => {}; }, onUserInputRequest: () => () => {},
   readConversation: async (projectId, threadId) => ({ thread: { id: threadId, projectId, name: "选区讨论", status: "idle", version: 0, isArchived: false }, turns: [] }),
   sendPrompt: async (...args) => { calls.sends.push(structuredClone(args)); if (failSend) { failSend = false; throw Error("controlled temporary failure"); } const id = `turn-${calls.sends.length}`; onEvent({ method: "agent/workflow", params: { workflow: { task: { id: `task-${calls.sends.length}`, projectId: args[0], threadId: "fixture-thread", operation: "advisory", target: {} } } } }); onEvent({ method: "turn/started", params: { threadId: "fixture-thread", turnId: id, turn: { id } } }); await tick(); onEvent({ method: "turn/completed", params: { threadId: "fixture-thread", turnId: id, turn: { id, status: "completed", items: [] } } }); return { message: "已读取准确来源", proposedActions: [] }; } },
 };
@@ -66,7 +58,10 @@ window.novelCodex.runtime.getCharacterKnowledge = async (id, entityId) => ({ pro
 const historical = window.novelCodex.runtime.getHistoricalKnowledgeState;
 window.novelCodex.runtime.getHistoricalKnowledgeState = async (id, snapshotId) => { const value = await historical(id, snapshotId); value.entries.push({ ...value.entries[0], modelingBatchId: "event-batch", assertion: { kind: "event", predicate: "钟声消失", storyTime: 1, evidence: { quote: "昨日钟声突然消失。" } } }); return value; };
 const selectEditor = async (element, start = 0, end = element.value.length) => {
- element.focus(); element.setSelectionRange(start, end); element.dispatchEvent(new Event("select", { bubbles: true }));
+ element.scrollIntoView({ block: "center" }); element.focus(); element.setSelectionRange(start, end);
+ // Native selection can scroll a long textarea. Let its scroll dismissal settle
+ // before emitting the final selection event, as a completed drag would do.
+ await tick(); await tick(); element.dispatchEvent(new Event("select", { bubbles: true }));
  await until(() => document.querySelector(".selection-discussion-entry"), "Missing input selection entry");
 };
 const selectText = async element => {
@@ -111,7 +106,7 @@ const root = createRoot(document.getElementById("root"));
  await chooseProject(1); check(!quoteCards().length && !document.querySelector(".selection-discussion-entry"), "Quote leaked to project B");
  await chooseProject(0); check(quoteCards().length === 8 && composer().value === "保留我输入的问题", "Project A quote draft not restored");
  await until(() => !buttons("发送创作指令")[0].disabled, "Ready send"); await click("发送创作指令");
- await until(() => document.querySelector(".transcript-error button"), "Expected controlled failure");
+ await until(() => document.querySelector(".composer-retry"), "Expected controlled failure");
  const original = calls.sends[0][3]; check(original.excerpts.length === 8 && original.excerpts[0].text === "相同摘录", "IPC lost original quotes");
  check(document.querySelectorAll(".conversation-turn .discussion-excerpt").length === 8, "Sent quote sources missing from conversation");
  check(original.excerpts[0].locator.includes("scene-one"), "Missing exact scene locator");
@@ -119,7 +114,7 @@ const root = createRoot(document.getElementById("root"));
  await navigate("全书大纲", "outline"); await until(() => document.querySelector(".outline-reading-node dd"), "Outline again");
  await selectText(document.querySelector(".outline-reading-node dd")); await add();
  const retryDraft = composer().value;
- document.querySelector<HTMLButtonElement>(".transcript-error button")!.click(); await until(() => calls.sends.length === 2 && !buttons("停止当前执行").length && !buttons("发送创作指令")[0].disabled, "Retry finished");
+ document.querySelector<HTMLButtonElement>(".composer-retry")!.click(); await until(() => calls.sends.length === 2 && !buttons("停止当前执行").length && !composer().disabled, "Retry finished");
  check(JSON.stringify(calls.sends[1][3]) === JSON.stringify(original), "Retry replaced captured quotes with current page");
  check(quoteCards().length === 1 && composer().value === retryDraft, "Retry consumed next quote draft");
  await remove();
@@ -130,10 +125,12 @@ const root = createRoot(document.getElementById("root"));
  check(quoteCards()[0].querySelector('small').title === "brief-candidate" && quoteCards()[0].textContent.includes("新的核心构想"), "Saved version quote replaced with accepted content");
  await remove(); await navigate("作品目录", "chapters"); await until(() => editors().length === 2, "Chapter reload");
  const editor = editors()[0]; await change(editor, "本地未保存的新正文。"); await selectEditor(editor, 0, editor.value.length); await add();
- check(quoteCards()[0].textContent.includes("未保存的编辑内容") && !buttons("发送创作指令")[0].disabled, "Unsaved quote discussion blocked");
- const localValue = editor.value; failSend = true; await click("发送创作指令"); await until(() => calls.sends.length === 3 && document.querySelector(".transcript-error button"), "Unsaved controlled failure");
+ check(quoteCards()[0].textContent.includes("未保存的编辑内容") && composer().value === "", "Unsaved quote supplied an implicit instruction");
+ await input("先分析这段未保存正文，暂时不要修改。");
+ check(!buttons("发送创作指令")[0].disabled, "Unsaved quote discussion blocked");
+ const localValue = editor.value; failSend = true; await click("发送创作指令"); await until(() => calls.sends.length === 3 && document.querySelector(".composer-retry"), "Unsaved controlled failure");
  check(calls.sends[2][3].readOnly === true && calls.sends[2][3].excerpts[0].text === localValue, "Unsaved text not frozen read-only");
- document.querySelector<HTMLButtonElement>(".transcript-error button")!.click(); await until(() => calls.sends.length === 4 && !buttons("停止当前执行").length && !editor.matches(":disabled"), "Unsaved retry finished");
+ document.querySelector<HTMLButtonElement>(".composer-retry")!.click(); await until(() => calls.sends.length === 4 && !buttons("停止当前执行").length && !editor.matches(":disabled"), "Unsaved retry finished");
  check(JSON.stringify(calls.sends[3][3]) === JSON.stringify(calls.sends[2][3]), "Unsaved retry lost read-only capture");
  check(editor.isConnected && editor.value === localValue && calls.writes === 0, "Discussion overwrote local editor");
  await change(editor, "超".repeat(12001)); await selectEditor(editor); await add();

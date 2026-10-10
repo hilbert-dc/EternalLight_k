@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { GenerationHandoffProposal, NovelCodexApi } from "./types";
-import { MAX_GENERATION_CHAPTERS } from "../shared/generation-permit.mjs";
+import { generationPermitForChapters, MAX_GENERATION_CHAPTERS } from "../shared/generation-permit.mjs";
 import { ConversationPrompt } from "./ConversationPrompt";
 import "./conversation-generation-handoff.css";
 
@@ -16,6 +16,7 @@ export function ConversationGenerationHandoff({ api, proposal, scope, blocked, o
   useEffect(() => () => { flight.current = null; }, []);
   const valid = proposal.state === "proposed" && Number.isSafeInteger(proposal.targetChapters)
     && proposal.targetChapters >= 1 && proposal.targetChapters <= MAX_GENERATION_CHAPTERS && proposal.authorIntent.trim();
+  const permit = valid ? generationPermitForChapters(proposal.targetChapters) : null;
   async function confirm() {
     if (!valid || blocked || flight.current) return;
     const ticket = {}; flight.current = ticket; setReading(true); setError(null);
@@ -39,7 +40,7 @@ export function ConversationGenerationHandoff({ api, proposal, scope, blocked, o
   return <section className="conversation-generation-handoff" aria-label="新章节创作安排">
     <strong>生成 {proposal.targetChapters} 章工作稿</strong>
     <ConversationPrompt text={proposal.authorIntent} detailKey={`generation:${proposal.proposalId}:goal`} />
-    <p>批准后自动组织创作，可随时暂停或停止。模型用量按实际计费，工作稿不会自动采用或发布。</p>
+    <p>批准后自动组织创作。{permit?.maxTaskAttempts === null && "当前未设用量上限，"}可随时暂停或停止。模型用量按实际计费，工作稿不会自动采用或发布。</p>
     {error && <p role="alert">{error}</p>}
     <div><button type="button" className="text-button" disabled={reading} onClick={onCancel}>暂不开始</button>
       <button type="button" className="secondary-button" disabled={!valid || blocked || reading} onClick={() => void confirm()}>

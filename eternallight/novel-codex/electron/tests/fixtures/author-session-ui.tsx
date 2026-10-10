@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import { chapterRuntimeReads } from "../helpers/chapter-runtime";
 import React, { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -20,12 +21,12 @@ window.novelAuthorSession = {
   signOut: async () => { if (failWrite) throw Error("会话保存失败"); snapshot = { ...snapshot, signedIn: false }; return structuredClone(snapshot); },
   clear: async () => { if (failWrite) throw Error("会话保存失败"); snapshot = { profile: null, signedIn: false }; return structuredClone(snapshot); },
 };
-window.novelCodex = {
+window.novelCodex = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: () => () => {} },
   runtime: { ...chapterRuntimeReads(() => project), listWorkTasks: async () => ({ tasks: [], nextCursor: null, activeCount: 0 }),
     ...Object.fromEntries(["Search", "Entity", "Relation", "Knowledge", "SnapshotKnowledge", "Fact"].map(kind => [`get${kind}Audit`, async () => ({ job: null })])), status: async () => ({ state: "online", mode: "local", error: null }), listProjects: async () => ({ projects: [project] }), getState: async () => state },
   agent: { onEvent: () => () => {}, onUserInputRequest: () => () => {}, status: async () => ({ configured: false, state: "idle", mode: "novel-agent-engine", error: null }),
-    listConnections: async () => ({ connections: [] }), listThreads: async () => ({ threads: [], nextCursor: null }), recoveryReport: async () => [], listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => ({ selected: false }) },
+    listConnections: async () => ({ connections: [] }), listExecutions: async () => [], readMessage: async () => { throw Error("message receipt not found"); }, beginInterlude: async () => { throw Error("unexpected interlude"); }, returnInterlude: async () => { throw Error("unexpected interlude return"); }, listMessages: async () => [], listThreads: async () => ({ threads: [], nextCursor: null }), recoveryReport: async () => [], listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => ({ selected: false }) },
 };
 window.addEventListener("error", event => { window.testResult = { passed: false, error: event.error?.stack ?? event.message }; });
 const button = text => [...document.querySelectorAll("button")].find(node => node.textContent === text);

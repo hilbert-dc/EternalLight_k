@@ -36,26 +36,11 @@
   line-height: 1.5;
 }
 
-.work-task-panel .work-task-row > p,
-.work-task-panel .work-task-execution {
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.work-task-execution > summary {
-  cursor: pointer;
-  color: var(--nc-ink-muted);
-  padding: 6px 0;
-}
-
-.work-task-execution > ol {
-  margin: 8px 0;
-  padding-left: 20px;
-}
-
-.work-task-execution li + li {
-  margin-top: 10px;
-}
+.work-task-panel .work-task-row > p { font-size: 12px; line-height: 1.6; }
+.work-chapter-acceptance { margin: 8px 0 14px; font-size: 13px; line-height: 1.7; }
+.work-chapter-acceptance p { margin: 4px 0; }
+.work-chapter-acceptance details { color: var(--nc-ink-muted); font-size: 12px; }
+.work-chapter-acceptance summary { cursor: pointer; }
 
 .work-task-changes {
   display: flex;
@@ -81,6 +66,5 @@
   margin: 8px 0 0;
 }
 
-.work-task-panel .work-task-controls:empty {
-  display: none;
-}
+.work-goal-assessment { margin: 12px 0; font-size: 14px; line-height: 1.75; }
+.work-goal-assessment > p { margin: 8px 0; }

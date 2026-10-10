@@ -51,7 +51,7 @@ export function SidebarWorkDirectory({ api, projectId, chapters, selectedChapter
     {outline?.error && <p role="alert">目录内容读取失败：{outline.error}<button type="button" disabled={blocked} onClick={() => setRetry(value => value + 1)}>重新读取目录内容</button></p>}
     {(!outline || outline.loading) && <small role="status">正在读取目录内容…</small>}
     <WorkDirectory key={projectId} catalog={directory.catalog} readError={directory.error} chapters={displayChapters(chapters, outline?.titles ?? [], titlePreview?.projectId === projectId ? titlePreview : null)}
-      selectedChapterId={selectedChapterId} disabled={blocked || dirty} navigationDisabled={busy}
+      selectedChapterId={selectedChapterId} disabled={blocked || dirty} navigationDisabled={false}
       chapterCreationDisabled={blocked} outlineSources={outline?.entries ?? []}
       onSelectChapter={chapter => { const original = chapters.find(item => item.id === chapter.id); if (original) onSelectChapter(original); }}
       onDeleteChapter={onDeleteChapter}

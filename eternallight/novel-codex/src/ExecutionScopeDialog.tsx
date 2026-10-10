@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ExecutionScopeConfirmation, ExecutionScopePreview, ExecutionScopeRequest, NovelCodexApi, ProposedAction } from "./types";
 import { DesiredOutcomes } from "./DesiredOutcomes";
+import { compactTaskName, taskOperationName } from "./task-operation-presentation";
 import "./execution-scope.css";
 
 export function ExecutionScopeDialog({ projectId, initialAction, actions, api, blocked, onClose, onStart, onComplete, onError }: {
@@ -78,10 +79,13 @@ export function ExecutionScopeDialog({ projectId, initialAction, actions, api, b
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }
   }}><h2 id="scope-title">确认本轮创作范围</h2><p id="scope-description">仅覆盖本次对话的精确操作与目标。保存后可按实际需要继续检查；后续精确匹配的目标可在名额内执行，范围外修改仍需要你确认。分析也消耗原预算和累计尝试，不会正式采用正文、解锁场景或增加模型额度。关闭窗口不会停止已提交任务；执行中可返回对话查看进度、暂停或停止。</p>
-    <fieldset disabled={busy || saved || blocked}><legend>允许的候选操作与目标</legend>{choices.map(action => <label className="scope-choice" key={action.id}><input type="checkbox" checked={selected.includes(action.id)} onChange={event => change(() => {
+    <fieldset disabled={busy || saved || blocked}><legend>允许的候选操作与目标</legend>{choices.map(action => {
+      const name = compactTaskName(taskOperationName(action.operation, action.target));
+      return <label className="scope-choice" key={action.id}><input type="checkbox" checked={selected.includes(action.id)} onChange={event => change(() => {
       const next = event.target.checked ? [...selected, action.id] : selected.filter(id => id !== action.id);
       setSelected(next); setMaxActions(current => Math.max(current, next.length));
-    })} /><span>{action.instruction}<small>{action.operation}</small>{action.operation === "generateChapter" && <DesiredOutcomes outcomes={action.target.desiredOutcomes} />}<details><summary>精确目标</summary><pre>{JSON.stringify(action.target, null, 2)}</pre></details></span></label>)}
+    })} /><span>{action.instruction}<small title={name.fullLabel} aria-label={name.fullLabel}>{name.label}</small>{action.operation === "generateChapter" && <DesiredOutcomes outcomes={action.target.desiredOutcomes} />}<details><summary>精确目标</summary><pre>{JSON.stringify(action.target, null, 2)}</pre></details></span></label>;
+    })}
       <div className="scope-limits"><label>动作名额（含已选择操作）<input aria-label="动作名额" type="number" min={Math.max(1, selected.length)} max={3} value={maxActions} onChange={event => change(() => setMaxActions(Number(event.target.value)))} /></label><label>累计尝试上限（含原分析、失败和建模）<input aria-label="累计尝试上限" type="number" min={2} max={16} value={maxTaskAttempts} onChange={event => change(() => setMaxTaskAttempts(Number(event.target.value)))} /></label></div>
     </fieldset>
     {preview && <div className="scope-preview" aria-label="冻结范围预览"><strong>作者原话</strong><p>{preview.authorIntent}</p><dl><dt>执行用量策略</dt><dd>{preview.remainingRequests === null ? "不设请求上限" : `${preview.remainingRequests} 次请求`} · {preview.remainingTokens === null ? "不设 token 上限" : `${preview.remainingTokens.toLocaleString()} tokens`}</dd><dt>截止时间</dt><dd>{preview.deadlineAt === null ? "执行至完成或主动停止" : new Date(preview.deadlineAt * 1000).toLocaleString()}</dd><dt>作品 / 意图 / 工作版本</dt><dd>{preview.inputRevision} / {preview.request.expectedIntentRevision} / {preview.workVersion}</dd></dl>{preview.targets.map((item, index) => item.operation === "generateChapter" && <DesiredOutcomes key={index} outcomes={item.target.desiredOutcomes} />)}<details><summary>冻结的精确操作与目标</summary><pre>{JSON.stringify(preview.targets, null, 2)}</pre></details></div>}

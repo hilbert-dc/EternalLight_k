@@ -1,3 +1,4 @@
+import { novelFixtureMedia } from "../helpers/novel-edition";
 import { chapterRuntimeReads } from "../helpers/chapter-runtime";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -29,7 +30,7 @@ let serial = 0, closeRequested, confirmedCloses = 0, releaseSave, failRead = fal
 let saveMode = "normal", heldRead = null, savedHandler, discardHandler, dirty = false;
 const requests = [], receipts = new Map();
 let reviews = 0, accepts = 0, undos = 0;
-const api = {
+const api = { multimedia: novelFixtureMedia,
   app: { onCloseRequested: (handler) => { closeRequested = handler; return () => {}; }, confirmClose: async () => { confirmedCloses += 1; }, cancelClose: async () => {} },
   agent: { onEvent: () => () => {}, onUserInputRequest: () => () => {}, status: async () => ({ configured: false, state: "idle", mode: "novel-agent-engine", error: null }),
     listConnections: async () => ({ connections: [] }), recoveryReport: async () => [], listProposedActions: async () => ({ actions: [] }), setWorkspaceContext: async () => ({ selected: true }) },

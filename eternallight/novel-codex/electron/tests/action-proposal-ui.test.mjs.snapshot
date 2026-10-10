@@ -1,3 +1,3 @@
 exports[`model action stays a visible proposal until the author approves its exact identity 1`] = `
-"✦候选已保存：task-candidate；后续知识建模待继续，不能据此判断故事事实。"
+"✦候选后续处理未完成：后续知识建模待继续，不能据此判断故事事实。"
 `;
