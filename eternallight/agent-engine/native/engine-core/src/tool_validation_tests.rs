@@ -8,16 +8,32 @@ fn tagged_union_reports_a_repairable_declared_field_without_echoing_values() {
         {"type":"object","required":["kind","owner"],"properties":{"kind":{"enum":["fact"]},"owner":{"type":"string"}}},
         {"type":"object","required":["kind","participants"],"properties":{"kind":{"enum":["event"]},"participants":{"type":"array"}}}
     ]}}}});
-    let message = validate(&json!({"assertions":[{"kind":"event","secret":"never echo"}]}), &schema, "publish").unwrap_err();
+    let message = validate(
+        &json!({"assertions":[{"kind":"event","secret":"never echo"}]}),
+        &schema,
+        "publish",
+    )
+    .unwrap_err();
     let diagnostic: Value = serde_json::from_str(message.strip_prefix(PREFIX).unwrap()).unwrap();
     assert_eq!(diagnostic["reason"], "required");
     assert_eq!(diagnostic["missingField"], "participants");
-    assert_eq!(diagnostic["requiredFields"], json!(["kind", "participants"]));
-    assert_eq!(diagnostic["schemaPath"], "/properties/assertions/items/anyOf/1/required");
+    assert_eq!(
+        diagnostic["requiredFields"],
+        json!(["kind", "participants"])
+    );
+    assert_eq!(
+        diagnostic["schemaPath"],
+        "/properties/assertions/items/anyOf/1/required"
+    );
     assert!(!message.contains("secret"));
     assert!(!message.contains("never echo"));
     assert_eq!(diagnostic_message(&message), Some(message));
-    let unknown = validate(&json!({"assertions":[{"kind":"other"}]}), &schema, "publish").unwrap_err();
+    let unknown = validate(
+        &json!({"assertions":[{"kind":"other"}]}),
+        &schema,
+        "publish",
+    )
+    .unwrap_err();
     assert!(unknown.contains("constraint"));
 }
 

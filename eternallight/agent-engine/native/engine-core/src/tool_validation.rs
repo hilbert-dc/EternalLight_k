@@ -1,4 +1,4 @@
-use crate::{Result, schema};
+use crate::{schema, Result};
 use jsonschema::error::ValidationErrorKind;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -50,28 +50,51 @@ fn specific_error<'a, 'b>(
     declaration: &Value,
     depth: usize,
 ) -> &'a jsonschema::ValidationError<'b> {
-    if depth >= 8 { return error; }
-    let ValidationErrorKind::AnyOf { context } = &error.kind else { return error; };
-    let Some(branches) = declaration.pointer(&error.schema_path.to_string()).and_then(Value::as_array) else { return error; };
+    if depth >= 8 {
+        return error;
+    }
+    let ValidationErrorKind::AnyOf { context } = &error.kind else {
+        return error;
+    };
+    let Some(branches) = declaration
+        .pointer(&error.schema_path.to_string())
+        .and_then(Value::as_array)
+    else {
+        return error;
+    };
     let mut matches = branches.iter().enumerate().filter(|(_, branch)| {
-        let Some(properties) = branch["properties"].as_object() else { return false; };
+        let Some(properties) = branch["properties"].as_object() else {
+            return false;
+        };
         let mut tagged = false;
         for (field, schema) in properties {
-            let Some(value) = error.instance.get(field) else { continue; };
+            let Some(value) = error.instance.get(field) else {
+                continue;
+            };
             if let Some(values) = schema["enum"].as_array() {
                 tagged = true;
-                if !values.contains(value) { return false; }
+                if !values.contains(value) {
+                    return false;
+                }
             }
             if let Some(expected) = schema.get("const") {
                 tagged = true;
-                if expected != value { return false; }
+                if expected != value {
+                    return false;
+                }
             }
         }
         tagged
     });
-    let Some((index, _)) = matches.next() else { return error; };
-    if matches.next().is_some() { return error; }
-    context.get(index).and_then(|errors| errors.first())
+    let Some((index, _)) = matches.next() else {
+        return error;
+    };
+    if matches.next().is_some() {
+        return error;
+    }
+    context
+        .get(index)
+        .and_then(|errors| errors.first())
         .map_or(error, |inner| specific_error(inner, declaration, depth + 1))
 }
 
@@ -79,10 +102,7 @@ fn specific_error<'a, 'b>(
 // Schema locations come from the declaration, never the caller's unknown keys or values.
 pub(crate) fn validate(value: &Value, declaration: &Value, declared_name: &str) -> Result<Value> {
     let declaration = schema::convert(declaration)?;
-    let validator = jsonschema::options()
-        .with_draft(jsonschema::Draft::Draft202012)
-        .build(&declaration)
-        .map_err(|_| "tool parameter schema is invalid")?;
+    let validator = schema::compile_validator(&declaration)?;
     if let Err(error) = validator.validate(value) {
         let error = specific_error(&error, &declaration, 0);
         let (reason, missing_field) = match &error.kind {
@@ -102,11 +122,24 @@ pub(crate) fn validate(value: &Value, declaration: &Value, declared_name: &str) 
         };
         let path = error.schema_path.to_string();
         let required_fields = if matches!(reason, Reason::Required) {
-            declaration.pointer(&path).and_then(Value::as_array)
+            declaration
+                .pointer(&path)
+                .and_then(Value::as_array)
                 .filter(|fields| !fields.is_empty() && fields.len() <= 8)
-                .and_then(|fields| fields.iter().map(|field| field.as_str()
-                    .filter(|name| identifier(name, 32)).map(str::to_owned)).collect::<Option<Vec<_>>>())
-        } else { None };
+                .and_then(|fields| {
+                    fields
+                        .iter()
+                        .map(|field| {
+                            field
+                                .as_str()
+                                .filter(|name| identifier(name, 32))
+                                .map(str::to_owned)
+                        })
+                        .collect::<Option<Vec<_>>>()
+                })
+        } else {
+            None
+        };
         let mut diagnostic = Diagnostic {
             tool: if identifier(declared_name, /*maximum*/ 80) {
                 declared_name
@@ -129,7 +162,10 @@ pub(crate) fn validate(value: &Value, declaration: &Value, declared_name: &str) 
         );
         if message.len() > MAX_MESSAGE_BYTES {
             diagnostic.required_fields = None;
-            message = format!("{PREFIX}{}", serde_json::to_string(&diagnostic).map_err(|_| "invalid tool diagnostic")?);
+            message = format!(
+                "{PREFIX}{}",
+                serde_json::to_string(&diagnostic).map_err(|_| "invalid tool diagnostic")?
+            );
         }
         // The entire message fits the existing observer's 500-character envelope.
         if message.len() > MAX_MESSAGE_BYTES {
@@ -153,8 +189,11 @@ pub(crate) fn diagnostic_message(message: &str) -> Option<String> {
             .missing_field
             .as_deref()
             .is_some_and(|field| !identifier(field, /*maximum*/ 48))
-        || diagnostic.required_fields.as_ref().is_some_and(|fields| fields.is_empty()
-            || fields.len() > 8 || fields.iter().any(|field| !identifier(field, 32)))
+        || diagnostic.required_fields.as_ref().is_some_and(|fields| {
+            fields.is_empty()
+                || fields.len() > 8
+                || fields.iter().any(|field| !identifier(field, 32))
+        })
     {
         return None;
     }

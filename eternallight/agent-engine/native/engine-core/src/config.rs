@@ -1,7 +1,7 @@
 use crate::{
     Result,
     canonical::{array, string},
-    contracts, tokens,
+    contracts,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -15,6 +15,46 @@ fn toml_array(value: &Value) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     )
+}
+
+fn mcp_tool_output_config(server: &Value) -> Result<Vec<String>> {
+    let Some(tools) = server.get("tools") else {
+        return Ok(Vec::new());
+    };
+    let tools = tools
+        .as_object()
+        .filter(|tools| tools.len() <= 1024)
+        .ok_or("MCP tools must be an object containing at most 1024 entries")?;
+    let mut lines = Vec::new();
+    for (name, configuration) in tools {
+        if name.is_empty()
+            || name.len() > 256
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+        {
+            return Err("MCP tool name must be a bounded ASCII identifier".into());
+        }
+        let fields = configuration
+            .as_object()
+            .ok_or("MCP tool configuration must be an object")?;
+        if fields.keys().any(|field| field != "outputTokenLimit") {
+            return Err("MCP tool configuration contains unsupported fields".into());
+        }
+        let limit = fields
+            .get("outputTokenLimit")
+            .and_then(Value::as_u64)
+            .filter(|limit| {
+                *limit > 0 && *limit <= 9_007_199_254_740_991 && usize::try_from(*limit).is_ok()
+            })
+            .ok_or("MCP outputTokenLimit must be a positive safe integer")?;
+        lines.extend([
+            String::new(),
+            format!("[mcp_servers.{}.tools.{name}]", string(&server["id"])),
+            format!("output_token_limit = {limit}"),
+        ]);
+    }
+    Ok(lines)
 }
 
 fn multi_agent(route: &Value) -> bool {
@@ -75,14 +115,8 @@ pub(crate) fn compile(input: &Value) -> Result<Value> {
             let instructions = value
                 .as_str()
                 .ok_or("Codex developerInstructions must be a string or null")?;
-            if instructions.len() > 4096 {
-                return Err("Codex developerInstructions exceeds the 4KiB byte limit".into());
-            }
-            if tokens::count(instructions) > 1000 {
-                return Err(
-                    "Codex developerInstructions exceeds the 1K-token conservative limit".into(),
-                );
-            }
+            // Configuration preserves policy. Every provider request separately
+            // admits the complete encoded input against the actual route budget.
             Some(instructions)
         }
     };
@@ -159,6 +193,7 @@ pub(crate) fn compile(input: &Value) -> Result<Value> {
         String::new(),
         "[features]".into(),
         format!("multi_agent = {enabled}"),
+        format!("subagent_default_context_limits = {enabled}"),
         format!("tool_search = {tool_search}"),
     ]);
     for feature in [
@@ -180,6 +215,7 @@ pub(crate) fn compile(input: &Value) -> Result<Value> {
         String::new(),
         "[features.multi_agent_v2]".into(),
         format!("enabled = {enabled}"),
+        format!("preserve_fork_prefix = {enabled}"),
         "non_code_mode_only = false".into(),
         "hide_spawn_agent_metadata = false".into(),
         format!(
@@ -199,7 +235,10 @@ pub(crate) fn compile(input: &Value) -> Result<Value> {
         format!("enabled = {enabled}"),
         format!(
             "max_concurrent_threads_per_session = {}",
-            plan["maxActiveChildren"].as_u64().ok_or("invalid child capacity")?.saturating_add(1)
+            plan["maxActiveChildren"]
+                .as_u64()
+                .ok_or("invalid child capacity")?
+                .saturating_add(1)
         ),
     ]);
     if children.len() == 1 {
@@ -219,6 +258,25 @@ pub(crate) fn compile(input: &Value) -> Result<Value> {
         format!("env_key = {}", input["bridge"]["credentialRef"]),
     ]);
     for server in servers {
+        let fields = server
+            .as_object()
+            .ok_or("MCP server configuration must be an object")?;
+        if fields.keys().any(|field| {
+            !matches!(
+                field.as_str(),
+                "id" | "command"
+                    | "args"
+                    | "envVars"
+                    | "approvalMode"
+                    | "required"
+                    | "startupTimeoutMs"
+                    | "inputSchemaMaxBytes"
+                    | "tools"
+            )
+        }) {
+            return Err("MCP server configuration contains unsupported fields".into());
+        }
+        let tool_lines = mcp_tool_output_config(server)?;
         let required = match server.get("required") {
             None => false,
             Some(Value::Bool(required)) => *required,
@@ -231,6 +289,19 @@ pub(crate) fn compile(input: &Value) -> Result<Value> {
                     .as_u64()
                     .filter(|ms| (1..=300_000).contains(ms))
                     .ok_or("MCP startupTimeoutMs must be an integer between 1 and 300000")?,
+            ),
+        };
+        let input_schema_max_bytes = match server.get("inputSchemaMaxBytes") {
+            None => None,
+            Some(limit) => Some(
+                limit
+                    .as_u64()
+                    .filter(|limit| {
+                        *limit > 0
+                            && *limit <= 9_007_199_254_740_991
+                            && usize::try_from(*limit).is_ok()
+                    })
+                    .ok_or("MCP inputSchemaMaxBytes must be a positive safe integer")?,
             ),
         };
         let args = Value::Array(array(&server["args"]).to_vec());
@@ -250,6 +321,10 @@ pub(crate) fn compile(input: &Value) -> Result<Value> {
             let milliseconds = timeout % 1000;
             lines.push(format!("startup_timeout_sec = {seconds}.{milliseconds:03}"));
         }
+        if let Some(limit) = input_schema_max_bytes {
+            lines.push(format!("tool_input_schema_max_bytes = {limit}"));
+        }
+        lines.extend(tool_lines);
     }
     Ok(format!("{}\n", lines.join("\n")).into())
 }

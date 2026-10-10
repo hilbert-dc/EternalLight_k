@@ -54,10 +54,13 @@ struct Exchange<'a> {
     lease: Value,
     route: Value,
     identity: Value,
+    discovery_catalog: Value,
     context: Value,
     reservation: Value,
     settled: bool,
     downstream_started: bool,
+    chat_finish_seen: bool,
+    reported_usage: Option<Value>,
 }
 
 pub(super) fn run(shared: &Shared, request: LocalRequest, control: &Control) {
@@ -70,17 +73,20 @@ pub(super) fn run(shared: &Shared, request: LocalRequest, control: &Control) {
         lease: Value::Null,
         route: Value::Null,
         identity: Value::Null,
+        discovery_catalog: Value::Null,
         context: Value::Null,
         reservation: Value::Null,
         settled: false,
         downstream_started: false,
+        chat_finish_seen: false,
+        reported_usage: None,
     };
     if let Err(error) = exchange.execute(&request) {
         lock(&shared.scheduler).feedback(request.id, 500);
         exchange.failure(error);
     }
     if !exchange.reservation.is_null()&&!exchange.settled
-        && let Err(error)=shared.call("settle",json!({"budgetId":exchange.budget["id"],"id":exchange.reservation,"usage":null,"options":{"outcome":if exchange.downstream_started{"unknown"}else{"not-sent"}}}),None) {
+        && let Err(error)=shared.call("settle",json!({"budgetId":exchange.budget["id"],"id":exchange.reservation,"usage":exchange.reported_usage.as_ref().unwrap_or(&Value::Null),"options":{"outcome":if exchange.downstream_started{"unknown"}else{"not-sent"}}}),None) {
         *lock(&shared.settlement_failure)=Some(error);shared.cancel();
     }
     let _ = shared.call("releaseFetch", json!({"requestId":request.id}), None);
@@ -125,6 +131,9 @@ impl Exchange<'_> {
         }
     }
     fn event(&self, event: &Value) -> Outcome<()> {
+        if event["type"] == "response.completed" {
+            self.observe_discovery(&event["response"])?;
+        }
         self.write(
             format!(
                 "event: {}\ndata: {event}\n\n",
@@ -132,6 +141,21 @@ impl Exchange<'_> {
             )
             .as_bytes(),
         )
+    }
+    fn observe_discovery(&self, response: &Value) -> Outcome<()> {
+        self.check()?;
+        let mut state = lock(&self.shared.execution);
+        let config = state.plan["toolDiscovery"].clone();
+        if config.is_null() {
+            return Ok(());
+        }
+        // An old in-flight exchange cannot register receipts in a new execution.
+        if state.lease["leaseId"] != self.lease["leaseId"] || state.lease.is_null() {
+            return Err(status("discovery response execution lease changed", 403));
+        }
+        state.policy.apply("observeDiscovery", &json!({"response":response,"toolDiscovery":config,"identity":self.identity,"catalog":self.discovery_catalog}))
+            .map_err(|e|status(e,403))?;
+        Ok(())
     }
     fn settle(&mut self, usage: &Value) -> Outcome<()> {
         if !self.reservation.is_null() && !self.settled {
@@ -143,6 +167,31 @@ impl Exchange<'_> {
             self.settled = true;
         }
         Ok(())
+    }
+    fn chat_usage_candidate(&self, frame: &Value) -> (bool, Option<Value>) {
+        if self.route["protocol"] != "chat-completions" {
+            return (self.chat_finish_seen, None);
+        }
+        let current_finish = frame["data"]["choices"][0]["finish_reason"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty());
+        let finished = self.chat_finish_seen || current_finish;
+        let usage_only = frame["data"]["choices"]
+            .as_array()
+            .is_some_and(Vec::is_empty);
+        let usage = &frame["data"]["usage"];
+        // Only raw final counts are evidence on an interrupted stream. Do not
+        // let normal codec normalization invent a valid total from invalid data.
+        let reported = (current_finish || self.chat_finish_seen && usage_only)
+            .then(|| {
+                output_failure::reported_usage(&json!({
+                    "total_tokens": usage["total_tokens"],
+                    "input_tokens": usage["prompt_tokens"],
+                    "output_tokens": usage["completion_tokens"],
+                }))
+            })
+            .flatten();
+        (finished, reported)
     }
     fn barrier(&self, observation: &Value) -> Outcome<()> {
         let policy = &self.shared.options["responseBarrier"];
@@ -239,15 +288,59 @@ impl Exchange<'_> {
                 .as_str()
                 .is_some_and(|p| Path::new(p).exists())
         };
-        body=lock(&self.shared.execution).policy.apply("prepare",&json!({"body":body,"outputBudget":self.route["outputBudget"],"identity":self.identity,"policy":policy,"childComplete":exists("childCompletionFile"),"childPhaseReached":exists("childPhaseFile")})).map_err(|e|status(e,403))?;
+        {
+            let mut state = lock(&self.shared.execution);
+            let discovery = state.plan["toolDiscovery"].clone();
+            body=state.policy.apply("prepare",&json!({"body":body,"outputBudget":self.route["outputBudget"],"identity":self.identity,"policy":policy,"toolDiscovery":discovery,"childComplete":exists("childCompletionFile"),"childPhaseReached":exists("childPhaseFile")})).map_err(|e|status(e,403))?;
+            if !discovery.is_null() {
+                self.discovery_catalog = state
+                    .policy
+                    .apply("discoverySnapshot", &json!({"identity":self.identity}))?;
+            }
+        }
         let protocol = canonical::string(&self.route["protocol"]).to_owned();
+        let (_, image_tokens) =
+            crate::image_input::admission(&body["input"]).map_err(|e| status(e, 400))?;
+        if image_tokens > 0
+            && (protocol != "responses"
+                || !canonical::array(&self.route["authorizedExtensions"])
+                    .iter()
+                    .any(|v| v == "imageInput"))
+        {
+            return Err(status(
+                "image input is not verified and authorized for this route",
+                403,
+            ));
+        }
+        // Trusted host selection, snapshotted once per request. This cannot alter
+        // the frozen route, execution identity, tools, or cumulative budget.
+        if self.shared.options["hasRequestConfigurationProvider"] == true {
+            let selection = self.call("requestConfiguration", json!({
+                "connectionId": self.route["connectionId"],
+                "runId": self.lease["runId"], "threadId": self.identity["threadId"]
+            }))?;
+            if !selection.is_null() {
+                let fields = selection.as_object().ok_or_else(|| status("request configuration must be an object or null", 400))?;
+                if fields.len() != 1 || !fields.contains_key("reasoningEffort") {
+                    return Err(status("request configuration only accepts reasoningEffort", 400));
+                }
+                let effort = selection["reasoningEffort"].as_str().ok_or_else(|| status("request reasoning effort must be a string", 400))?;
+                if protocol != "responses" || !canonical::array(&connection["protocolOptions"]["allowedReasoningEfforts"]).iter().any(|v| v == effort) {
+                    return Err(status("request reasoning effort is outside the connection's allowed set", 400));
+                }
+                if body["reasoning"].is_null() { body["reasoning"] = json!({}); }
+                let reasoning = body["reasoning"].as_object_mut().ok_or_else(|| status("reasoning must be an object", 400))?;
+                reasoning.insert("effort".into(), effort.into());
+            }
+        }
         let mut prepared = if protocol == "responses" {
             responses_request::encode(&body, connection, key)?
         } else {
             portable::encode(&protocol, &body, connection, key)?
         };
         // Private host policy, never accepted from model output or request metadata.
-        prepared["context"]["executorValidatedTools"] = self.shared.options["executorValidatedTools"].clone();
+        prepared["context"]["executorValidatedTools"] =
+            self.shared.options["executorValidatedTools"].clone();
         self.context = self.identity.clone();
         self.context.as_object_mut().ok_or("invalid route identity")?.extend(json!({"runId":self.lease["runId"],"requestId":prepared["context"]["requestId"],"connectionId":self.route["connectionId"],"logicalModel":self.route["logicalModel"]}).as_object().unwrap().clone());
         if !self.context["requestId"].is_string() {
@@ -284,14 +377,28 @@ impl Exchange<'_> {
         }
         // Reservation completion cannot be abandoned on cancellation: its id is
         // needed to refund a request that never reached the provider.
-        let group = format!("{}|{}", canonical::string(&connection["endpoint"]), canonical::string(&connection["credentialRef"]));
+        let group = format!(
+            "{}|{}",
+            canonical::string(&connection["endpoint"]),
+            canonical::string(&connection["credentialRef"])
+        );
         let limits = &self.shared.resource_policy;
-        let provider_limit = canonical::array(&self.shared.options["connections"]).iter()
-            .filter(|c| c["endpoint"] == connection["endpoint"] && c["credentialRef"] == connection["credentialRef"])
-            .map(|c| limits["connectionLimits"][canonical::string(&c["id"])].as_u64()
-                .unwrap_or(limits["maxRequestsPerProvider"].as_u64().unwrap()))
-            .min().unwrap_or(1) as usize;
-        lock(&self.shared.scheduler).enqueue(self.id, group, provider_limit).map_err(|e| status(e,429))?;
+        let provider_limit = canonical::array(&self.shared.options["connections"])
+            .iter()
+            .filter(|c| {
+                c["endpoint"] == connection["endpoint"]
+                    && c["credentialRef"] == connection["credentialRef"]
+            })
+            .map(|c| {
+                limits["connectionLimits"][canonical::string(&c["id"])]
+                    .as_u64()
+                    .unwrap_or(limits["maxRequestsPerProvider"].as_u64().unwrap())
+            })
+            .min()
+            .unwrap_or(1) as usize;
+        lock(&self.shared.scheduler)
+            .enqueue(self.id, group, provider_limit)
+            .map_err(|e| status(e, 429))?;
         while !lock(&self.shared.scheduler).admit(self.id) {
             self.check()?;
             std::thread::sleep(Duration::from_millis(10));
@@ -347,7 +454,9 @@ impl Exchange<'_> {
         else {
             return Err("provider did not return response headers".into());
         };
-        if !(200..300).contains(&code) { lock(&self.shared.scheduler).feedback(self.id, code); }
+        if !(200..300).contains(&code) {
+            lock(&self.shared.scheduler).feedback(self.id, code);
+        }
         if headers
             .get("content-length")
             .and_then(|s| s.parse::<usize>().ok())
@@ -400,11 +509,13 @@ impl Exchange<'_> {
                                 }
                                 return Err(failure);
                             }
+                            let (chat_finished, reported_usage) = self.chat_usage_candidate(&frame);
                             let events = match decoder.push(frame) {
                                 Ok(events) => events,
                                 Err(message) => {
                                     let failure = Failure::codec(message);
-                                    if failure.validation_code.is_some()
+                                    if (failure.validation_code.is_some()
+                                        || failure.item_limit_code() == Some("provider_output_item_limit"))
                                         && let Some(usage) = output_failure::drain_usage(
                                             pending.collect(),
                                             &mut sse,
@@ -417,6 +528,10 @@ impl Exchange<'_> {
                                     return Err(failure);
                                 }
                             };
+                            self.chat_finish_seen = chat_finished;
+                            if let Some(usage) = reported_usage {
+                                self.reported_usage = Some(usage);
+                            }
                             for event in events {
                                 if buffered {
                                     frames.push(event);
@@ -449,7 +564,12 @@ impl Exchange<'_> {
                     }
                     return Err(failure);
                 }
+                let (chat_finished, reported_usage) = self.chat_usage_candidate(&frame);
                 frames.extend(decoder.push(frame).map_err(Failure::codec)?);
+                self.chat_finish_seen = chat_finished;
+                if let Some(usage) = reported_usage {
+                    self.reported_usage = Some(usage);
+                }
             }
             if let Some(usage) = decoder.reported_usage() {
                 self.settle(&usage)?;
@@ -538,6 +658,7 @@ impl Exchange<'_> {
             self.observe("response", observation);
             self.settle(&canonical["usage"])?;
             if body["stream"] == false {
+                self.observe_discovery(&canonical)?;
                 self.head(200, "application/json; charset=utf-8")?;
                 self.write(canonical.to_string().as_bytes())?;
             } else {
@@ -658,7 +779,15 @@ impl Exchange<'_> {
         } else if cancelled {
             (499, "request cancelled", "cancelled")
         } else if error.budget_code.is_some() {
-            (error.status, error.message.as_str(), "budget_exhausted")
+            (
+                error.status,
+                error.message.as_str(),
+                if error.budget_code == Some("task_provider_usage_unknown") {
+                    "budget_unknown"
+                } else {
+                    "budget_exhausted"
+                },
+            )
         } else {
             (error.status, error.message.as_str(), "bridge_error")
         };

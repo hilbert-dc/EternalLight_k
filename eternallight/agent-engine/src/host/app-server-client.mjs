@@ -1,4 +1,5 @@
 import { nativeBinding } from "../native.mjs";
+import { prepareCodexToolOutputs } from "../session/codex-tool-outputs.mjs";
 
 /** Promise/callback binding for the native App Server lifecycle owner. */
 export class CodexAppServerClient {
@@ -26,7 +27,11 @@ export class CodexAppServerClient {
   }
   ensureSession() { return this.#command("ensureSession"); }
   resumeSession(threadId) { return this.#command("resumeSession", { threadId }); }
-  sendTurn(input, options = {}) { return this.#command("sendTurn", { input, options }); }
+  sendTurn(input, options = {}) {
+    return this.#command("sendTurn", { input, options: { ...options, toolOutputs: prepareCodexToolOutputs(options.toolOutputs) } });
+  }
+  steerRun(request) { return this.steerTurn(request.input, {...request, expectedThreadId:request.threadId, expectedTurnId:request.turnId}); }
+  steerTurn(input, options) { return this.#command("steerTurn", {input, options}); }
   bindExecution(params) { return this.#command("bindExecution", params); }
   interruptTurn() { return this.#command("interruptTurn"); }
   revokeExecution(params = {}) { return this.#command("revokeExecution", params); }

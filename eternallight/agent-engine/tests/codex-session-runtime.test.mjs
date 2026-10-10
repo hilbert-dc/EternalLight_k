@@ -113,6 +113,88 @@ test("failed turns and early binding failures finalize acquired budget records",
   assert.deepEqual(binding.calls, ["budget:failed"]);
 });
 
+test("native runtime preserves synchronous and asynchronous machine failures without copying error metadata", async () => {
+  for (const synchronous of [true, false]) {
+    const { runtime, lease, appServer, calls } = fixture();
+    const failure = Object.assign(new Error("工具参数修订次数已达到上限", { cause: new Error("private cause") }),
+      { code: "tool_argument_correction_limit", arguments: { private: "private arguments" } });
+    failure.stack = "private original stack";
+    appServer.sendTurn = synchronous ? () => { throw failure; } : async () => { throw failure; };
+    runtime.budgetFactory = () => ({ complete: status => calls.push(`budget:${status}`) });
+    await runtime.bindExecution({ lease, sessionPlan: {} });
+    await assert.rejects(runtime.sendTurn([]), error => {
+      assert.equal(error.code, "tool_argument_correction_limit");
+      assert.equal(error.message, failure.message);
+      assert.equal(error.cause, undefined);
+      assert.equal(error.arguments, undefined);
+      assert.ok(!error.stack.includes("private original stack"));
+      assert.deepEqual(Object.keys(error), ["code"]);
+      return true;
+    });
+    assert.deepEqual(calls.slice(-3), ["bridge:lease:end", "bridge:budget:end", "budget:failed"]);
+    await runtime.close();
+  }
+});
+
+test("native runtime encodes plain errors, bounded fields and non-Error failures without string coercion", async () => {
+  let coerced = false;
+  const cases = [
+    [new Error("TASK_CANCELLED:plain text is not cancellation"), null, "TASK_CANCELLED:plain text is not cancellation"],
+    [Object.assign(new Error("bounded"), { code: "not a machine code" }), null, "bounded"],
+    [Object.assign(new Error("文".repeat(1001)), { code: "A".repeat(80) }), "A".repeat(80), "文".repeat(1000)],
+    [Object.assign(new Error("unpaired \ud800 surrogate"), { code: "UNICODE_FAILURE" }), "UNICODE_FAILURE", "unpaired \ufffd surrogate"],
+    [{ message: "private object message", code: "private_code", toString() { coerced = true; return "private object"; } }, null, "Codex runtime callback failed"],
+    ["private primitive message", null, "Codex runtime callback failed"],
+    [Object.defineProperty(new Error("safe"), "code", { get() { throw new Error("private getter"); } }), null, "Codex runtime callback failed"],
+  ];
+  for (const [failure, code, message] of cases) {
+    const { runtime, lease, appServer } = fixture();
+    appServer.sendTurn = () => { throw failure; };
+    await runtime.bindExecution({ lease, sessionPlan: {} });
+    await assert.rejects(runtime.sendTurn([]), error => {
+      assert.equal(error.code, code);
+      assert.equal(error.message, message);
+      return true;
+    });
+    await runtime.close();
+  }
+  assert.equal(coerced, false);
+});
+
+test("primary machine failure survives failed cleanup while every resource drains and reuse remains blocked", async () => {
+  const { runtime, lease, appServer, bridge, calls } = fixture();
+  appServer.sendTurn = async () => { throw Object.assign(new Error("tool correction limit"), { code: "tool_argument_correction_limit" }); };
+  bridge.endExecutionLease = async () => {
+    calls.push("bridge:lease:end");
+    throw Object.assign(new Error("lease drain failed"), { code: "LEASE_DRAIN_FAILED" });
+  };
+  appServer.endExecution = async () => calls.push("app:end");
+  runtime.budgetFactory = () => ({ complete: status => calls.push(`budget:${status}`) });
+  await runtime.bindExecution({ lease, sessionPlan: {} });
+  await assert.rejects(runtime.sendTurn([]), error => error.code === "tool_argument_correction_limit" && error.message === "tool correction limit");
+  assert.deepEqual(calls.slice(-4), ["bridge:lease:end", "bridge:budget:end", "budget:failed", "app:end"]);
+  assert.equal(calls.filter(call => call === "budget:failed").length, 1);
+  await assert.rejects(runtime.bindExecution({ lease, sessionPlan: {} }), /cleanup is unresolved/);
+  await runtime.close();
+  assert.deepEqual(calls.slice(-2), ["app:close", "bridge:close"]);
+});
+
+test("a cleanup-only machine failure still rejects the turn and blocks reuse", async () => {
+  const { runtime, lease, appServer, bridge, calls } = fixture();
+  bridge.endExecutionLease = () => {
+    calls.push("bridge:lease:end");
+    throw Object.assign(new Error("lease drain failed"), { code: "LEASE_DRAIN_FAILED" });
+  };
+  appServer.endExecution = () => calls.push("app:end");
+  runtime.budgetFactory = () => ({ complete: status => calls.push(`budget:${status}`) });
+  await runtime.bindExecution({ lease, sessionPlan: {} });
+  await assert.rejects(runtime.sendTurn([]), error => error.code === "LEASE_DRAIN_FAILED" && error.message === "lease drain failed");
+  assert.deepEqual(calls.slice(-4), ["bridge:lease:end", "bridge:budget:end", "budget:failed", "app:end"]);
+  await assert.rejects(runtime.bindExecution({ lease, sessionPlan: {} }), /cleanup is unresolved/);
+  await runtime.close();
+  assert.deepEqual(calls.slice(-2), ["app:close", "bridge:close"]);
+});
+
 test("Codex session runtime revokes provider work before App Server execution", async () => {
   const { runtime, lease, calls } = fixture();
   await runtime.bindExecution({ lease, sessionPlan: { id: "plan-1" } });
@@ -186,4 +268,27 @@ test("revocation during App Server binding precedes clearing the bound lease", a
   await rejected;
   assert.ok(calls.indexOf("app:revoke") < calls.indexOf("app:end"));
   assert.equal(bound, false);
+});
+
+test("directed input uses the active Native lease and rejects stale epochs and revocation", async () => {
+  const {runtime, lease, appServer} = fixture();
+  const requests = [];
+  appServer.steerTurn = async (input, options) => { requests.push({input,options}); return {steered:true}; };
+  const request = {...lease,threadId:'thread-1',turnId:'turn-1',input:[{type:'text',text:'clarify'}]};
+  await runtime.bindExecution({lease,sessionPlan:{}});
+  assert.equal(runtime.steerRun(request).delivery,"notSent");
+  let finish;
+  appServer.sendTurn = () => new Promise(resolve => {finish=resolve;});
+  const turn = runtime.sendTurn([]);
+  assert.equal(runtime.steerRun({...request,epoch:1}).delivery,"notSent");
+  assert.deepEqual(await runtime.steerRun(request),{steered:true});
+  assert.equal(requests.length,1);
+  assert.equal(requests[0].options.expectedTurnId,'turn-1');
+  appServer.steerTurn = async () => { throw Error("response lost after invocation"); };
+  await assert.rejects(runtime.steerRun(request), /response lost/);
+
+  await runtime.revokeExecution({runId:lease.runId,leaseId:lease.leaseId,expectedEpoch:lease.epoch,revokedEpoch:1});
+  assert.equal(runtime.steerRun(request).delivery,"notSent");
+  assert.equal(requests.length,1);
+  finish({message:'stopped'}); await turn; await runtime.close();
 });

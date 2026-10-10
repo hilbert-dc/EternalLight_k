@@ -90,6 +90,10 @@ pub(crate) fn define(input: &Value) -> Result<Value> {
         ),
         ("agentMessageMode", &["native", "message"][..]),
         ("namespaceToolsMode", &["native", "flatten", "none"][..]),
+        (
+            "developerRoleMode",
+            &["native", "system", "instructions", "unsupported"][..],
+        ),
     ] {
         if let Some(value) = options.get(key)
             && !values.contains(&string(value))
@@ -97,12 +101,25 @@ pub(crate) fn define(input: &Value) -> Result<Value> {
             return Err(format!("protocolOptions.{key} is invalid"));
         }
     }
+    if options.get("developerRoleMode").is_some() && protocol != "responses" {
+        return Err("protocolOptions.developerRoleMode requires the responses protocol".into());
+    }
     if let Some(effort) = options.get("reasoningEffort") {
         if protocol != "responses" {
             return Err("protocolOptions.reasoningEffort requires the responses protocol".into());
         }
-        if !matches!(effort.as_str(), Some("none" | "low" | "high" | "max")) {
+        if !matches!(effort.as_str(), Some("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")) {
             return Err("protocolOptions.reasoningEffort is invalid".into());
+        }
+    }
+    if let Some(allowed) = options.get("allowedReasoningEfforts") {
+        let values = allowed.as_array().filter(|values| !values.is_empty() && values.len() <= 7)
+            .ok_or("protocolOptions.allowedReasoningEfforts must be a nonempty bounded array")?;
+        if protocol != "responses" || options.get("reasoningEffort").is_none()
+            || !values.contains(&options["reasoningEffort"])
+            || values.iter().any(|value| !matches!(value.as_str(), Some("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")))
+        {
+            return Err("protocolOptions.allowedReasoningEfforts requires a Responses default included in the allowed efforts".into());
         }
     }
     let support = input

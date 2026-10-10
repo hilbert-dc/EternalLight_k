@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PersistentTaskBudget } from '../src/index.mjs';
+
+test('trusted late receipt resolves original unknown accounting without reactivating run', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'late-usage-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, 'ledger.sqlite');
+  const budget = new PersistentTaskBudget({ databasePath: path, runId: 'original', maxTokens: 100 });
+  const id = budget.reserveRequest({ estimatedInputTokens: 30, maxOutputTokens: 20 });
+  const unknown = budget.settleReservation(id, null, { outcome: 'unknown' });
+  assert.equal(budget.snapshot().unknownTokens, 50);
+  assert.throws(() => budget.reserveRequest({ estimatedInputTokens: 1 }), /usage is unknown/);
+  assert.deepEqual(budget.settleReservation(id, { total_tokens: 17 }), unknown, 'ordinary replay cannot reconcile');
+  const reconcile = (usage = { total_tokens: 17 }, receiptRef = 'provider-receipt-1', reservation = id) =>
+    PersistentTaskBudget.reconcileUsage(path, 'original', { id: reservation, usage, receiptRef });
+  assert.throws(() => reconcile(), /owner/);
+  budget.complete('failed');
+  budget.close();
+  assert.throws(() => reconcile({ total_tokens: -1 }), /invalid reported usage/);
+  assert.throws(() => reconcile(null), /invalid reported usage/);
+  assert.throws(() => reconcile({ total_tokens: 17 }, ''), /receipt reference/);
+  assert.throws(() => reconcile({ total_tokens: 17 }, 'provider-receipt-1', 'unrelated'), /unknown reservation/);
+  const result = reconcile();
+  assert.equal(result.usageState, 'known');
+  assert.deepEqual(reconcile(), result);
+  assert.throws(() => reconcile({ total_tokens: 18 }), /conflicting/);
+  assert.throws(() => reconcile({ total_tokens: 17 }, 'different-receipt'), /conflicting/);
+  const receipt = PersistentTaskBudget.receipt(path, 'original');
+  assert.equal(receipt.status, 'failed', 'accounting receipt does not resume execution');
+  assert.equal(receipt.usage.unknownTokens, 0);
+  assert.equal(receipt.usage.tokens, 17);
+  assert.equal(receipt.usage.requests, 1);
+  assert.equal(receipt.usageReconciliations.length, 1);
+  assert.equal(receipt.usageReconciliations[0].before.unknownTokens, 50);
+  assert.equal(receipt.usageReconciliations[0].after.tokens, 17);
+  assert.equal(receipt.usageReconciliations[0].receiptRef, 'provider-receipt-1');
+});

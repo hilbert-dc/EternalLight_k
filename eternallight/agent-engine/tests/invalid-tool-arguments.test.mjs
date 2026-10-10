@@ -25,29 +25,48 @@ for (const [protocol, mode, variant = "required"] of [
   ...["type", "enum", "additionalProperties", "bounded"].flatMap(variant => [
     ["responses", "json", variant], ["responses", "stream", variant],
   ]),
+  ...["json", "stream", "delayed", "missing", "timeout", "cancel"].map(mode => ["responses", mode, "unauthorized"]),
+  ...["duplicate", "choice-none", "choice-other", "oversize"].flatMap(variant => ["json", "stream", "delayed", "missing"].map(mode => ["responses", mode, variant])),
+  ...["json", "stream", "missing"].map(mode => ["chat-completions", mode, "unauthorized"]),
   ["chat-completions", "json", "type"], ["chat-completions", "stream", "additionalProperties"],
 ]) test(`${protocol} ${mode} ${variant} preserves schema rejection, exact usage and zero execution`, { timeout: 10000 }, async t => {
   const field = "declared".repeat(30);
   const parameters = variant === "bounded" ? { type: "object", properties: { [field]: { type: "string" } } }
     : { type: "object", required: ["text"], properties: { text: { type: "string", ...(variant === "enum" ? { enum: ["allowed"] } : {}) } }, additionalProperties: false };
-  const argumentsValue = variant === "type" ? { text: 123 } : variant === "enum" ? { text: "never-execute-private-value" }
+  const argumentsValue = variant === "oversize" ? { text: "x".repeat(270000) }
+    : ["duplicate", "choice-none", "choice-other"].includes(variant) ? { text: "allowed" } : variant === "type" ? { text: 123 } : variant === "enum" ? { text: "never-execute-private-value" }
     : variant === "additionalProperties" ? { text: "allowed", "private-key": "never-execute-private-value" }
     : variant === "bounded" ? { [field]: false } : {};
   const expectedDiagnostic = { tool: "write", reason: variant === "bounded" ? "type" : variant,
     schemaPath: variant === "bounded" ? "unknown" : variant === "required" ? "/required" : variant === "additionalProperties" ? "/additionalProperties" : `/properties/text/${variant}`,
     ...(variant === "required" ? { missingField: "text", requiredFields: ["text"] } : {}) };
+  const errorCode = variant === "unauthorized" ? "unauthorized_tool_call" : variant === "oversize" ? "provider_output_item_limit"
+    : ["duplicate", "choice-none", "choice-other"].includes(variant) ? "invalid_tool_output" : "invalid_tool_arguments";
+  const checkDiagnostic = message => {
+    if (variant === "oversize") assert.ok(message.includes("outputItem="));
+    else if (variant === "unauthorized") {
+      const prefix = "unauthorized_tool_call; toolValidation=";
+      assert.ok(message.startsWith(prefix));
+      assert.deepEqual(JSON.parse(message.slice(prefix.length)), {tool:"n20__mcp__novel_workspace__read_creative_strategy",reason:"not_in_current_request",schemaPath:"/tools"});
+      assert.ok(Buffer.byteLength(message) <= 400);
+      assert.ok(!message.includes("never-execute-private-value"));
+    }
+    else if (errorCode !== "invalid_tool_arguments") assert.equal(message, errorCode);
+    else assert.deepEqual(diagnostic(message), expectedDiagnostic);
+  };
   let requests = 0;
   const provider = createServer(async (incoming, response) => {
     const chunks = [];
     for await (const chunk of incoming) chunks.push(chunk);
     const outbound = JSON.parse(Buffer.concat(chunks));
     requests++;
-    const name = protocol === "responses" ? outbound.tools[0].name : outbound.tools[0].function.name;
+    const name = variant === "unauthorized" ? "n20__mcp__novel_workspace__read_creative_strategy"
+      : protocol === "responses" ? outbound.tools[0].name : outbound.tools[0].function.name;
     const usage = mode === "missing" ? undefined : mode === "invalid-usage"
       ? { input_tokens: 40, output_tokens: 10, total_tokens: -1 } : responseUsage;
     const item = { type: "function_call", id: "fc_invalid", call_id: "invalid-once", name,
       arguments: JSON.stringify(argumentsValue), status: "completed" };
-    const terminal = { type: "response.completed", response: { id: "response-invalid", status: "completed", output: [item], usage } };
+    const terminal = { type: "response.completed", response: { id: "response-invalid", status: "completed", output: variant === "duplicate" ? [item, { ...item, id: "fc_duplicate" }] : [item], usage } };
     if (mode === "provider-http") {
       response.writeHead(503, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { message: "arguments for write violate the declared schema: required property text" } }));
@@ -93,14 +112,14 @@ for (const [protocol, mode, variant = "required"] of [
   const result = await fetch(`${address.baseUrl}/v1/responses`, { method: "POST", headers: {
     authorization: `Bearer ${address.token}`, "x-codex-turn-metadata": JSON.stringify({ thread_id: "root" }),
   }, body: JSON.stringify({ model: "fixture", input: [], stream, tools: [{ type: "function", name: "write",
-    parameters }] }) });
+    parameters }], ...(variant === "choice-none" ? { tool_choice: "none" } : variant === "choice-other" ? { tool_choice: { type: "function", name: "other" }, tools: [{ type: "function", name: "write", parameters }, { type: "function", name: "other", parameters }] } : {}) }) });
   const cancellation = mode === "cancel" ? new Promise(resolve => setTimeout(() => resolve(bridge.cancelActiveRequests()), 20)) : null;
   if (!stream) {
     const payload = await result.json();
     assert.equal(result.status, mode === "provider-http" ? 502 : 400);
-    assert.equal(payload.error.code, mode === "provider-http" ? undefined : "invalid_tool_arguments");
+    assert.equal(payload.error.code, mode === "provider-http" ? undefined : errorCode);
     assert.equal(payload.error.retryable, mode === "provider-http" ? undefined : false);
-    if (mode !== "provider-http") assert.deepEqual(diagnostic(payload.error.message), expectedDiagnostic);
+    if (mode !== "provider-http") checkDiagnostic(payload.error.message);
   } else {
     const text = await result.text();
     const events = text.split("\n").filter(line => line.startsWith("data: ") && line !== "data: [DONE]").map(line => JSON.parse(line.slice(6)));
@@ -108,7 +127,7 @@ for (const [protocol, mode, variant = "required"] of [
     if (protocol === "responses") assert.equal(text.includes("never-execute-private-value"), false);
     const error = events.at(-1).response.error;
     if (mode === "provider-stream") assert.deepEqual(error, { code: "server_error", message: "provider_server_error" });
-    else { assert.equal(error.code, "invalid_prompt"); assert.deepEqual(diagnostic(error.message), expectedDiagnostic); }
+    else { assert.equal(error.code, "invalid_prompt"); checkDiagnostic(error.message); }
   }
   if (cancellation) assert.equal(await cancellation, 1);
   const deadline = Date.now() + 2000;
@@ -122,7 +141,7 @@ for (const [protocol, mode, variant = "required"] of [
   assert.equal(settlements.length, 1);
   assert.equal(settlements[0].usage?.total_tokens ?? null, known ? 50 : null);
   assert.deepEqual(observations.map(({ status, errorCode, retryable }) => ({ status, errorCode, retryable })), [{ status: "failed",
-    errorCode: mode === "provider-http" ? "provider_http_error" : mode === "provider-stream" ? "provider_server_error" : "invalid_tool_arguments",
-    retryable: ["provider-http", "provider-stream"].includes(mode) ? mode === "provider-stream" || undefined : false }]);
-  if (!["provider-http", "provider-stream"].includes(mode)) assert.deepEqual(diagnostic(observations[0].errorMessage), expectedDiagnostic);
+    errorCode: mode === "provider-http" ? "provider_http_error" : mode === "provider-stream" ? "provider_server_error" : errorCode,
+    retryable: ["provider-http", "provider-stream"].includes(mode) }]);
+  if (!["provider-http", "provider-stream"].includes(mode)) checkDiagnostic(observations[0].errorMessage);
 });

@@ -10,6 +10,13 @@ pub struct NativePersistentBudget {
 #[napi]
 impl NativePersistentBudget {
     #[napi]
+    pub fn reconcile_usage(path: String, run_id: String, input: String) -> napi::Result<String> {
+        if input.len() > 4096 { return Err(napi::Error::from_reason("usage receipt exceeds limit")); }
+        let input = serde_json::from_str(&input).map_err(|_| napi::Error::from_reason("invalid usage receipt"))?;
+        let result = PersistentBudget::reconcile_usage(&PathBuf::from(path), &run_id, input).map_err(napi::Error::from_reason)?;
+        serde_json::to_string(&result).map_err(|_| napi::Error::from_reason("invalid reconciliation result"))
+    }
+    #[napi]
     pub fn receipt(path: String, run_id: String) -> napi::Result<String> {
         let result = PersistentBudget::receipt(&PathBuf::from(path), &run_id)
             .map_err(napi::Error::from_reason)?;
@@ -42,6 +49,12 @@ impl NativePersistentBudget {
             .apply(&method, input)
             .map_err(napi::Error::from_reason)?;
         serde_json::to_string(&value).map_err(|_| napi::Error::from_reason("invalid budget result"))
+    }
+
+    #[napi]
+    pub fn observe_failure(&mut self, observation: String) -> napi::Result<()> {
+        if observation.len() > 4096 { return Err(napi::Error::from_reason("failure metadata exceeds limit")); }
+        self.budget.observe_failure(serde_json::from_str(&observation).map_err(|_|napi::Error::from_reason("invalid failure metadata"))?).map_err(napi::Error::from_reason)
     }
 
     #[napi]

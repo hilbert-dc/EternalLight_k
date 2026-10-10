@@ -7,7 +7,7 @@ import { resolveSessionPlan, assertTrustedSessionPlan } from "../session/resolve
 function freeze(value) { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } return value; }
 function errorFrom(value) {
   const message = typeof value === "string" ? value : value?.message ?? "engine operation failed";
-  if (message.startsWith("TASK_CANCELLED:")) return Object.assign(new Error(message.slice(15)), { code: "TASK_CANCELLED" });
+  if (typeof value === "string" && message.startsWith("TASK_CANCELLED:")) return Object.assign(new Error(message.slice(15)), { code: "TASK_CANCELLED" });
   return Object.assign(new Error(message), { code: value?.code });
 }
 const RUNTIME_METHODS = ["ensureSession", "resumeSession", "bindExecution", "sendTurn", "revokeExecution", "interruptTurn", "close", "subscribeEvents"];
@@ -55,6 +55,16 @@ export class AgentEngineHost {
     if (inserted) this.runBindings.set(runId, { turnOptions });
     try { return await this.#command("startRun", { sessionId, input, budgetId, runId, mode, maxDurationMs, deadlineAtMs }); }
     catch (error) { if (inserted) this.runBindings.delete(runId); throw error; }
+  }
+  async steerRun({ runId, sessionId, threadId, turnId, leaseId, epoch, input, additionalContext = {} }) {
+    let run;
+    try { run = this.runStatus(runId); }
+    catch { return { steered: false, delivery: "notSent", reason: "executionChanged" }; }
+    if (run.state !== "running" || run.sessionId !== sessionId || run.threadId !== threadId || run.leaseId !== leaseId || run.epoch !== epoch
+      || typeof turnId !== "string" || !turnId) return { steered: false, delivery: "notSent", reason: "executionChanged" };
+    const runtime = this.bindings.get(sessionId)?.runtime;
+    if (typeof runtime?.steerRun !== "function") return { steered: false, delivery: "notSent", reason: "unsupported" };
+    return runtime.steerRun({ runId, leaseId, epoch, threadId, turnId, input, additionalContext });
   }
   cancelRun(runId, reason = "cancelled-by-host") { return this.#command("cancelRun", { runId, reason }); }
   async renewRun({ runId, sessionPlan }) {

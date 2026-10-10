@@ -41,6 +41,19 @@ test("Responses-only effort rejects malformed values and unqualified protocols i
   assert.throws(() => responsesCodec.createRequest({ ...request, reasoning: "invalid" }, connection, "fixture"), /reasoning must be an object/);
   for (const protocol of ["auto", "chat-completions", "messages", "generate-content"])
     assert.throws(() => defineConnection({ ...definition, protocol, protocolOptions: { reasoningEffort: "low" } }), /requires the responses protocol/);
-  for (const reasoningEffort of ["medium", null, false, 1, {}])
+  for (const reasoningEffort of ["invalid", null, false, 1, {}])
     assert.throws(() => defineConnection({ ...definition, protocolOptions: { reasoningEffort } }), /reasoningEffort is invalid/);
+});
+
+test('declared allowed efforts enforce the floor and bind evidence to the set, not a selected request', () => {
+  const connection = defineConnection({ ...definition, protocolOptions: { reasoningEffort: 'low', allowedReasoningEfforts: ['low', 'high', 'max'] } });
+  const digest = connectionDefinitionDigest(connection);
+  for (const effort of ['low', 'high', 'max']) {
+    assert.equal(responsesCodec.createRequest({ ...request, reasoning: { effort } }, connection, 'fixture').body.reasoning.effort, effort);
+    assert.equal(connectionDefinitionDigest(connection), digest);
+  }
+  for (const effort of ['none', 'medium', null, 'invalid']) assert.throws(() => responsesCodec.createRequest({ ...request, reasoning: { effort } }, connection, 'fixture'), /allowed/);
+  for (const allowedReasoningEfforts of [[], ['high'], ['low', 'invalid'], 'low']) assert.throws(() => defineConnection({ ...definition, protocolOptions: { reasoningEffort: 'low', allowedReasoningEfforts } }), /allowedReasoningEfforts/);
+  const narrowed = defineConnection({ ...definition, protocolOptions: { reasoningEffort: 'low', allowedReasoningEfforts: ['low'] } });
+  assert.notEqual(connectionDefinitionDigest(narrowed), digest);
 });

@@ -10,7 +10,7 @@ fn contract(capability: &str) -> Result<Value> {
     let (suites, dependencies, fields) = if domain == "model" {
         (
             vec![
-                "synthetic-tool-probe-v1",
+                if capability == "imageInput" { "synthetic-image-probe-v1" } else { "synthetic-tool-probe-v1" },
                 "codex-engine-model-certification-v1",
                 "test-baseline-v1",
             ],
@@ -55,6 +55,7 @@ fn assertions(record: &Value) -> Vec<String> {
         "test-baseline-v1" => vec![format!("fixture:{capability}")],
         "codex-engine-model-certification-v1" => vec![certification],
         "synthetic-tool-probe-v1" => vec![format!("model:{capability}:observed")],
+        "synthetic-image-probe-v1" if capability == "imageInput" => vec![format!("model:{capability}:observed")],
         "codex-engine-core-integration-v1" => vec![if has_certification {
             certification
         } else {

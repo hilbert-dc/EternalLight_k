@@ -169,7 +169,7 @@ for (const Bridge of [ModelBridge, ModelBridgeProcess]) {
         mode === "polluted-input" ? [] : [{ usage: null, options: { outcome: "unknown" } }]);
       if (mode !== "polluted-input") assert.deepEqual(observations.map(({ status, errorCode, retryable }) => ({ status, errorCode, retryable })),
           [{ status: "failed", errorCode: mode === "provider-http" ? "provider_http_error" : diagnostic,
-          retryable: mode === "provider-http" ? undefined : false }]);
+          retryable: mode === "provider-http" }]);
       if (mode === "stream" || mode === "nonstream") checkOutputDiagnostic(observations[0].errorMessage, reasoning(oversized));
     });
   }

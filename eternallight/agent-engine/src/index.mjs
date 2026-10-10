@@ -10,6 +10,7 @@ export { CapabilityReportStore, defineCapabilityReport } from "./capabilities/re
 export { defineBehaviorEvaluationReport, parseBehaviorEvaluationInput, runCommandBehaviorEvaluation } from "./evaluation/command-executor.mjs";
 export { isQualifiedEvidence, resolveProtocolSelections, resolveSessionPlan, renewSessionPlan } from "./session/resolver.mjs";
 export { compileCodexConfig, compileCodexModelCatalog } from "./session/codex-config.mjs";
+export { prepareCodexToolOutputs } from "./session/codex-tool-outputs.mjs";
 export { EXTENSION_REGISTRY, resolveAuthorizedExtensions } from "./session/extension-registry.mjs";
 export { assertTaskCompletable, bindActiveTask, bindExecutionTask, createTaskExecution, requestTaskCancellation, shouldMarkTaskFailed } from "./host/task-execution.mjs";
 export { CodexAppServerClient } from "./host/app-server-client.mjs";
@@ -29,3 +30,8 @@ export { ExecutionAuthority } from "./state/execution-authority.mjs";
 export { BoundedExecutionTrace, CONFORMANCE_FAILURE_CATEGORIES, classifyConformanceFailure } from "./observability/execution-trace.mjs";
 export { getCodec, chatCompletionsCodec, generateContentCodec, messagesCodec, responsesCodec } from "./codecs/index.mjs";
 export { nativeEnginePath } from "./native.mjs";
+export { PersistentMediaLedger } from "./media/ledger.mjs";
+export { MediaOperationExecutor } from "./media/executor.mjs";
+export { createOpenAIImagesAdapter, createOpenAIAudioAdapter } from "./media/openai.mjs";
+export { createRunwayAdapter } from "./media/runway.mjs";
+export { mediaConnectionCapabilities } from "./media/capabilities.mjs";

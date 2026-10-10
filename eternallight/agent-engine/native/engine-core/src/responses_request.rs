@@ -5,6 +5,19 @@ use crate::{
 };
 use serde_json::{Value, json};
 
+fn instruction_text(content: &Value) -> Result<String> {
+    if !content.is_string()
+        && !(content.is_array()
+            && array(content).iter().all(|part| {
+                matches!(part["type"].as_str(), Some("input_text" | "output_text"))
+                    && part["text"].is_string()
+            }))
+    {
+        return Err("developer role adaptation requires text-only developer messages".into());
+    }
+    crate::canonical::text(content, "instruction message")
+}
+
 pub fn encode(request: &Value, connection: &Value, key: &str) -> Result<Value> {
     let limit = connection["declaredLimits"]["outputTokens"]
         .as_f64()
@@ -82,6 +95,11 @@ pub fn encode(request: &Value, connection: &Value, key: &str) -> Result<Value> {
             }
         }
     }
+    if let Some(allowed) = connection["protocolOptions"]["allowedReasoningEfforts"].as_array()
+        && !allowed.contains(&body["reasoning"]["effort"])
+    {
+        return Err("requested reasoning effort is outside the connection's allowed efforts".into());
+    }
     body["model"] = connection["model"].clone();
     body["max_output_tokens"] = (maximum as u64).into();
     body["tools"] = if registry.is_null() {
@@ -103,8 +121,42 @@ pub fn encode(request: &Value, connection: &Value, key: &str) -> Result<Value> {
             .into();
     }
     let mut input = Vec::new();
+    let mut initial_instructions = Vec::new();
+    let mut conversation_started = false;
     for item in array(&request["input"]) {
         let mut item = item.clone();
+        let instruction_message = (item["type"] == "message" || item["type"].is_null())
+            && matches!(item["role"].as_str(), Some("developer" | "system"));
+        if connection["protocolOptions"]["developerRoleMode"] == "instructions"
+            && !conversation_started
+            && instruction_message
+        {
+            let text = instruction_text(&item["content"])?;
+            initial_instructions.push(format!(
+                "<{}>\n{}\n</{}>",
+                string(&item["role"]),
+                text,
+                string(&item["role"])
+            ));
+            continue;
+        }
+        conversation_started |= !instruction_message;
+        // Some Responses implementations accept developer messages but treat
+        // them as user text. Adapt only an explicitly declared connection mode,
+        // never provider names or strings found in user/tool/source content.
+        if (item["type"] == "message" || item["type"].is_null()) && item["role"] == "developer" {
+            match connection["protocolOptions"]["developerRoleMode"].as_str() {
+                Some("unsupported") => {
+                    return Err("connection cannot preserve developer instruction authority".into());
+                }
+                Some("system" | "instructions") => {
+                    instruction_text(&item["content"])?;
+                    item["role"] = "system".into();
+                }
+                None | Some("native") => {}
+                _ => return Err("protocolOptions.developerRoleMode is invalid".into()),
+            }
+        }
         if item["type"] == "agent_message"
             && connection["protocolOptions"]["agentMessageMode"] == "message"
         {
@@ -125,6 +177,17 @@ pub fn encode(request: &Value, connection: &Value, key: &str) -> Result<Value> {
         }
         input.push(item);
     }
+    if !initial_instructions.is_empty() {
+        body["instructions"] = [
+            string(&body["instructions"]).to_owned(),
+            initial_instructions.join("\n\n"),
+        ]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+        .into();
+    }
     body["input"] = input.into();
     if body["tool_choice"]["type"] == "function" && !registry.is_null() {
         flatten(&mut body["tool_choice"], &registry)?;
@@ -142,7 +205,8 @@ pub fn encode(request: &Value, connection: &Value, key: &str) -> Result<Value> {
             .unwrap_or_else(|| body["instructions"].to_string())
     };
     tokens::bounded(&instructions.into(), "instructions")?;
-    for (index, item) in array(&body["input"]).iter().enumerate() {
+    let (admitted_input, image_tokens) = crate::image_input::admission(&body["input"])?;
+    for (index, item) in array(&admitted_input).iter().enumerate() {
         tokens::bounded(&item.to_string().into(), &format!("input item {index}"))?;
     }
     if !body["text"]["format"]["schema"].is_null() {
@@ -151,7 +215,7 @@ pub fn encode(request: &Value, connection: &Value, key: &str) -> Result<Value> {
             "output schema",
         )?;
     }
-    let estimated = tokens::count(&json!({"instructions":body["instructions"],"input":body["input"],"tools":body["tools"],"text":body["text"]}).to_string());
+    let estimated = tokens::count(&json!({"instructions":body["instructions"],"input":admitted_input,"tools":body["tools"],"text":body["text"]}).to_string()) + image_tokens;
     if estimated as f64
         > connection["declaredLimits"]["contextTokens"]
             .as_f64()

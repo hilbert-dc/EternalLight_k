@@ -160,7 +160,11 @@ impl RecoveryJournal {
         if event["method"] != "item/completed" || tracked.state != State::Dispatched {
             return Ok(Value::Null);
         }
-        if item["status"] == "completed"
+        // A failed MCP domain result may still carry a trustworthy rejection or
+        // committed receipt. Transport failure without a result remains unknown.
+        let has_result = item["status"] == "completed"
+            || (item["status"] == "failed" && item["result"].is_object());
+        if has_result
             && !input
                 .as_object()
                 .is_some_and(|v| v.contains_key("resolution"))
@@ -169,7 +173,7 @@ impl RecoveryJournal {
                 json!({"kind":"receipt","classification":tracked.classification,"toolCall":item}),
             );
         }
-        let resolution = if item["status"] == "completed" {
+        let resolution = if has_result {
             recovery_contract::resolution(&input["resolution"], "receipt")?
         } else {
             Value::Null

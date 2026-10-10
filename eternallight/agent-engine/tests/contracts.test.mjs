@@ -509,6 +509,14 @@ test("compiles Codex config and model catalog from the frozen plan", () => {
   assert.match(config, /base_url = "http:\/\/127\.0\.0\.1:45678"/);
   assert.match(config, /env_key = "AGENT_ENGINE_BRIDGE_TOKEN"/);
   assert.match(config, /expose_spawn_agent_model_overrides = false/);
+  assert.match(config, /preserve_fork_prefix = true/);
+  assert.match(config, /subagent_default_context_limits = true/);
+  const restrictedConfig = compileCodexConfig({ sessionPlan: restrictedPlan,
+    modelCatalogPath: "/isolated/model-catalog.json",
+    bridge: { baseUrl: "http://127.0.0.1:45678", credentialRef: "AGENT_ENGINE_BRIDGE_TOKEN" },
+    mcpServers: [{ id: "workspace", command: "python3" }] });
+  assert.match(restrictedConfig, /preserve_fork_prefix = false/);
+  assert.match(restrictedConfig, /subagent_default_context_limits = false/);
   assert.match(config, /\[mcp_servers\.workspace\]/);
   assert.doesNotMatch(config, /Provider A.*API_KEY/);
   assert.throws(() => compileCodexConfig({
@@ -545,6 +553,78 @@ test("MCP lifecycle policy compiles caller-selected readiness and validates boun
   for (const required of ["true", 1, null]) {
     assert.throws(() => compileCodexConfig({ ...input, mcpServers: [{ id: "workspace", command: "mcp", required }] }), /required must be a boolean/);
   }
+});
+
+function toolOutputConfigInput() {
+  return { sessionPlan: planFor(connection({ declaredLimits: { contextTokens: 128000, outputTokens: 512 } })),
+    modelCatalogPath: "/isolated/catalog.json",
+    bridge: { baseUrl: "http://127.0.0.1:45678", credentialRef: "BRIDGE_TOKEN" },
+    mcpServers: [{ id: "workspace", command: "mcp", required: true, startupTimeoutMs: 90000 }] };
+}
+
+test("MCP per-tool schema byte limit compiles independently of model budgets and defaults", () => {
+  const input = toolOutputConfigInput(), originalPlan = JSON.stringify(input.sessionPlan);
+  const baseline = compileCodexConfig(input);
+  assert.doesNotMatch(baseline, /tool_input_schema_max_bytes/);
+  for (const inputSchemaMaxBytes of [1, 5000, 40000]) {
+    const config = compileCodexConfig({ ...input, mcpServers: [{ ...input.mcpServers[0], inputSchemaMaxBytes }] });
+    const line = `tool_input_schema_max_bytes = ${inputSchemaMaxBytes}\n`;
+    assert.equal(config.split(line).length - 1, 1);
+    assert.equal(config.replace(line, ""), baseline);
+    assert.equal(JSON.stringify(input.sessionPlan), originalPlan);
+  }
+});
+
+test("MCP per-tool schema byte limit rejects nonpositive, noninteger, unsafe and alias values", () => {
+  const input = toolOutputConfigInput();
+  for (const inputSchemaMaxBytes of [0, -1, 0.5, "40000", "40000\n[other]", null, true, [], {}, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(() => compileCodexConfig({ ...input, mcpServers: [{ ...input.mcpServers[0], inputSchemaMaxBytes }] }),
+      /MCP inputSchemaMaxBytes must be a positive safe integer/);
+  }
+  assert.throws(() => compileCodexConfig({ ...input, mcpServers: [{ ...input.mcpServers[0], tool_input_schema_max_bytes: 40000 }] }),
+    /MCP server configuration contains unsupported fields/);
+});
+
+test("MCP per-tool output policy compiles independently of model generation capacity", () => {
+  const input = toolOutputConfigInput();
+  const originalPlan = JSON.stringify(input.sessionPlan);
+  const baseline = compileCodexConfig(input);
+  assert.equal(compileCodexConfig({ ...input, mcpServers: [{ ...input.mcpServers[0], tools: {} }] }), baseline);
+  const config = compileCodexConfig({ ...input, mcpServers: [{ ...input.mcpServers[0], tools: {
+    read_problem: { outputTokenLimit: 8192 }, "other-tool": { outputTokenLimit: 512 },
+  } }] });
+  assert.match(config, /\[mcp_servers\.workspace\.tools\.read_problem\]\noutput_token_limit = 8192/);
+  assert.match(config, /\[mcp_servers\.workspace\.tools\.other-tool\]\noutput_token_limit = 512/);
+  assert.match(config, /required = true\nstartup_timeout_sec = 90\.000/);
+  assert.equal(config.match(/output_token_limit = /g)?.length, 2);
+  assert.equal(JSON.stringify(input.sessionPlan), originalPlan, "output presentation cannot mutate the frozen route or permissions");
+  assert.equal(input.sessionPlan.routes[0].outputBudget, 512);
+  assert.equal(compileCodexModelCatalog(input.sessionPlan, { baseInstructions: "Current model policy." }).models[0].truncation_policy.limit, 512);
+});
+
+test("MCP per-tool output policy rejects malformed maps, unknown fields and unsafe integer values", () => {
+  const input = toolOutputConfigInput();
+  const compile = tools => compileCodexConfig({ ...input, mcpServers: [{ ...input.mcpServers[0], tools }] });
+  for (const tools of [null, [], "tools", true]) assert.throws(() => compile(tools), /MCP tools/);
+  for (const configuration of [null, 8192, {}, { output_token_limit: 8192 }, { outputTokenLimit: 8192, approvalMode: "approve" },
+    ...[0, -1, 0.5, "8192", null, true, Number.MAX_SAFE_INTEGER + 1].map(outputTokenLimit => ({ outputTokenLimit }))]) {
+    assert.throws(() => compile({ read_problem: configuration }), /MCP.*(configuration|outputTokenLimit)/);
+  }
+  for (const outputField of ["outputTokenLimit", "output_token_limit"]) {
+    assert.throws(() => compileCodexConfig({ ...input, mcpServers: [{ ...input.mcpServers[0], [outputField]: 8192 }] }),
+      /MCP server configuration contains unsupported fields/, "server-level output fields must not silently produce a false policy");
+  }
+});
+
+test("MCP per-tool output names and map size are bounded without TOML injection", () => {
+  const input = toolOutputConfigInput();
+  const compile = tools => compileCodexConfig({ ...input, mcpServers: [{ ...input.mcpServers[0], tools }] });
+  for (const name of ["", "a".repeat(257), "tool.name", "read\n[other]", "read]", "读问题"]) {
+    assert.throws(() => compile({ [name]: { outputTokenLimit: 8192 } }), /MCP tool name/);
+  }
+  const tools = Object.fromEntries(Array.from({ length: 1024 }, (_, n) => [`tool_${n}`, { outputTokenLimit: 1 }]));
+  assert.equal(compile(tools).match(/output_token_limit = 1/g)?.length, 1024);
+  assert.throws(() => compile({ ...tools, one_more: { outputTokenLimit: 1 } }), /at most 1024 entries/);
 });
 
 test("engine contract is explicit and stable", () => {

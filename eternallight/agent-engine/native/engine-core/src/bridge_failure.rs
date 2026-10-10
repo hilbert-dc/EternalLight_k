@@ -41,8 +41,29 @@ impl Failure {
 
     pub(super) fn codec(message: String) -> Self {
         let invalid = super::output_failure::is_invalid_arguments(&message);
+        let unauthorized = message.starts_with("tool is not authorized for this request: ");
+        let invalid_output = message.starts_with("duplicate tool call id: ")
+            || message.starts_with("unsupported executable Responses item")
+            || message == "native Responses tool call id is required"
+            || message == "provider returned a tool call while tool_choice is none"
+            || (message.starts_with("provider returned ") && message.ends_with(" while another tool was required"))
+            || message == "Responses stream tool output differs from terminal output";
         let mut failure = Self::from(message);
-        if invalid {
+        if unauthorized {
+            failure.status = 400;
+            failure.retryable = false;
+            let tool = failure.message.strip_prefix("tool is not authorized for this request: ").unwrap_or("");
+            failure.message = if !tool.is_empty() && tool.len() <= 64
+                && tool.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+                format!("unauthorized_tool_call; toolValidation={}", serde_json::json!({"tool":tool,"reason":"not_in_current_request","schemaPath":"/tools"}))
+            } else { "unauthorized_tool_call".into() };
+            failure.validation_code = Some("unauthorized_tool_call");
+        } else if invalid_output {
+            failure.status = 400;
+            failure.retryable = false;
+            failure.message = "invalid_tool_output".into();
+            failure.validation_code = Some("invalid_tool_output");
+        } else if invalid {
             failure.status = 400;
             failure.retryable = false;
             failure.message = crate::tool_validation::diagnostic_message(&failure.message)
@@ -89,6 +110,7 @@ impl Failure {
         // Only classify the budget owner's exact, fixed diagnostics. Arbitrary
         // host failures must not masquerade as an exhausted author allowance.
         let code = match message.as_str() {
+            "task provider usage is unknown" => "task_provider_usage_unknown",
             "task token budget exhausted" => "task_token_budget_exhausted",
             "task request budget exhausted" => "task_request_budget_exhausted",
             "task duration budget exhausted" => "task_duration_budget_exhausted",
@@ -188,6 +210,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unavailable_tool_retains_bounded_identity_without_granting_authority() {
+        let failure = Failure::codec("tool is not authorized for this request: n20__mcp__novel_workspace__read_revision_outcome".into());
+        assert_eq!(failure.validation_code, Some("unauthorized_tool_call"));
+        assert!(!failure.retryable);
+        let (_, detail) = failure.message.split_once("; toolValidation=").unwrap();
+        let detail: Value = serde_json::from_str(detail).unwrap();
+        assert_eq!(detail["tool"], "n20__mcp__novel_workspace__read_revision_outcome");
+        assert_eq!(detail["reason"], "not_in_current_request");
+        for name in ["secret\nvalue".to_owned(), "x".repeat(65), "https://private/path".to_owned()] {
+            assert_eq!(Failure::codec(format!("tool is not authorized for this request: {name}")).message, "unauthorized_tool_call");
+        }
+    }
+
+    #[test]
     fn input_budget_rejection_is_terminal_and_distinct_from_task_allowance() {
         let failure = Failure::codec("encoded request exceeds the route input budget".into());
         assert_eq!(failure.status, 400);
@@ -197,5 +233,24 @@ mod tests {
         let other = Failure::from("unrelated provider failure");
         assert!(other.retryable);
         assert_eq!(other.diagnostic_code(), "bridge_error");
+    }
+
+    #[test]
+    fn unknown_usage_is_a_distinct_terminal_budget_owner_failure() {
+        let failure = Failure::reservation("task provider usage is unknown".into());
+        assert_eq!(failure.status, 400);
+        assert!(!failure.retryable);
+        assert_eq!(failure.budget_code, Some("task_provider_usage_unknown"));
+        assert_eq!(failure.diagnostic_code(), "task_provider_usage_unknown");
+        // Provider prose and arbitrary Host errors cannot acquire this code.
+        assert_eq!(
+            Failure::from("task provider usage is unknown").diagnostic_code(),
+            "bridge_error"
+        );
+        assert_eq!(
+            Failure::reservation("task provider usage is unknown: unrelated host error".into())
+                .diagnostic_code(),
+            "bridge_error"
+        );
     }
 }

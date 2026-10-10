@@ -109,7 +109,7 @@ test("domain contracts classify and hash writes without exposing keys or payload
     const journal = new HostRecoveryJournal(index, testOperationContract());
     await journal.beginRun({ runId: "task-1", planId: "plan-1", sessionPlan: { credentialRef: "SECRET_PLAN_VALUE" }, threadId: "thread-1", projectId: "project-1" });
     const arguments_ = { idempotencyKey: "SECRET_IDEMPOTENCY_KEY", payload: { private: "SECRET_PAYLOAD" } };
-    await journal.observe({ method: "item/started", params: { turnId: "turn-1", item: { id: "write-1", type: "mcpToolCall", tool: "persist_record", arguments: arguments_, status: "inProgress" } } });
+    await journal.observe({ method: "item/started", params: { threadId: "thread-1", turnId: "turn-1", item: { id: "write-1", type: "mcpToolCall", tool: "persist_record", arguments: arguments_, status: "inProgress" } } });
     await journal.abandonRun();
 
     assert.deepEqual(await index.reconciliationCandidates(), [{ runId: "task-1", projectId: "project-1", requestId: "mcp:write-1", operation: "persist_record", idempotencyRef: `idempotency:${digest(arguments_.idempotencyKey)}`, requestHash: digest({ operation: "persist_record", payload: arguments_.payload }) }]);
@@ -181,9 +181,9 @@ test("host recovery journal preserves unknown writes for reconciliation and comp
     const index = new RecoveryIndex(join(root, "recovery.json"));
     const journal = new HostRecoveryJournal(index, testOperationContract());
     await journal.beginRun({ runId: "task-1", planId: "plan-1", threadId: "thread-1", projectId: "project-1", operation: "generateOutline" });
-    await journal.observe({ method: "turn/started", params: { turn: { id: "turn-1" } } });
-    await journal.observe({ method: "item/started", params: { turnId: "turn-1", item: { id: "write-1", type: "mcpToolCall", tool: "persist_record", status: "inProgress" } } });
-    await journal.observe({ method: "item/completed", params: { turnId: "turn-1", item: { id: "read-1", type: "mcpToolCall", tool: "query_record", status: "completed", result: { content: [{ type: "text", text: "ok" }], isError: false } } } });
+    await journal.observe({ method: "turn/started", params: { threadId: "thread-1", turn: { id: "turn-1" } } });
+    await journal.observe({ method: "item/started", params: { threadId: "thread-1", turnId: "turn-1", item: { id: "write-1", type: "mcpToolCall", tool: "persist_record", status: "inProgress" } } });
+    await journal.observe({ method: "item/completed", params: { threadId: "thread-1", turnId: "turn-1", item: { id: "read-1", type: "mcpToolCall", tool: "query_record", status: "completed", result: { content: [{ type: "text", text: "ok" }], isError: false } } } });
     await journal.abandonRun();
     const report = await index.recoveryReport();
     assert.equal(report[0].projectId, "project-1");
@@ -200,7 +200,7 @@ test("completing a host run never hides an unresolved write", async () => {
     const index = new RecoveryIndex(join(root, "recovery.json"));
     const journal = new HostRecoveryJournal(index, testOperationContract());
     await journal.beginRun({ runId: "task-1", planId: "plan-1", threadId: "thread-1", projectId: "project-1" });
-    await journal.observe({ method: "item/started", params: { turnId: "turn-1", item: { id: "write-1", type: "mcpToolCall", tool: "persist_record", status: "inProgress" } } });
+    await journal.observe({ method: "item/started", params: { threadId: "thread-1", turnId: "turn-1", item: { id: "write-1", type: "mcpToolCall", tool: "persist_record", status: "inProgress" } } });
     assert.equal(await journal.completeRun(), false);
     assert.equal((await index.recoveryReport())[0].requests[0].recovery, "manual-reconciliation");
   } finally {
@@ -217,6 +217,7 @@ test("only an injected authoritative receipt can commit an observed write", asyn
     await journal.observe({
       method: "item/completed",
       params: {
+        threadId: "thread-1",
         turnId: "turn-1",
         item: {
           id: "write-1",

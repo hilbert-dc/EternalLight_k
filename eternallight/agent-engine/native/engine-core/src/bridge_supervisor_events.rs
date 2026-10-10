@@ -161,6 +161,7 @@ impl BridgeSupervisor {
             let mut params = message["params"].clone();
             let callback = match method {
                 "request:observed" => "request",
+                "request:configuration" => "requestConfiguration",
                 "response:observed" => "response",
                 "qualification:failure" => {
                     self.lease = Value::Null;

@@ -12,9 +12,10 @@ function bridgeWorkerPath() {
 
 /** Promise and host-object adapter for the native isolated bridge supervisor. */
 export class ModelBridgeProcess {
-  constructor({ sessionPlan, connections, credentialResolver, qualificationObserver = null, requestObserver = null, responseObserver = null, token = null, toolPolicy = null, executorValidatedTools = null, responseBarrier = null, heartbeatIntervalMs = 5_000, heartbeatTimeoutMs = 2_000, lifecycleTimeoutMs = 10_000, workerPath = bridgeWorkerPath() }) {
-    this.native = new (nativeBinding().NativeBridgeSupervisor)(JSON.stringify({ sessionPlan, connections, token, toolPolicy, executorValidatedTools, responseBarrier, heartbeatIntervalMs, heartbeatTimeoutMs, lifecycleTimeoutMs }));
+  constructor({ sessionPlan, connections, credentialResolver, qualificationObserver = null, requestConfigurationProvider = null, requestObserver = null, responseObserver = null, token = null, toolPolicy = null, executorValidatedTools = null, responseBarrier = null, heartbeatIntervalMs = 5_000, heartbeatTimeoutMs = 2_000, lifecycleTimeoutMs = 10_000, workerPath = bridgeWorkerPath() }) {
+    this.native = new (nativeBinding().NativeBridgeSupervisor)(JSON.stringify({ sessionPlan, connections, hasRequestConfigurationProvider: typeof requestConfigurationProvider === "function", token, toolPolicy, executorValidatedTools, responseBarrier, heartbeatIntervalMs, heartbeatTimeoutMs, lifecycleTimeoutMs }));
     this.credentialResolver = credentialResolver;
+    this.requestConfigurationProvider = requestConfigurationProvider;
     this.observers = { qualification: qualificationObserver, request: requestObserver, response: responseObserver };
     const allowed = ["PATH", "SystemRoot", "WINDIR", "TMP", "TEMP", "TMPDIR", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS"];
     const env = Object.fromEntries(allowed.flatMap(key => typeof process.env[key] === "string" ? [[key, process.env[key]]] : []));
@@ -100,6 +101,7 @@ export class ModelBridgeProcess {
   }
   async #callback({ method, params, generation }) {
     switch (method) {
+      case "requestConfiguration": return this.requestConfigurationProvider(params);
       case "credentials": return Object.fromEntries(await Promise.all(params.map(async ref => [ref, await this.credentialResolver(ref)])));
       case "retire": {
         const transport = this.transports.get(generation);
@@ -111,7 +113,13 @@ export class ModelBridgeProcess {
       case "budget:reserve": return this.budgets.get(params.budgetId).reserveRequest(params);
       case "budget:settle": return this.budgets.get(params.budgetId).settleReservation(params.id, params.usage, params.options);
       case "budget:observe": return this.budgets.get(params.budgetId).observeUsage(params.usage);
-      case "request": case "response": case "qualification": return this.observers[method]?.(params) ?? { recorded: false };
+      case "response": {
+        if (params?.status === "failed") for (const budget of this.budgets.values()) {
+          if (budget.runId === params.runId) budget.observeFailure?.(params);
+        }
+        return this.observers.response?.(params) ?? { recorded: false };
+      }
+      case "request": case "qualification": return this.observers[method]?.(params) ?? { recorded: false };
       default: throw new Error(`Unknown native bridge supervisor callback: ${method}`);
     }
   }

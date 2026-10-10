@@ -66,11 +66,14 @@ impl SessionRuntime {
                 });
                 Ok(self.generation.into())
             }
-            "current" | "dispatch" => {
+            "current" | "dispatch" | "steer" => {
                 self.assert_open()?;
                 let execution = self.execution(input)?;
                 if execution.revoked {
                     return Err("TASK_CANCELLED:Codex runtime execution was revoked".into());
+                }
+                if method == "steer" && (execution.stage != BIND.len() || !execution.dispatching) {
+                    return Err("Codex runtime has no active turn to steer".into());
                 }
                 if method == "dispatch" {
                     if execution.stage != BIND.len() {

@@ -21,7 +21,11 @@
     "evaluate:model": "node qualification/evaluate-model.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:delegation-integration": "node --test tests/responses-delegation.integration.mjs",
-    "test:output-admission-integration": "node --test tests/responses-output-admission.integration.mjs"
+    "test:output-admission-integration": "node --test tests/responses-output-admission.integration.mjs",
+    "pretest:portable-discovery": "npm run build:native",
+    "test:portable-discovery": "cargo test --manifest-path native/engine-core/Cargo.toml --test tool_discovery_tests && node --test tests/portable-discovery.test.mjs",
+    "pretest:mcp-output-policy": "npm run build:native",
+    "test:mcp-output-policy": "cargo test --manifest-path native/engine-core/Cargo.toml --lib config::tests::mcp_ && node --test --test-name-pattern='MCP per-tool output' tests/contracts.test.mjs"
   },
   "engines": {
     "node": ">=22"

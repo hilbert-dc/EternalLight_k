@@ -22,8 +22,51 @@ npm run evaluate:model -- evaluation-input.json report.json
 
 真实供应商与平台验收仍以生成的认证、行为和构建报告为准；代码测试通过不等于某个外部模型已经通过认证。
 
+## 模型切换与指令角色
+
+适配由连接的协议合同选择，不按供应商名字分支。Responses 连接可显式设置 `protocolOptions.developerRoleMode`：
+
+| 值 | 出站处理 |
+| --- | --- |
+| `native`（未设置时亦如此） | 保留原 `developer` 角色；接入方须核实供应商实际支持其指令语义。 |
+| `system` | 原 `developer` 文本在原位置映射为 `system`。 |
+| `instructions` | 仅将对话前连续的 system/developer 文本按原顺序和角色标签加入 `instructions`；历史中后插入的 developer 在原位置映射 system。 |
+| `unsupported` | 有 developer 消息的请求明确拒绝。 |
+
+此选项只适用于 Responses；其他协议由各自 Codec 处理并验证角色合同。角色映射不修改原请求或历史，不提升作者、引用、工具结果的权限，无法表示的非文本指令明确拒绝。`system`/`instructions` 不能保留独立的 system 与 developer 优先级，不能宣称严格等价。
+
+适配配置参与连接及环境指纹；切换使用目标连接的有效证据，不能复用其他配置的认证。语言偏好、作者要求属于产品对话上下文，不能因换模型重置；原任务身份、权限、保存回执和累计用量仍由各自权威管理。私有推理状态和不同协议间的历史可移植性需单独核验，本项角色适配不证明任意模型间可以无损热切换。
+
+回归入口：`tests/developer-role-portability.test.mjs` 验证切换、不变性与拒绝边界；产品 `electron/tests/author-language.integration.mjs` 验证真实 Core/Bridge 的新回合、恢复和追加要求。`novel-codex/scripts/probe-live-language.mjs --confirm-cost --connection=<目录连接ID>` 用相同六场景检查目标模型真实公开文本，结果须独立审阅，不以请求成功或规则已传入判定语言合格。
+
 ## Rust 构建前置
 
 四协议编解码、流状态机、预算及持久化、会话编译、证据与认证规则、供应商 HTTP、App Server 进程通信、行为评测调度与恢复日志状态由独立 Rust Node-API 库提供。先运行 `npm run build:native`；
 `npm test` 和委派集成测试会自动构建它。Rust 库测试运行 `just test`。本地 Bridge、worker IPC 和 Host 上层编排仍在迁移中。
 没有原生二进制时请求明确失败，不回退 JavaScript。完整迁移进度见 [RUST_MIGRATION.md](RUST_MIGRATION.md)。
+
+### Trusted per-request reasoning selection
+
+A Responses connection may declare `protocolOptions.reasoningEffort` (default)
+and `allowedReasoningEfforts` (nonempty set containing the default). The set and
+default belong to the frozen connection definition and qualification fingerprint.
+An individual selection inside that set does not change the SessionPlan.
+
+Both `ModelBridge` and `ModelBridgeProcess` accept a trusted Host callback:
+
+```js
+requestConfigurationProvider: ({ connectionId, runId, threadId }) =>
+  selectionFor(connectionId) // null, or { reasoningEffort: "high" }
+```
+
+The callback is evaluated once per incoming model request, after route/identity
+admission and before provider dispatch or budget reservation. It can only select
+an effort inside that route's declared set; extra fields, out-of-range choices,
+and callback failures reject that request. It cannot change the model, endpoint,
+author input, tool permissions, lease, or budget. Return null for routes without
+a mutable reasoning policy. Request observations include the encoded
+`reasoningEffort` for verification without recording private input.
+
+Changes affect subsequent requests, including permitted child requests using the
+same connection. Already dispatched requests retain their snapshot. The Host
+owns persistence and user choice; Engine owns wire validation and accounting.

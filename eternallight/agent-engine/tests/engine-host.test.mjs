@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { AgentEngineHost, CAPABILITIES, CodexAppServerClient, defineConnection, resolveSessionPlan } from "../src/index.mjs";
+import { AgentEngineHost, CAPABILITIES, CodexAppServerClient, CodexSessionRuntime, defineConnection, resolveSessionPlan } from "../src/index.mjs";
 import { trustedTestEvidence, verifiedBaselineEvidence } from "../src/testing/index.mjs";
 
 const fixture = fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url));
@@ -40,6 +40,72 @@ test("engine host reuses a session across independently leased runs", async () =
   }
   assert.equal(engine.sessionStatus(started.sessionId).state, "idle");
   await engine.closeSession(started.sessionId);
+});
+
+test("host completion retains the native runtime machine failure after cleanup also fails", async () => {
+  const calls = [];
+  const appServer = {
+    subscribeEvents: () => () => {}, ensureSession: async () => "thread-failure", resumeSession: async id => id,
+    bindExecution: async () => {},
+    sendTurn: async () => { throw Object.assign(new Error("tool correction limit"), { code: "tool_argument_correction_limit" }); },
+    revokeExecution: async ({ revokedEpoch }) => ({ revokedEpoch }), interruptTurn: async () => true,
+    endExecution: async () => calls.push("app:end"), close: async () => calls.push("app:close"),
+  };
+  const bridge = {
+    start: async () => {}, beginTaskBudget: async () => {}, beginExecutionLease: async () => {},
+    cancelActiveRequests: async () => 0,
+    endExecutionLease: async () => {
+      calls.push("lease:end");
+      throw Object.assign(new Error("lease drain failed"), { code: "LEASE_DRAIN_FAILED" });
+    },
+    endTaskBudget: async () => { calls.push("budget:end"); return true; }, close: async () => calls.push("bridge:close"),
+  };
+  const runtime = new CodexSessionRuntime({ appServer, bridge, budgetFactory: async () => ({ complete: status => calls.push(`budget:${status}`) }) });
+  const engine = host(async () => runtime);
+  const { started } = await session(engine, "text-v1", "native-failure-session");
+  const run = await engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "native-failure-budget", runId: "native-failure-run" });
+  await assert.rejects(run.completion, error => {
+    assert.equal(error.code, "tool_argument_correction_limit");
+    assert.equal(error.message, "tool correction limit");
+    return true;
+  });
+  assert.equal(engine.runStatus(run.runId).state, "failed");
+  assert.deepEqual(calls, ["lease:end", "budget:end", "budget:failed", "app:end"]);
+  await assert.rejects(runtime.bindExecution({ lease: run.lease, sessionPlan: {} }), /cleanup is unresolved/);
+  engine.closeRun(run.runId);
+  await engine.closeSession(started.sessionId);
+  assert.deepEqual(calls.slice(-2), ["app:close", "bridge:close"]);
+});
+
+test("host respects null machine code when a plain runtime error mentions the cancellation prefix", async () => {
+  const message = "TASK_CANCELLED:plain text is not cancellation";
+  const calls = [];
+  const appServer = {
+    subscribeEvents: () => () => {}, ensureSession: async () => "thread-plain-failure", resumeSession: async id => id,
+    bindExecution: async () => {}, sendTurn: async () => { throw new Error(message); },
+    revokeExecution: async ({ revokedEpoch }) => ({ revokedEpoch }), interruptTurn: async () => true,
+    endExecution: async () => calls.push("app:end"), close: async () => calls.push("app:close"),
+  };
+  const bridge = {
+    start: async () => {}, beginTaskBudget: async () => {}, beginExecutionLease: async () => {},
+    cancelActiveRequests: async () => 0,
+    endExecutionLease: async () => { calls.push("lease:end"); return true; },
+    endTaskBudget: async () => { calls.push("budget:end"); return true; }, close: async () => calls.push("bridge:close"),
+  };
+  const runtime = new CodexSessionRuntime({ appServer, bridge, budgetFactory: async () => ({ complete: status => calls.push(`budget:${status}`) }) });
+  const engine = host(async () => runtime);
+  const { started } = await session(engine, "text-v1", "native-plain-failure-session");
+  const run = await engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "native-plain-failure-budget", runId: "native-plain-failure-run" });
+  await assert.rejects(run.completion, error => {
+    assert.equal(error.code, null);
+    assert.equal(error.message, message);
+    return true;
+  });
+  assert.equal(engine.runStatus(run.runId).state, "failed");
+  assert.deepEqual(calls, ["lease:end", "budget:end", "budget:failed", "app:end"]);
+  engine.closeRun(run.runId);
+  await engine.closeSession(started.sessionId);
+  assert.deepEqual(calls.slice(-2), ["app:close", "bridge:close"]);
 });
 
 test("engine host caps an execution lease at the caller's absolute deadline", async () => {
@@ -212,4 +278,23 @@ test("host native event state isolates child events and keeps replay snapshots i
   unsubscribe();
   engine.closeRun(run.runId);
   await engine.closeSession(started.sessionId);
+});
+
+test("steerRun dispatches only to the original session, run, epoch and Core turn", async () => {
+  const runtime = appServerRuntime(), engine = host(async () => runtime);
+  const {started} = await session(engine);
+  const run = await engine.startRun({sessionId:started.sessionId,runId:'steer-run',budgetId:'steer-budget',input:[{type:'text',text:'interrupt'}]});
+  try {
+    for (let i=0; i<500 && !runtime.turnId; i++) await new Promise(r=>setTimeout(r,10));
+    assert.equal(runtime.turnId,'turn-engine');
+    const state = engine.runStatus(run.runId);
+    const request = {...state,turnId:runtime.turnId,input:[{type:'text',text:'only this turn'}]};
+    for (const wrong of [{runId:'missing-run'},{sessionId:'other'},{epoch:state.epoch+1},{threadId:'other'},{leaseId:'other'},{turnId:'previous'}]) {
+      if (wrong.turnId) await assert.rejects(engine.steerRun({...request,...wrong}), /target|turn/);
+      else assert.equal((await engine.steerRun({...request,...wrong})).delivery, "notSent");
+    }
+    assert.deepEqual(await engine.steerRun(request), {steered:true});
+    assert.equal((await run.completion).message,'only this turn');
+    assert.equal((await engine.steerRun(request)).delivery, "notSent");
+  } finally { await engine.closeSession(started.sessionId); }
 });

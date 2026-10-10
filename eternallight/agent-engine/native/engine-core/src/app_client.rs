@@ -18,6 +18,7 @@ enum Rpc {
     ThreadStart,
     Resume(u64, String),
     TurnStart(u64),
+    Steer(u64),
     Name,
     Interrupt(u64),
 }
@@ -202,6 +203,19 @@ impl AppClient {
                 self.ensure_initialized()?;
                 self.advance()?;
             }
+            "steerTurn" => {
+                let options = &params["options"];
+                let turn = self.turn.as_ref().ok_or("no active turn to steer")?;
+                if self.revoked || ["runId", "leaseId", "epoch"].iter().any(|key| options[key].is_null() || options[key] != self.lease[key])
+                    || options["expectedThreadId"].as_str() != self.thread.as_deref()
+                    || options["expectedTurnId"].as_str().is_none_or(str::is_empty)
+                    || options["expectedTurnId"] != turn.state.snapshot()["turnId"]
+                    || turn.state.snapshot()["cancellationRequested"] == true {
+                    return Err("steer target is no longer the active execution".into());
+                }
+                if params["input"].as_array().is_none_or(Vec::is_empty) { return Err("steer input is required".into()); }
+                self.request("turn/steer", json!({"threadId":self.thread,"expectedTurnId":options["expectedTurnId"],"input":params["input"],"additionalContext":options["additionalContext"]}),Rpc::Steer(id))?;
+            }
             "bindExecution" => {
                 let lease = &params["lease"];
                 if lease["runId"].as_str().is_none_or(str::is_empty)
@@ -320,6 +334,9 @@ impl AppClient {
         }
         turn.sent = true;
         let mut params = json!({"threadId":self.thread,"input":turn.input});
+        if let Some(outputs) = turn.options.get("toolOutputs") {
+            params["toolOutputs"] = outputs.clone();
+        }
         if turn.options["disableEnvironment"] == true {
             params["environments"] = json!([]);
             params["approvalPolicy"] = "never".into();

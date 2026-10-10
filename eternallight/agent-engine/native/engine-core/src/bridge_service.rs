@@ -161,10 +161,17 @@ impl Shared {
 
 impl BridgeService {
     pub fn start(mut options: Value) -> Result<Self> {
-        let resource_policy = crate::request_scheduler::policy(&options["sessionPlan"]["resourcePolicy"])?;
-        options["maxConcurrentRequests"] = json!(options["maxConcurrentRequests"].as_u64().unwrap_or(128).min(
-            resource_policy["maxConcurrentRequests"].as_u64().unwrap()
-            + resource_policy["maxQueuedRequests"].as_u64().unwrap()));
+        let resource_policy =
+            crate::request_scheduler::policy(&options["sessionPlan"]["resourcePolicy"])?;
+        options["maxConcurrentRequests"] = json!(
+            options["maxConcurrentRequests"]
+                .as_u64()
+                .unwrap_or(128)
+                .min(
+                    resource_policy["maxConcurrentRequests"].as_u64().unwrap()
+                        + resource_policy["maxQueuedRequests"].as_u64().unwrap()
+                )
+        );
         crate::executor_validation::check(&options["executorValidatedTools"])?;
         let http: LocalHttpOptions = serde_json::from_value(options.clone())
             .map_err(|_| "invalid bridge listener options")?;

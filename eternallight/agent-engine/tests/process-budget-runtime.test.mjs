@@ -68,3 +68,22 @@ test("a crashed process bridge records outstanding persistent usage as unknown, 
   assert.equal(receipt.status, "outcome-unknown");
   assert.deepEqual(receipt.usage, { requests: 1, tokens: 0, unknownTokens: 100, overrun: false });
 });
+
+test('persisted failure evidence retains first request and later guard without altering accounting', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'failure-evidence-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const databasePath = join(directory, 'engine.sqlite3');
+  const budget = new PersistentTaskBudget({ databasePath, runId: 'failure-run', maxRequests: null, maxTokens: null });
+  const observe = (requestId, errorCode) => budget.observeFailure({ status: 'failed', runId: 'failure-run', requestId,
+    errorCode, errorCategory: 'transport', errorStatusCode: 502, errorMessage: 'private provider content' });
+  const before = budget.snapshot();
+  observe('request-1', 'stream_failure');
+  observe('request-1', 'overwritten');
+  observe('request-2', 'task_provider_usage_unknown');
+  assert.deepEqual(budget.snapshot(), before);
+  assert.throws(() => budget.observeFailure({ status: 'failed', runId: 'other', requestId: 'request-3' }), /does not own/);
+  budget.complete('failed');
+  const receipt = PersistentTaskBudget.receipt(databasePath, 'failure-run');
+  assert.deepEqual(receipt.failureObservations.map(item => item.errorCode), ['stream_failure', 'task_provider_usage_unknown']);
+  assert.equal(JSON.stringify(receipt).includes('private provider content'), false);
+});

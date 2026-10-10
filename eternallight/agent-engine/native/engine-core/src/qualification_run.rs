@@ -326,7 +326,28 @@ impl QualificationRun {
             input["passed"] = false.into();
             input["proofPath"] = self.result["record"]["assertions"][0]["traceRef"].clone();
         }
-        input["error"] = json!(self.error);
+        input["error"] = json!(self.failure_diagnostic());
         crate::qualification_records::dispatch("qualification.coreResult", &input)
+    }
+
+    fn failure_diagnostic(&self) -> Option<String> {
+        let error = self.error.as_ref()?;
+        let mut message = error.clone();
+        for event in self.events.iter().filter(|event| event["method"] == "engine/stderr").rev().take(4) {
+            if let Some(text) = event["params"]["text"].as_str() {
+                message.push_str(": ");
+                message.push_str(text);
+            }
+        }
+        // Redact before truncating so a cutoff cannot expose a credential prefix.
+        for secret in std::iter::once(self.address["token"].as_str()).chain(
+            array(&self.input["connections"]).iter().map(|connection| {
+                connection["credentialRef"].as_str()
+                    .and_then(|name| self.input["baseEnvironment"][name].as_str())
+            }),
+        ).flatten().filter(|value| !value.is_empty()) {
+            message = message.replace(secret, "[REDACTED]");
+        }
+        Some(message.chars().take(1000).collect())
     }
 }

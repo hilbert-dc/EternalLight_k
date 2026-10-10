@@ -26,6 +26,7 @@ mod verifier;
 pub use command_executor::execute_behavior_command;
 mod budget;
 mod persistent_budget;
+mod media_ledger;
 mod process_transport;
 mod rpc_pending;
 mod storage;

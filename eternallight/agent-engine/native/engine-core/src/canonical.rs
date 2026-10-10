@@ -1,5 +1,5 @@
-use crate::{Result, schema, tokens, tool_registry};
-use serde_json::{Value, json};
+use crate::{schema, tokens, tool_registry, Result};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
@@ -103,7 +103,12 @@ pub fn prepare(request: &Value, connection: &Value, protocol: &Value) -> Result<
                 child
                     .get("parameters")
                     .unwrap_or(&json!({"type":"object","properties":{}})),
-            )?;
+            )
+            .map_err(|error| {
+                let namespace: String = string(&namespace).chars().take(80).collect();
+                let name: String = string(&child["name"]).chars().take(80).collect();
+                format!("tool {namespace}/{name} schema: {error}")
+            })?;
             let mut source = child.clone();
             source["parameters"] = parameters.clone();
             let entry = register(&mut entries, &namespace, &source, true)?;
@@ -286,7 +291,11 @@ pub fn tool_call(call: &Value, validation: &mut Value) -> Result<Value> {
         return Err("provider returned another tool while a specific tool was required".into());
     }
     let parsed = arguments(&call["arguments"])?;
-    if !crate::executor_validation::delegated(&validation["context"], &entry["namespace"], &entry["name"]) {
+    if !crate::executor_validation::delegated(
+        &validation["context"],
+        &entry["namespace"],
+        &entry["name"],
+    ) {
         crate::tool_validation::validate(&parsed, &entry["schema"], string(&entry["name"]))?;
     }
     let serialized = parsed.to_string();

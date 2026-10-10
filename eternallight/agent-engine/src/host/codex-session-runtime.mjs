@@ -4,9 +4,27 @@ import { assertTrustedSessionPlan } from "../session/resolver.mjs";
 function requireMethod(value, method, label) {
   if (typeof value?.[method] !== "function") throw new Error(`${label} is missing ${method}`);
 }
-function runtimeError(message) {
-  if (message.startsWith("TASK_CANCELLED:")) return Object.assign(new Error(message.slice(15)), { code: "TASK_CANCELLED" });
-  return new Error(message);
+const FAILURE_CODE = /^[A-Za-z][A-Za-z0-9_.-]{0,79}$/;
+const CALLBACK_FAILURE = "Codex runtime callback failed";
+function callbackFailure(error) {
+  let message = CALLBACK_FAILURE, code = null;
+  try {
+    if (error instanceof Error) {
+      const errorMessage = error.message, errorCode = error.code;
+      if (typeof errorMessage === "string") message = Array.from(errorMessage.toWellFormed()).slice(0, 1000).join("");
+      if (typeof errorCode === "string" && FAILURE_CODE.test(errorCode)) code = errorCode;
+    }
+  } catch { /* Throwing accessors carry no usable failure fields. */ }
+  return { code, message };
+}
+function replyFailure(failure) {
+  if (!failure || typeof failure !== "object" || Array.isArray(failure)
+    || Object.keys(failure).length !== 2 || !Object.hasOwn(failure, "code") || !Object.hasOwn(failure, "message")
+    || !(failure.code === null || (typeof failure.code === "string" && FAILURE_CODE.test(failure.code)))
+    || typeof failure.message !== "string" || Array.from(failure.message).length > 1000) {
+    throw new Error("Invalid native runtime failure");
+  }
+  return Object.assign(new Error(failure.message), { code: failure.code });
 }
 
 /** Embedding-owned handles and Promise delivery for the native runtime coordinator. */
@@ -26,8 +44,7 @@ export class CodexSessionRuntime {
     Object.assign(this, { appServer, bridge, budgetFactory, bridgeOwnership, closeAppServer, reconcile });
   }
   #read(method, params = {}) {
-    try { return JSON.parse(this.#native.apply(method, JSON.stringify(params))); }
-    catch (error) { throw runtimeError(error.message); }
+    return JSON.parse(this.#native.apply(method, JSON.stringify(params)));
   }
   get closed() { return this.#read("snapshot").closed; }
   subscribeEvents(subscriber) { return this.appServer.subscribeEvents(subscriber); }
@@ -40,6 +57,13 @@ export class CodexSessionRuntime {
     return this.#command("renew", params, { sessionPlan: params.sessionPlan });
   }
   sendTurn(input, options) { return this.#command("turn", { input }, options); }
+  steerRun(request) {
+    try {
+      this.#read("steer", request);
+      requireMethod(this.appServer, "steerTurn", "Codex App Server");
+    } catch { return { steered: false, delivery: "notSent", reason: "executionChanged" }; }
+    return this.appServer.steerTurn(request.input, { ...request, expectedThreadId: request.threadId, expectedTurnId: request.turnId });
+  }
   revokeExecution(request) { return this.#command("revoke", request); }
   interruptTurn(request) { return this.appServer.interruptTurn(request); }
   reconcileRun(context) { return this.reconcile(context); }
@@ -56,7 +80,7 @@ export class CodexSessionRuntime {
     for (const effect of this.#read(method, input)) {
       if (effect.kind === "reply") {
         const pending = this.#pending.get(effect.id); this.#pending.delete(effect.id);
-        if (effect.error) pending?.reject(runtimeError(effect.error)); else pending?.resolve(effect.result);
+        if (effect.error !== null) pending?.reject(replyFailure(effect.error)); else pending?.resolve(effect.result);
       } else if (effect.kind === "releaseBudget") this.#budget = null;
       else if (effect.kind === "callback") {
         // Invoke immediately, while translating both synchronous and asynchronous errors.
@@ -64,7 +88,7 @@ export class CodexSessionRuntime {
         try { result = this.#callback(effect); } catch (error) { result = Promise.reject(error); }
         void Promise.resolve(result).then(
           result => this.#apply("callback", { id: effect.id, result: result ?? null }),
-          error => this.#apply("callback", { id: effect.id, error: error?.code === "TASK_CANCELLED" ? `TASK_CANCELLED:${error.message}` : String(error?.message ?? error) }),
+          error => this.#apply("callback", { id: effect.id, error: callbackFailure(error) }),
         );
       } else throw new Error(`Unknown native runtime effect: ${effect.kind}`);
     }

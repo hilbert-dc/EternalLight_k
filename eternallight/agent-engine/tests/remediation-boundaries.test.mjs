@@ -96,7 +96,13 @@ test("Generate Content evidence includes text, never function arguments or opaqu
 
 test("namespace descriptions and flattened definitions obey the single-item hard cap", () => {
   for (const namespaceToolsMode of ["native", "flatten"]) {
-    assert.throws(() => responsesCodec.createRequest({ input: [], tools: [{ type: "namespace", name: "large", description: "x".repeat(40001), tools: [tool] }] }, { ...connection, protocolOptions: { namespaceToolsMode } }, "test"), /10K-token/);
+    const create = description => responsesCodec.createRequest({ input: [], tools: [{ type: "namespace", name: "large", description, tools: [tool] }] }, { ...connection, protocolOptions: { namespaceToolsMode } }, "test");
+    const compressible = "x".repeat(40001);
+    const { body } = create(compressible);
+    if (namespaceToolsMode === "native") assert.equal(body.tools[0].description, compressible);
+    else assert.ok(body.tools[0].description.startsWith(`${compressible}\n`));
+    assert.throws(() => create("界".repeat(12000)), /10K-token/);
+    assert.throws(() => create("a".repeat(256 * 1024 + 1)), /256KiB item byte limit/);
   }
 });
 

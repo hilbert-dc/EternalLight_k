@@ -6,7 +6,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS engine_budgets (budget_id TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, state_json TEXT NOT NULL, updated_at INTEGER NOT NULL) STRICT;";
+const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS engine_budgets (budget_id TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, state_json TEXT NOT NULL, updated_at INTEGER NOT NULL) STRICT; CREATE TABLE IF NOT EXISTS engine_failure_observations (budget_id TEXT NOT NULL REFERENCES engine_budgets(budget_id), request_id TEXT NOT NULL, ordinal INTEGER NOT NULL, fact_json TEXT NOT NULL, PRIMARY KEY(budget_id,request_id)) STRICT;";
 
 fn open(path: &Path) -> Result<Connection> {
     let connection = Connection::open(path).map_err(|e| e.to_string())?;
@@ -47,6 +47,47 @@ pub struct PersistentBudget {
 }
 
 impl PersistentBudget {
+    /// The bridge records only typed failure metadata; provider prose and credentials are excluded.
+    pub fn observe_failure(&mut self, observation: Value) -> Result<()> {
+        if observation["status"] != "failed" { return Ok(()); }
+        let text = |key: &str| -> Result<String> {
+            let value = observation[key].as_str().ok_or("failure identity missing")?;
+            if value.is_empty() || value.len() > 160 || value.chars().any(char::is_control) { return Err("invalid failure identity".into()); }
+            Ok(value.to_owned())
+        };
+        let run = text("runId")?;
+        let request = text("requestId")?;
+        let database = self.database.as_mut().ok_or("persistent budget is closed")?;
+        let budget_id = self.state["id"].as_str().ok_or("budget identity missing")?;
+        let bound: bool = database.query_row("SELECT EXISTS(SELECT 1 FROM engine_budgets WHERE budget_id=?1 AND run_id=?2 AND status='active')", params![budget_id,run], |r| r.get(0)).map_err(|e|e.to_string())?;
+        if !bound { return Err("failure run does not own budget".into()); }
+        let mut fact = json!({"issuer":"engine","phase":"modelRequest","runId":run,"requestId":request});
+        for key in ["connectionId", "logicalModel", "errorCategory", "errorCode"] {
+            if let Some(value) = observation[key].as_str().filter(|v| v.len() <= 160 && !v.chars().any(char::is_control)) { fact[key] = value.into(); }
+        }
+        if let Some(status) = observation["errorStatusCode"].as_u64().filter(|v| (100..=599).contains(v)) { fact["errorStatusCode"] = status.into(); }
+        if let Some(retryable) = observation["retryable"].as_bool() { fact["retryable"] = retryable.into(); }
+        database.execute("INSERT OR IGNORE INTO engine_failure_observations(budget_id,request_id,ordinal,fact_json) VALUES (?1,?2,(SELECT COALESCE(MAX(ordinal),0)+1 FROM engine_failure_observations WHERE budget_id=?1),?3)",params![budget_id,request,fact.to_string()]).map_err(|e|e.to_string())?;
+        Ok(())
+    }
+
+    /// Trusted Host only: reconcile a verified provider receipt, never a model estimate.
+    /// Does not reactivate the run or grant a new execution lease.
+    pub fn reconcile_usage(path: &Path, run_id: &str, mut input: Value) -> Result<Value> {
+        if !path.is_file() || run_id.is_empty() || run_id.len() > 160 || !input.is_object() {
+            return Err("existing budget and run identity required".into());
+        }
+        let _owner = storage::try_own(&owner_path(path, run_id))?
+            .ok_or("persistent budget run already has an owner")?;
+        let mut database = open(path)?;
+        let transaction = database.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
+        let encoded: String = transaction.query_row("SELECT state_json FROM engine_budgets WHERE run_id=?", [run_id], |row| row.get(0)).map_err(|e| e.to_string())?;
+        input["state"] = serde_json::from_str(&encoded).map_err(|_| "invalid persisted budget")?;
+        let result = budget::dispatch("budget.reconcile", input)?;
+        transaction.execute("UPDATE engine_budgets SET state_json=?,updated_at=? WHERE run_id=?", params![result["state"].to_string(),now(),run_id]).map_err(|e| e.to_string())?;
+        transaction.commit().map_err(|e| e.to_string())?;
+        Ok(result["result"].clone())
+    }
     /// Read the bounded, terminal usage evidence for one engine run without mutating its ledger.
     pub fn receipt(path: &Path, run_id: &str) -> Result<Value> {
         if path.as_os_str().is_empty() || run_id.is_empty() || run_id.len() > 160 {
@@ -92,10 +133,15 @@ impl PersistentBudget {
         {
             return Err("inconsistent terminal budget state".into());
         }
+        let mut failures = database.prepare("SELECT fact_json FROM engine_failure_observations WHERE budget_id=?1 AND ordinal IN (SELECT MIN(ordinal) FROM engine_failure_observations WHERE budget_id=?1 UNION SELECT MAX(ordinal) FROM engine_failure_observations WHERE budget_id=?1) ORDER BY ordinal").map_err(|e|e.to_string())?;
+        let failures = failures.query_map([&budget_id], |r|r.get::<_,String>(0)).map_err(|e|e.to_string())?
+            .map(|row| serde_json::from_str::<Value>(&row.map_err(|e|e.to_string())?).map_err(|e|e.to_string())).collect::<Result<Vec<_>>>()?;
         Ok(json!({
+            "failureObservations": failures,
             "runId": run_id,
             "budgetId": budget_id,
             "status": status,
+            "usageReconciliations": state["settlements"].as_object().into_iter().flat_map(|entries| entries.values()).filter_map(|entry| entry.get("reconciliation")).collect::<Vec<_>>(),
             "usage": {
                 "requests": snapshot["requests"],
                 "tokens": snapshot["tokens"],
@@ -150,7 +196,9 @@ impl PersistentBudget {
         }
         input["state"] = self.state.clone();
         let candidate = budget::dispatch(method, input)?;
-        if !matches!(method, "budget.snapshot" | "budget.remaining") && candidate["state"] != self.state {
+        if !matches!(method, "budget.snapshot" | "budget.remaining")
+            && candidate["state"] != self.state
+        {
             if let Err(error) = self.persist(&candidate["state"], "active") {
                 self.poisoned = true;
                 return Err(error);

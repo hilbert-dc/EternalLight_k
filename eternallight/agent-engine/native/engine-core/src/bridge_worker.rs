@@ -54,7 +54,7 @@ impl Worker {
                         uuid::Uuid::new_v4().simple()
                     )
                 });
-            let options = json!({"sessionPlan":params["sessionPlan"],"connections":params["connections"],"toolPolicy":params["toolPolicy"],"executorValidatedTools":params["executorValidatedTools"],"responseBarrier":params["responseBarrier"],"token":token,"port":params["port"].as_u64().unwrap_or(0),"maxBodyBytes":2*1024*1024,"maxDownstreamBytes":32*1024*1024,"maxConcurrentRequests":128,"requestTimeoutMs":120_000,"customFetch":false});
+            let options = json!({"sessionPlan":params["sessionPlan"],"connections":params["connections"],"toolPolicy":params["toolPolicy"],"executorValidatedTools":params["executorValidatedTools"],"responseBarrier":params["responseBarrier"],"token":token,"port":params["port"].as_u64().unwrap_or(0),"maxBodyBytes":2*1024*1024,"maxDownstreamBytes":32*1024*1024,"maxConcurrentRequests":128,"requestTimeoutMs":120_000,"customFetch":false,"hasRequestConfigurationProvider":params["hasRequestConfigurationProvider"]});
             let bridge = BridgeService::start(options)?;
             let info = bridge.apply("inspect", &json!({}))?;
             self.bridge = Some(bridge);
@@ -157,6 +157,7 @@ impl Worker {
                 Some("reserve") => "budget:reserve",
                 Some("settle") => "budget:settle",
                 Some("request") => "request:observed",
+                Some("requestConfiguration") => "request:configuration",
                 Some("response") => "response:observed",
                 Some("qualification") => "qualification:failure",
                 _ => return Err("unsupported native bridge callback".into()),

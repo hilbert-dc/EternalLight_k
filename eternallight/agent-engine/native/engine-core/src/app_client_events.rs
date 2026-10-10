@@ -112,6 +112,7 @@ impl AppClient {
                         self.reject(id, error, Value::Null);
                     }
                 }
+                Rpc::Steer(id) => self.reject(id, error, Value::Null),
                 Rpc::Name => {}
                 Rpc::Interrupt(turn_id) => {
                     if self.turn.as_ref().is_some_and(|t| t.id == turn_id) {
@@ -178,6 +179,7 @@ impl AppClient {
                     }
                 }
             }
+            Rpc::Steer(id) => self.resolve(id, json!({"steered":true})),
             Rpc::Name => {}
             Rpc::Interrupt(turn_id) => {
                 if self.turn.as_ref().is_some_and(|t| t.id == turn_id) {

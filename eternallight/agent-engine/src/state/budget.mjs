@@ -14,6 +14,8 @@ export class TaskBudget {
   transition(method, parameters = {}) {
     return JSON.parse(this.#native.apply(`budget.${method}`, JSON.stringify(parameters)));
   }
+  // A trusted Host may bind reservationId to a durable logical operation. The
+  // native ledger verifies repeated parameters and charges that operation once.
   reserveRequest(parameters = {}, now = Date.now()) { return this.transition("reserve", { parameters, now }); }
   settleReservation(id, usage = null, { outcome = "completed" } = {}) { return Object.freeze(this.transition("settle", { id, usage, outcome })); }
   observeUsage(usage) { return this.transition("observe", { usage }) ?? undefined; }

@@ -318,10 +318,15 @@ pub(crate) fn finalize(input: &Value) -> Result<Value> {
     let mut plan = plan;
     let max_children = match policy.get("maxActiveChildren") {
         None => 16,
-        Some(value) => value.as_u64().filter(|v| *v > 0 && *v <= 64)
+        Some(value) => value
+            .as_u64()
+            .filter(|v| *v > 0 && *v <= 64)
             .ok_or("maxActiveChildren must be an integer from 1 to 64")?,
     };
     plan["maxActiveChildren"] = max_children.into();
     plan["resourcePolicy"] = crate::request_scheduler::policy(&policy["resourcePolicy"])?;
+    if let Some(discovery) = policy.get("toolDiscovery") {
+        plan["toolDiscovery"] = crate::tool_discovery::configuration(discovery)?;
+    }
     Ok(json!({"plan":plan,"adoptedRecords":records}))
 }

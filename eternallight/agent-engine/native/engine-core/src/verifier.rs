@@ -20,9 +20,13 @@ pub struct CapabilityVerifier {
     records: Vec<Value>,
     pending: bool,
     terminal: Option<Value>,
+    image_probe: Option<crate::image_probe::ImageProbe>,
 }
 impl CapabilityVerifier {
     pub fn new(mut input: Value) -> Result<Self> {
+        let image_only = match input["verificationMode"].as_str() { None => false, Some("imageInput") => true, _ => return Err("invalid verification mode".into()) };
+        if image_only && input["connection"]["protocol"] != "responses" { return Err("image input qualification requires an executable Responses route".into()); }
+        if image_only && !input["protocols"].is_null() { return Err("image qualification does not negotiate protocols".into()); }
         if string(&input["apiKey"]).is_empty() {
             return Err("verification requires a credential value".into());
         }
@@ -56,6 +60,7 @@ impl CapabilityVerifier {
             records: Vec::new(),
             pending: false,
             terminal: None,
+            image_probe: image_only.then(crate::image_probe::ImageProbe::new),
         })
     }
     pub fn apply(&mut self, method: &str, input: &Value) -> Result<Value> {
@@ -102,10 +107,11 @@ impl CapabilityVerifier {
                 return Ok(Value::Null);
             }
         }
-        let request = probe::dispatch(
+        let mut request = if let Some(image_probe) = &self.image_probe { image_probe.request(&self.input["connection"]) } else { probe::dispatch(
             "probe.request",
             &json!({"connection":self.input["connection"],"forceToolChoice":self.forced,"stream":self.streaming}),
-        )?;
+        )? };
+        if self.image_probe.is_some() && !self.forced { request.as_object_mut().unwrap().remove("tool_choice"); }
         let mut outbound = crate::dispatch(
             if self.protocol == "responses" {
                 "responses.encode"
@@ -175,6 +181,13 @@ impl CapabilityVerifier {
                 },
                 json!({"protocol":self.protocol,"payload":payload,"context":self.context}),
             )?;
+            if let Some(image_probe) = &mut self.image_probe {
+                let Some(observed) = image_probe.validate(&self.canonical)? else { return Ok(()); };
+                self.records.push(self.evidence("imageInput", "verified", observed, "buffered", "")?);
+                let attempts = self.session.apply("success", &json!({"protocol":self.protocol}))?["attempts"].clone();
+                self.terminal = Some(json!({"selectedProtocol":self.protocol,"records":self.records,"attempts":attempts}));
+                return Ok(());
+            }
             probe::dispatch("probe.roundTrip", &self.canonical)?;
             if matches!(
                 self.protocol.as_str(),
@@ -198,6 +211,13 @@ impl CapabilityVerifier {
             .take(500)
             .collect::<String>()
             .into();
+        if self.image_probe.is_some() {
+            let decision = self.session.apply("failure", &json!({"protocol":self.protocol,"error":error}))?;
+            let status = if decision["recordFailure"] == true { "failed" } else { "unknown" };
+            self.records.push(self.evidence("imageInput", status, json!({"category":decision["category"],"message":decision["message"]}), "buffered", ":failed")?);
+            self.terminal = Some(json!({"error":"当前模型尚未通过图片输入实测验证，图片与输入已保留。","selectedProtocol":self.protocol,"records":self.records,"attempts":self.session.apply("result", &Value::Null)?["attempts"]}));
+            return Ok(());
+        }
         if self.streaming {
             let decision = probe::dispatch("probe.streamingFailure", &error)?;
             if decision["fatal"] != true {
@@ -288,8 +308,6 @@ impl CapabilityVerifier {
             &json!({"connection":connection,"options":{"codecVersion":"3","credentialScope":scope,"engineContractHash":digest(&self.input["engineContract"]),"protocol":protocol,"qualificationContextDigest":self.input["qualificationContextDigest"].as_str().unwrap_or("default")}}),
         )?;
         let reference = format!("probe:{id}:{protocol}:{now}{suffix}");
-        Ok(
-            json!({"capability":capability,"status":status,"scope":{"protocol":protocol,"suite":"synthetic-tool-probe-v1","mode":mode,"toolTypes":["function"]},"source":"probe","credentialRealm":realm,"environmentDigest":environment,"evidenceRef":format!("{reference}:{capability}"),"checkedAt":now,"expiresAt":expires,"sample":sample,"assertions":[{"id":format!("model:{capability}:observed"),"result":match status{"verified"=>"passed","failed"=>"failed",_=>"unknown"},"expected":"capability observed through the selected wire protocol","observed":if sample.is_null(){json!(status)}else{sample},"traceRef":reference}],"dependencies":{"modelProtocol":{"digest":digest(&json!({"connectionDigest":session_identity::definition(connection),"protocol":protocol,"codecVersion":"3"})),"ref":format!("{id}:{protocol}:3")},"access":{"digest":realm,"ref":format!("{id}:credential-realm")}}}),
-        )
+        Ok(json!({"capability":capability,"status":status,"scope":{"protocol":protocol,"suite":if self.image_probe.is_some(){"synthetic-image-probe-v1"}else{"synthetic-tool-probe-v1"},"mode":mode,"toolTypes":["function"]},"source":"probe","credentialRealm":realm,"environmentDigest":environment,"evidenceRef":format!("{reference}:{capability}"),"checkedAt":now,"expiresAt":expires,"sample":sample,"assertions":[{"id":format!("model:{capability}:observed"),"result":match status{"verified"=>"passed","failed"=>"failed",_=>"unknown"},"expected":"capability observed through the selected wire protocol","observed":if sample.is_null(){json!(status)}else{sample},"traceRef":reference}],"dependencies":{"modelProtocol":{"digest":digest(&json!({"connectionDigest":session_identity::definition(connection),"protocol":protocol,"codecVersion":"3"})),"ref":format!("{id}:{protocol}:3")},"access":{"digest":realm,"ref":format!("{id}:credential-realm")}}}))
     }
 }

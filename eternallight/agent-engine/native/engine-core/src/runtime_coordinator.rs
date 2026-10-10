@@ -1,6 +1,62 @@
 use crate::{Result, SessionRuntime};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RuntimeFailure {
+    code: Option<String>,
+    message: String,
+}
+
+type RuntimeResult<T> = std::result::Result<T, RuntimeFailure>;
+
+impl RuntimeFailure {
+    fn parse(value: &Value) -> Result<Self> {
+        let object = value.as_object().ok_or("invalid runtime failure")?;
+        if !object.contains_key("code") || !object.contains_key("message") {
+            return Err("invalid runtime failure".into());
+        }
+        let failure: Self = serde_json::from_value(value.clone())
+            .map_err(|_| "invalid runtime failure".to_owned())?;
+        if failure.message.chars().count() > 1000
+            || failure.code.as_ref().is_some_and(|code| {
+                code.is_empty()
+                    || code.len() > 80
+                    || !code.as_bytes()[0].is_ascii_alphabetic()
+                    || !code
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))
+            })
+        {
+            return Err("invalid runtime failure".into());
+        }
+        Ok(failure)
+    }
+
+    fn cancelled() -> Self {
+        Self {
+            code: Some("TASK_CANCELLED".into()),
+            message: "Codex runtime execution was revoked".into(),
+        }
+    }
+}
+
+impl From<String> for RuntimeFailure {
+    fn from(message: String) -> Self {
+        Self {
+            code: None,
+            message: message.chars().take(1000).collect(),
+        }
+    }
+}
+
+impl From<&str> for RuntimeFailure {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
 
 #[derive(Clone, Copy)]
 enum Effect {
@@ -29,8 +85,8 @@ pub struct RuntimeCoordinator {
     bind: Option<u64>,
     turn: Option<u64>,
     turn_result: Value,
-    turn_error: Option<String>,
-    binding_error: Option<String>,
+    turn_error: Option<RuntimeFailure>,
+    binding_error: Option<RuntimeFailure>,
     revoke: Value,
     revokers: Vec<u64>,
     cancelled: bool,
@@ -38,17 +94,17 @@ pub struct RuntimeCoordinator {
     app_revoking: bool,
     app_revoked: bool,
     revoke_result: Value,
-    revoke_error: Option<String>,
+    revoke_error: Option<RuntimeFailure>,
     closing: bool,
     owned: bool,
     interrupt_started: bool,
     interrupt_done: bool,
     closers_started: bool,
     closes: Vec<u64>,
-    close_error: Option<String>,
+    close_error: Option<RuntimeFailure>,
     cleanup_started: bool,
     cleanup: Vec<String>,
-    cleanup_error: Option<String>,
+    cleanup_error: Option<RuntimeFailure>,
     pending: BTreeMap<u64, Pending>,
     callers: BTreeSet<u64>,
     next: u64,
@@ -60,6 +116,12 @@ impl RuntimeCoordinator {
     pub fn apply(&mut self, method: &str, input: &Value) -> Result<Value> {
         match method {
             "snapshot" | "open" => return self.state.apply(method, input),
+            "steer" => {
+                if ["runId", "leaseId", "epoch"].iter().any(|key| input[key].is_null() || input[key] != self.lease[key]) {
+                    return Err("steer execution lease mismatch".into());
+                }
+                return self.state.apply("steer", &json!({"generation": self.generation}));
+            }
             "command" => {
                 let id = input["id"]
                     .as_u64()
@@ -81,7 +143,7 @@ impl RuntimeCoordinator {
         Ok(std::mem::take(&mut self.effects).into())
     }
 
-    fn command(&mut self, id: u64, method: &str, input: &Value) -> Result<()> {
+    fn command(&mut self, id: u64, method: &str, input: &Value) -> RuntimeResult<()> {
         match method {
             "bind" => {
                 let generation = self.state.apply("begin", input)?;
@@ -107,7 +169,8 @@ impl RuntimeCoordinator {
                     .state
                     .apply("dispatch", &json!({"generation":self.generation}))
                 {
-                    if error.starts_with("TASK_CANCELLED:")
+                    let error = self.execution_failure(error);
+                    if error.code.as_deref() == Some("TASK_CANCELLED")
                         && !self.generation.is_null()
                         && self.turn.is_none()
                     {
@@ -137,7 +200,8 @@ impl RuntimeCoordinator {
             }
             "renew" => {
                 self.state
-                    .apply("current", &json!({"generation":self.generation}))?;
+                    .apply("current", &json!({"generation":self.generation}))
+                    .map_err(|error| self.execution_failure(error))?;
                 if self.bind.is_some() || self.cleanup_started || self.renewal.is_some() {
                     return Err(
                         "runtime renewal requires a bound live execution without pending renewal"
@@ -179,7 +243,20 @@ impl RuntimeCoordinator {
         self.effects
             .push(json!({"kind":"callback","id":self.next,"method":step,"params":params}));
     }
-    fn reply(&mut self, id: u64, result: Value, error: Option<String>) {
+    fn execution_failure(&mut self, error: String) -> RuntimeFailure {
+        if !self.generation.is_null()
+            && self
+                .state
+                .apply("execution", &json!({"generation":self.generation}))
+                .is_ok_and(|state| state["revoked"] == true)
+        {
+            RuntimeFailure::cancelled()
+        } else {
+            error.into()
+        }
+    }
+
+    fn reply(&mut self, id: u64, result: Value, error: Option<RuntimeFailure>) {
         if self.callers.remove(&id) {
             self.effects
                 .push(json!({"kind":"reply","id":id,"result":result,"error":error}));
@@ -201,10 +278,18 @@ impl RuntimeCoordinator {
         Ok(())
     }
     fn callback(&mut self, input: &Value) -> Result<()> {
-        let Some(p) = input["id"].as_u64().and_then(|id| self.pending.remove(&id)) else {
+        let Some(id) = input["id"]
+            .as_u64()
+            .filter(|id| self.pending.contains_key(id))
+        else {
             return Ok(());
         };
-        let error = input["error"].as_str().map(str::to_owned);
+        let error = input
+            .get("error")
+            .filter(|value| !value.is_null())
+            .map(RuntimeFailure::parse)
+            .transpose()?;
+        let p = self.pending.remove(&id).ok_or("missing runtime callback")?;
         match p.effect {
             Effect::Acquire => {
                 if let Some(error) = error {
@@ -217,9 +302,8 @@ impl RuntimeCoordinator {
                         .apply("current", &json!({"generation":self.generation}))
                     {
                         Ok(_) => self.acquire()?,
-                        Err(_) => {
-                            self.binding_error =
-                                Some("TASK_CANCELLED:Codex runtime execution was revoked".into())
+                        Err(error) => {
+                            self.binding_error = Some(self.execution_failure(error));
                         }
                     }
                 }
@@ -254,12 +338,13 @@ impl RuntimeCoordinator {
             }
             Effect::Renew => {
                 let (id, plan, lease) = self.renewal.clone().ok_or("missing runtime renewal")?;
-                let result = (|| -> Result<()> {
+                let result = (|| -> RuntimeResult<()> {
                     if let Some(error) = error {
                         return Err(error);
                     }
                     self.state
-                        .apply("current", &json!({"generation":self.generation}))?;
+                        .apply("current", &json!({"generation":self.generation}))
+                        .map_err(|error| self.execution_failure(error))?;
                     if input["result"] != lease {
                         return Err("bridge returned an invalid renewed lease".into());
                     }
@@ -274,10 +359,12 @@ impl RuntimeCoordinator {
                         );
                         return Ok(());
                     }
-                    self.state.apply(
-                        "renew",
-                        &json!({"generation":self.generation,"lease":lease}),
-                    )?;
+                    self.state
+                        .apply(
+                            "renew",
+                            &json!({"generation":self.generation,"lease":lease}),
+                        )
+                        .map_err(|error| self.execution_failure(error))?;
                     self.plan = plan;
                     self.lease = lease.clone();
                     Ok(())
@@ -388,7 +475,7 @@ impl RuntimeCoordinator {
                 .any(|p| matches!(p.effect, Effect::Turn))
             && let Some(id) = self.turn.take()
         {
-            let error = self.cleanup_error.clone().or(self.turn_error.take());
+            let error = self.turn_error.take().or(self.cleanup_error.clone());
             self.reply(id, self.turn_result.clone(), error);
         }
         if self.closing && self.generation.is_null() {
@@ -409,5 +496,183 @@ impl RuntimeCoordinator {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn command(runtime: &mut RuntimeCoordinator, id: u64, method: &str) -> Value {
+        runtime
+            .apply(
+                "command",
+                &json!({"id":id,"method":method,"params":{
+                    "lease":{"runId":"run","leaseId":"lease","budgetId":"budget","epoch":0},
+                    "sessionPlan":{}
+                }}),
+            )
+            .unwrap()
+    }
+
+    fn bound_runtime() -> RuntimeCoordinator {
+        let mut runtime = RuntimeCoordinator::default();
+        let mut effects = command(&mut runtime, 1, "bind");
+        for step in [
+            "budget",
+            "bridge",
+            "budgetStarted",
+            "leaseStarted",
+            "appBound",
+        ] {
+            assert_eq!(effects[0]["method"], step);
+            effects = runtime
+                .apply("callback", &json!({"id":effects[0]["id"],"result":null}))
+                .unwrap();
+        }
+        assert_eq!(
+            effects,
+            json!([{"kind":"reply","id":1,"result":null,"error":null}])
+        );
+        runtime
+    }
+
+    #[test]
+    fn callback_failure_wire_is_strict_and_invalid_input_preserves_pending_identity() {
+        let invalid = [
+            json!("old string error"),
+            json!([]),
+            json!(true),
+            json!({"message":"missing code"}),
+            json!({"code":null}),
+            json!({"code":null,"message":"extra field","cause":"private"}),
+            json!({"code":5,"message":"wrong code type"}),
+            json!({"code":null,"message":{}}),
+            json!({"code":"","message":"empty"}),
+            json!({"code":"1BAD","message":"first digit"}),
+            json!({"code":"非法","message":"non ascii"}),
+            json!({"code":"BAD CODE","message":"space"}),
+            json!({"code":"A".repeat(81),"message":"oversized code"}),
+            json!({"code":null,"message":"文".repeat(1001)}),
+        ];
+        for error in invalid {
+            let mut runtime = RuntimeCoordinator::default();
+            let effects = command(&mut runtime, 1, "bind");
+            let id = effects[0]["id"].clone();
+            assert!(
+                runtime
+                    .apply("callback", &json!({"id":id,"error":error}))
+                    .is_err()
+            );
+            assert_eq!(runtime.pending.len(), 1);
+            let effects = runtime
+                .apply(
+                    "callback",
+                    &json!({"id":id,"error":{
+                        "code":null,"message":"plain failure"
+                    }}),
+                )
+                .unwrap();
+            let reply = effects
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|effect| effect["kind"] == "reply")
+                .unwrap();
+            assert_eq!(
+                reply["error"],
+                json!({"code":null,"message":"plain failure"})
+            );
+            assert!(runtime.pending.is_empty());
+            assert!(runtime.callers.is_empty());
+        }
+        assert!(
+            RuntimeFailure::parse(&json!({"code":"A".repeat(80),"message":"文".repeat(1000)}))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn original_failure_wins_cleanup_and_cleanup_failure_still_blocks_runtime_reuse() {
+        for original in [true, false] {
+            let mut runtime = bound_runtime();
+            let turn = command(&mut runtime, 2, "turn");
+            let mut input = json!({"id":turn[0]["id"],"result":{"turn":"completed"}});
+            if original {
+                input["error"] = json!({"code":"tool_argument_correction_limit","message":"tool correction limit"});
+            }
+            let lease = runtime.apply("callback", &input).unwrap();
+            assert_eq!(lease[0]["method"], "end:lease");
+            let budget = runtime
+                .apply(
+                    "callback",
+                    &json!({"id":lease[0]["id"],"error":{
+                        "code":"LEASE_DRAIN_FAILED","message":"lease drain failed"
+                    }}),
+                )
+                .unwrap();
+            assert_eq!(budget[0]["method"], "end:budget");
+            assert_eq!(budget[0]["params"]["budgetStatus"], "failed");
+            let app = runtime
+                .apply("callback", &json!({"id":budget[0]["id"],"result":true}))
+                .unwrap();
+            assert_eq!(app[0]["method"], "end:app");
+            let effects = runtime
+                .apply("callback", &json!({"id":app[0]["id"],"result":null}))
+                .unwrap();
+            let expected = if original {
+                json!({"code":"tool_argument_correction_limit","message":"tool correction limit"})
+            } else {
+                json!({"code":"LEASE_DRAIN_FAILED","message":"lease drain failed"})
+            };
+            assert_eq!(
+                effects,
+                json!([
+                    {"kind":"releaseBudget"},
+                    {"kind":"reply","id":2,"result":{"turn":"completed"},"error":expected}
+                ])
+            );
+            assert_eq!(
+                runtime.apply("snapshot", &Value::Null).unwrap(),
+                json!({"closed":false,"blocked":true})
+            );
+            assert!(runtime.generation.is_null());
+            assert!(runtime.pending.is_empty());
+            let blocked = command(&mut runtime, 3, "bind");
+            assert_eq!(blocked[0]["error"]["code"], Value::Null);
+            assert!(
+                blocked[0]["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("cleanup is unresolved")
+            );
+        }
+    }
+
+    #[test]
+    fn renewal_callback_retains_machine_failure_without_updating_execution() {
+        let mut runtime = bound_runtime();
+        runtime.callers.insert(2);
+        let lease = runtime.lease.clone();
+        let plan = runtime.plan.clone();
+        runtime.renewal = Some((2, json!({"id":"new-plan"}), lease.clone()));
+        runtime.effect(
+            Effect::Renew,
+            "leaseRenewed",
+            json!({"lease":lease,"commandId":2}),
+        );
+        let id = runtime.effects.pop().unwrap()["id"].clone();
+        let failure = json!({"code":"RENEWAL_PROVIDER_FAILED","message":"renewal failed"});
+        let effects = runtime
+            .apply("callback", &json!({"id":id,"error":failure}))
+            .unwrap();
+        assert_eq!(
+            effects,
+            json!([{"kind":"reply","id":2,"result":lease,"error":failure}])
+        );
+        assert_eq!(runtime.plan, plan);
+        assert_eq!(runtime.lease, lease);
+        assert!(runtime.renewal.is_none());
+        assert!(runtime.pending.is_empty());
     }
 }

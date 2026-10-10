@@ -307,6 +307,56 @@ test("JSON Schema validation uses bounded standards semantics", () => {
   assert.throws(parse({ type: "object", properties: { value: { type: "string", minLength: 2 } }, required: ["value"] }, { value: "🙂" }), /"reason":"constraint".*"schemaPath":"\/properties\/value\/minLength"/);
   assert.throws(parse({ type: "object", properties: { value: { not: { const: { a: 1, b: 2 } } } } }, { value: { b: 2, a: 1 } }), /"reason":"constraint".*"schemaPath":"\/properties\/value\/not"/);
   assert.throws(() => chatCompletionsCodec.createRequest({ ...request, tools: [{ ...request.tools[0], parameters: { type: "object", properties: { value: { type: "string", pattern: "^(a+)+$" } } } }] }, connection("chat-completions"), "secret"), /unbounded regular expressions/);
+  for (const [declaration, valid, invalid] of [
+    [{ type: "string", minLength: 1, maxLength: 160, pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$" }, "issue-1:chapter", "正文问题"],
+    [{ type: "string", pattern: "^[a-f0-9]{64}$" }, "a".repeat(64), "A".repeat(64)],
+    [{ type: "string", minLength: 1, maxLength: 100, pattern: "^[a-f0-9]{64}:[0-9]+$" }, `${"a".repeat(64)}:12`, `${"a".repeat(64)}:null`],
+    [{ type: "string", maxLength: 64, pattern: "^(a+)+$" }, "a".repeat(64), `${"a".repeat(63)}!`],
+  ]) {
+    const schema = { type: "object", properties: { value: declaration }, required: ["value"] };
+    const outbound = chatCompletionsCodec.createRequest({ ...request, tools: [{ type: "function", name: "validate", parameters: schema }] }, connection("chat-completions"), "secret");
+    assert.deepEqual(outbound.body.tools[0].function.parameters, schema, "executable pattern constraints remain in the actual provider schema");
+    assert.doesNotThrow(parse(schema, { value: valid }));
+    assert.throws(parse(schema, { value: invalid }), /"reason":"constraint".*"schemaPath":"\/properties\/value\/pattern"/);
+  }
+  const cursorSchema = { type: "object", properties: { value: { type: "string", maxLength: 100, pattern: "^[a-f0-9]{64}:[0-9]+$" } } };
+  assert.throws(parse(cursorSchema, { value: `${"a".repeat(64)}:${"1".repeat(36)}` }), /"schemaPath":"\/properties\/value\/maxLength"/);
+  for (const declaration of [
+    { type: "string", maxLength: 64, pattern: "[" },
+    { type: "string", maxLength: 64, pattern: "(?=a)a" },
+    { type: "string", maxLength: 64, pattern: "^(a)\\1$" },
+    { type: "string", pattern: "a".repeat(1025) },
+    { type: "string", maxLength: 40001, pattern: "^a+$" },
+    { type: "string", maxLength: 64, pattern: 3 },
+    { type: "string", maxLength: 40000, pattern: "^\\p{L}{0,40000}$" },
+  ]) {
+    assert.throws(() => chatCompletionsCodec.createRequest({ ...request, tools: [{ ...request.tools[0], parameters: { type: "object", properties: { value: declaration } } }] }, connection("chat-completions"), "secret"), /tool .*\/read_context schema: .*\/properties\/value\/pattern/);
+  }
+  for (const [declaration, valid, invalid] of [
+    [{ type: "number", exclusiveMinimum: 0 }, 0.5, 0],
+    [{ type: "number", exclusiveMaximum: 10 }, 9.5, 10],
+  ]) {
+    const schema = { type: "object", properties: { value: declaration }, required: ["value"] };
+    const outbound = chatCompletionsCodec.createRequest({ ...request, tools: [{ type: "function", name: "validate", parameters: schema }] }, connection("chat-completions"), "secret");
+    assert.deepEqual(outbound.body.tools[0].function.parameters, schema);
+    assert.doesNotThrow(parse(schema, { value: valid }));
+    assert.throws(parse(schema, { value: invalid }), /"reason":"constraint".*"schemaPath":"\/properties\/value\/exclusive(Minimum|Maximum)"/);
+  }
+  const pairedRange = { type: "object", properties: { value: { type: "object", properties: { start: { type: "integer", minimum: 0 }, end: { type: "integer", minimum: 1 } }, dependentRequired: { start: ["end"], end: ["start"] } } } };
+  assert.doesNotThrow(parse(pairedRange, { value: {} }));
+  assert.doesNotThrow(parse(pairedRange, { value: { start: 0, end: 1 } }));
+  for (const value of [{ start: 0 }, { end: 1 }]) {
+    assert.throws(parse(pairedRange, { value }), /"reason":"required".*"schemaPath":"\/properties\/value\/dependentRequired"/);
+  }
+  const conditional = { type: "object", properties: { value: { type: "object", required: ["status", "evidence", "issue"], properties: {
+    status: { type: "string", enum: ["supported", "unmet", "insufficientEvidence"] }, evidence: { type: "array", items: { type: "string" } }, issue: { type: ["string", "null"] },
+  }, allOf: [
+    { if: { properties: { status: { enum: ["supported", "unmet"] } } }, then: { properties: { evidence: { minItems: 1 } } } },
+    { if: { properties: { status: { enum: ["unmet", "insufficientEvidence"] } } }, then: { properties: { issue: { type: "string", minLength: 1 } } }, else: { properties: { issue: { type: "null" } } } },
+  ] } } };
+  for (const value of [{ status: "supported", evidence: ["quote"], issue: null }, { status: "unmet", evidence: ["quote"], issue: "issue-1" }, { status: "insufficientEvidence", evidence: [], issue: "issue-1" }]) assert.doesNotThrow(parse(conditional, { value }));
+  for (const value of [{ status: "supported", evidence: [], issue: null }, { status: "unmet", evidence: ["quote"], issue: null }, { status: "supported", evidence: ["quote"], issue: "issue-1" }]) assert.throws(parse(conditional, { value }), /"reason":"(constraint|type)".*"schemaPath":"\/properties\/value\/allOf\//);
+  assert.throws(() => parse({ type: "object", properties: { value: { if: { type: "string" }, then: { pattern: "^a+$" } } } }, {}), /tool .*\/validate schema: .*\/properties\/value\/then\/pattern.*unbounded regular expressions/);
 });
 
 test("request limits include tools, merged items, and output schemas", () => {

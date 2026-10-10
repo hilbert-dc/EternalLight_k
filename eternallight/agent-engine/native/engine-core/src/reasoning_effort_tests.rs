@@ -34,7 +34,7 @@ fn reasoning_effort_validates_only_declared_responses_connections() {
         );
     }
     for effort in [
-        json!("medium"),
+        json!("invalid"),
         json!(null),
         json!(false),
         json!(1),

@@ -20,6 +20,9 @@ test("metering records long request trees, unknown usage and terminal replay wit
   assert.deepEqual(budget.snapshot(), { id: budget.id, requests: 70, tokens: 1380000,
     unknownTokens: 20000, reservedTokens: 0, maxRequests: null, maxTokens: null,
     maxDurationMs: null, startedAt: 1000, overrun: false });
+  const beforeDeniedRetry = budget.state;
+  assert.throws(() => budget.reserveRequest({ estimatedInputTokens: 20000 }, 86_400_001), /task provider usage is unknown/);
+  assert.deepEqual(budget.state, beforeDeniedRetry, "an unlimited allowance still requires known prior usage");
   budget.complete("completed");
   const receipt = PersistentTaskBudget.receipt(databasePath, "unrestricted");
   assert.deepEqual(receipt.limits, { maxRequests: null, maxTokens: null, maxDurationMs: null });

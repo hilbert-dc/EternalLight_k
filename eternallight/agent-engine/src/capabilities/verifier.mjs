@@ -24,8 +24,15 @@ export class CapabilityVerifier {
     Object.assign(this, { fetchImpl, maxAttempts, timeoutMs, maxResponseBytes, ttlMs, engineContract });
   }
   async verify(connection, { apiKey, protocols = null, now = new Date(), credentialScope = connection.credentialRef, qualificationContextDigest = "default" }) {
+    return this.#verify(connection, { apiKey, protocols, now, credentialScope, qualificationContextDigest });
+  }
+  async verifyImageInput(connection, { apiKey, now = new Date(), credentialScope = connection.credentialRef, qualificationContextDigest = "default" }) {
+    return this.#verify(connection, { apiKey, protocols: null, now, credentialScope, qualificationContextDigest, verificationMode: "imageInput" });
+  }
+  async #verify(connection, { apiKey, protocols, now, credentialScope, qualificationContextDigest, verificationMode }) {
     const native = new (nativeBinding().NativeCapabilityVerifier)(JSON.stringify({
       connection, apiKey, protocols, now: now.toISOString(), credentialScope, qualificationContextDigest,
+      ...(verificationMode ? { verificationMode } : {}),
       maxAttempts: this.maxAttempts, timeoutMs: this.timeoutMs, maxResponseBytes: this.maxResponseBytes, ttlMs: this.ttlMs, engineContract: this.engineContract,
     }));
     const apply = (method, input = {}) => JSON.parse(native.apply(method, JSON.stringify(input)));

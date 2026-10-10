@@ -38,6 +38,13 @@ fn undefined_suite_capability_assertions_never_qualify() {
 }
 
 #[test]
+fn text_probe_cannot_qualify_image_input_or_repurpose_the_image_suite() {
+    for (capability,suite) in [("imageInput","synthetic-tool-probe-v1"),("text","synthetic-image-probe-v1")] {
+        assert_eq!(dispatch("proof.evaluate",json!({"record":{"capability":capability,"measurementStatus":"passed","scope":{"protocol":"responses","suite":suite,"mode":"buffered"},"assertions":[{"id":format!("model:{capability}:observed"),"result":"passed"}]}})).unwrap()["status"],"unsupported-suite");
+    }
+}
+
+#[test]
 fn malformed_recovery_records_reject_without_panic_or_rewrite() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("recovery.json");

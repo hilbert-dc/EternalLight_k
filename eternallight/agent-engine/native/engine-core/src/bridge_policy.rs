@@ -17,9 +17,17 @@ fn metadata(value: &Value) -> Result<Value> {
             return Err(format!("trusted Codex {field} is invalid"));
         }
     }
-    Ok(
-        json!({"threadId":metadata["thread_id"],"parentThreadId":metadata["parent_thread_id"],"turnId":metadata["turn_id"],"rootTurnId":metadata["root_turn_id"],"sessionId":metadata["session_id"]}),
-    )
+    let mut identity = json!({"threadId":metadata["thread_id"],"parentThreadId":metadata["parent_thread_id"],"turnId":metadata["turn_id"],"rootTurnId":metadata["root_turn_id"],"sessionId":metadata["session_id"]});
+    if let Some(kind) = metadata.get("request_kind") {
+        if !matches!(
+            kind.as_str(),
+            Some("turn" | "prewarm" | "compaction" | "memory")
+        ) {
+            return Err("trusted Codex request kind is invalid".into());
+        }
+        identity["requestKind"] = kind.clone();
+    }
+    Ok(identity)
 }
 
 /// Per-execution request policy. The embedding supplies file-presence facts,
@@ -27,6 +35,7 @@ fn metadata(value: &Value) -> Result<Value> {
 #[derive(Default)]
 pub struct BridgePolicy {
     child_requests: HashMap<String, u64>,
+    discovery: crate::tool_discovery::PortableDiscovery,
 }
 
 impl BridgePolicy {
@@ -35,6 +44,7 @@ impl BridgePolicy {
             "identity" => metadata(input),
             "reset" => {
                 self.child_requests.clear();
+                self.discovery.reset();
                 Ok(Value::Null)
             }
             "route" => {
@@ -52,6 +62,16 @@ impl BridgePolicy {
                     .ok_or_else(|| format!("model route is not authorized: {model}"))
             }
             "prepare" => self.prepare(input),
+            "discoverySnapshot" => self.discovery.snapshot(&input["identity"]),
+            "observeDiscovery" => {
+                self.discovery.observe(
+                    &input["response"],
+                    &input["toolDiscovery"],
+                    &input["identity"],
+                    &input["catalog"],
+                )?;
+                Ok(Value::Null)
+            }
             _ => Err("unknown bridge policy operation".into()),
         }
     }
@@ -73,7 +93,9 @@ impl BridgePolicy {
             .into();
         let policy = &input["policy"];
         if policy.is_null() {
-            return Ok(body);
+            return self
+                .discovery
+                .prepare(body, &input["toolDiscovery"], &input["identity"]);
         }
         let child = !input["identity"]["parentThreadId"].is_null();
         let complete = child && input["childComplete"] == true;
@@ -175,6 +197,9 @@ impl BridgePolicy {
             }
         }
         body["tools"] = tools.into();
+        let body = self
+            .discovery
+            .prepare(body, &input["toolDiscovery"], &input["identity"])?;
         if let Some((thread, count)) = advance {
             self.child_requests.insert(thread, count);
         }

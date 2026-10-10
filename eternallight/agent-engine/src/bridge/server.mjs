@@ -5,10 +5,11 @@ import { assertTrustedSessionPlan } from "../session/resolver.mjs";
 
 /** Host callbacks and injectable transport binding; the bridge runs in Rust. */
 export class ModelBridge {
-  constructor({ sessionPlan, connections, credentialResolver, fetchImpl = nativeFetch, maxBodyBytes = 2 * 1024 * 1024, maxDownstreamBytes = 32 * 1024 * 1024, maxConcurrentRequests = 128, requestTimeoutMs = 120_000, token = randomBytes(32).toString("base64url"), port = 0, budget = null, requestObserver = null, responseObserver = null, qualificationObserver = null, toolPolicy = null, executorValidatedTools = null, responseBarrier = null }) {
-    this.options = { sessionPlan, connections, maxBodyBytes, maxDownstreamBytes, maxConcurrentRequests, requestTimeoutMs, token, port, toolPolicy, executorValidatedTools, responseBarrier, customFetch: fetchImpl !== nativeFetch };
+  constructor({ sessionPlan, connections, credentialResolver, fetchImpl = nativeFetch, maxBodyBytes = 2 * 1024 * 1024, maxDownstreamBytes = 32 * 1024 * 1024, maxConcurrentRequests = 128, requestTimeoutMs = 120_000, token = randomBytes(32).toString("base64url"), port = 0, budget = null, requestConfigurationProvider = null, requestObserver = null, responseObserver = null, qualificationObserver = null, toolPolicy = null, executorValidatedTools = null, responseBarrier = null }) {
+    this.options = { sessionPlan, connections, hasRequestConfigurationProvider: typeof requestConfigurationProvider === "function", maxBodyBytes, maxDownstreamBytes, maxConcurrentRequests, requestTimeoutMs, token, port, toolPolicy, executorValidatedTools, responseBarrier, customFetch: fetchImpl !== nativeFetch };
     this.token = token;
     this.credentialResolver = credentialResolver;
+    this.requestConfigurationProvider = requestConfigurationProvider;
     this.fetchImpl = fetchImpl;
     this.observers = { request: requestObserver, response: responseObserver, qualification: qualificationObserver };
     this.budgets = new Map();
@@ -87,6 +88,7 @@ export class ModelBridge {
   }
   async #callback(method, params) {
     switch (method) {
+      case "requestConfiguration": return this.requestConfigurationProvider(params);
       case "credential": return this.credentialResolver(params);
       case "reserve": return this.budgets.get(params.budgetId).reserveRequest(params);
       case "settle": return this.budgets.get(params.budgetId).settleReservation(params.id, params.usage, params.options);

@@ -17,6 +17,7 @@ struct Budget {
     unknown_tokens: f64,
     reserved_tokens: f64,
     reservations: BTreeMap<String, f64>,
+    reservation_definitions: BTreeMap<String, Value>,
     settlements: BTreeMap<String, Value>,
     overrun: bool,
 }
@@ -52,30 +53,31 @@ impl Budget {
     fn snapshot(&self) -> Value {
         json!({"id":self.id,"requests":self.requests,"tokens":self.tokens,"unknownTokens":self.unknown_tokens,"reservedTokens":self.reserved_tokens,"maxRequests":self.max_requests,"maxTokens":self.max_tokens,"maxDurationMs":self.max_duration_ms,"startedAt":self.started_at,"overrun":self.overrun})
     }
-    fn settle(&mut self, id: &str, usage: &Value, outcome: &str) -> Value {
+    fn settle(&mut self, id: &str, usage: &Value, outcome: &str) -> Result<Value> {
+        let reported = usage["total_tokens"].as_f64().filter(|n| n.is_finite() && *n >= 0.0 && n.fract() == 0.0 && *n <= 9_007_199_254_740_991.0);
         if let Some(previous) = self.settlements.get(id) {
-            return previous.clone();
+            return Ok(previous.clone());
         }
         let Some(reserved) = self.reservations.remove(id) else {
-            return json!({"status":"unknown-reservation","reservationId":id,"overrun":self.overrun});
+            return Ok(json!({"status":"unknown-reservation","reservationId":id,"overrun":self.overrun}));
         };
         self.reserved_tokens -= reserved;
-        if let Some(reported) = usage["total_tokens"]
-            .as_f64()
-            .filter(|n| n.is_finite() && *n >= 0.0)
-        {
+        if let Some(reported) = reported {
             self.tokens += reported;
         } else if outcome == "not-sent" {
             self.requests -= 1;
+            if let Some(definition) = self.reservation_definitions.get_mut(id) {
+                definition["notSent"] = true.into();
+            }
         } else {
             self.unknown_tokens += reserved;
         }
         self.overrun |= self
             .max_tokens
             .is_some_and(|limit| self.tokens + self.unknown_tokens + self.reserved_tokens > limit);
-        let result = json!({"status":if self.overrun {"overrun"} else {"settled"},"reservationId":id,"overrun":self.overrun});
+        let result = json!({"status":if self.overrun {"overrun"} else {"settled"},"reservationId":id,"overrun":self.overrun,"usageState":if reported.is_some(){"known"}else if outcome=="not-sent"{"not-sent"}else{"unknown"},"reportedTokens":reported,"unknownTokens":if reported.is_none() && outcome!="not-sent"{reserved}else{0.0}});
         self.settlements.insert(id.into(), result.clone());
-        result
+        Ok(result)
     }
 }
 
@@ -117,6 +119,7 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
             unknown_tokens: 0.0,
             reserved_tokens: 0.0,
             reservations: BTreeMap::new(),
+            reservation_definitions: BTreeMap::new(),
             settlements: BTreeMap::new(),
             overrun: false,
         })
@@ -132,6 +135,13 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
         serde_json::from_value(input["state"].clone()).map_err(|_| "invalid budget state")?;
     let result = match method {
         "budget.reserve" => {
+            // A settled request can still have unknown cost. Neither a new
+            // reservation nor a trusted-id replay authorizes another dispatch
+            // until that original usage is known. Existing settlements remain
+            // readable and outstanding requests can still finish below.
+            if state.unknown_tokens > 0.0 {
+                return Err("task provider usage is unknown".into());
+            }
             let parameters = &input["parameters"];
             let integer = |key: &str| -> Result<f64> {
                 let value = if parameters.get(key).is_none() {
@@ -145,7 +155,35 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
                     Ok(value)
                 }
             };
-            let tokens = integer("estimatedInputTokens")? + integer("maxOutputTokens")?;
+            let input_tokens = integer("estimatedInputTokens")?;
+            let output_tokens = integer("maxOutputTokens")?;
+            let tokens = input_tokens + output_tokens;
+            let explicit_id = parameters
+                .get("reservationId")
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|id| {
+                            !id.is_empty() && id.len() <= 200 && !id.chars().any(char::is_control)
+                        })
+                        .ok_or("invalid trusted reservation id")
+                })
+                .transpose()?;
+            let definition = json!({"estimatedInputTokens":input_tokens,"maxOutputTokens":output_tokens,"notSent":false});
+            if let Some(id) = explicit_id {
+                if let Some(previous) = state.reservation_definitions.get(id) {
+                    if previous["notSent"] == true {
+                        return Err("trusted reservation id was retired without dispatch".into());
+                    }
+                    if *previous != definition {
+                        return Err("trusted reservation id parameter conflict".into());
+                    }
+                    return Ok(json!({"state":state,"result":id}));
+                }
+                if state.reservations.contains_key(id) || state.settlements.contains_key(id) {
+                    return Err("trusted reservation id conflicts with another reservation".into());
+                }
+            }
             let now = input["now"].as_f64().ok_or("budget timestamp required")?;
             if state
                 .max_duration_ms
@@ -160,9 +198,15 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
                 .max_requests
                 .is_some_and(|limit| state.requests as f64 >= limit)
             {
-                if parameters["deferIfBusy"] == true && !state.reservations.is_empty()
-                    && state.max_requests.is_some_and(|limit| (state.requests as f64 - state.reservations.len() as f64) < limit)
-                    && state.max_tokens.is_none_or(|limit| state.tokens + state.unknown_tokens + tokens <= limit) {
+                if parameters["deferIfBusy"] == true
+                    && !state.reservations.is_empty()
+                    && state.max_requests.is_some_and(|limit| {
+                        (state.requests as f64 - state.reservations.len() as f64) < limit
+                    })
+                    && state
+                        .max_tokens
+                        .is_none_or(|limit| state.tokens + state.unknown_tokens + tokens <= limit)
+                {
                     return Ok(json!({"state":state,"result":{"waiting":true}}));
                 }
                 return Err("task request budget exhausted".into());
@@ -170,23 +214,51 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
             if state.max_tokens.is_some_and(|limit| {
                 state.tokens + state.unknown_tokens + state.reserved_tokens + tokens > limit
             }) {
-                if parameters["deferIfBusy"] == true && state.reserved_tokens > 0.0
-                    && state.max_tokens.is_some_and(|limit| state.tokens + state.unknown_tokens + tokens <= limit) {
+                if parameters["deferIfBusy"] == true
+                    && state.reserved_tokens > 0.0
+                    && state
+                        .max_tokens
+                        .is_some_and(|limit| state.tokens + state.unknown_tokens + tokens <= limit)
+                {
                     return Ok(json!({"state":state,"result":{"waiting":true}}));
                 }
                 return Err("task token budget exhausted".into());
             }
-            let id = Uuid::new_v4().to_string();
+            let id = explicit_id
+                .map(str::to_owned)
+                .unwrap_or_else(|| Uuid::new_v4().to_string());
             state.requests += 1;
             state.reserved_tokens += tokens;
             state.reservations.insert(id.clone(), tokens);
+            if explicit_id.is_some() {
+                state.reservation_definitions.insert(id.clone(), definition);
+            }
             id.into()
         }
         "budget.settle" => state.settle(
             input["id"].as_str().ok_or("reservation id required")?,
             &input["usage"],
             input["outcome"].as_str().unwrap_or("completed"),
-        ),
+        )?,
+        "budget.reconcile" => {
+            let id = input["id"].as_str().ok_or("reservation id required")?;
+            let receipt_ref = input["receiptRef"].as_str().filter(|v| !v.is_empty() && v.len() <= 256 && !v.chars().any(char::is_control)).ok_or("trusted usage receipt reference required")?;
+            let actual = input["usage"]["total_tokens"].as_f64().filter(|n| n.is_finite() && *n >= 0.0 && n.fract() == 0.0 && *n <= 9_007_199_254_740_991.0).ok_or("invalid reported usage")?;
+            let previous = state.settlements.get(id).ok_or("unknown reservation receipt")?;
+            if previous["usageState"] == "known" && previous["receiptRef"] == receipt_ref && previous["reportedTokens"].as_f64() == Some(actual) {
+                previous.clone()
+            } else {
+                if previous["usageState"] != "unknown" { return Err("conflicting usage reconciliation".into()); }
+                let reserved = previous["unknownTokens"].as_f64().ok_or("unknown settlement amount missing")?;
+                let before = state.snapshot();
+                state.unknown_tokens -= reserved;
+                state.tokens += actual;
+                state.overrun = state.max_tokens.is_some_and(|limit| state.tokens + state.unknown_tokens + state.reserved_tokens > limit);
+                let result = json!({"status":if state.overrun {"overrun"} else {"settled"},"reservationId":id,"overrun":state.overrun,"usageState":"known","reportedTokens":actual,"unknownTokens":0,"receiptRef":receipt_ref,"reconciliation":{"before":before,"after":state.snapshot(),"receiptRef":receipt_ref}});
+                state.settlements.insert(id.into(),result.clone());
+                result
+            }
+        }
         "budget.observe" => {
             if let Some(tokens) = input["usage"]["total_tokens"]
                 .as_f64()
@@ -203,7 +275,7 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
         }
         "budget.unknown" => {
             for id in state.reservations.keys().cloned().collect::<Vec<_>>() {
-                state.settle(&id, &Value::Null, "unknown");
+                state.settle(&id, &Value::Null, "unknown")?;
             }
             state.snapshot()
         }
@@ -218,4 +290,192 @@ pub fn dispatch(method: &str, input: Value) -> Result<Value> {
         _ => return Err("unknown budget operation".into()),
     };
     Ok(json!({"state":state,"result":result}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::PersistentBudget;
+
+    fn reserve(budget: &mut TaskBudget, parameters: Value) -> Value {
+        budget
+            .apply(
+                "budget.reserve",
+                json!({"parameters":parameters,"now":1010}),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn unknown_usage_blocks_every_reservation_path_but_preserves_outstanding_settlement() {
+        for options in [
+            json!({"maxRequests":8,"maxTokens":100,"startedAt":1000}),
+            json!({"maxRequests":null,"maxTokens":null,"startedAt":1000}),
+        ] {
+            let mut budget = TaskBudget::new(json!({"options":options,"now":1000})).unwrap();
+            let known = reserve(
+                &mut budget,
+                json!({"reservationId":"known","estimatedInputTokens":1,"maxOutputTokens":1}),
+            );
+            budget
+                .apply(
+                    "budget.settle",
+                    json!({"id":known,"usage":{"total_tokens":2}}),
+                )
+                .unwrap();
+            let unknown = reserve(
+                &mut budget,
+                json!({"reservationId":"unknown","estimatedInputTokens":3,"maxOutputTokens":4}),
+            );
+            let sent = reserve(
+                &mut budget,
+                json!({"reservationId":"sent","estimatedInputTokens":3,"maxOutputTokens":2}),
+            );
+            let unsent = reserve(
+                &mut budget,
+                json!({"reservationId":"unsent","estimatedInputTokens":3,"maxOutputTokens":3}),
+            );
+            let unknown_receipt = budget
+                .apply(
+                    "budget.settle",
+                    json!({"id":unknown,"usage":null,"outcome":"unknown"}),
+                )
+                .unwrap();
+            let before = budget.inspect();
+            for parameters in [
+                json!({"estimatedInputTokens":1,"maxOutputTokens":1}),
+                json!({"estimatedInputTokens":100,"maxOutputTokens":1,"deferIfBusy":true}),
+                json!({"reservationId":"new","estimatedInputTokens":1,"maxOutputTokens":1}),
+                json!({"reservationId":"known","estimatedInputTokens":1,"maxOutputTokens":1}),
+                json!({"reservationId":"unknown","estimatedInputTokens":3,"maxOutputTokens":4}),
+                json!({"reservationId":"sent","estimatedInputTokens":3,"maxOutputTokens":2}),
+            ] {
+                assert_eq!(
+                    budget.apply(
+                        "budget.reserve",
+                        json!({"parameters":parameters,"now":1020})
+                    ),
+                    Err("task provider usage is unknown".into())
+                );
+                assert_eq!(
+                    budget.inspect(),
+                    before,
+                    "a denial changes no accounting fact"
+                );
+            }
+            budget
+                .apply(
+                    "budget.settle",
+                    json!({"id":sent,"usage":{"total_tokens":3}}),
+                )
+                .unwrap();
+            budget
+                .apply(
+                    "budget.settle",
+                    json!({"id":unsent,"usage":null,"outcome":"not-sent"}),
+                )
+                .unwrap();
+            let final_state = budget.inspect();
+            assert_eq!(final_state["requests"], 3);
+            assert_eq!(final_state["tokens"].as_f64(), Some(5.0));
+            assert_eq!(final_state["unknownTokens"].as_f64(), Some(7.0));
+            assert_eq!(final_state["reservedTokens"].as_f64(), Some(0.0));
+            assert_eq!(
+                budget
+                    .apply(
+                        "budget.settle",
+                        json!({"id":unknown,"usage":{"total_tokens":99}})
+                    )
+                    .unwrap(),
+                unknown_receipt,
+                "a replay is a receipt read, never a replacement for unknown usage"
+            );
+            assert_eq!(budget.inspect(), final_state);
+        }
+    }
+
+    #[test]
+    fn known_usage_preserves_trusted_id_replay_and_new_reservations() {
+        for options in [
+            json!({"maxRequests":8,"maxTokens":100,"startedAt":1000}),
+            json!({"maxRequests":null,"maxTokens":null,"startedAt":1000}),
+        ] {
+            let mut budget = TaskBudget::new(json!({"options":options,"now":1000})).unwrap();
+            let parameters =
+                json!({"reservationId":"known","estimatedInputTokens":1,"maxOutputTokens":3});
+            let id = reserve(&mut budget, parameters.clone());
+            budget
+                .apply("budget.settle", json!({"id":id,"usage":{"total_tokens":2}}))
+                .unwrap();
+            let before = budget.inspect();
+            assert_eq!(reserve(&mut budget, parameters), id);
+            assert_eq!(budget.inspect(), before);
+            assert!(reserve(&mut budget, json!({"estimatedInputTokens":1})).is_string());
+            assert_eq!(budget.inspect()["requests"], 2);
+        }
+    }
+
+    #[test]
+    fn persistent_terminal_receipt_retains_unknown_cost_after_other_requests_settle() {
+        for limits in [
+            json!({"maxRequests":8,"maxTokens":100}),
+            json!({"maxRequests":null,"maxTokens":null}),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("budget.sqlite3");
+            let mut budget = PersistentBudget::new(
+                &path,
+                "unknown-run",
+                json!({"options":{"id":"unknown-budget","maxRequests":limits["maxRequests"],"maxTokens":limits["maxTokens"],"startedAt":1000},"now":1000}),
+            ).unwrap();
+            let unknown = budget
+                .apply(
+                    "budget.reserve",
+                    json!({"parameters":{"estimatedInputTokens":3,"maxOutputTokens":4},"now":1010}),
+                )
+                .unwrap();
+            let sent = budget
+                .apply(
+                    "budget.reserve",
+                    json!({"parameters":{"estimatedInputTokens":3,"maxOutputTokens":2},"now":1010}),
+                )
+                .unwrap();
+            let abandoned = budget
+                .apply(
+                    "budget.reserve",
+                    json!({"parameters":{"estimatedInputTokens":2,"maxOutputTokens":2},"now":1010}),
+                )
+                .unwrap();
+            budget
+                .apply(
+                    "budget.settle",
+                    json!({"id":unknown,"usage":null,"outcome":"unknown"}),
+                )
+                .unwrap();
+            assert_eq!(
+                budget.apply("budget.reserve", json!({"parameters":{},"now":1020})),
+                Err("task provider usage is unknown".into())
+            );
+            budget
+                .apply(
+                    "budget.settle",
+                    json!({"id":sent,"usage":{"total_tokens":3}}),
+                )
+                .unwrap();
+            // Finalization accounts the remaining dispatched request; it cannot
+            // erase the already unknown charge or allocate another request.
+            assert!(abandoned.is_string());
+            budget.complete("completed").unwrap();
+            let receipt = PersistentBudget::receipt(&path, "unknown-run").unwrap();
+            assert_eq!(receipt["status"], "completed");
+            assert_eq!(receipt["usage"]["requests"], 3);
+            assert_eq!(receipt["usage"]["tokens"].as_f64(), Some(3.0));
+            assert_eq!(receipt["usage"]["unknownTokens"].as_f64(), Some(11.0));
+            assert_eq!(receipt["usage"]["overrun"], false);
+            assert_eq!(
+                PersistentBudget::receipt(&path, "unknown-run").unwrap(),
+                receipt
+            );
+        }
+    }
 }

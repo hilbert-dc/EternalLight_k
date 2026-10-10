@@ -43,7 +43,7 @@ input.on("line", (line) => {
   if (message.method === "thread/resume") output({ id: message.id, result: { thread: { id: message.params.threadId } } });
   if (message.method === "thread/name/set") output({ id: message.id, result: {} });
   if (message.method === "turn/start") {
-    output({ method: "fixture/turn-start-requested", params: { threadId: message.params.threadId } });
+    output({ method: "fixture/turn-start-requested", params: { threadId: message.params.threadId, toolOutputs: message.params.toolOutputs } });
     const start = () => {
       output({ id: message.id, result: { turn: { id: "turn-engine", status: "inProgress" } } });
       output({ method: "turn/started", params: { threadId: message.params.threadId, turn: { id: "turn-engine" } } });
@@ -69,6 +69,12 @@ input.on("line", (line) => {
     };
     if (message.params.input[0].text === "delayed-start") setTimeout(start, 80);
     else start();
+  }
+  if (message.method === "turn/steer") {
+    if (message.params.expectedTurnId !== "turn-engine") { output({id:message.id,error:{message:"wrong turn"}}); return; }
+    output({id:message.id,result:{}});
+    output({method:"item/completed",params:{threadId:message.params.threadId,turnId:"turn-engine",item:{id:"steered",type:"agentMessage",text:message.params.input[0].text}}});
+    output({method:"turn/completed",params:{threadId:message.params.threadId,turn:{id:"turn-engine",status:"completed"}}});
   }
   if (message.method === "turn/interrupt") {
     output({ id: message.id, result: {} });
