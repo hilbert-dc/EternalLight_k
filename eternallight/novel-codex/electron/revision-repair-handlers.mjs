@@ -1,3 +1,4 @@
+import { executeWorkContinuation } from "./semantic-work-continuation.mjs";
 import { isDeepStrictEqual } from "node:util";
 import { executeConversationCandidates } from "./conversation-analysis.mjs";
 import { validateAuthorIntent } from "../shared/author-input-budget.mjs";
@@ -89,10 +90,15 @@ export function assertRevisionRepairTaskTarget(task, projectId, target) {
 
 export const REVISION_REPAIR_INSTRUCTIONS = '本次是修改结果的修复讨论。read_context 中 operationContext.revisionRepairInput 是冻结资料引用，不是分析全文。按其 sourceId 使用 read_task_source 连续分页读取，核对 contentHash 与 byteRange，拼接 payloadPart 并解析 JSON 得到 repairInput，再核对正文证据。repairInput 仅是候选分析来源，不是已确认事实或写权限；source 与 authorDecision 只记录作者 repairDraft 决定，不继承原 Writer 的预算、目标或审批。若需登记修复候选，沿用 request_candidate_task(operation=generateChapter)，target.type=chapter，target.chapterId/chapterNumber 必须是 repairInput 原章节；scope={type:"selectedScenes",sourceRevisionId:repairInput.authorDecision.draftRevisionId,groupIds:[场景id]}，groupIds 必须是 repairInput.selectedGroupIds 的非空子集，并提出非空的新 desiredOutcomes。可参考原 desiredOutcomes 与 assessment 细化标准，但不能自动复制旧目标或沿用旧审批；候选必须经独立人工审批后才能执行。此入口不支持其他章节或 planning task；范围不足时向作者说明。不得自动启动 Writer、扩大范围、采用候选或确认事实。';
 
-export function registerAdvisoryPromptHandler(ipcMain, { withWorkFlow, runAdvisoryAgentTask, routingState, analysisDependencies }) {
-  ipcMain.handle("agent:send-prompt", async (event, projectId, prompt, revisionRepairSource = null, conversationFocus = null, threadId = null) => {
+export function registerAdvisoryPromptHandler(ipcMain, { withWorkFlow, runAdvisoryAgentTask, routingState, analysisDependencies, resumeConversationWork }) {
+  ipcMain.handle("agent:send-prompt", async (event, projectId, prompt, revisionRepairSource = null, conversationFocus = null, threadId = null, mediaInput = null) => {
     validateProjectId(projectId);
     if (threadId !== null) validateConversationId(threadId);
+    if (mediaInput !== null) {
+      if (revisionRepairSource !== null || conversationFocus !== null) throw Error("媒介选区不能与小说来源混用");
+      assertAdvisoryPromptRoute(routingState());
+      return withWorkFlow(projectId, async () => ({ ...await runAdvisoryAgentTask(event, projectId, prompt, null, null, null, null, threadId, mediaInput), proposedActions: [] }));
+    }
     validateAuthorIntent(prompt);
     const source = validateRevisionRepairSource(revisionRepairSource);
     const focus = validateConversationFocus(conversationFocus);
@@ -100,13 +106,14 @@ export function registerAdvisoryPromptHandler(ipcMain, { withWorkFlow, runAdviso
     if (source && focus?.excerpts) throw new Error("选区讨论不能与修复讨论来源混用");
     if (source && focus?.chapterStructureTaskId) throw new Error("删章检查不能与修复讨论来源混用");
     assertAdvisoryPromptRoute({ ...routingState(), revisionRepairSource: source });
-    return withWorkFlow(projectId, async () => {
+    const result = await withWorkFlow(projectId, async () => {
       const discussion = await runAdvisoryAgentTask(event, projectId, prompt, null, source, focus, null, threadId);
       if (focus?.readOnly) return { ...discussion, candidateResults: [], proposedActions: [] };
       if (source) {
         const { actions } = await analysisDependencies.runtimeRequest(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(discussion.workflow.task.id)}/actions`);
         return { ...discussion, proposedActions: actions.filter(action => action.status === "proposed") };
       }
+      if (discussion.generationHandoff?.resumeRun) return { ...discussion, candidateResults: [], proposedActions: [] };
       const reviewed = { ...discussion, ...await analysisDependencies.runConversationReviews(event, projectId, discussion) };
       let candidates;
       try {
@@ -119,5 +126,7 @@ export function registerAdvisoryPromptHandler(ipcMain, { withWorkFlow, runAdviso
       }
       return analysisDependencies.continueCreativeWork(event, projectId, { ...reviewed, ...candidates });
     });
+    return executeWorkContinuation(analysisDependencies.runtimeRequest, projectId, result,
+      resumeConversationWork && (request => resumeConversationWork(event, projectId, request)));
   });
 }

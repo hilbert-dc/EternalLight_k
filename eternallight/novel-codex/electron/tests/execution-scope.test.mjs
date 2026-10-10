@@ -68,17 +68,26 @@ test("confirmation replay reads history without re-previewing or resuming stoppe
 });
 
 test("shared work advancement respects current domain state, dependencies and persisted action identity", async () => {
-  const steps = [{ id: "root", status: "completed" }, { id: action, status: "queued", operation: "generateBrief", instruction: "候选方法",
-    sourceTaskId: source, target: { type: "artifact" }, dependsOnStepId: "root" }, { id: "outside", status: "proposed", operation: "generateOutline" }];
+  const steps = [{ id: "root", status: "completed", attempts: [{ id: source, threadId: "root-thread", status: "completed" }] },
+    { id: action, status: "queued", operation: "generateBrief", instruction: "候选方法", inputRevision: 0,
+      currentAttemptId: null, attempts: [], sourceTaskId: source, target: { type: "artifact" }, dependsOnStepId: "root" },
+    { id: "outside", status: "proposed", operation: "generateOutline" }];
   const executions = [];
   const work = { id: "work-scope", projectId: "project", threadId: "root-thread", status: "running", goal: "原作者要求", steps };
   const deps = { currentWorkFlowState: async () => "running", runtimeRequest: async path => {
     if (path.endsWith("/decision")) { work.status = "completed"; return { workTaskId: work.id, threadId: work.threadId, step: null, stopReason: "completed" }; }
+    if (path.endsWith(`/tasks/${source}`)) return { id: source, projectId: "project", threadId: work.threadId,
+      operation: "advisory", status: "completed", inputRevision: 0 };
+    if (path.endsWith("/actions")) return { actions: [{ ...steps[1], intentRevision: 0, resultTaskId: null }] };
+    if (path.endsWith("/permission")) return { permission: { kind: "finiteScope", actionId: action, workTaskId: work.id,
+      scopePermitId: permit.id, actionStatus: "queued", evidence: { projectId: "project", sourceTaskId: source, inputRevision: 0,
+        intentRevision: 0, operation: steps[1].operation, target: steps[1].target, instruction: steps[1].instruction, authorIntent: work.goal } } };
     return work;
   }, runCreativeAgentTask: async (...args) => { executions.push(args); steps[1].status = "completed"; } };
   const event = {};
   await advanceWorkSteps(event, "project", "work-scope", deps);
-  assert.deepEqual(executions, [[event, "project", "候选方法", { operation: "generateBrief" }, { type: "artifact", resumeStepId: action }]]);
+  assert.deepEqual(executions, [[event, "project", "候选方法", { operation: "generateBrief" }, {
+    type: "artifact", requestedByTaskId: source, requestedActionId: action }]]);
   steps[1].status = "queued"; work.status = "running";
   await advanceWorkSteps(event, "project", "work-scope", { ...deps, currentWorkFlowState: async () => "paused" });
   work.status = "paused"; await advanceWorkSteps(event, "project", "work-scope", deps);
@@ -113,11 +122,16 @@ test("production main handlers serialize confirmation against other creative wor
 for (const followup of [false, true]) test(`production confirmation executes candidate and ${followup ? "Agent-selected followup" : "no followup"} through the original workflow without new budget consent`, async () => {
   const runtime = runtimeFixture();
   const state = { confirmations: [], budgets: [] };
-  let currentPermit = null, currentPreview, sourceTask, work;
+  let currentPermit = null, currentPreview, sourceTask, work, approvedAction;
   const created = [], requests = [];
   const command = `${process.execPath} ${fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url))}`;
   const { handlers, adapter } = await mainHandlers(async (path, body) => {
     requests.push([path, body]);
+    if (currentPermit && path.endsWith(`/tasks/${sourceTask.id}/actions`)) return { actions: [approvedAction] };
+    if (currentPermit && path.endsWith(`/actions/${action}/permission`)) return { permission: { kind: "finiteScope", actionId: action,
+      workTaskId: work.id, scopePermitId: currentPermit.id, actionStatus: approvedAction.status, evidence: {
+        projectId: "project", sourceTaskId: sourceTask.id, inputRevision: sourceTask.inputRevision, intentRevision: 0,
+        operation: approvedAction.operation, target: approvedAction.target, instruction: approvedAction.instruction, authorIntent: work.goal } } };
     if (path.endsWith("/decision") && currentPermit) {
       if (followup && work.steps.every(step => step.status === "completed") && !work.steps.some(step => step.id === `followup-${action}`)) {
         work.steps.push({ id: `followup-${action}`, operation: "advisory", status: "queued", dependsOnStepId: action,
@@ -135,21 +149,35 @@ for (const followup of [false, true]) test(`production confirmation executes can
         currentPermit = { ...permit, scope: currentPreview };
         work.status = "running";
         work.steps.push({ id: action, status: "queued", operation: "generateBrief", instruction: "已许可的候选简报",
-          sourceTaskId: sourceTask.id, dependsOnStepId: work.steps[0].id, target: { type: "artifact" } });
+          sourceTaskId: sourceTask.id, dependsOnStepId: work.steps[0].id, target: { type: "artifact" },
+          inputRevision: sourceTask.inputRevision, currentAttemptId: null, attempts: [] });
+        approvedAction = { ...work.steps.at(-1), intentRevision: 0, resultTaskId: null };
       }
       return currentPermit;
     }
     const result = await runtime.request(path, body);
+    if (path.endsWith("/complete")) {
+      for (const owner of runtime.workTasks.values()) for (const step of owner.steps) {
+        for (const attempt of step.attempts ?? []) if (path.includes(`/tasks/${attempt.id}/`)) attempt.status = "completed";
+      }
+    }
     if (path.endsWith("/tasks")) {
       created.push(result);
       const owner = [...runtime.workTasks.values()].find(item => item.steps.some(step => step.currentAttemptId === result.id));
-      const step = owner.steps.find(item => item.currentAttemptId === result.id);
+      let step = owner.steps.find(item => item.currentAttemptId === result.id);
+      if (approvedAction && result.target.requestedActionId === approvedAction.id) {
+        owner.steps.splice(owner.steps.indexOf(step), 1);
+        step = owner.steps.find(item => item.id === approvedAction.id);
+        Object.assign(step, { currentAttemptId: result.id, status: "running" });
+        Object.assign(approvedAction, { resultTaskId: result.id, status: "running" });
+      }
       Object.assign(step, { operation: result.operation, attempts: [{ id: result.id, threadId: result.threadId }] });
       if (result.target.workDecision) result.inputManifest = { workDecision: { ...result.target.workDecision,
         rootThreadId: owner.threadId, decisionStepId: step.id, decisionTaskId: result.id } };
     }
     if (path.endsWith("/complete") && work && path.includes(created.at(-1)?.id) && created.at(-1)?.operation === "generateBrief") {
       work.steps.find(step => step.id === action).status = "completed";
+      approvedAction.status = "completed";
       work.status = "completed";
     }
     if (path.endsWith("/complete") && created.at(-1)?.target?.workDecision) {
@@ -168,7 +196,7 @@ for (const followup of [false, true]) test(`production confirmation executes can
     const result = await handlers.get("agent:confirm-execution-scope")(event, "project", sourceTask.id, continuedRequest, digest);
     assert.equal(result.work.status, "completed");
     assert.equal(created.length, 2 + Number(followup));
-    assert.deepEqual(created[1].target, { type: "artifact", resumeStepId: action });
+    assert.deepEqual(created[1].target, { type: "artifact", requestedByTaskId: sourceTask.id, requestedActionId: action });
     assert.equal(created[1].initialBudget, undefined);
     assert.deepEqual(state.confirmations, []);
     assert.equal(state.budgets.length, 2 + Number(followup));

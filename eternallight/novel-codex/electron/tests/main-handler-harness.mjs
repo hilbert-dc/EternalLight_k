@@ -1,10 +1,11 @@
+import { EXECUTION_CHANNELS } from "../execution-requests.mjs";
 import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after } from "node:test";
 import { runInNewContext } from "node:vm";
 import { EventEmitter } from "node:events";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { withFrozenMethods } from "./fixtures/frozen-methods.mjs";
 
 // Execute the production main handlers with a real Adapter; only Electron startup
@@ -17,7 +18,7 @@ export async function mainHandlers(runtime, command, fixtureState = {}) {
   }
   const mainUrl = new URL("../main.mjs", import.meta.url);
   let source = await readFile(mainUrl, "utf8");
-  const bindings = { process, console, URL, URLSearchParams, Buffer, setTimeout, clearTimeout };
+  const bindings = { EXECUTION_CHANNELS, process, console, URL, URLSearchParams, Buffer, structuredClone, setTimeout, clearTimeout };
   const { CAPABILITIES } = await import("@eternallight/agent-engine");
   const { verifiedBaselineEvidence } = await import("@eternallight/agent-engine/test-support");
   bindings.CAPABILITIES = CAPABILITIES;
@@ -25,29 +26,115 @@ export async function mainHandlers(runtime, command, fixtureState = {}) {
   for (const match of source.matchAll(/^import \{ (.+) \} from "(.+)";$/gm)) {
     if (match[2] === "electron") continue;
     const namespace = await import(match[2].startsWith(".") ? new URL(match[2], mainUrl) : match[2]);
-    for (const name of match[1].split(", ")) bindings[name] = namespace[name];
+    for (const name of match[1].split(", ")) {
+      const [sourceName, localName] = name.split(/\s+as\s+/);
+      bindings[localName ?? sourceName] = namespace[sourceName];
+    }
   }
   // A generation fixture uses real budget storage while its provider evidence remains controlled.
   if (fixtureState.agentStorage) {
     bindings.loadCodexEvidence = async () => fixtureState.fixtureEvidence;
     bindings.credentialScopesFromEnvironment = () => ({});
   }
+  if (fixtureState.providerConfig) bindings.resolveCodexProvider = () => fixtureState.providerConfig;
   let applicationName = "Electron";
   bindings.app = { setName(name) { applicationName = name; }, getName: () => applicationName, isPackaged: false, requestSingleInstanceLock: () => false, quit() {}, setPath() {},
-    getPath: () => dirname(fixtureState.agentStorage.budgetDb) };
+    getPreferredSystemLanguages: () => ["zh-CN"], getPath: () => dirname(fixtureState.agentStorage.budgetDb) };
   bindings.ipcMain = {};
+  // Scheme registration belongs to Electron bootstrap, which this VM does not start.
+  bindings.protocol = { registerSchemesAsPrivileged() {} };
   bindings.BrowserWindow = { fromWebContents: () => ({ isDestroyed: () => false }) };
   bindings.dialog = { showMessageBox: async (_owner, options) => {
     fixtureState.confirmations?.push(options);
     return { response: 0 };
   } };
+  const observedWorks = new Map(), fixtureOwners = new Map();
+  fixtureState.ownerRequests ??= [];
+  // Isolated handler fixtures replace Runtime; their explicit current owner
+  // contract stays here rather than allowing an unknown endpoint to return a
+  // generic Work. Real HTTP tests set nativeRuntime and bypass this mock.
+  const fixtureOwner = (path, body) => {
+    if (/^\/api\/projects\/[^/]+\/work-tasks\/[^/]+\/execution-condition$/.test(path)) {
+      assertOwner(body && Object.keys(body).join(",") === "digest" && /^[a-f0-9]{64}$/.test(body.digest));
+      return { recorded: true };
+    }
+    const match = path.match(/^\/api\/projects\/([^/]+)\/work-tasks\/([^/]+)\/execution-owner(?:\/(renew|release))?$/);
+    if (!match) return null;
+    const projectId = decodeURIComponent(match[1]), workId = decodeURIComponent(match[2]);
+    const work = observedWorks.get(JSON.stringify([projectId, workId]));
+    assertOwner(work?.projectId === projectId && work.id === workId && typeof work.threadId === "string");
+    const key = JSON.stringify([projectId, workId]);
+    const operation = match[3] ?? "acquire", lease = fixtureOwners.get(key);
+    fixtureState.ownerRequests.push({ projectId, workId, operation, body: { ...body } });
+    assertOwner(body && typeof body.hostSessionId === "string");
+    if (operation === "acquire") {
+      assertOwner(Object.keys(body).sort().join(",") === "expectedWorkVersion,hostSessionId" && body.expectedWorkVersion === work.version);
+      assertOwner(!["paused", "cancelled"].includes(work.status) && (!lease || lease.hostSessionId === body.hostSessionId));
+      const next = lease ?? { leaseId: randomUUID(), hostSessionId: body.hostSessionId, workTaskId: work.id,
+        rootThreadId: work.threadId, expiresAt: Math.floor(Date.now() / 1000) + 30 };
+      fixtureOwners.set(key, next); return next;
+    }
+    assertOwner(Object.keys(body).sort().join(",") === "hostSessionId,leaseId" && lease?.leaseId === body.leaseId && lease.hostSessionId === body.hostSessionId);
+    if (operation === "release") { fixtureOwners.delete(key); return { released: true }; }
+    assertOwner(!["paused", "cancelled"].includes(work.status));
+    lease.expiresAt = Math.floor(Date.now() / 1000) + 30; return { ...lease };
+  };
+  const controlReceipts = new Map(), messages = new Map();
+  const fixtureMessage = (path, body) => {
+    const match = path.match(/^\/api\/projects\/([^/]+)\/conversations\/([^/]+)\/messages(?:\/([^/]+))?$/);
+    if (!match) return null;
+    const [, projectId, threadId, id] = match.map(value => value && decodeURIComponent(value));
+    if (!id && !body) return { messages: [...messages.values()].filter(m => m.projectId === projectId && m.threadId === threadId && !['delivered','cancelled'].includes(m.status)) };
+    if (!id) {
+      const existing = messages.get(body.messageId);
+      if (existing) return structuredClone(existing);
+      const message = { ...body, id: body.messageId, projectId, threadId, revision: 0, position: messages.size, status: 'queued', taskId: null, turnId: null, triggerReady: true };
+      messages.set(message.id, message); return structuredClone(message);
+    }
+    const message = messages.get(id);
+    assertOwner(message?.projectId === projectId && message.threadId === threadId);
+    if (!body) return structuredClone(message);
+    assertOwner(body.expectedRevision === message.revision);
+    if (body.action === 'claim') { assertOwner(message.status === 'queued'); message.status = 'claimed'; }
+    else if (body.action === 'sending') { assertOwner(message.status === 'claimed' && message.taskId); message.status = 'sending'; }
+    else if (body.action === 'delivered') { assertOwner(message.status === 'sending' && body.turnId); Object.assign(message, {status:'delivered', turnId:body.turnId}); }
+    else if (body.action === 'fail') message.error = body.error;
+    else throw Error('Unsupported message fixture action: ' + body.action);
+    message.revision++; return structuredClone(message);
+  };
   bindings.fetch = async (url, options) => {
-    const payload = await runtime(new URL(url).pathname, options?.body ? JSON.parse(options.body) : null, options, new URL(url));
+    const pathname = new URL(url).pathname, body = options?.body ? JSON.parse(options.body) : null;
+    if (!fixtureState.nativeRuntime && pathname.includes("/control-commands/")) {
+      return { ok: true, json: async () => ({ receipt: controlReceipts.get(pathname.split("/").at(-1))?.receipt ?? null }) };
+    }
+    const isWorkControl = !fixtureState.nativeRuntime && pathname.includes("/work-tasks/") && pathname.endsWith("/control");
+    if (isWorkControl) {
+      assertOwner(Object.keys(body).sort().join(",") === "command,commandId,expectedControlRevision,threadId");
+      assertOwner(typeof body.commandId === "string" && /^[a-f0-9-]{36}$/.test(body.commandId) && typeof body.threadId === "string");
+      if (controlReceipts.has(body.commandId)) return { ok: true, json: async () => ({ ...controlReceipts.get(body.commandId), replayed: true }) };
+    }
+    const mockedOwner = fixtureState.nativeRuntime ? null : fixtureOwner(pathname, body);
+    const mockedMessage = fixtureState.nativeRuntime ? null : fixtureMessage(pathname, body);
+    const payload = mockedOwner ?? mockedMessage ?? await runtime(pathname, body, options, new URL(url));
+    if (!fixtureState.nativeRuntime && pathname.endsWith('/tasks') && body?.target?.messageDispatch) {
+      const dispatch = body.target.messageDispatch, message = messages.get(dispatch.messageId);
+      assertOwner(message?.status === 'claimed' && !message.taskId && message.revision === dispatch.revision && message.sessionId === dispatch.sessionId && message.input.text === body.authorIntent);
+      message.taskId = payload.id; message.revision++;
+    }
+    if (typeof payload?.id === "string" && payload.id.startsWith("work-") && typeof payload.projectId === "string"
+      && Array.isArray(payload.steps)) observedWorks.set(JSON.stringify([payload.projectId, payload.id]), payload);
     if (payload?.id && payload.threadId && Number.isInteger(payload.inputRevision) && !payload.inputManifest?.creativeCapabilityBinding) {
       payload.inputManifest = { authorIntent: options?.body ? JSON.parse(options.body).authorIntent : undefined, ...payload.inputManifest };
       payload.operation ??= options?.body ? JSON.parse(options.body).operation : undefined;
       if (new URL(url).pathname.includes("/planning-reviews/")) payload.operation ??= "reviewPlanningSeat";
       withFrozenMethods(payload, decodeURIComponent(new URL(url).pathname.split("/projects/")[1]?.split("/")[0] ?? "project"));
+    }
+    if (isWorkControl) {
+      const outcome = { work: payload, replayed: false, receipt: { ...body, projectId: decodeURIComponent(pathname.split("/")[3]),
+        workTaskId: decodeURIComponent(pathname.split("/")[5]), status: "applied", appliedControlRevision: payload.controlRevision,
+        workVersion: payload.version, reason: null, createdAt: Math.floor(Date.now() / 1000) } };
+      controlReceipts.set(body.commandId, structuredClone(outcome));
+      return { ok: true, json: async () => outcome };
     }
     return { ok: true, json: async () => payload };
   };
@@ -55,7 +142,8 @@ export async function mainHandlers(runtime, command, fixtureState = {}) {
   bindings.fixtureState = fixtureState;
   source = source.replace(/^import .+;\n/gm, "").replaceAll("import.meta.url", JSON.stringify(mainUrl.href));
   return runInNewContext(`${source}\n
-    runtimeUrl = 'http://127.0.0.1:8000';
+    runtimeUrl = fixtureState.runtimeUrl ?? 'http://127.0.0.1:8000';
+    multimediaHost = fixtureState.multimediaHost ?? null;
     engineQualificationContextDigest = 'fixture-qualification-context';
     const inspectedConnection = inspectCodexConnection({provider:'deepseek', model:'deepseek-flash'});
     const fixtureEvidence = verifiedBaselineEvidence(inspectedConnection.connection, {
@@ -64,24 +152,49 @@ export async function mainHandlers(runtime, command, fixtureState = {}) {
       qualificationContextDigest: engineQualificationContextDigest
     });
     fixtureState.fixtureEvidence = fixtureEvidence;
-    agentProviderConfig = resolveCodexProvider({provider:'deepseek', model:'deepseek-flash', evidence:fixtureEvidence, qualificationContextDigest:engineQualificationContextDigest});
-    agentStorage = fixtureState.agentStorage ?? null;
-    modelBridge = {
+    baseExecutionDomain.agentProviderConfig = fixtureState.providerConfig ?? resolveCodexProvider({provider:'deepseek', model:'deepseek-flash', evidence:fixtureEvidence, qualificationContextDigest:engineQualificationContextDigest});
+    baseExecutionDomain.agentStorage = fixtureState.agentStorage ?? null;
+    baseExecutionDomain.modelBridge = fixtureState.modelBridge ?? {
       start: async()=>({baseUrl:'http://127.0.0.1:1',token:'fixture'}),
       beginTaskBudget: async(budget)=>{fixtureState.budgets?.push(budget.snapshot());},
       beginExecutionLease: async(lease)=>{fixtureState.leases?.push(lease);}, cancelActiveRequests: async()=>0,
       endExecutionLease: async()=>true, endTaskBudget: async()=>true, close: async()=>{}
     };
-    codexAdapter.configure({command:fixtureCommand,apiKey:null,provider:'deepseek',model:'deepseek-flash',
-      env:{...process.env,NOVEL_CODEX_TEST_THREAD_STATE:fixtureState.agentStorage.budgetDb+'.fixture-threads.json'}});
-    activeGenerationRunId = fixtureState.activeGenerationRunId ?? null;
-    activeAgentExecution = fixtureState.activeAgentExecution ?? null;
+    baseExecutionDomain.codexAdapter.configure({command:fixtureCommand,apiKey:null,provider:'deepseek',model:'deepseek-flash',
+      modelRoute:fixtureState.providerConfig?.sessionPlan.defaultModel,
+      env:{...process.env,NOVEL_CODEX_TEST_THREAD_STATE:fixtureState.agentStorage.budgetDb+'.fixture-threads.json',...fixtureState.adapterEnv}});
+    baseExecutionDomain.activeGenerationRunId = fixtureState.activeGenerationRunId ?? null;
+    baseExecutionDomain.activeWorkFlow = fixtureState.activeWorkFlow ?? null;
+    baseExecutionDomain.activeAgentExecution = fixtureState.activeAgentExecution ?? null;
+    runtimeProcess = fixtureState.runtimeProcess ?? null;
     recoveryIndex = fixtureState.recoveryIndex ?? null;
     rendererWebContents = fixtureState.rendererWebContents ?? null;
-    const handlers = new Map();
-    registerIpcHandlers({handle:(name,handler)=>handlers.set(name,handler)});
-    ({handlers, adapter:codexAdapter, chapterStructureConsumer, sendAgentTurn, providerConfig:agentProviderConfig, modelBridge, modelConnectionGate});
+    executionDomains.prepare = async domain => {
+      domain.agentProviderConfig = structuredClone(baseExecutionDomain.agentProviderConfig);
+      domain.agentStorage = baseExecutionDomain.agentStorage;
+      domain.modelBridge = { ...baseExecutionDomain.modelBridge };
+      domain.codexAdapter = new CodexAppServerAdapter({ command: baseExecutionDomain.codexAdapter.enabled ? fixtureCommand : null, apiKey: null, provider: 'deepseek', model: 'deepseek-flash',
+        modelRoute: fixtureState.providerConfig?.sessionPlan.defaultModel,
+        env: { ...process.env, NOVEL_CODEX_TEST_THREAD_STATE: fixtureState.agentStorage.budgetDb + '.fixture-threads.json', ...fixtureState.adapterEnv } });
+      (fixtureState.executionDomains ??= []).push(domain);
+      fixtureState.onPrepareDomain?.(domain);
+    };
+    const handlers = new Map(), rawHandlers = new Map(), executionTargets = new Map();
+    // Test client follows the production preload envelope, without weakening Host validation.
+    registerIpcHandlers({handle:(name,handler)=> {
+      rawHandlers.set(name, handler);
+      handlers.set(name, EXECUTION_CHANNELS.has(name) ? (event, ...args) => {
+        const requestId = randomUUID();
+        executionTargets.set(event, { requestId, projectId: args[0] });
+        return handler(event, { requestId, args });
+      } : handler);
+    }});
+    ({handlers, rawHandlers, executionTargets, replaceActiveExecution: (flow, execution) => { baseExecutionDomain.activeWorkFlow = flow; baseExecutionDomain.activeAgentExecution = execution; }, get adapter() { return executionDomains.active().at(-1)?.codexAdapter ?? baseExecutionDomain.codexAdapter; }, executionDomains, conversationMessages, chapterStructureConsumer, workExecutionConsumer, workExecutionOwners, resumeWorkTask, sendAgentTurn, providerConfig:baseExecutionDomain.agentProviderConfig, modelBridge: baseExecutionDomain.modelBridge, modelConnectionGate});
   `, bindings, { filename: mainUrl.pathname });
+}
+
+function assertOwner(condition) {
+  if (!condition) throw Object.assign(new Error("fixture current execution-owner contract rejected"), { code: "WORK_EXECUTION_OWNER_INVALID" });
 }
 
 export function runtimeFixture() {
@@ -201,6 +314,8 @@ export function runtimeFixture() {
         }
         if (path.endsWith('/provider-usage') && !body) return { pending: null };
         if (path.endsWith('/control')) {
+          assertOwner(body.expectedControlRevision === task.controlRevision);
+          task.controlRevision += 1;
           task.status = body.command === 'resume' ? 'running' : body.command === 'pause' ? 'paused' : 'cancelled';
           task.version += 1;
         }
@@ -227,22 +342,27 @@ export function runtimeFixture() {
         const id = body.operation === 'assessChapterStructure' && body.initialBudget
           ? `task-${createHash('sha256').update(JSON.stringify(['project', body.initialBudget.authorizationId])).digest('hex').slice(0, 32)}`
           : `task-${String(nextTaskSequence++).padStart(32,'0')}`;
-        const task = {...body,id,projectId:'project',purpose:body.operation === 'advisory' ? 'advisory' : 'planner'};
+        const task = {...body,id,status:'queued',projectId:'project',purpose:body.operation === 'advisory' ? 'advisory' : 'planner'};
         tasks.set(body.threadId,task);
         const source = body.target?.requestedByTaskId ?? body.target?.sourceTaskId;
         const resumedWork = body.target?.resumeStepId ? [...workTasks.values()].find(work => work.steps.some(step => step.id === body.target.resumeStepId)) : null;
         if (body.target?.resumeStepId && !resumedWork) throw new Error('fixture resume step is not persisted');
         const parent = resumedWork?.id ?? (source ? attemptParents.get(source) ?? `work-${task.id}` : body.target?.runId ? `work-${body.target.runId}` : `work-${task.id}`);
         attemptParents.set(task.id, parent);
-        if (!workTasks.has(parent)) workTasks.set(parent, { id: parent, projectId: 'project', threadId: body.threadId, status: 'running', version: 0, kind: 'conversation', initialBudget: body.initialBudget, steps: [] });
+        if (!workTasks.has(parent)) workTasks.set(parent, { id: parent, projectId: 'project', threadId: body.threadId, status: 'running', version: 0, controlRevision: 0, kind: 'conversation', initialBudget: body.initialBudget, steps: [] });
         if (resumedWork) Object.assign(resumedWork.steps.find(step => step.id === body.target.resumeStepId), { currentAttemptId: task.id, status: 'running' });
         else workTasks.get(parent).steps.push({ id: `step-${task.id}`, currentAttemptId: task.id });
         return task;
       }
+      if (path.includes('/work-decision?') || path.endsWith('/work-decision')) return { deliveryReviewRequired: false };
+      const fixtureTask = path.match(/\/tasks\/([^/]+)$/);
+      if (fixtureTask && !body) return [...tasks.values()].find(task => task.id === fixtureTask[1]) ?? {};
       if (path.endsWith('/complete')) {
         if (Array.from(body.summary).length > 4000) throw new Error('summary too long');
         completions.push(body);
         const taskId = path.split('/').at(-2);
+        const completed = [...tasks.values()].find(task => task.id === taskId);
+        if (completed) completed.status = 'completed';
         const owner = workTasks.get(attemptParents.get(taskId));
         const step = owner?.steps.find(item => item.currentAttemptId === taskId);
         if (step) step.status = 'completed';

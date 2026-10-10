@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import { remainingGenerationDurationMs } from "../generation-duration.mjs";
 import { generationPermitForChapters } from "../../shared/generation-permit.mjs";
 import { mainHandlers, rendererEvent } from "./main-handler-harness.mjs";
-import { TaskBudget } from "@eternallight/agent-engine";
+import { TaskBudget, createTaskExecution, bindExecutionTask } from "@eternallight/agent-engine";
+import { composeNovelCodexPrompt } from "../codex-runtime.mjs";
 
 test("generation start requires an explicit author-selected chapter scope", async () => {
   const fixture = fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url));
@@ -128,6 +129,7 @@ test("production task runner binds both the model budget and engine lease to the
     state,
   );
   const deadlineAt = Math.floor(Date.now() / 1000) + 20;
+  const admissionStartedAt = Date.now();
   try {
     await sendAgentTurn({
       adapter, modelBridge, providerConfig, sessionPlan: providerConfig.sessionPlan,
@@ -136,7 +138,9 @@ test("production task runner binds both the model budget and engine lease to the
     assert.equal(state.budgets.length, 1);
     assert.equal(state.leases.length, 1);
     assert.ok(state.budgets[0].maxDurationMs > 0);
-    assert.ok(state.budgets[0].startedAt + state.budgets[0].maxDurationMs <= deadlineAt * 1000);
+    assert.ok(state.budgets[0].maxDurationMs <= deadlineAt * 1000 - admissionStartedAt);
+    // The relative allowance is computed before its Native constructor starts
+    // the clock. The separately bound lease enforces the absolute author limit.
     assert.ok(new Date(state.leases[0].deadline).getTime() <= deadlineAt * 1000);
   } finally {
     adapter.close();
@@ -188,13 +192,14 @@ test("production ordinary turn binds the supplied budget without creating a new 
     async () => { throw new Error("Unexpected Runtime request"); }, `${process.execPath} ${fixture}`, state,
   );
   const taskBudget = new TaskBudget({ id: "budget-ordinary-task", maxRequests: 3, maxTokens: 700 });
-  const execution = {
+  const execution = Object.assign(createTaskExecution(), {
     adapter, modelBridge, providerConfig, sessionPlan: providerConfig.sessionPlan,
-    task: { id: "ordinary-task" }, operation: "advisory", taskBudget,
+    operation: "advisory", taskBudget,
     taskDeadlineAt: Math.floor(Date.now() / 1000) + 20,
-  };
+  });
+  bindExecutionTask(execution, { id: "ordinary-task" });
   try {
-    await sendAgentTurn(execution, [{ type: "text", text: "继续分析" }], { disableEnvironment: true });
+    await sendAgentTurn(execution, composeNovelCodexPrompt("", "继续分析"), { disableEnvironment: true });
     assert.equal(execution.taskBudgetBound, true);
     assert.equal(state.budgets.length, 1);
     assert.equal(state.budgets[0].id, taskBudget.id);

@@ -31,7 +31,14 @@ for (const operation of ["advisory", "generateBrief", "generateOutline", "genera
   test(`author ${operation} starts directly with a persisted metered budget`, async () => {
     const runtime = runtimeFixture();
     const state = { confirmations: [], budgets: [] };
-    const { handlers, adapter } = await mainHandlers(runtime.request, command, state);
+    const { handlers, adapter } = await mainHandlers(async (path, options) => {
+      const result = await runtime.request(path, options);
+      // The chapter navigation entry validates its real workspace target.
+      if (path.endsWith("/creative-workspace") && operation === "generateChapter") {
+        return { ...result, chapters: [{ id: "chapter-one", number: 1 }] };
+      }
+      return result;
+    }, command, state);
     try {
       const event = rendererEvent();
       if (operation === "advisory") await handlers.get("agent:send-prompt")(event, "project", "分析故事");

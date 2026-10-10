@@ -45,14 +45,37 @@ export async function completeReboundChapter({ request, candidateRequest, fixtur
           actualEventRefs: [{ modelingBatchId: batch.id, assertionIndex: 0 }], commitmentAssessments: [] }] }],
     } });
   await complete(assessor);
+  const independent = await fixture.choose("assessRevisionOutcome", "independent-review");
+  assert.equal(independent.target.writerTaskId, writer.id);
+  assert.equal(independent.target.draftRevisionId, draft.id);
+  const independentContext = await fixture.readContext(independent, "critic");
+  const input = independentContext.operationContext.revisionOutcomeInput;
+  assert.ok(input.desiredOutcomes.length > 0);
+  assert.ok(input.afterScenes.every(scene => scene.body === draft.body));
+  const assessment = await candidateRequest(`${base}/revision-outcomes/${writer.id}`, {
+    taskId: independent.id, threadId: independent.threadId, expectedRevision: independent.inputRevision,
+    expectedCandidateRevisionId: independent.inputManifest.expectedCandidateRevisionId,
+    idempotencyKey: "rebound-independent-review", payload: {
+      writerTaskId: writer.id, chapterId, originalRevisionId: independent.target.originalRevisionId,
+      draftRevisionId: draft.id, knowledgeBatchId: independent.target.knowledgeBatchId,
+      uncoveredRequirements: [], outcomes: input.desiredOutcomes.map(criterion => {
+        const scene = input.afterScenes.find(item => criterion.groupIds.includes(item.groupId));
+        assert.ok(scene, "independent judgment must cite its actual bound scene");
+        return { id: criterion.id, status: "supported", reason: "当前稿保留密函，符合作者藏信要求。",
+          issue: null, evidence: [{ groupId: scene.groupId, quote: scene.body }] };
+      }),
+    },
+  });
+  assert.ok(assessment.revisionId);
+  await complete(independent);
   await fixture.choose("finishChapter","finish");
   const finalNext = await request(`${uri}/next`,null);
   assert.equal(finalNext.action,null);
   const done = await request(uri);
   assert.equal(done.status,"completed");
   assert.equal(done.completedChapters,1);
-  assert.equal(done.usedTaskAttempts,startAttempts+7);
-  assert.equal(done.providerBudget.charges.length,startCharges+8);
+  assert.equal(done.usedTaskAttempts,startAttempts+9);
+  assert.equal(done.providerBudget.charges.length,startCharges+10);
   assert.equal(done.deadlineAt, fixture.run.deadlineAt);
   assert.equal((await request(`${base}/work-tasks/work-${fixture.runId}`)).status, "completed");
   const continuationWorkspace = await request(`${base}/creative-workspace`);

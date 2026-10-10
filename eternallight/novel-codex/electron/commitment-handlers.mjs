@@ -13,7 +13,10 @@ export function registerCommitmentHandlers(ipc, runtimeRequest) {
     if (cursor !== null) query.set("cursor", cursor);
     return runtimeRequest(`/api/projects/${identifier(projectId)}/commitments?${query}`);
   });
-  ipc.handle("runtime:get-commitment-extraction", (_event, projectId, chapterId) => runtimeRequest(reportPath(projectId, chapterId)));
+  ipc.handle("runtime:get-commitment-extraction", (_event, projectId, chapterId, reportRevisionId = null) => {
+    const path = reportPath(projectId, chapterId);
+    return runtimeRequest(`${path}${reportRevisionId === null ? "" : `?reportRevisionId=${identifier(reportRevisionId)}`}`);
+  });
   ipc.handle("runtime:establish-commitment", (_event, projectId, chapterId, request) => {
     const path = reportPath(projectId, chapterId);
     if (!request || !Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 0) throw new Error("承诺建立版本无效");

@@ -5,15 +5,16 @@ import { mainHandlers, rendererEvent } from "./main-handler-harness.mjs";
 for (const remainingWork of [false, true]) test(`offline saved-result recovery never starts model work (${remainingWork ? "follow-up paused" : "finished"})`, async () => {
   const requests = [];
   const state = { confirmations: [], budgets: [], leases: [] };
-  const work = { id: "work-saved", projectId: "project", kind: "direct", status: "blocked", version: 7,
+  const work = { id: "work-saved", projectId: "project", threadId: "thread-original", kind: "direct", status: "blocked", version: 7, controlRevision: 2,
     resumeMode: "recoverSavedResult", resumeBlockReason: null, steps: [{ id: "model", operation: "modelKnowledge", status: "blocked" }] };
-  const restored = { ...work, status: remainingWork ? "paused" : "completed", version: 9,
+  const restored = { ...work, controlRevision: 3, status: remainingWork ? "paused" : "completed", version: 9,
     resumeMode: remainingWork ? "continueExecution" : null, steps: [{ ...work.steps[0], status: "completed" }] };
   const { handlers, adapter } = await mainHandlers(async (path, body) => {
     requests.push({ path, body });
+    if (path.endsWith("/generation-handoff")) return { handoff: null };
     if (path.endsWith("/provider-usage")) return { pending: null };
     if (path.endsWith("/control")) {
-      assert.deepEqual(body, { expectedVersion: 7, command: "recoverSavedResult" });
+      assert.deepEqual({ expectedControlRevision: body.expectedControlRevision, command: body.command }, { expectedControlRevision: 2, command: "recoverSavedResult" });
       return restored;
     }
     if (path.endsWith("/work-tasks/work-saved")) return work;
@@ -21,7 +22,8 @@ for (const remainingWork of [false, true]) test(`offline saved-result recovery n
   }, null, state);
   try {
     assert.equal(adapter.enabled, false);
-    assert.deepEqual(await handlers.get("agent:recover-work-task")(rendererEvent(), "project", work.id), restored);
+    assert.deepEqual(JSON.parse(JSON.stringify(await handlers.get("agent:recover-work-task")(rendererEvent(), "project", work.id))),
+      restored);
     assert.deepEqual(requests.map(({ path }) => path), [
       "/api/projects/project/work-tasks/work-saved",
       "/api/projects/project/work-tasks/work-saved/provider-usage",
@@ -35,7 +37,7 @@ for (const remainingWork of [false, true]) test(`offline saved-result recovery n
 });
 
 test("offline execution fails before changing task state or requesting new funds", async () => {
-  const work = { id: "work-paused", projectId: "project", kind: "direct", status: "paused", version: 3,
+  const work = { id: "work-paused", projectId: "project", threadId: "thread-original", kind: "direct", status: "paused", version: 3,
     resumeMode: "continueExecution", steps: [{ operation: "advisory", status: "queued" }] };
   const requests = [];
   const state = { confirmations: [], budgets: [] };
@@ -55,7 +57,7 @@ test("offline execution fails before changing task state or requesting new funds
 });
 
 test("stale local recovery fails closed without falling through to model retry", async () => {
-  const work = { id: "work-stale", projectId: "project", kind: "direct", status: "blocked", version: 7,
+  const work = { id: "work-stale", projectId: "project", threadId: "thread-original", kind: "direct", status: "blocked", version: 7, controlRevision: 2,
     resumeMode: "recoverSavedResult", steps: [] };
   const state = { confirmations: [], budgets: [] };
   const { handlers, adapter } = await mainHandlers(async (path) => {
@@ -73,7 +75,7 @@ test("stale local recovery fails closed without falling through to model retry",
 });
 
 test("a local-recovery click cannot become paid execution after task conditions change", async () => {
-  const work = { id: "work-changed", projectId: "project", kind: "direct", status: "paused", version: 8,
+  const work = { id: "work-changed", projectId: "project", threadId: "thread-original", kind: "direct", status: "paused", version: 8,
     resumeMode: "continueExecution", steps: [{ operation: "advisory", status: "queued" }] };
   const state = { confirmations: [], budgets: [], leases: [] };
   const { handlers, adapter } = await mainHandlers(async (path) => {
@@ -91,7 +93,7 @@ test("a local-recovery click cannot become paid execution after task conditions 
 });
 
 test("usage reconciliation cannot change local recovery into model continuation", async () => {
-  const work = { id: "work-settlement", projectId: "project", kind: "direct", status: "blocked", version: 7,
+  const work = { id: "work-settlement", projectId: "project", threadId: "thread-original", kind: "direct", status: "blocked", version: 7, controlRevision: 2,
     resumeMode: "recoverSavedResult", steps: [] };
   const refreshed = { ...work, version: 8, resumeMode: "continueExecution" };
   const state = { confirmations: [], budgets: [], leases: [] };

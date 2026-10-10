@@ -4,9 +4,62 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CodexAppServerAdapter } from "../codex-adapter.mjs";
+import { novelRecoveryOperationHash } from "../novel-recovery-contract.mjs";
 
 const fixture = fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url));
 const command = `${process.execPath} ${join("", fixture)}`;
+
+test("read-state receipts preserve the observed revision and conflicts are never retried", async () => {
+  const adapter = new CodexAppServerAdapter({ command });
+  adapter.ensureInitialized = async options => assert.deepEqual(options, { localOnly: true });
+  const calls = [];
+  const readState = { revision: "seen-revision", firstUnread: { type: "turn", turnId: "turn" } };
+  adapter.request = async (method, params) => {
+    calls.push({ method, params });
+    if (method === "thread/read") return { thread: { id: "thread", turns: [] }, readState };
+    if (method === "thread/list") return { data: [{ id: "thread" }], readStates: { thread: readState } };
+    throw Object.assign(new Error("revision conflict"), { code: -32000 });
+  };
+  assert.deepEqual((await adapter.readThread("thread")).thread.readState, readState);
+  assert.deepEqual((await adapter.listThreads()).threads[0].readState, readState);
+  assert.equal(calls.length, 2, "reading history must not mark it read");
+  await assert.rejects(adapter.updateThreadReadState("thread", { operation: "read", expectedRevision: readState.revision }), /revision conflict/);
+  assert.deepEqual(calls.at(-1), { method: "thread/readState/update", params: {
+    threadId: "thread", operation: { type: "read" }, expectedRevision: "seen-revision" } });
+  assert.equal(calls.length, 3);
+  await assert.rejects(adapter.updateThreadReadState("thread", { operation: "read", expectedRevision: "" }));
+  assert.equal(calls.length, 3);
+});
+
+test("Host turn dispatch forwards explicitly retained results without changing ordinary turns", async t => {
+  const adapter = new CodexAppServerAdapter({ command });
+  t.after(() => adapter.close());
+  const calls = [], request = adapter.request.bind(adapter);
+  adapter.request = (method, params) => { if (method === "turn/start") calls.push(params); return request(method, params); };
+  const toolOutputs = [{ name: "receipt", namespace: null, output: "confirmed", retain: true }];
+  await adapter.sendTurn([{ type: "text", text: "completed-message" }], { toolOutputs });
+  await adapter.sendTurn([{ type: "text", text: "completed-message" }]);
+  assert.deepEqual(calls[0].toolOutputs, toolOutputs);
+  assert.equal(Object.hasOwn(calls[1], "toolOutputs"), false);
+});
+
+test("matched output admission failure retains the healthy process and original thread", async t => {
+  const adapter = new CodexAppServerAdapter({ command });
+  t.after(() => adapter.close());
+  await adapter.ensureSession(); const child = adapter.process, thread = adapter.threadId;
+  await assert.rejects(adapter.sendTurn([{ type: "text", text: "bounded-output" }]), /provider_output_item_limit/);
+  assert.equal(adapter.process, child); assert.equal(adapter.threadId, thread);
+  assert.equal(child.killed, false); assert.equal(adapter.turnWaiter, null); assert.equal(adapter.turnOperation, null);
+  await adapter.sendTurn([{ type: "text", text: "completed-message" }]);
+  assert.equal(adapter.process, child); assert.equal(adapter.threadId, thread);
+});
+
+test("ordinary failed turns still terminate the process", async t => {
+  const adapter = new CodexAppServerAdapter({ command });
+  t.after(() => adapter.close()); await adapter.ensureSession(); const child = adapter.process;
+  await assert.rejects(adapter.sendTurn([{ type: "text", text: "failed-turn" }]), /unrelated failure/);
+  assert.equal(adapter.process, null); assert.equal(adapter.threadId, null); assert.equal(child.killed, true);
+});
 
 test("supplier diagnostics retain their original protocol and model identity", () => {
   const adapter = new CodexAppServerAdapter({ command: null, provider: "openai", model: "gpt-5.3-codex" });
@@ -39,6 +92,91 @@ test("bounded recent history retains final phase and real timing after many tool
   const final = detail.turns.at(-1).items.find(item => item.phase === "final_answer");
   assert.ok(final.text.length <= 8001);
   assert.equal(detail.turns.at(-1).items.at(-1).phase, "commentary");
+});
+
+test("recovery reads the unique original MCP request beyond display history without starting inference", async () => {
+  const adapter = new CodexAppServerAdapter({ command, configurationError: "inference unavailable" });
+  const identity = { projectId: "project", taskId: "task", threadId: "thread", turnId: "original-turn", callId: "original-call", toolName: "submit_revision_outcome", requestHash: "a".repeat(64) };
+  const arguments_ = { projectId: "project", taskId: "task", threadId: "thread", expectedRevision: 2,
+    expectedCandidateRevisionId: "null", idempotencyKey: "original-key", writerTaskId: "writer", payload: { nested: [null, "原始引用", 0] } };
+  identity.requestHash = novelRecoveryOperationHash({ tool: identity.toolName, arguments: arguments_ });
+  const original = { id: identity.callId, type: "mcpToolCall", server: "novel_workspace", tool: identity.toolName, arguments: arguments_ };
+  const history = { thread: { id: identity.threadId, turns: [{ id: identity.turnId,
+    items: [original, ...Array.from({ length: 20 }, (_, i) => ({ id: `later-item-${i}`, type: "agentMessage", text: "later" }))] },
+    ...Array.from({ length: 20 }, (_, i) => ({ id: `later-turn-${i}`, items: [] }))] } };
+  const calls = [];
+  adapter.threadId = "selected-thread";
+  adapter.ensureInitialized = async options => { assert.deepEqual(options, { localOnly: true }); };
+  adapter.request = async (method, params) => {
+    calls.push({ method, params });
+    return method === "thread/items/read" ? { data: [{ turnId: identity.turnId, item: original }] } : history;
+  };
+  assert.equal((await adapter.readThread(identity.threadId)).turns.some(turn => turn.id === identity.turnId), false);
+  const evidence = await adapter.readRecoveryOperationEvidence(identity);
+  assert.deepEqual(evidence, { taskId: "task", threadId: "thread", turnId: identity.turnId, callId: identity.callId,
+    toolName: identity.toolName, requestHash: identity.requestHash, arguments: arguments_ });
+  assert.equal(evidence.arguments.expectedCandidateRevisionId, "null", "the string must not be changed into JSON null");
+  evidence.arguments.payload.nested[1] = "changed returned copy";
+  assert.equal(arguments_.payload.nested[1], "原始引用");
+  assert.equal(adapter.threadId, "selected-thread");
+  assert.equal(adapter.turnId, null);
+  assert.deepEqual(calls.at(-1), { method: "thread/items/read", params: {
+    threadId: identity.threadId, turnId: identity.turnId, itemIds: [identity.callId] } });
+});
+
+test("recovery rejects missing, ambiguous, foreign, incomplete and oversized original request evidence", async () => {
+  const adapter = new CodexAppServerAdapter({ command });
+  const identity = { projectId: "project", taskId: "task", threadId: "thread", turnId: "turn", callId: "call", toolName: "save_brief", requestHash: "b".repeat(64) };
+  const args = { projectId: "project", taskId: "task", threadId: "thread", expectedRevision: 0, expectedCandidateRevisionId: null,
+    idempotencyKey: "key", payload: { text: "unchanged" } };
+  identity.requestHash = novelRecoveryOperationHash({ tool: identity.toolName, arguments: args });
+  const item = { id: "call", type: "mcpToolCall", server: "novel_workspace", tool: "save_brief", arguments: args };
+  const original = { data: [{ turnId: "turn", item }] };
+  let history = original, requests = 0;
+  adapter.ensureInitialized = async options => { assert.deepEqual(options, { localOnly: true }); };
+  adapter.request = async method => { assert.equal(method, "thread/items/read"); requests++; return history; };
+  const rejected = [
+    value => { value.data[0].turnId = "foreign"; },
+    value => { value.data = []; },
+    value => { value.data.push(structuredClone(value.data[0])); },
+    value => { value.data[0].item.id = "foreign"; },
+    value => { value.data[0].item.displayTruncated = true; },
+    value => { value.data[0].item.type = "agentMessage"; },
+    value => { value.data[0].item.server = "foreign_workspace"; },
+    value => { value.data[0].item.tool = "save_outline"; },
+    value => { value.data[0].item.arguments = JSON.stringify(args); },
+    value => { value.data[0].item.arguments.projectId = "foreign"; },
+    value => { value.data[0].item.arguments.taskId = "foreign"; },
+    value => { value.data[0].item.arguments.threadId = "foreign"; },
+    value => { value.data[0].item.arguments.expectedRevision = "0"; },
+    value => { delete value.data[0].item.arguments.expectedCandidateRevisionId; },
+    value => { value.data[0].item.arguments.expectedCandidateRevisionId = false; },
+    value => { delete value.data[0].item.arguments.idempotencyKey; },
+    value => { value.data[0].item.arguments.payload.text = "changed request"; },
+    value => { value.data[0].item.arguments.expectedCandidateRevisionId = "null"; },
+    value => { value.data[0].item.arguments.payload.text = "字".repeat(44_000); },
+  ];
+  for (const corrupt of rejected) {
+    history = structuredClone(original); corrupt(history);
+    await assert.rejects(adapter.readRecoveryOperationEvidence(identity));
+  }
+  history = original;
+  const beforeInvalidIdentity = requests;
+  await assert.rejects(adapter.readRecoveryOperationEvidence({ ...identity, requestHash: "not-a-hash" }));
+  assert.equal(requests, beforeInvalidIdentity);
+  const evidence = await adapter.readRecoveryOperationEvidence(identity);
+  assert.equal(evidence.arguments.expectedCandidateRevisionId, null);
+  history = structuredClone(original);
+  const boundedArgs = history.data[0].item.arguments;
+  boundedArgs.payload.text = "";
+  const { projectId, ...binding } = identity;
+  const overhead = Buffer.byteLength(JSON.stringify({ ...binding, arguments: boundedArgs }), "utf8");
+  boundedArgs.payload.text = "x".repeat(128 * 1024 - overhead);
+  identity.requestHash = novelRecoveryOperationHash({ tool: identity.toolName, arguments: boundedArgs });
+  assert.equal(Buffer.byteLength(JSON.stringify(await adapter.readRecoveryOperationEvidence(identity)), "utf8"), 128 * 1024);
+  boundedArgs.payload.text += "x";
+  identity.requestHash = novelRecoveryOperationHash({ tool: identity.toolName, arguments: boundedArgs });
+  await assert.rejects(adapter.readRecoveryOperationEvidence(identity), /上限/);
 });
 
 test("adapter audit lease renews only the live same execution and cannot revive cancellation", async () => {
@@ -279,21 +417,55 @@ test("preserves bounded multiline author answers and keeps invalid requests avai
   assert.equal(result.message, answer);
 });
 
+test("delivers a bounded free answer even when the model lists closed options", { timeout: 5000 }, async t => {
+  const adapter = new CodexAppServerAdapter({ command });
+  t.after(() => adapter.close());
+  const requested = new Promise(resolve => adapter.setCallbacks({ onUserInputRequest: resolve }));
+  const turn = adapter.sendTurn([{ type: "text", text: "user-input-free-answer" }]);
+  const request = await requested;
+  const question = request.params.questions[0];
+  assert.equal(question.isOther, false);
+  assert.deepEqual(question.options.map(option => option.label), ["白塔谜团", "墨鸦线"]);
+  const pending = adapter.userInputs.get(request.requestId);
+  for (const invalid of [
+    null, { answers: [] }, { answers: {} }, { answers: { foreign: "白塔谜团" } },
+    { answers: { direction: "白塔谜团", extra: "墨鸦线" } },
+    ...["", "\t\r\n", "月".repeat(241), "内容\0", "内容\u0007", "内容\u001b", "内容\u007f", "内容\u0085", [], Array(7).fill("白塔谜团")]
+      .map(direction => ({ answers: { direction } })),
+  ]) {
+    assert.throws(() => adapter.resolveUserInput(request.requestId, invalid), /用户回答格式无效|必须回答所有问题|用户回答内容无效或过长/);
+    assert.equal(adapter.userInputs.get(request.requestId), pending);
+  }
+  assert.throws(() => adapter.resolveUserInput("foreign-request", { answers: { direction: "白塔谜团" } }), /作者问题已过期/);
+  assert.equal(adapter.userInputs.get(request.requestId), pending);
+  const answer = "把两条线结合：\n先揭示墨鸦与白塔的关系，保持克制，但不要直接揭底。";
+  assert.deepEqual(adapter.resolveUserInput(request.requestId, { answers: { direction: answer } }), { resolved: true });
+  assert.equal(adapter.userInputs.has(request.requestId), false);
+  const result = await turn;
+  assert.equal(result.message, answer, "The app-server must receive the author's complete custom answer");
+});
+
 test("steers an active turn without creating a new turn", async () => {
   const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   let started;
   const startedPromise = new Promise((resolve) => { started = resolve; });
   adapter.setCallbacks({ onEvent: (event) => { if (event.method === "turn/started") started(); } });
+  const lease = {runId:"steer-run", leaseId:"steer-lease", epoch:0};
+  await adapter.bindExecution({lease});
   const turn = adapter.sendTurn([{ type: "text", text: "steer" }]);
   await startedPromise;
-  assert.deepEqual(await adapter.steerTurn([{ type: "text", text: "focus on the lighthouse" }]), { steered: true });
+  const target = {...lease,expectedThreadId:adapter.threadId,expectedTurnId:adapter.turnId};
+  assert.equal((await adapter.steerTurn([{type:"text",text:"wrong turn"}], {...target,expectedTurnId:"old-turn"})).delivery,"notSent");
+  assert.equal((await adapter.steerTurn([{type:"text",text:"wrong epoch"}], {...target,epoch:1})).delivery,"notSent");
+  assert.deepEqual(await adapter.steerTurn([{ type: "text", text: "focus on the lighthouse" }], target), { steered: true });
   const result = await turn;
   assert.equal(result.mode, "novel-agent-engine");
   adapter.close();
 });
 
-test("lists, pins, archives, restores and resumes an isolated app-server thread", async () => {
+test("lists, pins, archives, restores and resumes an isolated app-server thread", async t => {
   const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
+  t.after(() => adapter.close());
   const listed = await adapter.listThreads();
   assert.deepEqual(listed.threads[0], {
     id: "thr-history",
@@ -305,6 +477,7 @@ test("lists, pins, archives, restores and resumes an isolated app-server thread"
     updatedAt: 1730832111,
     isPinned: false,
     ephemeral: false,
+    readState: null,
   });
   const nextPage = await adapter.listThreads({ cursor: listed.nextCursor });
   assert.equal(nextPage.threads[0].id, "thr-history-2");
@@ -350,6 +523,163 @@ test("reads local history while inference credentials are unavailable", async ()
   adapter.close();
 });
 
+test("saves the actual conversation name and verifies same-thread metadata before returning", async () => {
+  const adapter = new CodexAppServerAdapter({ command });
+  const calls = [];
+  adapter.ensureInitialized = async options => { assert.deepEqual(options, { localOnly: true }); };
+  adapter.request = async (method, params) => {
+    calls.push({ method, params });
+    return method === "thread/name/set" ? {} : { thread: { id: "named-thread", name: "新对话", turns: [] } };
+  };
+  const saved = await adapter.saveThreadName("named-thread", "新对话");
+  assert.equal(saved.thread.id, "named-thread");
+  assert.equal(saved.thread.name, "新对话");
+  assert.deepEqual(calls, [
+    { method: "thread/name/set", params: { threadId: "named-thread", name: "新对话" } },
+    { method: "thread/read", params: { threadId: "named-thread", includeTurns: false } },
+  ]);
+  for (const name of ["", " leading", "trailing ", "line\nfeed", "x".repeat(121)]) {
+    await assert.rejects(adapter.saveThreadName("named-thread", name), /名称/);
+  }
+  assert.equal(calls.length, 2);
+});
+
+test("empty conversation creation disables only task MCP and cannot directly execute", async t => {
+  const adapter = new CodexAppServerAdapter({ command, configurationError: "inference credentials unavailable", env: { PATH: process.env.PATH } });
+  t.after(() => adapter.close());
+  const calls = [], request = adapter.request.bind(adapter);
+  adapter.request = (method, params) => { calls.push({ method, params }); return request(method, params); };
+  const created = await adapter.createThread();
+  await adapter.saveThreadName(created.thread.id, "新对话");
+  assert.deepEqual((await adapter.readThread(created.thread.id)).turns, []);
+  const start = calls.find(call => call.method === "thread/start");
+  assert.deepEqual(start.params.config, { "mcp_servers.novel_workspace.enabled": false });
+  assert.equal(adapter.env.NOVEL_CODEX_TASK_CAPABILITY, undefined);
+  assert.equal(adapter.activeOperation, null);
+  const count = calls.length;
+  await assert.rejects(adapter.ensureSession(), /先绑定创作任务/);
+  assert.equal(calls.length, count, "execution cannot reuse a disabled management session");
+  assert.equal(calls.filter(call => call.method === "turn/start").length, 0);
+});
+
+test("new thread is published only after durable full history read succeeds", async t => {
+  for (const failRead of [false, true]) {
+    const adapter = new CodexAppServerAdapter({ command, env: { PATH: process.env.PATH } });
+    t.after(() => adapter.close());
+    const events = [], request = adapter.request.bind(adapter);
+    let named = false, read = false;
+    adapter.setCallbacks({ onEvent: event => {
+      if (event.method === "thread/started") {
+        assert.equal(read, true, "in-memory creation must not become visible");
+        events.push(event);
+      }
+    } });
+    adapter.request = async (method, params) => {
+      if (method === "thread/name/set") named = true;
+      if (method === "thread/read") {
+        assert.equal(named, true);
+        assert.equal(params.includeTurns, true);
+        if (failRead) throw new Error("history persistence unavailable");
+        read = true;
+      }
+      return request(method, params);
+    };
+    if (failRead) {
+      await assert.rejects(adapter.createThread(), /history persistence unavailable/);
+      assert.equal(events.length, 0);
+    } else {
+      const result = await adapter.createThread();
+      assert.equal(events.length, 1);
+      assert.equal(events[0].params.thread.id, result.thread.id);
+    }
+  }
+});
+
+test("task binding rotates even the same capability after empty creation and requires MCP on exact resume", async t => {
+  const capability = "unit-task-capability-advisory-123456789";
+  const adapter = new CodexAppServerAdapter({ command, env: { PATH: process.env.PATH, NOVEL_CODEX_OPERATION: "advisory", NOVEL_CODEX_TASK_CAPABILITY: capability } });
+  t.after(() => adapter.close());
+  const calls = [], request = adapter.request.bind(adapter);
+  adapter.request = (method, params) => { calls.push({ method, params }); return request(method, params); };
+  const { thread } = await adapter.createThread();
+  await adapter.saveThreadName(thread.id, "新对话");
+  const managementProcess = adapter.process;
+  adapter.prepareAdvisorySession(capability);
+  assert.equal(managementProcess.killed, true);
+  assert.equal(adapter.process, null);
+  await adapter.resumeThread(thread.id);
+  assert.notEqual(adapter.process, managementProcess);
+  assert.equal(adapter.threadId, thread.id);
+  assert.deepEqual(calls.find(call => call.method === "thread/resume").params, {
+    threadId: thread.id,
+    config: { "mcp_servers.novel_workspace.enabled": true, "mcp_servers.novel_workspace.required": true },
+  });
+  assert.equal(adapter.env.NOVEL_CODEX_TASK_CAPABILITY, capability);
+  assert.equal(calls.filter(call => call.method === "turn/start").length, 0);
+});
+
+test("conversation-only resume has no task authority and task MCP startup failures remain fatal", async t => {
+  const adapter = new CodexAppServerAdapter({ command, env: { PATH: process.env.PATH } });
+  t.after(() => adapter.close());
+  const calls = [], request = adapter.request.bind(adapter);
+  adapter.request = (method, params) => {
+    calls.push({ method, params });
+    if (method === "thread/resume" && params.config["mcp_servers.novel_workspace.enabled"] === true) {
+      throw Error("required MCP novel_workspace: capability rejected");
+    }
+    return request(method, params);
+  };
+  await adapter.resumeThread("thr-history");
+  assert.deepEqual(calls.find(call => call.method === "thread/resume").params.config, { "mcp_servers.novel_workspace.enabled": false });
+  await assert.rejects(adapter.ensureSession(), /先绑定创作任务/);
+  adapter.prepareAdvisorySession("unit-task-capability-rejected-123456789");
+  await assert.rejects(adapter.resumeThread("thr-history"), /required MCP novel_workspace: capability rejected/);
+  assert.equal(adapter.process, null);
+  assert.equal(adapter.threadId, null);
+  assert.equal(calls.filter(call => call.method === "turn/start").length, 0);
+  assert.equal(calls.filter(call => call.method === "thread/resume").length, 2, "no automatic retry or success fallback");
+});
+
+test("generic execution preserves explicit servers while a bound task cannot fall back without its workspace transport", async t => {
+  const adapter = new CodexAppServerAdapter({ command, env: { PATH: process.env.PATH } });
+  t.after(() => adapter.close());
+  const calls = [], request = adapter.request.bind(adapter);
+  adapter.request = (method, params) => {
+    calls.push({ method, params });
+    if (method === "thread/resume") throw Error("invalid transport for mcp_servers.novel_workspace");
+    return request(method, params);
+  };
+  const originalThread = await adapter.ensureSession();
+  const start = calls.find(call => call.method === "thread/start");
+  assert.equal(Object.hasOwn(start.params, "config"), false, "unbound generic execution must not inject a domain server");
+  assert.equal(adapter.activeOperation, null);
+  adapter.prepareAdvisorySession("unit-task-capability-missing-transport-123456789");
+  await assert.rejects(adapter.resumeThread(originalThread), /invalid transport for mcp_servers.novel_workspace/);
+  assert.deepEqual(calls.find(call => call.method === "thread/resume").params.config, {
+    "mcp_servers.novel_workspace.enabled": true, "mcp_servers.novel_workspace.required": true,
+  });
+  assert.equal(adapter.process, null);
+  assert.equal(adapter.threadId, null);
+  assert.equal(calls.filter(call => call.method === "thread/resume").length, 1, "no unbound retry after task initialization fails");
+  assert.equal(calls.filter(call => call.method === "turn/start").length, 0);
+});
+
+test("name save rejects mismatched metadata and propagates native save failure", async () => {
+  const adapter = new CodexAppServerAdapter({ command });
+  adapter.ensureInitialized = async () => {};
+  for (const thread of [{ id: "foreign-thread", name: "新对话" }, { id: "named-thread", name: "未保存名称" }]) {
+    adapter.request = async method => method === "thread/name/set" ? {} : { thread };
+    await assert.rejects(adapter.saveThreadName("named-thread", "新对话"), /回执不匹配/);
+  }
+  const calls = [];
+  adapter.request = async method => { calls.push(method); throw Error("native name save failed"); };
+  await assert.rejects(adapter.saveThreadName("named-thread", "新对话"), /native name save failed/);
+  assert.deepEqual(calls, ["thread/name/set"]);
+  adapter.turnOperation = {};
+  await assert.rejects(adapter.saveThreadName("named-thread", "新对话"), /正在执行/);
+  assert.deepEqual(calls, ["thread/name/set"]);
+});
+
 test("interrupts an active turn", async () => {
   const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   let started;
@@ -367,6 +697,7 @@ test("supports task review, context compaction and background terminal controls"
   const adapter = new CodexAppServerAdapter({ apiKey: "test-deepseek-key", command });
   const events = [];
   adapter.setCallbacks({ onEvent: (event) => events.push(event) });
+  adapter.prepareAdvisorySession("unit-task-capability-review-123456789");
   await adapter.resumeThread("thr-test");
   const review = await adapter.reviewThread("thr-test");
   assert.equal(review.started, true);

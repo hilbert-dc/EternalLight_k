@@ -1,3 +1,4 @@
+import { nativeTestBinary } from "./helpers/native-binaries.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -7,6 +8,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { mainHandlers, rendererEvent } from "./main-handler-harness.mjs";
+import { readFixtureAuthorRequirements, updateFixtureDeliveryPlan } from "./fixtures/model-plan-current-contract.mjs";
 
 // Production main handler/coordinator + real Native authority and persistent
 // budgets. Adapter JSON-RPC responses and tool decisions are synthetic; this is
@@ -15,7 +17,7 @@ test("initial persisted worker failure reaches a Native decision and corrects in
   const root = await mkdtemp(join(tmpdir(), "novel-work-decision-"));
   const authorToken = "coordinator-author-token-123456789", candidateToken = "coordinator-candidate-token-123456789";
   const suffix = process.platform === "win32" ? ".exe" : "";
-  const binary = fileURLToPath(new URL(`../../native/target/debug/novel-codex-story-runtime${suffix}`, import.meta.url));
+  const binary = nativeTestBinary("novel-codex-story-runtime");
   const runtime = spawn(binary, ["--port", "0", "--db", join(root, "story.sqlite3"),
     "--engine-budget-db", join(root, "engine.sqlite3"), "--token-stdin"], { stdio: ["pipe", "pipe", "pipe"] });
   runtime.stderr.resume();
@@ -38,19 +40,21 @@ test("initial persisted worker failure reaches a Native decision and corrects in
       authorization: `Bearer ${capability ? candidateToken : authorToken}`,
       ...(capability ? { "x-novel-task-capability": capability } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}) });
-    const value = await response.json(); assert.ok(response.ok, `${method} ${path}: ${response.status} ${JSON.stringify(value)}`); return value;
+    const raw = await response.text();
+    assert.match(response.headers.get("content-type") ?? "", /^application\/json\b/, `${method} ${path}: HTTP ${response.status}: ${raw.slice(0, 2000)}`);
+    const value = JSON.parse(raw); assert.ok(response.ok, `${method} ${path}: ${response.status} ${JSON.stringify(value)}`); return value;
   };
-  const { project } = await request("/api/projects", { title: "父对话协调验收" });
+  const { project } = await request("/api/projects", { title: "父对话协调验收", logline: "首次持久化 worker 失败后同一 Work 修正验收", medium: "novel", idempotencyKey: "initial-candidate-failure-project" });
   const base = `/api/projects/${project.id}`;
   const original = await request(`${base}/artifacts/brief`, { expectedRevision: 0, expectedCandidateRevisionId: null,
     idempotencyKey: "initial-brief", payload: { premise: "旧创作方向" } });
   const calls = [], created = [], turns = [], owners = [], charges = [];
-  const state = { agentStorage: { budgetDb: join(root, "engine.sqlite3") }, confirmations: [], budgets: [], leases: [] };
+  const state = { nativeRuntime: true, agentStorage: { budgetDb: join(root, "engine.sqlite3") }, confirmations: [], budgets: [], leases: [] };
   const command = `${process.execPath} ${fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url))}`;
   main = await mainHandlers(async (path, body, options, url) => {
     const method = options.method ?? "GET";
     calls.push({ path, method, body });
-    const value = await request(path + url.search, body, method);
+    const value = await request(path + url.search, body, method, options.headers?.["x-novel-task-capability"] ?? null);
     if (path === `${base}/tasks` && body) {
       created.push(value); owners.push(await request(`${base}/tasks/${value.id}/work-task`));
     }
@@ -69,6 +73,7 @@ test("initial persisted worker failure reaches a Native decision and corrects in
       }
       if (turns.length === 2) {
         assert.equal(task.operation, "advisory");
+        await updateFixtureDeliveryPlan((method, path, body) => request(path, body, method, capability), base, task);
         const status = await request(`${base}/tasks/${task.id}/work-decision?threadId=${encodeURIComponent(task.threadId)}&expectedRevision=${task.inputRevision}`, null, "GET", capability);
         const action = status.readyActions.find(item => item.operation === "generateBrief");
         assert.ok(action, JSON.stringify(status));
@@ -85,6 +90,10 @@ test("initial persisted worker failure reaches a Native decision and corrects in
       } else {
         assert.equal(turns.length, 4);
         assert.equal(task.operation, "advisory");
+        await readFixtureAuthorRequirements((method, path, body) => request(path, body, method, capability), base, task,
+          "请将创作方向调整为新的港口悬疑故事，只保存不采用。");
+        await updateFixtureDeliveryPlan((method, path, body) => request(path, body, method, capability), base, task,
+          { status: "satisfied", evidence: [{ taskId: created.at(-2).id, revisionId: saved.revisionId }] });
         const status = await request(`${base}/tasks/${task.id}/work-decision?threadId=${encodeURIComponent(task.threadId)}&expectedRevision=${task.inputRevision}`, null, "GET", capability);
         assert.equal(status.canFinish, true);
         assert.ok(JSON.stringify(status).includes(saved.revisionId));
@@ -96,7 +105,7 @@ test("initial persisted worker failure reaches a Native decision and corrects in
             expectedWorkVersion: status.version, expectedSourceDigest: status.sourceDigest, goalStatus: "fulfilled",
             goalAssessment: "创作方向已改为新的港口悬疑故事，候选保存符合作者范围。",
             checkedScope: "核对本轮简报候选的实际保存回执与作者要求；未进行正文或全书逻辑检查。",
-            unresolved: [], authorDecisions: [], evidence: [{ taskId: created.at(-2).id, revisionId: saved.revisionId }],
+            unresolved: [], issueResolutions: [], authorDecisions: [], evidence: [{ taskId: created.at(-2).id, revisionId: saved.revisionId }],
           },
         }, "POST", capability);
         assert.equal(completed.status, "completed");

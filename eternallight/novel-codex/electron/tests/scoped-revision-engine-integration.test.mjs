@@ -1,3 +1,4 @@
+import { nativeTestBinary } from "./helpers/native-binaries.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -8,6 +9,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { currentFixtureEvidence, updateFixtureDeliveryPlan } from "./fixtures/model-plan-current-contract.mjs";
 import {
   CAPABILITIES, ModelBridge, PersistentTaskBudget, compileCodexConfig, compileCodexModelCatalog,
   createExecutionLease, defineConnection, resolveSessionPlan,
@@ -19,9 +21,10 @@ import { taskProviderBudgetOptions } from "../task-provider-budget.mjs";
 import { taskAuthorPrompt } from "../workflow-handoff.mjs";
 import { advisoryTaskTarget, preflightRevisionRepair, REVISION_REPAIR_INSTRUCTIONS } from "../revision-repair-handlers.mjs";
 import { createMcpStartupWaiter } from "./helpers/mcp-startup.mjs";
+import { NOVEL_TOOL_OUTPUT_POLICY } from "../codex-runtime.mjs";
 
 const suffix = process.platform === "win32" ? ".exe" : "";
-const nativeBinary = (name) => fileURLToPath(new URL(`../../native/target/debug/${name}${suffix}`, import.meta.url));
+const nativeBinary = (name) => nativeTestBinary(name);
 const codex = fileURLToPath(new URL(`../../../../codex-rs/target/debug/codex${suffix}`, import.meta.url));
 const authorToken = "scoped-engine-author-token-123456789";
 const candidateToken = "scoped-engine-candidate-token-123456";
@@ -37,7 +40,7 @@ function sendTool(response, name, args, sequence) {
   response.end(`data: ${JSON.stringify({ id: `scoped-${sequence}`, choices: [{ delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\ndata: [DONE]\n\n`);
 }
 
-test("real Codex and Novel MCP use a finite author scope to revise, remodel, and continue through GenerationRun", { timeout: 90_000 }, async (t) => {
+test("real Codex and Novel MCP use a finite author scope to revise, remodel, and continue through GenerationRun", { timeout: 180_000 }, async (t) => {
   const startedAt = Date.now();
   let stage = "launch Runtime";
   const phases = [];
@@ -78,14 +81,16 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
       authorization: `Bearer ${actor}`, "content-type": "application/json",
       ...(actor === candidateToken ? { "x-novel-task-capability": capability } : {}),
     }, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) });
-    const value = await response.json();
+    const raw = await response.text();
+    assert.match(response.headers.get("content-type") ?? "", /^application\/json\b/, `${method} ${path}: HTTP ${response.status}: ${raw.slice(0, 2000)}`);
+    const value = JSON.parse(raw);
     if (expectedStatus === null) assert.ok(response.ok, `${method} ${path}: ${response.status} ${JSON.stringify(value)}`);
     else assert.equal(response.status, expectedStatus, JSON.stringify(value));
     return value;
   };
   const authorRuntimeRequest = (path, options = {}) => request(options.method ?? "GET", path,
     options.body === undefined ? undefined : JSON.parse(options.body), authorToken);
-  const { project } = await request("POST", "/api/projects", { title: "港城局部改稿回环" });
+  const { project } = await request("POST", "/api/projects", { title: "港城局部改稿回环", logline: "实际 Core 和 MCP 的限定改稿与续章验收", medium: "novel", idempotencyKey: randomUUID() });
   const base = `/api/projects/${project.id}`;
   const originalPayload = { chapterId: "chapter-one", chapterNumber: 1, title: "密函",
     body: "林夕走进港口。\n\n---\n\n她烧掉密函。\n\n---\n\n白塔熄灭。",
@@ -100,6 +105,8 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
   const originalWorkspace = await request("GET", `${base}/creative-workspace`);
   const target = { type: "chapter", chapterId: "chapter-one", chapterNumber: 1, readingChapter: 1, sceneOrder: 1,
     scope: { type: "selectedScenes", sourceRevisionId: original.revisionId, groupIds: ["letter"] },
+    chapterAcceptance: { requirements: [{ id: "letter-action", text: "林夕主动藏信，密函仍由林夕保管" }, { id: "protected-scenes", text: "其余场景与锁定结尾保持原文" }],
+      length: { requirement: "本次局部修改无篇幅限制", minCharacters: null, maxCharacters: null } },
     desiredOutcomes: [{ id: "retain-letter", criterion: "密函仍由林夕保管，改为主动藏信", groupIds: ["letter"] }] };
   const revisedPayload = { ...originalPayload,
     body: "林夕走进港口。\n\n---\n\n她将密函藏进衣襟。\n\n---\n\n白塔熄灭。",
@@ -182,7 +189,101 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
           "the real advisory turn must receive the delivered author intent");
       }
       const tool = (name) => body.tools?.find((entry) => entry.function?.name === name || entry.function?.name?.endsWith(`__${name}`))?.function?.name;
-      if (active.stage > 0) {
+      // The decision model reads the frozen author request and actual bound
+      // current prose/report before chapter closure or final delivery. A status
+      // summary, source catalogue or host-side assertion cannot stand in for it.
+      const readingDecisionSource = active.decisionReadPhase !== null && !active.decisionReadDone;
+      const boundResult = () => {
+        const previous = body.messages.findLast(message => message.role === "tool");
+        const output = String(previous?.content);
+        assert.ok(output.includes("Output:"), `${active.kind} bound read result must reach the model`);
+        return JSON.parse(output.slice(output.indexOf("Output:") + 7).trim());
+      };
+      const evidenceTool = (name, args, phase) => {
+        active.decisionReadPhase = phase;
+        const wireName = tool(name);
+        assert.ok(wireName, `${active.kind} must expose ${name}`);
+        sendTool(response, wireName, { ...active.binding, ...args }, `${active.kind}-evidence-${++active.evidenceSequence}`);
+      };
+      if (readingDecisionSource) {
+        const value = boundResult();
+        if (active.decisionReadPhase === "context") {
+          active.decisionReadQueue = value.taskSources.entries.filter(entry => entry.sectionPath === "/authorRequirementsSource"
+            || (active.chooseOperation === "finishChapter" && entry.sectionPath === "/relevantText"));
+          assert.ok(active.decisionReadQueue.some(entry => entry.sectionPath === "/authorRequirementsSource"), "final decision must read the complete frozen author request");
+          if (active.chooseOperation === "finishChapter") assert.ok(active.decisionReadQueue.some(entry => entry.sectionPath === "/relevantText"), "current saved chapter must be in this task's catalogue");
+          active.decisionReadText = "";
+        } else if (active.decisionReadPhase === "source") {
+          const entry = active.decisionReadQueue[0];
+          assert.ok(entry);
+          assert.equal(value.sourceId, entry.sourceId);
+          assert.equal(value.contentHash, entry.contentHash);
+          assert.equal(value.byteRange.start, Buffer.byteLength(active.decisionReadText));
+          active.decisionReadText += value.payloadPart;
+          if (value.nextCursor) {
+            evidenceTool("read_task_source", { sourceId: entry.sourceId, cursor: value.nextCursor }, "source");
+            return;
+          }
+          assert.equal(value.byteRange.total, Buffer.byteLength(active.decisionReadText));
+          assert.equal(createHash("sha256").update(active.decisionReadText).digest("hex"), entry.contentHash);
+          if (entry.sectionPath === "/relevantText") assert.ok(active.decisionReadText.includes(active.chapterReviewRevision), "model must read the action's actual saved draft");
+          JSON.parse(active.decisionReadText);
+          active.decisionReadQueue.shift(); active.decisionReadText = "";
+        } else if (active.decisionReadPhase === "report") {
+          const assessment = active.chapterAssessment;
+          assert.equal(value.state, "current");
+          assert.equal(value.revisionId, assessment.reportRevisionId);
+          assert.ok(value.assessment.sourceId);
+          active.chapterReport = value; active.chapterReportFields = new Map(); active.chapterReportOffset = 0;
+          evidenceTool("read_source_content", { sourceId: value.assessment.sourceId }, "report-content");
+          return;
+        } else if (active.decisionReadPhase === "report-content") {
+          assert.equal(value.sourceId, active.chapterReport.assessment.sourceId);
+          assert.equal(value.contentRead, true);
+          assert.equal(value.coverage.fromEntry, active.chapterReportOffset);
+          active.chapterReportOffset = value.coverage.toEntry;
+          for (const field of value.entries) active.chapterReportFields.set(field.path,
+            Object.hasOwn(field, "value") ? field.value : (active.chapterReportFields.get(field.path) ?? "") + field.text);
+          if (value.nextCursor) {
+            evidenceTool("read_source_content", { sourceId: value.sourceId, cursor: value.nextCursor }, "report-content");
+            return;
+          }
+          assert.equal(value.coverage.toEntry, value.coverage.totalEntries);
+          assert.equal(active.chapterReportFields.get("/draftRevisionId"), active.chapterReviewRevision);
+          const reportOutcomes = [...active.chapterReportFields].filter(([path]) => /^\/outcomes\/\d+\/id$/.test(path));
+          assert.deepEqual(active.chapterAssessment.checkCounts, {
+            total: reportOutcomes.length, supported: reportOutcomes.length, unmet: 0, insufficientEvidence: 0,
+          }, "the current bounded status must count the actual independently saved report outcomes");
+          active.chapterReview = {
+            sourceRevisionId: active.chapterReviewRevision, assessmentRevisionId: active.chapterReport.revisionId,
+            checks: active.workStatus.chapterAcceptance.requirements.map(criterion => {
+              const field = reportOutcomes.find(([, value]) => value === criterion.id);
+              assert.ok(field, `current report must cover ${criterion.id}`);
+              const prefix = field[0].slice(0, -3);
+              assert.equal(active.chapterReportFields.get(`${prefix}/status`), "supported");
+              const issueId = active.chapterReportFields.get(`${prefix}/issue/issueId`) ?? null;
+              return { criterionId: criterion.id, issueId };
+            }), length: active.workStatus.chapterAcceptance.length,
+          };
+          active.decisionReadDone = true;
+        }
+        if (!active.decisionReadDone) {
+          if (active.decisionReadQueue.length) {
+            evidenceTool("read_task_source", { sourceId: active.decisionReadQueue[0].sourceId }, "source");
+            return;
+          }
+          if (active.chooseOperation === "finishChapter") {
+            active.chapterAssessment = active.workStatus.requirements.map(requirement => requirement.assessment)
+              .find(assessment => assessment?.draftRevisionId === active.chapterReviewRevision);
+            assert.ok(active.chapterAssessment?.reportRevisionId, "finish uses the current saved draft's actual independent report");
+            assert.equal(active.chapterAssessment.current, true); assert.equal(active.chapterAssessment.verdict, "passed");
+            evidenceTool("read_revision_outcome", { writerTaskId: active.chapterAssessment.writerTaskId }, "report");
+            return;
+          }
+          active.decisionReadDone = true;
+        }
+      }
+      if (active.stage > 0 && !readingDecisionSource) {
         const previous = body.messages.findLast((message) => message.role === "tool");
         assert.ok(previous, `${active.kind} tool result must reach the model`);
         const output = String(previous.content);
@@ -195,6 +296,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
               assert.equal(value.sourceDigest, active.workStatus.sourceDigest);
               active.workStatus.receipts.items.push(...value.receipts.items);
               active.workStatus.readyActions.push(...value.readyActions);
+              active.workStatus.requirements.push(...value.requirements);
             } else active.workStatus = value;
             if (value.pagination.nextCursor) {
               active.calls.push("read_work_status");
@@ -202,6 +304,19 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
               return;
             }
             value = active.workStatus;
+            if (!active.planSatisfied
+              && ((!active.chooseOperation && active.stage === 1)
+                || (active.chooseOperation === "finishChapter" && active.stage === 3))) {
+              await updateFixtureDeliveryPlan((method, path, body) => request(method, path, body, candidateToken), base, active.fixtureTask,
+                { status: "satisfied", evidence: currentFixtureEvidence(value, await request("GET", `${base}/creative-workspace`)) });
+              active.planSatisfied = true;
+              // Persisted plan satisfaction affects completion readiness. Read
+              // the real current status before asserting or reporting closure.
+              active.workStatus = null;
+              active.calls.push("read_work_status");
+              sendTool(response, tool("read_work_status"), { ...active.binding }, `${active.kind}-status-after-plan`);
+              return;
+            }
             if (active.stage === 3) assert.equal(value.finalDeliveryReviewRequired, true);
             else if (active.chooseOperation) assert.ok(value.readyActions.some(action => action.operation === active.chooseOperation),
               `the agent must select an available ${active.chooseOperation} action: ${JSON.stringify(value)}`);
@@ -213,11 +328,15 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
           }
         } else if (active.stage === 1) {
           if (!active.sourceQueue) {
-            assert.equal(value.taskSources.readTool, "read_task_source");
+            assert.equal(value.taskSources.readTool, "read_source_content");
             assert.equal(value.taskSources.textDelivered, false);
             for (const entry of value.taskSources.entries) {
               const reference = entry.sectionPath.slice(1).split("/").reduce((part, key) => part[key], value);
-              assert.deepEqual(reference, { sourceId: entry.sourceId, textDelivered: false });
+              if (entry.sectionPath === "/taskWorkspace") {
+                assert.equal(reference.sourceId, entry.sourceId); assert.equal(reference.textDelivered, false);
+                assert.equal(reference.view, "workspace");
+                assert.match(reference.instruction, /read_source_content\(view=workspace\)/);
+              } else assert.deepEqual(reference, { sourceId: entry.sourceId, textDelivered: false });
             }
             active.context = value;
             active.sourceQueue = [...value.taskSources.entries];
@@ -248,7 +367,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
           if (active.sourceQueue.length) {
             active.calls.push("read_task_source");
             sendTool(response, tool("read_task_source"), { ...active.binding,
-              sourceId: active.sourceQueue[0].sourceId, cursor: value.nextCursor ?? null }, `${active.kind}-page-${active.calls.length}`);
+              sourceId: active.sourceQueue[0].sourceId, ...(value.nextCursor ? { cursor: value.nextCursor } : {}) }, `${active.kind}-page-${active.calls.length}`);
             return;
           }
           value = active.context;
@@ -256,7 +375,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
         if (active.stage === 1 && !active.kind.startsWith("decision-")) {
           const context = JSON.stringify(value);
           const expectedBody = ["writer", "discussion"].includes(active.kind) ? "她烧掉密函。"
-            : active.kind === "model-next" ? nextPayload.body
+            : ["model-next", "next-revision-outcome"].includes(active.kind) ? nextPayload.body
               : ["repair-model", "repair-outcome", "planner", "continuation", "assessment", "extraction"].includes(active.kind)
                 ? repairedScene : "她将密函藏进衣襟。";
           assert.ok(context.includes(expectedBody), active.kind + " must receive its actual source body");
@@ -298,9 +417,14 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
           }
           if (active.kind === "repair-outcome") {
             const input = value.operationContext.revisionOutcomeInput;
-            assert.deepEqual(input.desiredOutcomes, repairGoals, "evaluate the newly approved goals, not inherited old criteria");
-            assert.equal(input.beforeScenes[0].body, "她将密函藏进衣襟。");
-            assert.equal(input.afterScenes[0].body, repairedScene);
+            active.outcomeInput = input;
+            assert.deepEqual(input.desiredOutcomes.filter(item => !target.chapterAcceptance.requirements.some(criterion => criterion.id === item.id)), repairGoals,
+              "evaluate the newly approved additional goals alongside all frozen chapter standards");
+            assert.equal(input.beforeScenes.find(scene => scene.groupId === "letter").body, "她将密函藏进衣襟。");
+            assert.equal(input.afterScenes.find(scene => scene.groupId === "letter").body, repairedScene);
+          }
+          if (active.kind === "revision-outcome" || active.kind === "next-revision-outcome") {
+            active.outcomeInput = value.operationContext.revisionOutcomeInput;
           }
         } else if (active.kind.startsWith("decision-")) {
           // The actual MCP decision receipt was retained above.
@@ -315,13 +439,23 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
           assert.equal(value.deliveryStatus, "ready_for_review");
         }
       }
+      if (active.kind.startsWith("decision-") && active.stage === 1 && !active.decisionReadDone
+        && (active.chooseOperation === "finishChapter" || !active.chooseOperation)) {
+        if (active.chooseOperation === "finishChapter") {
+          const finish = active.workStatus.readyActions.find(action => action.operation === "finishChapter");
+          assert.ok(finish?.sourceRevisionId);
+          active.chapterReviewRevision = finish.sourceRevisionId;
+        }
+        evidenceTool("read_context", { budget: 24, byteBudget: 60000 }, "context");
+        return;
+      }
       const deliveryCompletion = ["complete_task", { ...active.binding, summary: "已核对本次授权目标及实际保存成果；检查仅覆盖本轮改稿与指定后续章节。",
             deliveryReview: {
               expectedWorkVersion: active.workStatus?.version,
               expectedSourceDigest: active.workStatus?.sourceDigest,
               goalStatus: "fulfilled", goalAssessment: "本次授权目标已按当前保存回执完成",
               checkedScope: "核对本轮限定场景修改、效果评估及明确授权的后续章节；未检查全书",
-              unresolved: [], authorDecisions: [],
+              unresolved: [], issueResolutions: [], authorDecisions: [],
               evidence: (active.workStatus?.receipts.items ?? []).flatMap(receipt => receipt.outputs.filter(output => output.revisionId).map(output => ({ taskId: receipt.taskId, revisionId: output.revisionId }))),
             },
           }];
@@ -331,6 +465,10 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
             expectedSourceDigest: active.workStatus?.sourceDigest,
             actionKey: active.workStatus?.readyActions.find(action => action.operation === active.chooseOperation)?.actionKey,
             instruction: "根据来源和交付证据完成本次授权目标", idempotencyKey: active.kind,
+            ...(active.workStatus?.workTaskId?.startsWith("work-generation-") && ["generateChapter","writeNextChapter"].includes(active.chooseOperation) ? {
+              chapterAcceptance:active.workStatus.chapterAcceptance ?? {requirements:[{id:"saved-chapter",text:"保存本次授权的章节"}],length:{requirement:"本测试没有篇幅限制",minCharacters:null,maxCharacters:null}},
+            } : {}),
+            ...(active.chooseOperation === "finishChapter" ? { chapterReview: active.chapterReview } : {}),
           }], ...(active.chooseOperation === "finishChapter" ? [["read_work_status", { ...active.binding }], deliveryCompletion] : [])] : [deliveryCompletion])]
         : ["advisory", "discussion", "repair-discussion"].includes(active.kind)
         ? [["read_context", { ...active.binding, budget: 24, byteBudget: 60000 }]]
@@ -347,21 +485,23 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
               expectedCandidateRevisionId: null, idempotencyKey: "chapter-one-repair-outcome",
               payload: { writerTaskId: active.target.writerTaskId, chapterId: active.target.chapterId,
                 originalRevisionId: active.target.originalRevisionId, draftRevisionId: active.target.draftRevisionId,
-                knowledgeBatchId: active.target.knowledgeBatchId,
-                outcomes: [{ id: "testify-motive", status: "supported", reason: "新稿明确藏信是为了亲自留下证词",
-                  evidence: [{ groupId: "letter", quote: "决定亲自留下证词" }] }] } }],
+                knowledgeBatchId: active.target.knowledgeBatchId, uncoveredRequirements: [],
+                outcomes: active.stage > 0 ? active.outcomeInput.desiredOutcomes.map(item => ({ id: item.id, status: "supported", issue: null,
+                  reason: item.id === "protected-scenes" ? "原保护场景和锁定结尾保持不变" : "新稿明确藏信并亲自留下证词",
+                  evidence: [{ groupId: item.id === "protected-scenes" ? "ending" : "letter", quote: item.id === "protected-scenes" ? "白塔熄灭。" : "决定亲自留下证词" }] })) : [] } }],
             ["complete_task", { ...active.binding, summary: "再次改稿的批准目标已提交候选评估" }],
           ]
-        : active.kind === "revision-outcome"
+        : ["revision-outcome", "next-revision-outcome"].includes(active.kind)
         ? [
             ["read_context", { ...active.binding, budget: 24, byteBudget: 60000 }],
             ["submit_revision_outcome", { ...active.binding, writerTaskId: active.target.writerTaskId,
-              expectedCandidateRevisionId: null, idempotencyKey: "chapter-one-outcome",
+              expectedCandidateRevisionId: null, idempotencyKey: `outcome-${active.kind}-${active.target.chapterId}`,
               payload: { writerTaskId: active.target.writerTaskId, chapterId: active.target.chapterId,
                 originalRevisionId: active.target.originalRevisionId, draftRevisionId: active.target.draftRevisionId,
-                knowledgeBatchId: active.target.knowledgeBatchId,
-                outcomes: [{ id: "retain-letter", status: "supported", reason: "新稿明确林夕主动藏信",
-                  evidence: [{ groupId: "letter", quote: "她将密函藏进衣襟。" }] }] } }],
+                knowledgeBatchId: active.target.knowledgeBatchId, uncoveredRequirements: [],
+                outcomes: active.stage > 0 ? active.outcomeInput.desiredOutcomes.map(item => ({ id: item.id, status: "supported", issue: null,
+                  reason: active.kind === "next-revision-outcome" ? "已读取实际下一章全文并核对冻结要求" : item.id === "protected-scenes" ? "原保护场景和锁定结尾保持不变" : "新稿明确林夕主动藏信",
+                  evidence: [{ groupId: active.kind === "next-revision-outcome" ? "opening-two" : item.id === "protected-scenes" ? "ending" : "letter", quote: active.kind === "next-revision-outcome" ? nextPayload.body : item.id === "protected-scenes" ? "白塔熄灭。" : "她将密函藏进衣襟。" }] })) : [] } }],
             ["complete_task", { ...active.binding, summary: "改稿预期已提交候选评估" }],
           ]
         : active.kind === "extraction"
@@ -455,7 +595,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
       enterStage(`Codex ${active.kind}: awaiting ${name} result`);
       sendTool(response, wireName, args, `${active.kind}-${active.stage}`);
     } catch (error) {
-      downstreamFailure = error;
+      downstreamFailure ??= error;
       response.writeHead(500, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { message: error.message } }));
     }
@@ -480,7 +620,8 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
     await writeFile(join(home, "config.toml"), compileCodexConfig({ sessionPlan: plan, modelCatalogPath: catalog,
       bridge: { baseUrl: address.baseUrl, credentialRef: "AGENT_ENGINE_BRIDGE_TOKEN" },
       mcpServers: [{ id: "novel_workspace", command: nativeBinary("novel-workspace-mcp"), args: [],
-        envVars: ["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"], approvalMode: "approve" }],
+        envVars: ["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"], approvalMode: "approve", required: true, startupTimeoutMs: 90_000,
+        tools: NOVEL_TOOL_OUTPUT_POLICY }],
     }), { mode: 0o600 });
     const adapter = new CodexAppServerAdapter({ command: [codex, "app-server"], cwd: root,
       env: { PATH: process.env.PATH, CODEX_HOME: home, CODEX_SQLITE_HOME: join(home, "sqlite"),
@@ -501,7 +642,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
       }
     } });
     adapter.startProcess();
-    startup = createMcpStartupWaiter({ serverName: "novel_workspace", process: adapter.process, timeoutMs: 30_000 });
+    startup = createMcpStartupWaiter({ serverName: "novel_workspace", process: adapter.process, timeoutMs: 90_000 });
     t.after(startup.dispose);
     enterStage(`Codex ${kind}: starting isolated session`);
     const workId = taskTarget?.workDecision?.workTaskId ?? (taskTarget?.runId ? `work-${taskTarget.runId}` : null);
@@ -520,6 +661,9 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
       assert.equal(deliveredIntent.authorMessageId, pendingIntent.authorMessageId);
       assert.deepEqual((await request("GET", intentPath)).intents, [deliveredIntent]);
     }
+    if (kind.startsWith("decision-") || ["discussion", "repair-proposal"].includes(kind)) {
+      await updateFixtureDeliveryPlan((method, path, body) => request(method, path, body, candidateToken), base, task);
+    }
     if (taskTarget?.runId) {
       const runSource = await request("GET", `${base}/generation-runs/${taskTarget.runId}`);
       assert.equal(task.inputManifest.authorMessageId, runSource.authorMessageId);
@@ -532,6 +676,8 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
     bridge.beginTaskBudget(budget);
     bridge.beginExecutionLease(createExecutionLease({ sessionPlan: plan, runId: task.id, budgetId: budget.id }));
     active.kind = kind;
+    active.fixtureTask = task;
+    active.planSatisfied = false;
     active.chooseOperation = chooseOperation;
     active.sourceQueue = null;
     active.context = null;
@@ -542,7 +688,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
     active.sourceRevisionId = sourceRevisionId;
     active.chapterId = taskTarget?.chapterId;
     active.target = taskTarget;
-    active.stage = 0;
+    active.stage = 0; active.decisionReadPhase = null; active.decisionReadDone = false; active.evidenceSequence = 0; active.chapterReview = null; active.chapterAssessment = null;
     active.calls = [];
     active.finalText = `## ${kind} 最终回复\n\n候选改稿和来源知识已处理。\n保留密函与锁定结尾🌙`;
     const instruction = kind === "discussion" ? "分析密函场景的局部修改，遵守作者追加要求。"
@@ -687,7 +833,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
   const outcome = await request("GET", `${base}/revision-outcomes/${writer.id}`);
   assert.equal(outcome.authority, "candidateAnalysis");
   assert.equal(outcome.state, "current");
-  assert.deepEqual(outcome.assessment.outcomes, [{ id: "retain-letter", status: "supported", reason: "新稿明确林夕主动藏信",
+  assert.deepEqual(outcome.assessment.outcomes.filter(item => item.id === "retain-letter"), [{ id: "retain-letter", status: "supported", issue: null, reason: "新稿明确林夕主动藏信",
     evidence: [{ groupId: "letter", ...sourceEvidence("她将密函藏进衣襟。", "她将密函藏进衣襟。") }] }]);
   await chooseWork(workPath, null);
   const sourceAfterFinish = await request("GET", `${base}/creative-workspace`);
@@ -778,7 +924,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
   assert.equal(repairedOutcome.assessment.originalRevisionId, draft.id);
   assert.equal(repairedOutcome.assessment.draftRevisionId, repairedDraft.id);
   assert.equal(repairedOutcome.assessment.knowledgeBatchId, repairBatch.id);
-  assert.equal(repairedOutcome.assessment.outcomes[0].id, repairGoals[0].id);
+  assert.ok(repairedOutcome.assessment.outcomes.some(item => item.id === repairGoals[0].id));
   await chooseWork(repairWorkPath, null);
   const repairedWork = await request("GET", repairWorkPath);
   assert.equal(repairedWork.deliveryStatus, "ready_for_review");
@@ -841,6 +987,9 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
     && entry.assertion.value === "hidden"), "the second chapter must produce its own current knowledge");
   assert.ok(nextState.entries.every(entry => entry.assertion.value !== "burned"));
   assert.equal(nextState.coverage.complete, true);
+  const nextIndependent = await chooseGeneration(runPath, "assessRevisionOutcome");
+  await runTask("next-revision-outcome", "assessRevisionOutcome", nextIndependent.action.target,
+    null, nextIndependent.action.authorIntent);
   const extraction = await chooseGeneration(runPath, "extractCommitments");
   assert.equal(extraction.action.operation, "extractCommitments");
   assert.equal(extraction.action.target.sourceRevisionId, workspace.chapters[1].candidate.id);
@@ -870,7 +1019,7 @@ test("real Codex and Novel MCP use a finite author scope to revise, remodel, and
   assert.deepEqual(generationWork.deliveryReport.unsettledAttemptIds, []);
   assert.deepEqual([...finalReplies.keys()].filter(kind => !kind.startsWith("decision-")), ["discussion", "writer", "model", "revision-outcome", "repair-discussion",
     "repair-proposal", "repair-writer", "repair-model", "repair-outcome", "planner",
-    "continuation", "model-next", "extraction", "assessment"]);
+    "continuation", "model-next", "next-revision-outcome", "extraction", "assessment"]);
   const beforeRead = providerRequests.length;
   await rereadFinalReplies();
   assert.equal(providerRequests.length, beforeRead, "historical receipt reads must not add provider usage");

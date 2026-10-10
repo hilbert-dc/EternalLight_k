@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { CodexAppServerAdapter } from "../codex-adapter.mjs";
 import { executorValidatedToolNames, executorValidatedTools, isExecutorValidatedTool } from "../executor-validation-policy.mjs";
-import { toolCorrectionLimitError } from "../tool-validation-recovery.mjs";
+import { taskFailureDiagnostic, toolCorrectionLimitError } from "../tool-validation-recovery.mjs";
 
 const waiter = { threadId: "thr-test", turnId: "turn-test" };
 const exhausted = () => ({ method: "item/completed", params: { ...waiter, item: {
@@ -11,6 +11,15 @@ const exhausted = () => ({ method: "item/completed", params: { ...waiter, item: 
   result: { content: [{ type: "text", text: "Correction limit reached" }],
     structuredContent: { code: "tool_argument_correction_limit", tool: "publish_knowledge_batch", originTool: "publish_knowledge_batch", limit: 3 } },
 } } });
+
+test("persistent failure retains the executor code while public explanation stays readable", () => {
+  const error = toolCorrectionLimitError(exhausted(), waiter);
+  assert.equal(taskFailureDiagnostic(error), "tool_argument_correction_limit");
+  assert.match(error.message, /已保存的内容仍保留/);
+  for (const other of [new Error("unknown failure"), Object.assign(new Error("invalid_tool_arguments; toolValidation=diagnostic"), {code:"invalid_tool_arguments"})]) {
+    assert.equal(taskFailureDiagnostic(other), other.message);
+  }
+});
 
 test("executor delegation lists exact bundled names in both canonical formats", () => {
   assert.equal(new Set(executorValidatedToolNames).size, executorValidatedToolNames.length);
@@ -55,6 +64,9 @@ test("all bundled tools and cross-tool latch results preserve the trusted origin
     ["save_draft_checkpoint", "save_draft_checkpoint"],
     ["query_story", "save_draft_checkpoint"],
     ["complete_task", "publish_knowledge_batch"],
+    ["update_work_plan", "update_work_plan"],
+    ["read_work_plan", "update_work_plan"],
+    ["read_source_content", "read_source_content"],
   ]) {
     const message = exhausted();
     message.params.item.tool = tool;

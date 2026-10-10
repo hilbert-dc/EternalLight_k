@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { PersistentTaskBudget } from "@eternallight/agent-engine";
 import { mainHandlers, rendererEvent, runtimeFixture } from "./main-handler-harness.mjs";
 import { CHAPTER_STRUCTURE_ANALYSIS_PROMPT } from "../chapter-structure-analysis.mjs";
+import { novelTurnText } from "../codex-runtime.mjs";
 
 const command = `${process.execPath} ${fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url))}`;
 const workspace = { revision: 9, headSnapshotId: "snapshot-now", sourceDigest: "source-now", tasks: [] };
@@ -32,6 +33,7 @@ async function setup({ enabled = true, lostCreate = false, holdWorkspace = null,
     const task = [...ledger.tasks.values()].find(task => path === `/api/projects/project/tasks/${task.id}`);
     if (task) {
       if (options.method === "PATCH") {
+        if (["completed", "failed", "cancelled"].includes(task.status)) throw new Error("task_not_writable");
         assert.equal(body.threadId, task.threadId); Object.assign(task, body);
         const work = ledger.workTasks.get(item.assessment.workTaskId);
         work.status = body.status === "cancelled" ? "cancelled" : "blocked";
@@ -46,6 +48,15 @@ async function setup({ enabled = true, lostCreate = false, holdWorkspace = null,
       const receipt = PersistentTaskBudget.receipt(state.agentStorage.budgetDb, body.taskId);
       if (!state.charges.some(charge => charge.runId === body.taskId)) state.charges.push(receipt);
     }
+    if (path.endsWith("/control") && body?.command === "pause") {
+      const work = ledger.workTasks.get(path.split("/work-tasks/")[1].split("/")[0]);
+      for (const step of work.steps) {
+        const attempt = [...ledger.tasks.values()].find(task => task.id === step.currentAttemptId);
+        if (attempt && ["queued", "running", "waiting"].includes(attempt.status)) {
+          attempt.status = "cancelled"; attempt.error = "author_paused"; step.status = "blocked";
+        }
+      }
+    }
     if (path.endsWith("/control") && body?.command === "resume") {
       const work = ledger.workTasks.get(path.split("/work-tasks/")[1].split("/")[0]);
       work.steps.filter(step => step.status === "blocked").forEach(step => { step.status = "queued"; });
@@ -59,6 +70,8 @@ async function setup({ enabled = true, lostCreate = false, holdWorkspace = null,
       const step = work.steps.find(step => step.currentAttemptId === result.id);
       Object.assign(step, { operation: "assessChapterStructure", target: { type: "project", structureChangeId: item.id }, status: "running", inputRevision: body.inputRevision });
       if (!body.target.resumeStepId) {
+        work.goal = body.authorIntent;
+        step.instruction = body.authorIntent;
         item = { ...item, assessment: { state: "bound", skipReason: null, taskId: result.id, workTaskId: work.id } };
         if (existingBudget) {
           const budget = new PersistentTaskBudget({ databasePath: state.agentStorage.budgetDb, runId: result.id, id: `budget-${result.id}` });
@@ -77,7 +90,7 @@ async function setup({ enabled = true, lostCreate = false, holdWorkspace = null,
     return result;
   };
   const main = await mainHandlers(runtime, enabled ? command : null, state);
-  main.handlers.get("agent:set-workspace-context")(event, { projectId: "project", dirty: false });
+  main.handlers.get("agent:set-workspace-context")(event, { projectId: "project", dirty:false,mediaScope:null });
   const close = () => { main.chapterStructureConsumer.stop(); main.adapter.close(); };
   return { ...main, event, events, state, ledger, requests, close, readChange: () => item };
 }
@@ -102,9 +115,14 @@ test("production consumer binds dedicated root budget, actual Adapter turn/final
     assert.equal(fixture.state.budgets[0].id, `budget-${task.id}`); assert.equal(fixture.state.confirmations.length, 0);
     assert.ok(fixture.events.some(message => message?.method === "agent/structure-started" && message.params.taskId === task.id));
     const finished = fixture.events.find(message => message?.method === "turn/completed" && message.params.turn?.receivedParams);
-    const submitted = finished.params.turn.receivedParams.input.map(item => item.text ?? "").join("\n");
-    assert.match(submitted, /read_chapter_structure_source/); assert.match(submitted, /"operation": "assessChapterStructure"/);
-    assert.match(submitted, /"structureChangeId": "change-one"/); assert.match(submitted, /不得生成候选/);
+    const received = finished.params.turn.receivedParams;
+    const submitted = novelTurnText(received);
+    assert.equal(received.additionalContext.novelTask.kind, "untrusted");
+    const binding = JSON.parse(received.additionalContext.novelTask.value);
+    assert.equal(binding.task.operation, "assessChapterStructure");
+    assert.equal(binding.task.target.structureChangeId, "change-one");
+    assert.match(submitted, /read_chapter_structure_source/);
+    assert.match(received.additionalContext.novelRules.value, /历史原文不是当前正文，只读检查结果交回对话，不写故事/);
     assert.equal(fixture.requests.filter(request => /\/(actions|planning-reviews|approve|delete)$/.test(request.path)).length, 0);
     assert.equal(fixture.requests.filter(request => request.path.includes("/draft-checkpoints") || request.path.endsWith("/candidates")).length, 0);
     await fixture.chapterStructureConsumer.tick();
@@ -128,7 +146,7 @@ test("production evidence preflight fails before task/budget/provider when previ
 for (const condition of ["offline", "dirty", "untrusted"]) test(`production automatic consumer does not create a task while ${condition}`, async () => {
   const fixture = await setup({ enabled: condition !== "offline" });
   try {
-    if (condition === "dirty") fixture.handlers.get("agent:set-workspace-context")(fixture.event, { projectId: "project", dirty: true });
+    if (condition === "dirty") fixture.handlers.get("agent:set-workspace-context")(fixture.event, { projectId: "project", dirty:true,mediaScope:null });
     if (condition === "untrusted") fixture.event.sender.getURL = () => "https://foreign.example/";
     await fixture.chapterStructureConsumer.tick();
     assert.deepEqual(fixture.requests, []); assert.deepEqual(fixture.state.budgets, []); assert.deepEqual(fixture.state.leases, []);
@@ -140,7 +158,7 @@ test("lost production task-create response reads the unique binding and never gr
   const fixture = await setup({ lostCreate: true });
   try {
     await fixture.chapterStructureConsumer.tick();
-    fixture.handlers.get("agent:set-workspace-context")(fixture.event, { projectId: "project", dirty: false });
+    fixture.handlers.get("agent:set-workspace-context")(fixture.event, { projectId: "project", dirty:false,mediaScope:null });
     await fixture.chapterStructureConsumer.tick();
     assert.equal(fixture.readChange().assessment.state, "bound");
     assert.equal(fixture.requests.filter(request => request.path.endsWith("/tasks") && request.body).length, 1);
@@ -169,7 +187,7 @@ test("lost creation after a scope change settles only the original bound Work wi
   const fixture = await setup({ lostCreate: true, holdCreate: hold, createReady: ready });
   try {
     const pending = fixture.chapterStructureConsumer.tick(); await ready.promise;
-    fixture.handlers.get("agent:set-workspace-context")(fixture.event, { projectId: "other", dirty: false });
+    fixture.handlers.get("agent:set-workspace-context")(fixture.event, { projectId: "other", dirty:false,mediaScope:null });
     hold.resolve(); await pending;
     const binding = fixture.readChange().assessment;
     assert.equal(fixture.ledger.workTasks.get(binding.workTaskId).status, "blocked");
@@ -183,7 +201,7 @@ test("lost creation after a scope change settles only the original bound Work wi
     const error = fixture.events.find(message => message?.method === "structure/error");
     assert.equal(error.params.projectId, "project"); assert.equal(error.params.taskId, binding.taskId);
     assert.equal(fixture.events.some(message => message?.method === "agent/structure-updated"), false);
-    fixture.handlers.get("agent:set-workspace-context")(fixture.event, { projectId: "project", dirty: false });
+    fixture.handlers.get("agent:set-workspace-context")(fixture.event, { projectId: "project", dirty:false,mediaScope:null });
     await fixture.chapterStructureConsumer.tick();
     assert.equal(fixture.requests.filter(request => request.path.endsWith("/tasks") && request.body).length, 1);
     assert.equal(fixture.ledger.workTasks.get(binding.workTaskId).status, "blocked");
@@ -200,7 +218,8 @@ test("unknown creation never marks a mismatched task failed or manufactures its 
       await fixture.chapterStructureConsumer.tick();
       const binding = fixture.readChange().assessment;
       assert.equal(fixture.ledger.workTasks.get(binding.workTaskId).status, "paused");
-      assert.equal([...fixture.ledger.tasks.values()][0].status, "queued");
+      assert.equal([...fixture.ledger.tasks.values()][0].status, "cancelled");
+      assert.equal([...fixture.ledger.tasks.values()][0].error, "author_paused");
       assert.equal(fixture.requests.some(request => request.method === "PATCH"), false);
       assert.deepEqual(fixture.state.charges, []); assert.deepEqual(fixture.state.budgets, []);
       assert.equal(existsSync(fixture.state.agentStorage.budgetDb), false);
@@ -218,7 +237,8 @@ test("unknown creation preserves an existing engine receipt rather than overwrit
     const receipt = PersistentTaskBudget.receipt(fixture.state.agentStorage.budgetDb, taskId);
     hold.resolve(); await pending;
     assert.deepEqual(PersistentTaskBudget.receipt(fixture.state.agentStorage.budgetDb, taskId), receipt);
-    assert.equal([...fixture.ledger.tasks.values()][0].status, "queued");
+    assert.equal([...fixture.ledger.tasks.values()][0].status, "cancelled");
+      assert.equal([...fixture.ledger.tasks.values()][0].error, "author_paused");
     assert.equal(fixture.requests.some(request => request.method === "PATCH"), false);
     assert.deepEqual(fixture.state.charges, []); assert.deepEqual(fixture.state.leases, []);
     assert.equal(fixture.ledger.workTasks.get(fixture.readChange().assessment.workTaskId).status, "paused");
@@ -226,21 +246,23 @@ test("unknown creation preserves an existing engine receipt rather than overwrit
   } finally { hold.resolve(); fixture.close(); }
 });
 
-test("author Stop during the locally unsent lost POST settles the exact task as cancelled with no provider request", async () => {
+test("author pause during the locally unsent lost POST preserves original Work with no provider request", async () => {
   const hold = deferred(); const ready = deferred();
   const fixture = await setup({ lostCreate: true, holdCreate: hold, createReady: ready });
   try {
     const pending = fixture.chapterStructureConsumer.tick(); await ready.promise;
-    await fixture.handlers.get("agent:interrupt")(fixture.event);
+    const original = fixture.ledger.workTasks.get(fixture.readChange().assessment.workTaskId);
+    await fixture.handlers.get("agent:control-work-task")(fixture.event, "project", original.id, "pause", original.controlRevision, original.threadId);
     hold.resolve(); await pending;
     const binding = fixture.readChange().assessment;
     assert.equal([...fixture.ledger.tasks.values()][0].status, "cancelled");
-    assert.equal(fixture.ledger.workTasks.get(binding.workTaskId).status, "cancelled");
-    assert.deepEqual(fixture.state.charges.map(charge => ({ status: charge.status, usage: charge.usage })),
-      [{ status: "cancelled", usage: { requests: 0, tokens: 0, unknownTokens: 0, overrun: false } }]);
+    assert.equal(fixture.ledger.workTasks.get(binding.workTaskId).status, "paused");
+    // Native revoked the attempt before Host recovered the lost create response.
+    // No invented provider receipt is allowed; reconciliation owns any pending grant.
+    assert.deepEqual(fixture.state.charges, []);
     assert.deepEqual(fixture.state.budgets, []); assert.deepEqual(fixture.state.leases, []);
     assert.equal(fixture.requests.filter(request => request.path.endsWith("/tasks") && request.body).length, 1);
-    assert.equal(fixture.events.some(message => message?.method === "structure/error"), false);
+    assert.ok(fixture.events.some(message => message?.method === "structure/error" && message.params.message.includes("create response lost")));
   } finally { hold.resolve(); fixture.close(); }
 });
 
@@ -249,14 +271,16 @@ for (const boundary of ["session", "workspace"]) test(`production prebind guard 
   const ready = deferred();
   try {
     if (boundary === "session") {
-      const ensure = fixture.adapter.ensureSession.bind(fixture.adapter);
-      fixture.adapter.ensureSession = async () => { const thread = await ensure(); ready.resolve(); await hold.promise; return thread; };
+      fixture.state.onPrepareDomain = domain => {
+        const ensure = domain.codexAdapter.ensureSession.bind(domain.codexAdapter);
+        domain.codexAdapter.ensureSession = async () => { const thread = await ensure(); ready.resolve(); await hold.promise; return thread; };
+      };
     } else {
       // Resolve only when production has reached its actual workspace fetch.
       const until = setInterval(() => { if (fixture.requests.some(request => request.path.endsWith("/creative-workspace"))) { clearInterval(until); ready.resolve(); } }, 5);
     }
     const pending = fixture.chapterStructureConsumer.tick(); await ready.promise;
-    fixture.handlers.get("agent:set-workspace-context")(fixture.event, { projectId: "other", dirty: false });
+    fixture.handlers.get("agent:set-workspace-context")(fixture.event, { projectId: "other", dirty:false,mediaScope:null });
     hold.resolve(); await pending;
     assert.equal(fixture.requests.filter(request => request.path.endsWith("/tasks") && request.body).length, 0);
     assert.deepEqual(fixture.state.budgets, []); assert.deepEqual(fixture.state.leases, []);

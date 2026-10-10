@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { presentAuthorHistory } from "../thread-history-presentation.mjs";
+import { presentAuthorHistory, enrichAuthorHistoryImages } from "../thread-history-presentation.mjs";
 
 test("restored discussion uses author records and never displays composed model prompts", () => {
   const assistant = { id: "answer", type: "agentMessage", phase: "final_answer", text: "人物分析" };
@@ -38,4 +38,30 @@ test("reopening author history removes private reasoning and opaque fields witho
     assert.equal(JSON.stringify(view).includes(raw), false);
   }
   assert.deepEqual(detail, original);
+});
+
+test("identical genuine sends are preserved around automatic turns", () => {
+  const detail = { thread: { id: "thread" }, turns: ["first", "automatic", "second"].map(id => ({ id, items: [
+    { type: "userMessage", text: "internal inherited context" },
+    { id: `reply-${id}`, type: "agentMessage", phase: "commentary", text: `进展-${id}` },
+  ] })) };
+  const view = presentAuthorHistory(detail, { threadId: "thread", messages: [
+    { turnId: "first", text: "继续创作" }, { turnId: "second", text: "继续创作" },
+  ] });
+  assert.deepEqual(view.turns.map(turn => turn.items.filter(item => item.type === "userMessage").map(item => item.text)), [["继续创作"], [], ["继续创作"]]);
+  assert.equal(view.turns[1].items[0].text, "进展-automatic");
+});
+
+test("history images resolve immutable author references without exposing provider data URLs", async () => {
+  const authored = { threadId: "thread", messages: [{ turnId: "turn", text: "调整这张角色图", imageAssetRevisionIds: ["asset-revision"] }] };
+  const enriched = await enrichAuthorHistoryImages(authored, { projectId: "project",
+    readAsset: async id => ({ projectId: "project", assetRevisionId: id, kind: "image", name: "角色.png" }),
+    rememberAsset: asset => ({ ...asset, previewUrl: `creative-media://host/${asset.assetRevisionId}` }) });
+  const detail = { thread: { id: "thread" }, turns: [{ id: "turn", items: [{ type: "userMessage", text: "internal", content: [{ image_url: "data:image/png;base64,PRIVATE" }] }] }] };
+  const view = presentAuthorHistory(detail, enriched);
+  assert.deepEqual(view.turns[0].items[0].mediaAttachments, [{ assetRevisionId: "asset-revision", name: "角色.png", previewUrl: "creative-media://host/asset-revision" }]);
+  assert.equal(JSON.stringify(view).includes("PRIVATE"), false);
+  assert.equal(authored.messages[0].mediaAttachments, undefined);
+  await assert.rejects(enrichAuthorHistoryImages(authored, { projectId: "project",
+    readAsset: async id => ({ projectId: "other-project", assetRevisionId: id, kind: "image" }), rememberAsset: asset => asset }), /不属于/);
 });

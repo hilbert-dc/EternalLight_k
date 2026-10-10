@@ -16,30 +16,40 @@ export function conversationSummary(record) {
 export function registerConversationHandlers(ipcMain, { runtimeRequest, adapter, isBusy, exclusive, readHistory }) {
   const pendingCreations = new Map();
   const patch = async (projectId, threadId, changes) => {
-    if (isBusy()) throw Error("当前任务正在执行，完成后可管理对话");
-    return exclusive(async () => {
+    return (async () => {
       const record = await readConversation(runtimeRequest, projectId, threadId);
       const updated = await runtimeRequest(`${collection(projectId)}/${encodeURIComponent(threadId)}`, {
         method: "PATCH", body: JSON.stringify({ expectedVersion: record.version, ...changes }),
       });
       if (updated?.id !== threadId || updated.projectId !== projectId) throw Error("对话更新回执不匹配");
       return { thread: conversationSummary(updated) };
-    }, { modelRequired: false });
+    })();
   };
   ipcMain.handle("agent:create-thread", async (_event, projectId, options = {}) => {
     collection(projectId);
-    if (!options || Array.isArray(options) || typeof options !== "object" || Object.keys(options).some(key => !["sourceThreadId", "lastTurnId"].includes(key))
+    if (!options || Array.isArray(options) || typeof options !== "object" || Object.keys(options).some(key => !["sourceThreadId", "lastTurnId", "scopeId"].includes(key))
       || Boolean(options.sourceThreadId) !== Boolean(options.lastTurnId)) throw Error("新建对话参数无效");
     if (options.sourceThreadId) { validateConversationId(options.lastTurnId); await readConversation(runtimeRequest, projectId, options.sourceThreadId); }
+    if (options.scopeId !== undefined) validateConversationId(options.scopeId);
     return exclusive(async () => {
-      const key = JSON.stringify([projectId, options.sourceThreadId ?? null, options.lastTurnId ?? null]);
+      const key = JSON.stringify([projectId, options.scopeId ?? null, options.sourceThreadId ?? null, options.lastTurnId ?? null]);
       let registration = pendingCreations.get(key);
       if (!registration) {
-        const result = options.sourceThreadId ? await adapter().forkThread(options.sourceThreadId, options.lastTurnId) : await adapter().createThread();
+        const onCreated = thread => {
+          validateConversationId(thread?.id);
+          pendingCreations.set(key, { threadId: thread.id, title: "新对话",
+            forkedFromId: null, lastTurnId: null, scopeId: options.scopeId ?? null });
+        };
+        const result = options.sourceThreadId ? await adapter().forkThread(options.sourceThreadId, options.lastTurnId)
+          : await adapter().createThread({ onCreated });
         validateConversationId(result?.thread?.id);
         registration = { threadId: result.thread.id, title: options.sourceThreadId ? "分支对话" : "新对话",
-          forkedFromId: options.sourceThreadId ?? null, lastTurnId: options.lastTurnId ?? null };
+          forkedFromId: options.sourceThreadId ?? null, lastTurnId: options.lastTurnId ?? null, scopeId: options.scopeId ?? null };
         pendingCreations.set(key, registration);
+      }
+      if (!options.sourceThreadId) {
+        const saved = await adapter().saveThreadName(registration.threadId, registration.title, { requireHistory: true });
+        if (saved?.thread?.id !== registration.threadId || saved.thread.name !== registration.title) throw Error("新对话名称保存回执不匹配");
       }
       const record = await runtimeRequest(collection(projectId), { method: "POST", body: JSON.stringify(registration) });
       if (record?.id !== registration.threadId || record.projectId !== projectId) throw Error("新对话尚未登记，请重试；不会重复创建");
@@ -47,9 +57,10 @@ export function registerConversationHandlers(ipcMain, { runtimeRequest, adapter,
       return { thread: conversationSummary(record) };
     });
   });
-  ipcMain.handle("agent:list-threads", async (_event, projectId, archived = false, cursor = null) => {
+  ipcMain.handle("agent:list-threads", async (_event, projectId, archived = false, cursor = null, scopeId) => {
     if (typeof archived !== "boolean" || cursor !== null) throw Error("对话列表参数无效");
-    const result = await runtimeRequest(`${collection(projectId)}?archived=${archived}`);
+    if (scopeId !== undefined) validateConversationId(scopeId);
+    const result = await runtimeRequest(`${collection(projectId)}?archived=${archived}${scopeId ? `&scopeId=${encodeURIComponent(scopeId)}` : ""}`);
     if (!Array.isArray(result.conversations) || result.conversations.some(record => record.projectId !== projectId)) throw Error("对话列表作品归属无效");
     return { threads: result.conversations.map(conversationSummary), nextCursor: null };
   });

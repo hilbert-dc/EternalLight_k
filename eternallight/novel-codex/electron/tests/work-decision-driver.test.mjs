@@ -182,3 +182,30 @@ for (const stopReason of ["pendingRecovery", "budgetExhausted", "executionBlocke
     await assert.rejects(advanceWorkSteps({}, "project", f.work.id, f.dependencies), error => error === original);
   });
 }
+
+
+test("queued media continuation keeps the original scoped conversation", async () => {
+  const step={id:"media-step",operation:"advisory",status:"queued",target:{type:"edition",editionId:"comic"}};
+  const work={id:"work-media",projectId:"project",threadId:"media-thread",status:"running",steps:[step]};
+  let called=false;
+  await advanceWorkSteps({},"project",work.id,{
+    currentWorkFlowState:async()=>work.status,
+    runtimeRequest:async path=>{assert.equal(path,`/api/projects/project/work-tasks/${work.id}`);return work;},
+    runAdvisoryAgentTask:async(...args)=>{called=true;assert.equal(args[3],step);assert.equal(args[6],null);assert.equal(args[7],work.threadId);work.status="paused";},
+    runCreativeAgentTask:async()=>assert.fail("media advisory must retain its operation"),
+  });
+  assert.equal(called,true);
+});
+
+test("media continuation returns Native completion without a novel decision and preserves unresolved states", async () => {
+  const completed={id:"work-media",projectId:"project",threadId:"media-thread",status:"completed",deliveryStatus:"discussion_ended",pendingContinuation:false,
+    deliveryReport:{unsettledAttemptIds:[]},steps:[{id:"media-step",operation:"advisory",status:"completed",target:{type:"edition"}}]};
+  for(const change of [null,{status:"blocked"},{deliveryStatus:"pending"},{pendingContinuation:true},{deliveryReport:{unsettledAttemptIds:["task-media"]}},{resumeBlockReason:"unknownUsage"}]) {
+    const work={...completed,...change};
+    const dependencies={currentWorkFlowState:async()=>work.status,runtimeRequest:async path=>{
+      assert.equal(path,"/api/projects/project/work-tasks/work-media","media recovery must not request a novel workspace or decision");return work;
+    }};
+    if(change)await assert.rejects(advanceWorkSteps({},"project",work.id,dependencies),{code:"CONVERSATION_INCOMPLETE"});
+    else assert.equal(await advanceWorkSteps({},"project",work.id,dependencies),work);
+  }
+});

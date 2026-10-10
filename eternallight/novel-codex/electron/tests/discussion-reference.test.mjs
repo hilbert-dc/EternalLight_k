@@ -5,6 +5,7 @@ import { validateDiscussionReference, verifyDiscussionReference } from "../discu
 import { validateConversationFocus, conversationFocusInstructions } from "../conversation-analysis.mjs";
 import { assertRevisionRepairTaskTarget } from "../revision-repair-handlers.mjs";
 import { mainHandlers, rendererEvent, runtimeFixture } from "./main-handler-harness.mjs";
+import { novelTurnText } from "../codex-runtime.mjs";
 
 const base = { projectId: "project", snapshotId: "snapshot" };
 const scene = { kind: "scene", ...base, objectId: "draft-chapter", revisionId: "revision", sceneGroupId: "场景一" };
@@ -107,17 +108,17 @@ test("production advisory rejects stale reference before model or task creation"
   } finally { adapter.close(); }
 });
 
-test("production saves exact focus and reads only authorized source before a synthetic model turn", async () => {
+test("production freezes exact source before a model turn and rereads the same workspace for Work completion", async () => {
   const runtime = runtimeFixture(); const calls = [], inputs = [];
-  const { handlers, adapter } = await mainHandlers(async (path, body, options) => {
-    calls.push({ path, body });
+  const { handlers, adapter } = await mainHandlers(async (path, body, options, url) => {
+    calls.push({ path, body, method: options?.method ?? "GET", search: url.search });
     if (path.endsWith("creative-workspace")) return workspace();
     if (path.includes("knowledge/state")) return knowledge();
     if (path.includes("/commitments/")) return detail();
-    return runtime.request(path, body, options);
+    return runtime.request(path, body, options, url);
   }, `${process.execPath} ${fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url))}`);
   const send = adapter.sendTurn;
-  adapter.sendTurn = async function(input, options) { inputs.push(input); return send.call(this, input, options); };
+  adapter.sendTurn = async function(input, options) { inputs.push({ input, additionalContext: options.additionalContext }); return send.call(this, input, options); };
   try {
     for (const reference of [scene, claim, commitment]) {
       const focus = { view: reference.kind === "scene" ? "chapters" : reference.kind === "claim" ? "world" : "plot",
@@ -127,11 +128,26 @@ test("production saves exact focus and reads only authorized source before a syn
       const current = calls.slice(before);
       const created = current.find(call => call.path.endsWith("/tasks") && call.body);
       assert.deepEqual(created.body.target, { type: "project", conversationFocus: focus });
-      assert.equal(current.filter(call => call.path.endsWith("creative-workspace")).length, 2);
-      assert.ok(current.findIndex(call => call === created) > current.findLastIndex(call => call.path.endsWith("creative-workspace")));
+      const workspaces = current.filter(call => call.path.endsWith("creative-workspace"));
+      assert.equal(workspaces.length, 3);
+      assert.ok(workspaces.every(call => call.path === "/api/projects/project/creative-workspace" && call.method === "GET" && !call.body));
+      const creationIndex = current.indexOf(created), taskId = runtime.tasks.get(created.body.threadId).id;
+      assert.ok(workspaces.slice(0, 2).every(call => current.indexOf(call) < creationIndex));
+      const completionIndex = current.findIndex(call => call.path === `/api/projects/project/tasks/${taskId}/complete` && call.body);
+      const decisionIndex = current.findIndex(call => call.path === `/api/projects/project/work-tasks/work-${taskId}/decision` && call.body);
+      // Initial source verification freezes two reads; the third is the same
+      // project's current revision/digest for the Native Work-close decision.
+      assert.ok(completionIndex > creationIndex && current.indexOf(workspaces[2]) > completionIndex && decisionIndex > current.indexOf(workspaces[2]));
+      assert.equal(current[decisionIndex].body.expectedRevision, 4);
+      assert.equal(current[decisionIndex].body.expectedSourceDigest, "digest");
+      const sourceReads = current.filter(call => call.path.includes("/knowledge/state") || call.path.includes("/commitments/"));
+      assert.deepEqual(sourceReads.map(call => [call.path, call.search, call.method, call.body]), reference.kind === "scene" ? []
+        : [[reference.kind === "claim" ? "/api/projects/project/knowledge/state" : "/api/projects/project/commitments/commitment",
+          reference.kind === "claim" ? "?perspective=author&snapshotId=snapshot" : "?snapshotId=snapshot", "GET", null]]);
+      assert.ok(sourceReads.every(call => current.indexOf(call) < creationIndex));
     }
     assert.equal(inputs.length, 3);
-    assert.ok(inputs.every(input => (typeof input === "string" ? input : input.map(item => item.text ?? "").join("")).includes("不能用同名")));
+    assert.ok(inputs.every(turn => novelTurnText(turn).includes("不能用同名")));
     assert.ok(!calls.some(call => /accept|establish|save-candidate/.test(call.path)));
   } finally { adapter.close(); }
 });

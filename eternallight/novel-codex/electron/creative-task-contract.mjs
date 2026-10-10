@@ -10,7 +10,7 @@ export function chapterGenerationTask(projectId, request) {
   if (storyTime !== null && (!Number.isInteger(storyTime) || storyTime < 0)) throw new Error("故事时间无效");
   validateAuthorIntent(intent);
   return {
-    prompt: `为当前选中的第 ${chapterNumber} 章生成完整候选草稿。\n\n作者意图：${intent.trim()}`,
+    prompt: `为当前选中的第 ${chapterNumber} 章生成完整候选草稿。${povCharacterId ? `限定视角人物为 ${povCharacterId}。` : ""}${storyTime !== null ? `限定故事时间位置为 ${storyTime}。` : ""}先按作者要求确定验收标准，再起草、独立检查并修订未满足项。\n\n作者意图：${intent.trim()}`,
     taskType: { operation: "generateChapter" },
     target: { type: "chapter", chapterId, chapterNumber, readingChapter: chapterNumber, sceneOrder: 1, scope: { type: "wholeChapter" }, ...(povCharacterId ? { povCharacterId } : {}), ...(storyTime !== null ? { storyTime } : {}) },
   };

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { mainHandlers, rendererEvent, runtimeFixture } from "./main-handler-harness.mjs";
 import { validateDiscussionExcerpts } from "../../shared/discussion-excerpts.mjs";
 import { validateConversationFocus, bindConversationFocus, conversationFocusInstructions, executeConversationCandidates } from "../conversation-analysis.mjs";
+import { novelTurnText } from "../codex-runtime.mjs";
 
 const excerpt = (changes = {}) => ({ id: "excerpt-one", projectId: "project", view: "outline", label: "全书大纲 · 故事脉络",
   text: "他离开旧港。", state: "displayed", locator: "outline-one · summary", snapshotId: "snapshot-one",
@@ -32,10 +33,11 @@ test("unsaved capture freezes a read-only discussion and never changes to latest
   selected.text = "后来修改的正文";
   assert.equal(focus.readOnly, true);
   assert.equal(focus.excerpts[0].text, "他离开旧港。");
-  assert.match(conversationFocusInstructions(focus), /不登记候选修改/);
+  assert.match(conversationFocusInstructions(focus), /不能基于本轮来源登记候选修改/);
   assert.throws(() => bindConversationFocus({ project: { id: "other" } }, { view: "outline", excerpts: [excerpt()] }), /不属于/);
-  assert.throws(() => validateConversationFocus({ view: "outline", readOnly: true }), /模式无效/);
-  assert.throws(() => validateConversationFocus({ view: "outline", readOnly: false, excerpts: [excerpt()] }), /模式无效/);
+  assert.deepEqual(validateConversationFocus({ view: "outline", readOnly: true }), { view: "outline", readOnly: true });
+  assert.match(conversationFocusInstructions({ view: "outline", readOnly: true }), /当前来源只读/);
+  assert.throws(() => validateConversationFocus({ view: "outline", readOnly: false, excerpts: [excerpt()] }), /来源限制无效/);
 });
 
 test("read-only selection discussion cannot auto-execute proposed writes", async () => {
@@ -54,16 +56,18 @@ test("production send freezes captured excerpts and delivers them to the model a
     return runtime.request(path, body, options);
   }, `${process.execPath} ${fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url))}`);
   const send = adapter.sendTurn;
-  adapter.sendTurn = async function(input, options) { inputs.push(input); return send.call(this, input, options); };
+  adapter.sendTurn = async function(input, options) { inputs.push({ input, additionalContext: options.additionalContext }); return send.call(this, input, options); };
   try {
     const focus = { view: "outline", excerpts: [excerpt({ state: "unsaved" })] };
     await handlers.get("agent:send-prompt")(rendererEvent(), "project", "讨论选区", null, focus);
     const created = calls.find(call => call.path.endsWith("/tasks") && call.body);
     assert.deepEqual(created.body.target.conversationFocus, validateConversationFocus(focus));
     assert.equal(inputs.length, 1);
-    const text = typeof inputs[0] === "string" ? inputs[0] : inputs[0].map(item => item.text ?? "").join("\n");
+    assert.deepEqual(inputs[0].input, [{ type: "text", text: "讨论选区" }]);
+    const text = novelTurnText(inputs[0]);
     assert.match(text, /他离开旧港。/);
-    assert.match(text, /不登记候选修改/);
+    assert.ok(Object.values(inputs[0].additionalContext).some(context => context.kind === "untrusted" && context.value.includes("他离开旧港。")));
+    assert.match(text, /不能基于本轮来源登记候选修改/);
     assert.ok(!calls.some(call => call.path.endsWith("/actions") || call.path.includes("/decision") || /save-candidate|accept/.test(call.path)));
     const before = calls.length;
     await assert.rejects(handlers.get("agent:send-prompt")(rendererEvent(), "other-project", "讨论", null, focus), /不属于/);

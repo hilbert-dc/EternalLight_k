@@ -10,7 +10,7 @@ for (const status of ["completed", "failed", "interrupted", "protocol"]) test(`a
   const request = adapter.request.bind(adapter); let reads = 0, starts = 0, release;
   adapter.request = async (method, params) => {
     if (["turn/start", "thread/resume"].includes(method)) starts++;
-    if (method !== "thread/read") return request(method, params);
+    if (method !== "thread/read" || !adapter.turnWaiter) return request(method, params);
     reads++; if (reads === 1) await new Promise(resolve => { release = resolve; });
     return { thread: { id: params.threadId, status: { activeFlags: [] }, turns: [{ id: "foreign", status: "completed" },
       { id: "turn-test", status: reads === 1 ? "inProgress" : status === "protocol" ? "completed" : status, items: [{ id: "reply", type: "agentMessage", phase: "final_answer", text: status === "protocol" ? "<｜｜DSML｜｜ calls>内部协议" : "原任务结果" }] }] } };
@@ -52,20 +52,21 @@ test("a finished generation is located from Runtime without resuming its expired
 
 test("a delayed status read cannot settle the next waiter even with reused thread and turn IDs", async () => {
   const runtime = runtimeFixture();
-  const { handlers, adapter } = await mainHandlers(runtime.request.bind(runtime), command);
+  const { handlers, adapter, executionTargets } = await mainHandlers(runtime.request.bind(runtime), command);
   const request = adapter.request.bind(adapter); let release;
-  adapter.request = async (method, params) => method === "thread/read" ? new Promise(resolve => { release = resolve; }) : request(method, params);
-  const run = () => handlers.get("agent:send-prompt")(rendererEvent(), "project", "fixture-wait-for-steer").catch(error => error);
+  adapter.request = async (method, params) => method === "thread/read" && adapter.turnWaiter ? new Promise(resolve => { release = resolve; }) : request(method, params);
+  const event = rendererEvent();
+  const run = () => handlers.get("agent:send-prompt")(event, "project", "fixture-wait-for-steer").catch(error => error);
   let original = run();
   try {
     await wait(() => adapter.turnWaiter?.turnId === "turn-test");
     const late = handlers.get("agent:reconnect-thread")({}, "project", "thr-test", "turn-test");
     const rejected = assert.rejects(late, /回合已变化/); await wait(() => release);
-    await handlers.get("agent:interrupt")({}); await original;
+    await handlers.get("agent:interrupt")(event, executionTargets.get(event)); await original;
     original = run(); await wait(() => adapter.turnWaiter?.turnId === "turn-test");
     const waiter = adapter.turnWaiter;
     release({ thread: { id: "thr-test", turns: [{ id: "turn-test", status: "completed" }] } }); await rejected;
     assert.equal(adapter.turnWaiter, waiter);
-    await handlers.get("agent:interrupt")({}); await original;
+    await handlers.get("agent:interrupt")(event, executionTargets.get(event)); await original;
   } finally { adapter.close(); }
 });

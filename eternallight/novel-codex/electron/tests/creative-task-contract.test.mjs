@@ -12,7 +12,7 @@ test("chapter generation binds an explicit writer target", () => {
     intent: "父女在饭桌上互相试探",
   });
   assert.deepEqual(task, {
-    prompt: "为当前选中的第 3 章生成完整候选草稿。\n\n作者意图：父女在饭桌上互相试探",
+    prompt: "为当前选中的第 3 章生成完整候选草稿。限定视角人物为 daughter。先按作者要求确定验收标准，再起草、独立检查并修订未满足项。\n\n作者意图：父女在饭桌上互相试探",
     taskType: { operation: "generateChapter" },
     target: { type: "chapter", chapterId: "chapter-3", chapterNumber: 3, readingChapter: 3, sceneOrder: 1, scope: { type: "wholeChapter" }, povCharacterId: "daughter" },
   });

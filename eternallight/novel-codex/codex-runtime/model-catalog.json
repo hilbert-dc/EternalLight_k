@@ -12,9 +12,11 @@
       "protocolOptions": {
         "toolChoiceMode": "auto-only",
         "reasoningState": "native",
-        "reasoningEffort": "none",
+        "reasoningEffort": "low",
+        "allowedReasoningEfforts": ["low", "high", "max"],
         "namespaceToolsMode": "flatten",
-        "agentMessageMode": "message"
+        "agentMessageMode": "message",
+        "developerRoleMode": "instructions"
       },
       "capabilitySupport": {
         "text": "native",

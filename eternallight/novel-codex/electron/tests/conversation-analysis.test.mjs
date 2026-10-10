@@ -5,6 +5,7 @@ import { registerAdvisoryPromptHandler } from "../revision-repair-handlers.mjs";
 import { advanceWorkSteps } from "../work-step-continuation.mjs";
 import { fileURLToPath } from "node:url";
 import { mainHandlers, rendererEvent, runtimeFixture } from "./main-handler-harness.mjs";
+import { novelTurnText } from "../codex-runtime.mjs";
 
 const sourceId = `task-${"a".repeat(32)}`;
 const actionId = `action-${"b".repeat(32)}`;
@@ -61,6 +62,8 @@ test("page focus remains navigation only and never carries another page's chapte
     assert.deepEqual(focus, { view });
     assert.match(conversationFocusInstructions(focus), /不是写入授权/);
     assert.match(conversationFocusInstructions(focus), /先读取冻结上下文/);
+    assert.match(conversationFocusInstructions(focus), /仅在作者指向当前页面时辅助定位/);
+    assert.match(conversationFocusInstructions(focus), /不能覆盖本线程前文或明确引用指向的对象/);
   }
   for (const malformed of [{ view: "world", chapterId: "one", chapterNumber: 1 },
     { view: "world", operation: "accept" }, { view: "unknown" }, { view: "chapters", chapterId: "one" }]) {
@@ -202,6 +205,66 @@ test("an earlier saved analysis does not rebase a later action onto its changed 
   assert.equal(f.calls.filter(item => item.path?.endsWith("/modeling-batches")).length, 1);
 });
 
+function planningBatchFixture() {
+  const f = fixture("generateBrief");
+  const second = { ...proposal("generateOutline"), id: `action-${"d".repeat(32)}` };
+  const request = f.dependencies.runtimeRequest;
+  f.dependencies.runtimeRequest = async (path, options) => {
+    if (path.endsWith("/actions")) return { actions: [structuredClone(f.action), structuredClone(second)] };
+    if (path.endsWith(`/${second.id}/approve`)) {
+      f.calls.push({ kind: "runtime", path, body: JSON.parse(options.body) });
+      second.status = "queued"; return { ...second };
+    }
+    return request(path, options);
+  };
+  const execute = f.dependencies.runCreativeAgentTask;
+  f.dependencies.runCreativeAgentTask = async (...args) => {
+    const result = await execute(...args); f.workspace.revision += 1; return result;
+  };
+  return { ...f, second };
+}
+
+test("author planning batch is admitted before its first save and later targets return to same-Work decisions", async () => {
+  const f = planningBatchFixture();
+  const result = await executeConversationCandidates({}, "project", discussion, f.dependencies);
+  const firstDispatch = f.calls.findIndex(item => item.kind === "candidate");
+  const approvals = f.calls.flatMap((item, index) => item.path?.endsWith("/approve") ? [{ item, index }] : []);
+  assert.equal(approvals.length, 2);
+  assert.ok(approvals.every(({ index }) => index < firstDispatch));
+  assert.ok(approvals.every(({ item }) => item.body.expectedIntentRevision === 2));
+  assert.equal(f.calls.filter(item => item.kind === "candidate").length, 1);
+  assert.equal(f.action.status, "completed"); assert.equal(f.second.status, "queued");
+  assert.equal(f.second.inputRevision, 5, "Host never rebases the original action itself");
+  assert.equal(result.candidateResults.length, 1); assert.deepEqual(result.proposedActions, []);
+  assert.doesNotMatch(result.message, /来源已变化.*继续对话/);
+  assert.ok(!f.calls.some(item => /budget-authorization|\/accept/.test(item.path ?? "")));
+});
+
+test("an unavailable or foreign planning target prevents all batch approval and dispatch", async () => {
+  for (const reason of ["foreign", "unavailable"]) {
+    const f = planningBatchFixture();
+    if (reason === "foreign") f.second.sourceTaskId = `task-${"e".repeat(32)}`;
+    else f.dependencies.assertAvailable = operation => { if (operation === "generateOutline") throw Error("model unavailable"); };
+    await assert.rejects(executeConversationCandidates({}, "project", discussion, f.dependencies));
+    assert.ok(!f.calls.some(item => item.path?.endsWith("/approve") || item.kind === "candidate"));
+  }
+});
+
+test("pause or rejected later approval preserves admitted planning without starting any model", async () => {
+  for (const reason of ["pause", "rejected"]) {
+    const f = planningBatchFixture(); const request = f.dependencies.runtimeRequest;
+    f.dependencies.runtimeRequest = async (path, options) => {
+      if (reason === "rejected" && path.endsWith(`/${f.second.id}/approve`)) throw Error("author intent changed");
+      const value = await request(path, options);
+      if (reason === "pause" && path.endsWith(`/${f.action.id}/approve`)) f.setState("paused");
+      return value;
+    };
+    await assert.rejects(executeConversationCandidates({}, "project", discussion, f.dependencies));
+    assert.equal(f.action.status, "queued"); assert.equal(f.second.status, "proposed");
+    assert.ok(!f.calls.some(item => item.kind === "candidate"));
+  }
+});
+
 test("send handler forwards chapter focus and only analyzes actions produced by its own discussion", async () => {
   const f = fixture();
   const request = f.dependencies.runtimeRequest;
@@ -242,17 +305,31 @@ test("explicit recovery of queued knowledge action resolves a host batch in the 
   const result = await executeCandidateAction({}, "project", sourceId, actionId, f.dependencies, { resume: true });
   assert.equal(result.taskId, "task-analysis");
   assert.ok(!f.calls.some(item => item.path?.endsWith("/approve")));
-  const step = { id: actionId, sourceTaskId: sourceId, operation: "modelKnowledge", status: "queued", instruction: "整理事实", target: { batchId: "batch-two" } };
-  const work = { id: "work-one", projectId: "project", threadId: "thread-one", status: "running", steps: [step] };
+  // A current Native action Step stores its chapter target, not the eventual
+  // execution batch. Recovery resolves the same action and author permit.
+  const step = { id: actionId, sourceTaskId: sourceId, operation: "modelKnowledge", status: "queued", instruction: f.action.instruction,
+    target: { ...target }, inputRevision: 5, currentAttemptId: null, attempts: [] };
+  const source = { ...discussion.workflow.task, status: "completed" };
+  const work = { id: "work-one", projectId: "project", threadId: source.threadId, status: "running", steps: [
+    { id: "root", status: "completed", attempts: [{ id: sourceId, threadId: source.threadId, status: "completed" }] }, step] };
+  const permission = { kind: "exactAction", actionId, workTaskId: work.id, scopePermitId: null, actionStatus: "queued", evidence: {
+    projectId: "project", sourceTaskId: sourceId, inputRevision: 5, intentRevision: f.action.intentRevision,
+    operation: step.operation, target: { ...target }, instruction: step.instruction, authorIntent: "原作者分析本章事实的要求" } };
+  f.action.status = "queued"; f.action.resultTaskId = null;
   const calls = [];
   await advanceWorkSteps({}, "project", work.id, {
-    currentWorkFlowState: async () => "running", runtimeRequest: async path => {
+    currentWorkFlowState: async () => "running", runtimeRequest: async (path, options) => {
       if (path.endsWith("/decision")) return { workTaskId: work.id, threadId: work.threadId, step: null, stopReason: "completed" };
+      if (path.endsWith("/work-task")) return work;
+      if (path.endsWith(`/tasks/${sourceId}`)) return source;
+      if (path.endsWith("/permission")) return { permission };
+      if (path.endsWith("/actions") || path.endsWith("/creative-workspace") || path.endsWith("/modeling-batches")) return f.dependencies.runtimeRequest(path, options);
       return work;
     },
     runCreativeAgentTask: async (...values) => { calls.push(values); step.status = "completed"; return {}; },
   });
-  assert.deepEqual(calls, [[{}, "project", step.instruction, { operation: "modelKnowledge" }, { batchId: "batch-two", resumeStepId: actionId }]]);
+  assert.deepEqual(calls, [[{}, "project", step.instruction, { operation: "modelKnowledge" }, {
+    ...target, batchId: "batch-two", requestedByTaskId: sourceId, requestedActionId: actionId }]]);
 });
 
 test("production send executes knowledge or chapter writing in the original Work without another approval", async () => {
@@ -280,7 +357,7 @@ test("production send executes knowledge or chapter writing in the original Work
   }, command, state);
   const inputs = [];
   const sendTurn = adapter.sendTurn;
-  adapter.sendTurn = async function (input, options) { inputs.push(input); return sendTurn.call(this, input, options); };
+  adapter.sendTurn = async function (input, options) { inputs.push({ input, additionalContext: options.additionalContext }); return sendTurn.call(this, input, options); };
   try {
     const result = await handlers.get("agent:send-prompt")(rendererEvent(), "project", "整理本章年龄事实", null,
       { view: "chapters", chapterId: "chapter-two", chapterNumber: 2 });
@@ -297,9 +374,16 @@ test("production send executes knowledge or chapter writing in the original Work
     assert.equal(runtime.workTasks.size, 1);
     assert.equal(state.budgets.length, 2);
     assert.deepEqual(state.confirmations, []);
-    assert.match(typeof inputs[0] === "string" ? inputs[0] : inputs[0].map(item => item.text ?? "").join(""), /当前查看第 2 章/);
+    assert.deepEqual(inputs[0].input, [{ type: "text", text: "整理本章年龄事实" }]);
+    assert.match(novelTurnText(inputs[0]), /当前查看第 2 章/);
     assert.equal(inputs.length, 2);
-    if (operation === "modelKnowledge") assert.match(typeof inputs[1] === "string" ? inputs[1] : inputs[1].map(item => item.text ?? "").join(""), /只分析绑定的已保存正文/);
+    if (operation === "modelKnowledge") {
+      assert.match(novelTurnText(inputs[1]), /完整读取本批次冻结正文与必要实体身份/);
+      const bound = JSON.parse(inputs[1].additionalContext.novelTask.value).task;
+      assert.equal(bound.operation, "modelKnowledge");
+      assert.deepEqual(bound.target, tasks[1].body.target);
+      assert.equal(bound.target.sourceRevisionId, "draft-two");
+    }
     assert.ok(!calls.some(call => /accept|establish/.test(call.path) || call.path.endsWith("/budget-authorization") && call.body));
   } finally { adapter.close(); }
   }
@@ -333,13 +417,14 @@ test("production world-page discussion preserves its exact focus and executes no
     return runtime.request(path, body, options);
   }, command, state);
   const send = adapter.sendTurn;
-  adapter.sendTurn = async function(input, options) { inputs.push(input); return send.call(this, input, options); };
+  adapter.sendTurn = async function(input, options) { inputs.push({ input, additionalContext: options.additionalContext }); return send.call(this, input, options); };
   try {
     await handlers.get("agent:send-prompt")(rendererEvent(), "project", "讨论这里的设定是否清楚，先不要修改", null, { view: "world" });
     assert.deepEqual(calls.filter(call => call.path.endsWith("/tasks") && call.body).map(call => ({ operation: call.body.operation, target: call.body.target })),
       [{ operation: "advisory", target: { type: "project", conversationFocus: { view: "world" } } }]);
     assert.equal(inputs.length, 1);
-    assert.match(typeof inputs[0] === "string" ? inputs[0] : inputs[0].map(item => item.text ?? "").join(""), /世界与规则/);
+    assert.deepEqual(inputs[0].input, [{ type: "text", text: "讨论这里的设定是否清楚，先不要修改" }]);
+    assert.match(novelTurnText(inputs[0]), /世界与规则/);
     assert.ok(!calls.some(call => /accept|establish|save-candidate/.test(call.path)));
   } finally { adapter.close(); }
 });

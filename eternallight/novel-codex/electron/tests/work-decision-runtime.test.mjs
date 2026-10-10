@@ -1,3 +1,4 @@
+import { nativeTestBinary } from "./helpers/native-binaries.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -7,6 +8,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { mainHandlers, rendererEvent } from "./main-handler-harness.mjs";
+import { readFixtureAuthorRequirements, updateFixtureDeliveryPlan } from "./fixtures/model-plan-current-contract.mjs";
 
 // Production main handler/coordinator + real Native authority and persistent
 // budgets. Adapter JSON-RPC responses and tool decisions are synthetic; this is
@@ -15,7 +17,7 @@ test("production candidate chain freezes new inputs and repairs missing delivery
   const root = await mkdtemp(join(tmpdir(), "novel-work-decision-"));
   const authorToken = "coordinator-author-token-123456789", candidateToken = "coordinator-candidate-token-123456789";
   const suffix = process.platform === "win32" ? ".exe" : "";
-  const binary = fileURLToPath(new URL(`../../native/target/debug/novel-codex-story-runtime${suffix}`, import.meta.url));
+  const binary = nativeTestBinary("novel-codex-story-runtime");
   const runtime = spawn(binary, ["--port", "0", "--db", join(root, "story.sqlite3"),
     "--engine-budget-db", join(root, "engine.sqlite3"), "--token-stdin"], { stdio: ["pipe", "pipe", "pipe"] });
   runtime.stderr.resume();
@@ -33,19 +35,24 @@ test("production candidate chain freezes new inputs and repairs missing delivery
     runtime.once("error", reject); runtime.once("exit", () => reject(new Error("Runtime exited before listening")));
     runtime.stdin.end(`${JSON.stringify({ authorToken, candidateToken })}\n`);
   });
-  const request = async (path, body, method = body ? "POST" : "GET", capability = null) => {
+  const request = async (path, body, method = body ? "POST" : "GET", capability = null, expectedStatus = null) => {
     const response = await fetch(`${origin}${path}`, { method, headers: { "content-type": "application/json",
       authorization: `Bearer ${capability ? candidateToken : authorToken}`,
       ...(capability ? { "x-novel-task-capability": capability } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}) });
-    const value = await response.json(); assert.ok(response.ok, `${method} ${path}: ${response.status} ${JSON.stringify(value)}`); return value;
+    const raw = await response.text();
+    assert.match(response.headers.get("content-type") ?? "", /^application\/json\b/, `${method} ${path}: HTTP ${response.status}: ${raw.slice(0, 2000)}`);
+    const value = JSON.parse(raw);
+    if (expectedStatus === null) assert.ok(response.ok, `${method} ${path}: ${response.status} ${JSON.stringify(value)}`);
+    else assert.equal(response.status, expectedStatus, `${method} ${path}: ${response.status} ${JSON.stringify(value)}`);
+    return value;
   };
-  const { project } = await request("/api/projects", { title: "父对话协调验收" });
+  const { project } = await request("/api/projects", { title: "父对话协调验收", logline: "同一租约下候选交付门禁与协议修订验收", medium: "novel", idempotencyKey: "work-decision-project" });
   const base = `/api/projects/${project.id}`;
   const original = await request(`${base}/artifacts/brief`, { expectedRevision: 0, expectedCandidateRevisionId: null,
     idempotencyKey: "initial-brief", payload: { premise: "旧创作方向" } });
   const calls = [], created = [], turns = [], owners = [], charges = [];
-  const state = { agentStorage: { budgetDb: join(root, "engine.sqlite3") }, confirmations: [], budgets: [], leases: [] };
+  const state = { nativeRuntime: true, agentStorage: { budgetDb: join(root, "engine.sqlite3") }, confirmations: [], budgets: [], leases: [] };
   const command = `${process.execPath} ${fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url))}`;
   main = await mainHandlers(async (path, body, options, url) => {
     const method = options.method ?? "GET";
@@ -67,6 +74,7 @@ test("production candidate chain freezes new inputs and repairs missing delivery
       turns.push({ operation: task.operation, threadId: params.threadId, input: params.input });
       if (turns.length === 1) {
         assert.equal(task.operation, "advisory");
+        await updateFixtureDeliveryPlan((method, path, body) => request(path, body, method, capability), base, task);
         await request(`${base}/tasks/${task.id}/actions`, { taskId: task.id, threadId: params.threadId,
           expectedRevision: 0, expectedIntentRevision: 0, idempotencyKey: "requested-brief",
           operation: "generateBrief", target: { type: "artifact" }, instruction: "只把创作方向改为新的港口悬疑故事，保存候选不采用" }, "POST", capability);
@@ -80,6 +88,19 @@ test("production candidate chain freezes new inputs and repairs missing delivery
           expectedRevision: 0, expectedCandidateRevisionId: original.revisionId,
           idempotencyKey: "correct-brief", payload: { premise: "新的港口悬疑故事" } }, "POST", capability);
       } else if (turns.length === 3) {
+        assert.equal(task.operation, "advisory");
+        const status = await request(`${base}/tasks/${task.id}/work-decision?threadId=${encodeURIComponent(task.threadId)}&expectedRevision=${task.inputRevision}`, null, "GET", capability);
+        const action = status.readyActions.find(item => item.operation === "generateOutline");
+        assert.ok(action, JSON.stringify({ expected: "same-Work existing author outline target", status,
+          registered: (await request(`${base}/tasks/${created[0].id}/actions`)).actions.map(item => ({ operation: item.operation, status: item.status, error: item.error })) }));
+        assert.equal(action.sourceTaskId, created[0].id);
+        assert.equal(action.authorization, "existingAuthorPlanningTarget");
+        await request(`${base}/tasks/${task.id}/work-decision/actions`, {
+          taskId: task.id, threadId: task.threadId, expectedRevision: task.inputRevision,
+          expectedWorkVersion: status.version, expectedSourceDigest: status.sourceDigest,
+          actionKey: action.actionKey, instruction: "基于已保存的港口悬疑简报生成原授权大纲候选，不采用", idempotencyKey: "outline-current-source",
+        }, "POST", capability);
+      } else if (turns.length === 4) {
         assert.equal(task.operation, "generateOutline");
         const frozen = await request(`${base}/context?purpose=planner&budget=10000&byteBudget=60000&projectRevision=0&taskId=${task.id}&threadId=${encodeURIComponent(params.threadId)}`, null, "GET", capability);
         const source = frozen.taskSources.entries.find(item => item.sectionPath === "/narrativeGoals/brief");
@@ -92,16 +113,44 @@ test("production candidate chain freezes new inputs and repairs missing delivery
           expectedRevision: 0, expectedCandidateRevisionId: null,
           idempotencyKey: "new-outline", payload: { nodes: [{ clientKey: "book", kind: "book", position: 0, title: "港口失忆谜案", purpose: "追查失忆", summary: "港口失忆谜案大纲", dependencyKeys: [], certainty: "tentative", protection: "free" }] } }, "POST", capability);
       } else {
-        assert.ok([4, 5].includes(turns.length), "one bounded protocol correction only");
+        assert.ok([5, 6].includes(turns.length), "one bounded final protocol correction only");
         assert.equal(task.operation, "advisory");
         assert.equal(task.target.workDecision.originTaskId, created[0].id);
-        const status = await request(`${base}/tasks/${task.id}/work-decision?threadId=${encodeURIComponent(task.threadId)}&expectedRevision=${task.inputRevision}`, null, "GET", capability);
+        let status = await request(`${base}/tasks/${task.id}/work-decision?threadId=${encodeURIComponent(task.threadId)}&expectedRevision=${task.inputRevision}`, null, "GET", capability);
         assert.equal(status.workTaskId, owners[0].id);
         assert.equal(status.rootThreadId, turns[0].threadId);
-        assert.equal(status.canFinish, true);
+        assert.equal(status.workPlan.authority, "modelMethodsOnly");
+        assert.equal(status.deliveryReviewRequired, true, "saved outputs still require model delivery review");
+        assert.equal((await request(`${base}/work-tasks/${owners[0].id}`)).deliveryReport.deliveryReview, null,
+          "a model method plan is not a persisted final delivery review");
         assert.ok(JSON.stringify(status).includes(saved.revisionId), "the saved child receipt must be available to its parent");
-        if (turns.length === 4) return rpc.call(this, method, params); // natural reply, omitted complete_task
-        assert.match(params.input.map(item => item.text ?? "").join(""), /尚未通过最终交付审核/);
+        if (turns.length === 5) {
+          const beforeRejectedCompletion = await request(`${base}/tasks/${task.id}`);
+          const rejected = await request(`${base}/tasks/${task.id}/complete`, {
+            threadId: task.threadId, expectedRevision: task.inputRevision, summary: "保存完成，省略原要求读取和交付自检。",
+          }, "POST", capability, 400);
+          assert.equal(rejected.error.code, "invalid_request");
+          assert.match(rejected.error.message, /authorRequirementsSource.*主任务完整读取作者原要求/,
+            "Native must reject bare completion without full original author reading");
+          assert.deepEqual(await request(`${base}/tasks/${task.id}`), beforeRejectedCompletion,
+            "rejected completion must not change the authoritative task state");
+          assert.equal((await request(`${base}/work-tasks/${owners[0].id}`)).deliveryReport.deliveryReview, null);
+          return rpc.call(this, method, params); // natural reply, omitted complete_task
+        }
+        await readFixtureAuthorRequirements((method, path, body) => request(path, body, method, capability), base, task,
+          "请将创作方向调整为新的港口悬疑故事，保存方向和大纲候选，不采用。");
+        const rejectedReview = await request(`${base}/tasks/${task.id}/complete`, {
+          threadId: task.threadId, expectedRevision: task.inputRevision, summary: "已读原要求，仍省略交付自检。",
+        }, "POST", capability, 400);
+        assert.equal(rejectedReview.error.code, "invalid_request");
+        assert.match(rejectedReview.error.message, /deliveryReview: final decision requires a delivery review/,
+          "full author reading cannot substitute for the model's final delivery review");
+        assert.equal((await request(`${base}/work-tasks/${owners[0].id}`)).deliveryReport.deliveryReview, null);
+        await updateFixtureDeliveryPlan((method, path, body) => request(path, body, method, capability), base, task,
+          { status: "satisfied", evidence: [{ taskId: created[1].id, revisionId: saved.revisionId }, { taskId: created[3].id, revisionId: outline.revisionId }] });
+        status = await request(`${base}/tasks/${task.id}/work-decision?threadId=${encodeURIComponent(task.threadId)}&expectedRevision=${task.inputRevision}`, null, "GET", capability);
+        assert.equal(status.canFinish, true, "goal evidence is persisted before delivery review");
+        assert.match(params.input.map(item => item.text ?? "").join("") + "\n" + Object.values(params.additionalContext ?? {}).map(item => item.value).join("\n"), /尚未通过最终交付审核/);
         // The synthetic model, not the Host transport, submits its own bound
         // delivery assessment through the real Candidate capability endpoint.
         const completed = await request(`${base}/tasks/${task.id}/complete`, {
@@ -110,11 +159,11 @@ test("production candidate chain freezes new inputs and repairs missing delivery
             expectedWorkVersion: status.version, expectedSourceDigest: status.sourceDigest, goalStatus: "fulfilled",
             goalAssessment: "创作方向已改为新的港口悬疑故事，候选保存符合作者范围。",
             checkedScope: "核对本轮简报候选的实际保存回执与作者要求；未进行正文或全书逻辑检查。",
-            unresolved: [], authorDecisions: [], evidence: [{ taskId: created[1].id, revisionId: saved.revisionId }, { taskId: created[2].id, revisionId: outline.revisionId }],
+            unresolved: [], issueResolutions: [], authorDecisions: [], evidence: [{ taskId: created[1].id, revisionId: saved.revisionId }, { taskId: created[3].id, revisionId: outline.revisionId }],
           },
         }, "POST", capability);
         assert.equal(completed.status, "completed");
-        const input = params.input.map(item => item.text ?? "").join("");
+        const input = params.input.map(item => item.text ?? "").join("") + "\n" + Object.values(params.additionalContext ?? {}).map(item => item.value).join("\n");
         assert.match(input, /read_work_status/);
       }
     }
@@ -127,21 +176,31 @@ test("production candidate chain freezes new inputs and repairs missing delivery
     turns: turns.map(turn => turn.operation), tasks: taskStates.map(task => ({ operation: task.operation, status: task.status, error: task.error })) }));
   assert.ok(!calls.some(call => call.body?.deliveryReview), "Host must never synthesize the model delivery review");
   assert.equal((await request(`${base}/tasks/${created.at(-1).id}`)).status, "completed");
-  assert.deepEqual(turns.map(turn => turn.operation), ["advisory", "generateBrief", "generateOutline", "advisory", "advisory"]);
-  assert.equal(turns[0].threadId, turns[3].threadId);
+  const deliveredWork = await request(`${base}/work-tasks/${owners[0].id}`);
+  assert.equal(deliveredWork.status, "completed");
+  assert.equal(deliveredWork.deliveryReport.deliveryReview.goalStatus, "fulfilled");
+  const ownerPath = `${base}/work-tasks/${owners[0].id}/execution-owner`;
+  assert.ok(calls.some(call => call.path === ownerPath && Number.isSafeInteger(call.body?.expectedWorkVersion)),
+    "the actual Native Work must admit this Host's execution owner");
+  assert.ok(calls.some(call => call.path === `${ownerPath}/release` && typeof call.body?.leaseId === "string"),
+    "the Host must release the actual Native execution owner after delivery");
+  assert.deepEqual(turns.map(turn => turn.operation), ["advisory", "generateBrief", "advisory", "generateOutline", "advisory", "advisory"]);
+  assert.equal(turns[0].threadId, turns[2].threadId);
+  assert.equal(turns[0].threadId, turns[4].threadId);
+  assert.equal(turns[4].threadId, turns[5].threadId);
   assert.equal(new Set(owners.map(work => work.id)).size, 1);
   assert.equal(calls.filter(call => call.path === `${base}/tasks` && call.body.initialBudget).length, 1);
   assert.ok(!calls.some(call => call.path.endsWith("/budget-authorization") && call.method === "POST"));
-  assert.equal(state.budgets.length, 4); assert.equal(state.confirmations.length, 0);
+  assert.equal(state.budgets.length, 5); assert.equal(state.confirmations.length, 0);
   assert.equal(result.candidateResults.length, 2); assert.equal(result.candidateResults[0].taskId, created[1].id);
   const workspace = await request(`${base}/creative-workspace`);
   assert.equal(workspace.artifacts.brief.candidate.id, saved.revisionId);
   assert.deepEqual(workspace.artifacts.brief.candidate.payload, { premise: "新的港口悬疑故事" });
   assert.equal(workspace.artifacts.brief.accepted, null); assert.equal(workspace.revision, 0);
-  assert.equal(charges.length, 4); assert.equal(charges.at(-1).charges.length, 4);
+  assert.equal(charges.length, 5); assert.equal(charges.at(-1).charges.length, 5);
   assert.deepEqual(charges.at(-1).charges.map(charge => ({ taskId: charge.taskId, requests: charge.requests,
     tokens: charge.tokens, unknownTokens: charge.unknownTokens })),
     created.map(task => ({ taskId: task.id, requests: 0, tokens: 0, unknownTokens: 0 })));
   assert.equal((await request(`${base}/tasks/${created[0].id}/final-reply`)).binding.text, "hello");
-  assert.equal((await request(`${base}/tasks/${created[3].id}/final-reply`)).binding.text, "hello");
+  assert.equal((await request(`${base}/tasks/${created[4].id}/final-reply`)).binding.text, "hello");
 });

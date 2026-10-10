@@ -15,7 +15,7 @@ test("real preload forwards every explicit conversation identity and typed chann
   let api;
   const calls = [];
   runInNewContext(await readFile(new URL("../preload.cjs", import.meta.url), "utf8"), {
-    process: { platform: "test" },
+    crypto: { randomUUID: () => "request-test" }, process: { platform: "test" },
     require: name => {
       assert.equal(name, "electron");
       return { contextBridge: { exposeInMainWorld: (key, value) => { if (key === "novelCodex") api = value; } },
@@ -30,8 +30,9 @@ test("real preload forwards every explicit conversation identity and typed chann
   await api.agent.setThreadPinned("project", "selected-thread", true);
   await api.agent.archiveThread("project", "selected-thread");
   await api.agent.unarchiveThread("project", "selected-thread");
-  assert.deepEqual(calls, [
-    ["agent:send-prompt", "project", "问题", null, focus, "selected-thread"],
+  await api.agent.updateThreadReadState("project", "selected-thread", { operation: "read", expectedRevision: "observed" });
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    ["agent:send-prompt", { requestId: "request-test", args: ["project", "问题", null, focus, "selected-thread", null] }],
     ["agent:create-thread", "project", { sourceThreadId: "source-thread", lastTurnId: "source-turn" }],
     ["agent:rename-thread", "project", "selected-thread", "人物讨论"],
     ["agent:read-conversation", "project", "selected-thread"],
@@ -39,18 +40,42 @@ test("real preload forwards every explicit conversation identity and typed chann
     ["agent:set-thread-pinned", "project", "selected-thread", true],
     ["agent:archive-thread", "project", "selected-thread"],
     ["agent:unarchive-thread", "project", "selected-thread"],
+    ["agent:update-thread-read-state", "project", "selected-thread", { operation: "read", expectedRevision: "observed" }],
   ]);
+});
+
+test("production read-state IPC checks conversation ownership before forwarding observed revision", async t => {
+  const runtime = runtimeFixture();
+  const { handlers, adapter } = await mainHandlers(readRuntime(runtime), command);
+  t.after(() => adapter.close());
+  const { thread } = await invoke(handlers, "agent:create-thread", "project", {});
+  const requests = [];
+  adapter.updateThreadReadState = async (threadId, request) => {
+    requests.push({ threadId, request });
+    return { readState: { revision: "updated", firstUnread: null } };
+  };
+  const request = { operation: "read", expectedRevision: "observed" };
+  assert.deepEqual(await invoke(handlers, "agent:update-thread-read-state", "project", thread.id, request),
+    { readState: { revision: "updated", firstUnread: null } });
+  await assert.rejects(invoke(handlers, "agent:update-thread-read-state", "other-project", thread.id, request));
+  assert.deepEqual(requests, [{ threadId: thread.id, request }]);
 });
 
 test("production empty conversations persist ownership and restore exact independent engine threads", async () => {
   const runtime = runtimeFixture(), state = {};
   const first = await mainHandlers(readRuntime(runtime), command, state);
+  const creationCalls = [], request = first.adapter.request.bind(first.adapter);
+  first.adapter.request = (method, params) => { creationCalls.push({ method, params }); return request(method, params); };
   let second;
   try {
     const a = await invoke(first.handlers, "agent:create-thread", "project");
     const b = await invoke(first.handlers, "agent:create-thread", "project");
     assert.notEqual(a.thread.id, b.thread.id);
     assert.equal(runtime.tasks.size, 0);
+    assert.deepEqual(creationCalls.filter(call => call.method === "thread/start").map(call => call.params.config), [
+      { "mcp_servers.novel_workspace.enabled": false }, { "mcp_servers.novel_workspace.enabled": false },
+    ]);
+    assert.equal(creationCalls.filter(call => call.method === "turn/start").length, 0);
     const list = await invoke(first.handlers, "agent:list-threads", "project");
     assert.deepEqual(new Set(list.threads.map(thread => thread.id)), new Set([a.thread.id, b.thread.id]));
     const empty = await invoke(first.handlers, "agent:read-conversation", "project", a.thread.id);
@@ -70,10 +95,17 @@ test("production empty conversations persist ownership and restore exact indepen
 
 test("production send uses explicitly selected conversation and blocks foreign or archived threads before inference", async () => {
   const runtime = runtimeFixture();
-  const { handlers, adapter } = await mainHandlers(readRuntime(runtime), command);
-  const turns = [];
-  const request = adapter.request.bind(adapter);
-  adapter.request = async (method, params) => { if (method === "turn/start") turns.push(params); return request(method, params); };
+  const turns = [], taskResumes = [];
+  const { handlers, adapter } = await mainHandlers(readRuntime(runtime), command, {
+    onPrepareDomain(domain) {
+      const request = domain.codexAdapter.request.bind(domain.codexAdapter);
+      domain.codexAdapter.request = async (method, params) => {
+        if (method === "turn/start") turns.push(params);
+        if (method === "thread/resume") taskResumes.push(params);
+        return request(method, params);
+      };
+    },
+  });
   try {
     const a = await invoke(handlers, "agent:create-thread", "project");
     const b = await invoke(handlers, "agent:create-thread", "project");
@@ -82,6 +114,8 @@ test("production send uses explicitly selected conversation and blocks foreign o
     assert.equal(sent.workflow.task.threadId, a.thread.id);
     assert.equal(turns.length, 1);
     assert.equal(turns[0].threadId, a.thread.id);
+    assert.deepEqual(taskResumes.at(-1), { threadId: a.thread.id,
+      config: { "mcp_servers.novel_workspace.enabled": true, "mcp_servers.novel_workspace.required": true } });
     assert.equal(runtime.tasks.has(b.thread.id), false);
     const foreign = await invoke(handlers, "agent:create-thread", "foreign");
     await assert.rejects(invoke(handlers, "agent:send-prompt", "project", "不能发送", null, focus, foreign.thread.id), /不属于/);
@@ -112,6 +146,74 @@ test("production registration failure retries the same created engine thread wit
   } finally { await adapter.close(); }
 });
 
+test("production name-save failure keeps the same pending thread and registers only after verified persistence", async () => {
+  const runtime = runtimeFixture();
+  let verifiedName = false, registrations = 0;
+  const { handlers, adapter } = await mainHandlers(async (path, body, options, url) => {
+    if (path.endsWith("/conversations") && body) {
+      assert.equal(verifiedName, true, "registration must follow actual same-thread name verification");
+      assert.equal(body.title, "新对话");
+      registrations++;
+    }
+    return runtime.request(path, body, options, url);
+  }, command);
+  const calls = [], request = adapter.request.bind(adapter);
+  let failName = true;
+  adapter.request = async (method, params) => {
+    calls.push({ method, params });
+    if (method === "thread/name/set" && failName) { failName = false; throw Error("新对话名称保存失败"); }
+    const result = await request(method, params);
+    if (method === "thread/read" && params.includeTurns === true) {
+      assert.equal(result.thread.id, params.threadId);
+      assert.equal(result.thread.name, "新对话");
+      verifiedName = true;
+    }
+    return result;
+  };
+  try {
+    await assert.rejects(invoke(handlers, "agent:create-thread", "project"), /名称保存失败/);
+    assert.equal(registrations, 0);
+    assert.equal(runtime.conversations.size, 0);
+    const retry = await invoke(handlers, "agent:create-thread", "project");
+    assert.equal(registrations, 1);
+    assert.equal(adapter.status().error, null);
+    assert.equal(runtime.conversations.size, 1);
+    assert.equal(runtime.tasks.size, 0);
+    assert.equal(calls.filter(call => call.method === "thread/start").length, 1);
+    const saves = calls.filter(call => call.method === "thread/name/set");
+    assert.equal(saves.length, 2);
+    assert.ok(saves.every(call => call.params.threadId === retry.thread.id && call.params.name === "新对话"));
+    assert.equal(calls.filter(call => call.method === "turn/start").length, 0);
+    assert.deepEqual((await invoke(handlers, "agent:read-conversation", "project", retry.thread.id)).turns, []);
+  } finally { await adapter.close(); }
+});
+
+test("production mismatched saved name cannot register or replace the pending engine thread", async () => {
+  const runtime = runtimeFixture();
+  const { handlers, adapter } = await mainHandlers(readRuntime(runtime), command);
+  const request = adapter.request.bind(adapter);
+  let starts = 0, corruptName = true;
+  adapter.request = async (method, params) => {
+    if (method === "thread/start") starts++;
+    const result = await request(method, params);
+    if (method === "thread/read" && params.includeTurns === true && corruptName) {
+      corruptName = false;
+      return { ...result, thread: { ...result.thread, name: "未保存名称" } };
+    }
+    return result;
+  };
+  try {
+    await assert.rejects(invoke(handlers, "agent:create-thread", "project"), /持久化核对/);
+    assert.equal(runtime.conversations.size, 0);
+    const retry = await invoke(handlers, "agent:create-thread", "project");
+    assert.equal(starts, 1);
+    assert.equal(retry.thread.id, adapter.threadId);
+    assert.equal(retry.thread.name, "新对话");
+    assert.equal(runtime.conversations.size, 1);
+    assert.equal(runtime.tasks.size, 0);
+  } finally { await adapter.close(); }
+});
+
 test("production fork sends exact source turn and restores original author text in copied history", async () => {
   const runtime = runtimeFixture();
   const { handlers, adapter } = await mainHandlers(readRuntime(runtime), command);
@@ -135,7 +237,7 @@ test("production fork sends exact source turn and restores original author text 
   } finally { await adapter.close(); }
 });
 
-test("metadata failures keep persisted truth and strict input or busy gates reject before writes", async () => {
+test("metadata failures keep persisted truth and active execution permits independent metadata edits", async () => {
   const runtime = runtimeFixture(), handlers = new Map(); let failure = null, busy = false, writes = 0;
   await runtime.request("/api/projects/project/conversations", { threadId: "thread-a", title: "新对话", forkedFromId: null, lastTurnId: null });
   registerConversationHandlers({ handle: (channel, callback) => handlers.set(channel, callback) }, {
@@ -166,6 +268,10 @@ test("metadata failures keep persisted truth and strict input or busy gates reje
   await assert.rejects(invoke(handlers, "agent:set-thread-pinned", "project", "thread-a", "true"), /参数/);
   await assert.rejects(invoke(handlers, "agent:create-thread", "project", { sourceThreadId: "thread-a", lastTurnId: "turn", injected: true }), /参数/);
   busy = true;
-  await assert.rejects(invoke(handlers, "agent:rename-thread", "project", "thread-a", "禁止改名"), /执行/);
   assert.equal(writes, previousWrites);
+  const activeRename = await invoke(handlers, "agent:rename-thread", "project", "thread-a", "运行中改名");
+  assert.equal(activeRename.thread.name, "运行中改名");
+  const activePin = await invoke(handlers, "agent:set-thread-pinned", "project", "thread-a", false);
+  assert.equal(activePin.thread.isPinned, false);
+  assert.equal(writes, previousWrites + 2);
 });

@@ -6,5 +6,7 @@ export function authorSteerInput(task, intent) {
     || typeof intent.authorMessageId !== "string" || !/^[a-zA-Z0-9-]{1,160}$/.test(intent.authorMessageId)
     || typeof intent.authorText !== "string" || !intent.authorText.trim()) throw new Error("作者追加消息来源无效");
   return composeNovelCodexPrompt("", intent.authorText,
-    `当前活动对话任务 taskId=${task.id}、projectId=${task.projectId}、threadId=${task.threadId}。本条作者追加指令已登记为消息 ${intent.authorMessageId}、意图代次 ${intent.intentRevision}；request_candidate_task 必须显式传 expectedIntentRevision=${intent.intentRevision}。旧代次不再允许登记候选动作。`);
+    "本条作者追加指令已持久登记。后续行动须使用当前冻结意图代次，旧代次不再允许登记候选动作。",
+    { binding: { taskId: task.id, projectId: task.projectId, threadId: task.threadId,
+      authorMessageId: intent.authorMessageId, expectedIntentRevision: intent.intentRevision } });
 }

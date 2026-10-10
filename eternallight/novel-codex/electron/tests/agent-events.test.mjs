@@ -22,6 +22,94 @@ async function loadAgentEvents() {
     description: await import(pathToFileURL(join(directory, "agent-error-description.mjs")).href) };
 }
 
+test("HTTP 402 framework errors have a Chinese billing explanation without changing raw failure or task authority", async () => {
+  const loaded = await loadAgentEvents();
+  try {
+    const { describeAgentError } = loaded.description;
+    const raw = "unexpected status 402 Payment Required: Insufficient Balance (request_id: billing-fixture), url: http://127.0.0.1:59475/responses";
+    const expected = "模型服务商账户的余额或计费状态需要处理，本轮已停止。已保存的内容仍保留，请先处理服务商账户。";
+    for (const error of [raw, `Error: ${raw}`, `Error invoking remote method 'agent:resume-work-task': Error: ${raw}`,
+      `Error invoking remote method 'agent:send-prompt': ${raw}`, "unexpected status 402 Payment Required"]) {
+      assert.equal(describeAgentError(error), expected);
+      assert.ok(!describeAgentError(error).includes("billing-fixture") && !describeAgentError(error).includes("127.0.0.1"), "Readable feedback must not copy request diagnostics");
+    }
+    // Status is the evidence. Arbitrary body words cannot change its meaning.
+    assert.equal(describeAgentError("unexpected status 402 Payment Required: provider rejected billing"), expected);
+    assert.equal(describeAgentError("unexpected status 402 Payment Required: fixture-secret-value, url: http://localhost/private-path"), expected);
+    const other = "本轮遇到问题，尚未完成。请查看错误详情和任务恢复安排。";
+    for (const error of [
+      "unexpected status 429 Too Many Requests: quoted unexpected status 402 Payment Required", "unexpected status 500 Internal Server Error: Insufficient Balance",
+      "unexpected status 4020 Payment Required: test", "unexpected status 402 Payment Requiredness: test",
+      "HTTP 402 Payment Required: Insufficient Balance", "Insufficient Balance", "url: http://example.invalid/402/responses",
+      "作者引用：unexpected status 402 Payment Required: Insufficient Balance", '"unexpected status 402 Payment Required: Insufficient Balance"',
+      "请解释 `unexpected status 402 Payment Required` 这段文字", "第402章里，商户说账户余额不足。", "模型输出正文：402 Payment Required",
+      "Error invoking remote method 'agent:\nsend-prompt': Error: unexpected status 402 Payment Required: fixture",
+      '{"error":"unexpected status 402 Payment Required: Insufficient Balance"}']) {
+      assert.equal(describeAgentError(error), other, `Non-framework content was misclassified: ${error}`);
+    }
+    const { createAgentRun, reduceAgentEvent } = loaded.module;
+    const preserved = { id: "saved-draft", kind: "chapter-change", title: "已经保存的章节", status: "proposed" };
+    const started = { ...createAgentRun("继续原任务"), threadId: "original-thread", turnId: "original-turn", taskId: "original-attempt",
+      artifacts: [preserved], connectionState: "ready" };
+    const failed = reduceAgentEvent(started, { method: "agent/error", params: { threadId: started.threadId, turnId: started.turnId, message: raw } });
+    assert.equal(failed.state, "error");
+    assert.equal(failed.error, raw);
+    assert.equal(failed.steps.at(-1).detail, raw);
+    assert.equal(describeAgentError(failed.error), expected);
+    assert.equal(failed.taskId, started.taskId);
+    assert.equal(failed.threadId, started.threadId);
+    assert.equal(failed.turnId, started.turnId);
+    assert.equal(failed.connectionState, "ready");
+    assert.deepEqual(failed.artifacts, [preserved], "Billing display cannot erase or promote saved output markers");
+    const snapshot = structuredClone(failed);
+    describeAgentError(failed.error);
+    assert.deepEqual(failed, snapshot, "Description must not mutate failure, task or recovery evidence");
+  } finally { await rm(loaded.directory, { recursive: true, force: true }); }
+});
+
+test("tool completion retains the same item's chapter name only without replacement scope or tool", async () => {
+  const loaded = await loadAgentEvents();
+  try {
+    const { createAgentRun, reduceAgentEvent: reduce } = loaded.module;
+    const event = (method, item) => ({ method, params: { threadId: "thread", turnId: "turn", item } });
+    for (const [tool, title] of [["query_story", "查询第 7 章 · 故事证据"],
+      ["analyze_story_impact", "检查第 7 章 · 故事关联影响"],
+      ["publish_knowledge_batch", "保存第 7 章 · 故事设定分析"]]) {
+      const initial = { ...createAgentRun("检查本章"), threadId: "thread", turnId: "turn" };
+      const started = reduce(initial, event("item/started", { id: "call", type: "mcpToolCall", tool, arguments: { chapterNumber: 7 } }));
+      assert.equal(started.steps.find(step => step.id === "call").title, title);
+      const completed = reduce(started, event("item/completed", { id: "call", type: "mcpToolCall", status: "completed",
+        result: { structuredContent: { bounded: true } } }));
+      assert.equal(completed.steps.find(step => step.id === "call").title, title,
+        "The current protocol's incremental completion must retain the call's known chapter");
+      const replaced = reduce(started, event("item/completed", { id: "call", type: "mcpToolCall", status: "completed",
+        result: { structuredContent: { chapterNumber: 9 } } }));
+      assert.match(replaced.steps.find(step => step.id === "call").title, /第 9 章/);
+      assert.doesNotMatch(replaced.steps.find(step => step.id === "call").title, /第 7 章/);
+      for (const chapterNumber of [null, "9", -1]) {
+        const malformed = reduce(started, event("item/completed", { id: "call", type: "mcpToolCall", status: "completed",
+          result: { structuredContent: { chapterNumber } } }));
+        assert.doesNotMatch(malformed.steps.find(step => step.id === "call").title, /第 7 章|第 9 章/,
+          "An explicit invalid replacement cannot borrow the previous chapter");
+      }
+      const differentTool = reduce(started, event("item/completed", { id: "call", type: "mcpToolCall", tool: "search_story",
+        status: "completed", result: { structuredContent: { bounded: true } } }));
+      assert.equal(differentTool.steps.find(step => step.id === "call").title, "查找故事内容");
+      const differentItem = reduce(started, event("item/completed", { id: "other-call", type: "mcpToolCall", tool,
+        status: "completed", result: { structuredContent: { bounded: true } } }));
+      assert.doesNotMatch(differentItem.steps.find(step => step.id === "other-call").title, /第 7 章/);
+      const failed = reduce(started, event("item/completed", { id: "call", type: "mcpToolCall", status: "completed",
+        result: { isError: true, content: [{ type: "text", text: "controlled failure" }] } }));
+      const failedStep = failed.steps.find(step => step.id === "call");
+      assert.equal(failedStep.title, title);
+      assert.equal(failedStep.status, "failed");
+      assert.equal(failedStep.operation.outcome, undefined);
+      if (tool === "publish_knowledge_batch") assert.equal(completed.steps.find(step => step.id === "call").operation.outcome, undefined,
+        "Name retention cannot turn a completion into a saved receipt");
+    }
+  } finally { await rm(loaded.directory, { recursive: true, force: true }); }
+});
+
 test("author execution history retains bounded public process without private reasoning or deleting earlier messages", async () => {
   const loaded = await loadAgentEvents();
   try {
@@ -106,6 +194,77 @@ test("private reasoning remains fixed activity across started, delta, completed 
   } finally { await rm(loaded.directory, { recursive: true, force: true }); }
 });
 
+test("only explicit compaction events carry a retained notice identity without promoting private payloads", async () => {
+  const loaded = await loadAgentEvents();
+  try {
+    const { createAgentRun, reduceAgentEvent: reduce, summarizeAgentRun } = loaded.module;
+    const secret = "PRIVATE_COMPACTION_PAYLOAD";
+    let run = reduce({ ...createAgentRun("继续核对"), threadId: "thread" }, {
+      method: "turn/started", params: { threadId: "thread", turn: { id: "turn" } },
+    });
+    const event = (method, item) => ({ method, params: { threadId: "thread", turnId: "turn", item } });
+    const item = { id: "compact", type: "contextCompaction", text: secret, summary: secret,
+      content: [{ text: secret }], status: "completed" };
+    run = reduce(run, event("item/started", item));
+    const started = run.steps.find(step => step.id === "compact");
+    assert.equal(started.sourceType, "contextCompaction");
+    assert.equal(started.status, "running");
+    assert.equal(started.title, "压缩上下文");
+    assert.equal(started.text, undefined);
+    run = reduce(run, event("item/completed", item));
+    assert.equal(run.contextCompactions, 1);
+    assert.equal(run.steps.find(step => step.id === "compact").status, "completed");
+    assert.strictEqual(reduce(run, event("item/completed", item)), run);
+    run = reduce(run, event("item/completed", { id: "unknown", type: "notContextCompaction", title: "压缩上下文", text: secret }));
+    assert.equal(run.steps.find(step => step.id === "unknown").sourceType, undefined);
+    assert.equal(run.contextCompactions, 1);
+    const summary = summarizeAgentRun({ ...run, state: "completed" }, 17000);
+    assert.deepEqual(summary.displayExecution.steps.find(step => step.id === "compact"), {
+      id: "compact", kind: "system", title: "压缩上下文", sourceType: "contextCompaction",
+      detail: "正在整理历史上下文", status: "completed",
+    });
+    assert.equal(summary.displayExecution.steps.filter(step => step.sourceType === "contextCompaction").length, 1);
+    assert.equal(JSON.stringify(run).includes(secret), false);
+    assert.equal(JSON.stringify(summary).includes(secret), false);
+
+    let host = { ...createAgentRun("继续核对"), threadId: "thread" };
+    host = reduce(host, { method: "agent/compactionStarted", params: { text: secret, summary: secret } });
+    assert.equal(host.steps.find(step => step.id === "context-compaction").sourceType, "contextCompaction");
+    assert.equal(host.steps.find(step => step.id === "context-compaction").status, "running");
+    host = reduce(host, { method: "agent/compactionCompleted", params: { text: secret, summary: secret } });
+    const retained = summarizeAgentRun({ ...host, state: "completed" }, 17000).displayExecution.steps;
+    assert.equal(retained.filter(step => step.sourceType === "contextCompaction").length, 1);
+    assert.equal(retained.find(step => step.id === "context-compaction").status, "completed");
+    assert.equal(retained.find(step => step.id === "context-compaction").text, undefined);
+    assert.equal(JSON.stringify(retained).includes(secret), false);
+  } finally { await rm(loaded.directory, { recursive: true, force: true }); }
+});
+
+test("source reads show known material names without exposing payloads or inventing chapter ranges", async () => {
+  const loaded = await loadAgentEvents();
+  try {
+    const { createAgentRun, reduceAgentEvent: reduce, summarizeAgentRun } = loaded.module;
+    let run = { ...createAgentRun("读取章纲"), threadId: "thread", turnId: "turn" };
+    const results = [
+      { structuredContent: { sectionPath: "/plannedEffects", payloadPart: "PRIVATE_SOURCE" } },
+      { content: [{ type: "text", text: JSON.stringify({ sectionPath: "/narrativeGoals/outline", payloadPart: "PRIVATE_SOURCE" }) }] },
+      { content: [{ type: "text", text: "invalid json" }] },
+      { structuredContent: { sectionPath: "/unknown", payloadPart: "PRIVATE_SOURCE" } },
+    ];
+    for (const [i, result] of results.entries()) run = reduce(run, { method: "item/completed", params: {
+      threadId: "thread", turnId: "turn", item: { id: `read-${i}`, type: "mcpToolCall", tool: "read_source_content", status: "completed", result },
+    } });
+    assert.deepEqual(run.steps.filter(step => step.kind === "tool").map(step => step.title),
+      ["读取章节规划片段", "读取作品大纲片段", "读取写作资料片段", "读取写作资料片段"]);
+    const snapshot = summarizeAgentRun({ ...run, state: "completed" });
+    assert.equal(JSON.stringify(snapshot).includes("PRIVATE_SOURCE"), false);
+    assert.equal(JSON.stringify(snapshot).includes("sectionPath"), false);
+    assert.equal(snapshot.displayExecution.steps[0].title, "读取章节规划片段");
+    assert.equal(snapshot.displayExecution.steps.some(step => step.operation?.outcome === "read"), false,
+      "Source names without the current contentRead receipt do not establish body reading");
+  } finally { await rm(loaded.directory, { recursive: true, force: true }); }
+});
+
 test("current MCP and dynamic tool events retain their tool titles across start and completion", async () => {
   const loaded = await loadAgentEvents();
   try {
@@ -123,8 +282,8 @@ test("current MCP and dynamic tool events retain their tool titles across start 
       assert.deepEqual(run.steps.find(step => step.id === item.id), { ...started, status: "completed" });
     }
     assert.deepEqual(run.steps.filter(step => ["saved", "query"].includes(step.id)), [
-      { id: "saved", kind: "tool", title: "保存章节", detail: undefined, status: "completed" },
-      { id: "query", kind: "tool", title: "查询故事证据", detail: undefined, status: "completed" },
+      { id: "saved", kind: "tool", title: "保存章节", operation: { category: "write", tool: "save_draft_checkpoint", object: "章节" }, detail: undefined, status: "completed" },
+      { id: "query", kind: "tool", title: "查询故事证据", operation: { category: "read", tool: "query_story", object: "故事证据" }, detail: undefined, status: "completed" },
     ]);
   } finally { await rm(loaded.directory, { recursive: true, force: true }); }
 });
@@ -142,7 +301,7 @@ test("stopping preserves saved tool success and marks unfinished work stopped, n
     run = reduce(run, event("turn/completed", { turn: { id: "turn", status: "interrupted" } }));
     assert.deepEqual({ state: run.state, saved: run.steps.find(step => step.id === "saved"), unfinished: run.steps.find(step => step.id === "unfinished") }, {
       state: "cancelled", saved,
-      unfinished: { id: "unfinished", kind: "tool", title: "保存故事设定分析", detail: undefined, status: "cancelled" },
+      unfinished: { id: "unfinished", kind: "tool", title: "保存故事设定分析", operation: { category: "write", tool: "publish_knowledge_batch", object: "故事设定分析" }, detail: undefined, status: "cancelled" },
     });
     assert.deepEqual(Object.fromEntries(run.phases.map(phase => [phase.id, phase.status])), {
       context: "skipped", planning: "completed", tools: "skipped", response: "pending",
@@ -193,7 +352,7 @@ test("background recovery failures do not invent an author turn before the next 
     const failed = reduce(createAgentRun("修改第一章的结尾"), { method: "agent/error", params: { message: error } });
     const earlier = summarizeAgentRun(failed, 200);
     assert.deepEqual({ prompt: earlier.prompt, state: earlier.state, summary: earlier.summary }, {
-      prompt: "修改第一章的结尾", state: "error", summary: "本轮未完成，可检查错误后重试。",
+      prompt: "修改第一章的结尾", state: "error", summary: "本轮未完成，请查看错误详情与恢复安排。",
     });
     let next = createAgentRun("生成第二章", [earlier]);
     next = reduce(next, { method: "thread/started", params: { thread: { id: "new-thread" } } });
@@ -452,7 +611,11 @@ test("keeps current-protocol replies and lifecycle events within their owning tu
         });
       }
       const rawOther = "Error invoking resumeWorkTask: 当前作品版本已变化";
-      assert.equal(loaded.description.describeAgentError(rawOther), rawOther);
+      assert.equal(loaded.description.describeAgentError(rawOther), "本轮遇到问题，尚未完成。请查看错误详情和任务恢复安排。");
+      const invalid = 'Error invoking remote method \'agent:send-prompt\': Error: invalid_tool_arguments; toolValidation={"tool":"update_work_plan","reason":"required"}';
+      const failed = reduce(start(), event("agent/error", { message: invalid }));
+      assert.match(loaded.description.describeAgentError(failed.error), /^模型提交的工具参数不符合要求/);
+      assert.equal(failed.steps.at(-1).detail, invalid);
       assert.equal(reduce(start(), completed([], "failed")).connectionState, "ready");
     });
 
@@ -498,4 +661,16 @@ test("keeps current-protocol replies and lifecycle events within their owning tu
   } finally {
     await rm(loaded.directory, { recursive: true, force: true });
   }
+});
+
+
+test("recovery explanations separate unknown usage, credentials and provider permissions", async () => {
+  const loaded = await loadAgentEvents();
+  try {
+    const { describeAgentError } = loaded.description;
+    assert.match(describeAgentError(JSON.stringify({error:{code:"task_provider_usage_unknown",type:"budget_unknown"}})), /不代表额度已用完/);
+    assert.match(describeAgentError("unexpected status 401 Unauthorized: Insufficient Balance"), /更新凭据/);
+    assert.match(describeAgentError("unexpected status 403 Forbidden: Payment Required"), /访问权限/);
+    assert.doesNotMatch(describeAgentError("作者引用 task_provider_usage_unknown"), /用量回执/);
+  } finally { await rm(loaded.directory, {recursive:true,force:true}); }
 });

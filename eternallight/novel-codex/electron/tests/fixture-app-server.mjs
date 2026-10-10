@@ -9,12 +9,15 @@ const threads = new Map(["thr-test", "thr-history", "thr-history-2", "thr-archiv
 let threadSequence = 0;
 let currentTurnThreadId = null;
 const threadStatePath = process.env.NOVEL_CODEX_TEST_THREAD_STATE;
+const refreshThreads = () => {
 if (threadStatePath && existsSync(threadStatePath)) {
   const state = JSON.parse(readFileSync(threadStatePath, "utf8"));
   threadSequence = state.threadSequence;
   threads.clear();
   for (const [id, thread] of state.threads) threads.set(id, thread);
 }
+};
+refreshThreads();
 const persistThreads = () => {
   if (!threadStatePath) return;
   const temporary = `${threadStatePath}.tmp-${process.pid}`;
@@ -44,6 +47,7 @@ const output = (message) => {
 const input = readline.createInterface({ input: process.stdin });
 
 input.on("line", (line) => {
+  refreshThreads();
   const message = JSON.parse(line);
   if (message.method === "initialize") output({ id: message.id, result: { platformFamily: "test" } });
   if (message.method === "thread/start") {
@@ -128,9 +132,18 @@ input.on("line", (line) => {
     if (message.params.input[0].text === "approval") {
       output({ id: 99, method: "item/commandExecution/requestApproval", params: { reason: "test permission", command: "echo test", cwd: "/tmp" } });
       output({ method: "thread/status/changed", params: { threadId: message.params?.threadId ?? "thr-test", status: { type: "active", activeFlags: ["waitingOnApproval"] } } });
+    } else if (message.params.input[0].text === "user-input-free-answer") {
+      output({ id: 102, method: "item/tool/requestUserInput", params: { threadId: currentTurnThreadId, turnId: "turn-test", questions: [{ id: "direction", header: "创作方向", question: "你希望怎样继续？", options: [{ label: "白塔谜团" }, { label: "墨鸦线" }], isOther: false }] } });
+      output({ method: "thread/status/changed", params: { threadId: currentTurnThreadId, status: { type: "active", activeFlags: ["waitingOnUserInput"] } } });
     } else if (message.params.input[0].text === "user-input") {
       output({ id: 100, method: "item/tool/requestUserInput", params: { threadId: message.params?.threadId ?? "thr-test", turnId: "turn-test", questions: [{ id: "direction", header: "创作方向", question: "这一轮重点推进哪条线？", options: [{ label: "白塔谜团", description: "推进白塔与潮汐记录" }, { label: "墨鸦线", description: "推进信使的秘密" }], isOther: true }] } });
       output({ method: "thread/status/changed", params: { threadId: message.params?.threadId ?? "thr-test", status: { type: "active", activeFlags: ["waitingOnUserInput"] } } });
+    } else if (message.params.input[0].text === "bounded-output" || message.params.input[0].text === "failed-turn") {
+      const bounded = message.params.input[0].text === "bounded-output";
+      output({ method: "turn/completed", params: { threadId: currentTurnThreadId, turn: { id: "turn-test", status: "failed",
+        error: { codexErrorInfo: "other", message: bounded
+          ? 'provider_output_item_limit; outputItem={"type":"function_call","utf8Bytes":31700,"conservativeTokens":14000,"limitKind":"conservativeTokens","limit":10000}'
+          : "unrelated failure" } } } });
     } else if (message.params.input[0].text === "clean-exit") {
       process.exit(0);
     } else if (message.params.input[0].text === "interrupt") {
@@ -191,6 +204,11 @@ input.on("line", (line) => {
     output({ method: "serverRequest/resolved", params: { threadId: message.params?.threadId ?? "thr-test", requestId: 99 } });
     output({ method: "thread/status/changed", params: { threadId: message.params?.threadId ?? "thr-test", status: { type: "idle" } } });
     output({ method: "turn/completed", params: { threadId: message.params?.threadId ?? "thr-test", turn: { id: "turn-test", status: "completed" } } });
+  }
+  if (message.id === 102) {
+    output({ method: "item/completed", params: { threadId: currentTurnThreadId, turnId: "turn-test", item: { id: "free-answer", type: "agentMessage", text: message.result.answers.direction.answers[0], phase: "final_answer", status: "completed" } } });
+    output({ method: "serverRequest/resolved", params: { threadId: currentTurnThreadId, requestId: 102 } });
+    output({ method: "turn/completed", params: { threadId: currentTurnThreadId, turn: { id: "turn-test", status: "completed" } } });
   }
   if (message.id === 100) {
     const answer = message.result?.answers?.direction?.answers?.[0];

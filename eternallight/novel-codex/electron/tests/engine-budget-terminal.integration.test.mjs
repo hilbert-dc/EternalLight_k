@@ -48,6 +48,71 @@ test("real Codex terminates a budget-denied turn without HTTP or stream retry", 
   assert.equal(budget.snapshot().requests, 1);
 });
 
+for (const [label, limits] of [["finite", { maxRequests: 8, maxTokens: 200000 }], ["unlimited", {}]]) {
+test(`real Codex stops its ${label} automatic retry after unknown usage without another provider request`, { timeout: 30000 }, async t => {
+  const root = await mkdtemp(join(tmpdir(), "novel-unknown-terminal-"));
+  let calls = 0, interruption;
+  const provider = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    assert.equal(JSON.parse(Buffer.concat(chunks)).stream, true);
+    calls++;
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write(`data: ${JSON.stringify({ id: "interrupted-provider-request", choices: [{ index: 0,
+      delta: { role: "assistant", content: "Incomplete fixture response." }, finish_reason: null }] })}\n\n`);
+    // Disconnect a real chunked stream before the provider reports usage. The
+    // following Core retry must encounter the budget owner, not the provider.
+    interruption = setTimeout(() => response.socket?.destroy(), 100);
+  });
+  await new Promise(resolve => provider.listen(0, "127.0.0.1", resolve));
+  const connection = defineConnection({ id: "fixture", provider: "fixture", model: "fixture-v1",
+    endpoint: `http://127.0.0.1:${provider.address().port}`, credentialRef: "FIXTURE_KEY", protocol: "chat-completions",
+    declaredLimits: { contextTokens: 131072, outputTokens: 8192 } });
+  const sessionPlan = resolveSessionPlan({ connections: [connection], evidence: verifiedBaselineEvidence(connection), policy: {} });
+  const observations = [];
+  const bridge = new ModelBridge({ sessionPlan, connections: [connection], credentialResolver: async () => "fixture",
+    responseObserver: value => observations.push(value) });
+  let adapter;
+  t.after(async () => {
+    clearTimeout(interruption);
+    if (adapter) { await adapter.finishTaskOperation(); adapter.close(); }
+    await bridge.close();
+    await new Promise(resolve => { provider.closeAllConnections(); provider.close(resolve); });
+    await rm(root, { recursive: true, force: true });
+  });
+  const address = await bridge.start();
+  const budget = new TaskBudget(limits);
+  await bridge.beginTaskBudget(budget);
+  await bridge.beginExecutionLease(createExecutionLease({ sessionPlan, runId: "unknown-terminal", budgetId: budget.id }));
+  const catalog = join(root, "catalog.json");
+  await mkdir(join(root, "sqlite"));
+  await writeFile(catalog, JSON.stringify(compileCodexModelCatalog(sessionPlan, { baseInstructions: "Answer briefly." })));
+  await writeFile(join(root, "config.toml"), compileCodexConfig({ sessionPlan, modelCatalogPath: catalog,
+    bridge: { baseUrl: address.baseUrl, credentialRef: "AGENT_ENGINE_BRIDGE_TOKEN" } }));
+  const codex = fileURLToPath(new URL(`../../../../codex-rs/target/debug/codex${process.platform === "win32" ? ".exe" : ""}`, import.meta.url));
+  adapter = new CodexAppServerAdapter({ command: [codex, "app-server"], cwd: root, env: { ...environment,
+    CODEX_HOME: root, CODEX_SQLITE_HOME: join(root, "sqlite"), AGENT_ENGINE_BRIDGE_TOKEN: address.token }, model: connection.id });
+  const errors = [];
+  adapter.setCallbacks({ onEvent: event => { if (event.method === "error") errors.push(event.params); } });
+  await assert.rejects(adapter.sendTurn([{ type: "text", text: "Say hello." }], { disableEnvironment: true }), /task provider usage is unknown|task_provider_usage_unknown/);
+  assert.equal(calls, 1, "Core's automatic retry never reaches the provider");
+  const snapshot = budget.snapshot();
+  assert.equal(snapshot.requests, 1);
+  assert.equal(snapshot.tokens, 0);
+  assert.ok(snapshot.unknownTokens > 0);
+  assert.equal(snapshot.reservedTokens, 0);
+  assert.equal(snapshot.overrun, false);
+  assert.equal(budget.settlements.size, 1);
+  assert.ok(errors.some(error => error.willRetry === true), "the original transport failure exercised Core's real retry path");
+  assert.equal(errors.at(-1).willRetry, false, "the budget rejection is terminal");
+  assert.deepEqual(observations.filter(value => value.errorCode === "task_provider_usage_unknown")
+    .map(({ errorCategory, errorCode, errorStatusCode, retryable }) => ({ errorCategory, errorCode, errorStatusCode, retryable })),
+    [{ errorCategory: "budget", errorCode: "task_provider_usage_unknown", errorStatusCode: 400, retryable: false }]);
+  await adapter.finishTaskOperation();
+  assert.deepEqual(budget.snapshot(), snapshot);
+});
+}
+
 for (const diagnostic of ["provider_output_limit", "invalid_tool_arguments"]) {
 test(`real Codex treats ${diagnostic} as terminal instead of retrying a disconnected stream`, { timeout: 30000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), "novel-output-terminal-"));

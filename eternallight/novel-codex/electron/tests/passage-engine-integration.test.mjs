@@ -1,3 +1,4 @@
+import { nativeTestBinary } from "./helpers/native-binaries.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -34,7 +35,7 @@ test("real Codex and native Runtime read unmatched passages, continue and rerank
   const mark = phase => stages.push({ phase, elapsedMs: Math.round(performance.now() - began) });
   const root = await mkdtemp(join(tmpdir(),"novel-passage-engine-"));
   const suffix = process.platform === "win32" ? ".exe" : "";
-  const binary = (name)=>fileURLToPath(new URL(`../../native/target/debug/${name}${suffix}`,import.meta.url));
+  const binary = (name)=>nativeTestBinary(name);
   const author = "passage-engine-author-token-12345678";
   const candidate = "passage-engine-candidate-token-12345";
   const capability = "passage-engine-capability-1234567890";
@@ -117,7 +118,7 @@ test("real Codex and native Runtime read unmatched passages, continue and rerank
         assert.ok(ranked.evidence[ranked.steps[0].results[0].evidenceRef].quote.includes("暴雨淹没了渡口"));
         assert.equal(ranked.ranking.authority,"modelCandidate");
         assert.equal(ranked.coverage.complete,false);
-        name=tool("read_context");args={...binding,purpose:"planner",budget:24,byteBudget:60000,queryPlan:semanticPlan};
+        name=tool("read_context");args={...binding,budget:24,byteBudget:60000,queryPlan:semanticPlan};
       } else {
         const context=unwrapTool(body.messages.findLast((message)=>message.role === "tool"));
         assert.deepEqual(context.queryReport,ranked);

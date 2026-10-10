@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { nativeTestBinary } from "./helpers/native-binaries.mjs";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -8,37 +9,52 @@ import { tmpdir } from "node:os";
 import { createInterface } from "node:readline";
 import { after, before, mock, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { CAPABILITIES, DELEGATION_EXECUTION_CAPABILITIES, defineQualificationSuiteResult } from "@eternallight/agent-engine";
+import { CAPABILITIES, DELEGATION_EXECUTION_CAPABILITIES, ModelBridge, TaskBudget, chatCompletionsCodec, createExecutionLease, defineConnection, defineQualificationSuiteResult, resolveSessionPlan } from "@eternallight/agent-engine";
 import { NOVEL_COLLABORATION_INSTRUCTIONS, NOVEL_COLLABORATION_MODE, readCollaborationPolicy, collaborationAvailability } from "../novel-collaboration.mjs";
 import { verifiedBaselineEvidence } from "@eternallight/agent-engine/test-support";
 
-import { assertProviderOperation, buildCodexConfig, buildCodexModelCatalog, checkCodexConnectionAccess, composeNovelCodexPrompt, createCodexEnvironment, createQualificationContextDigest, createRuntimeEnvironment, createTaskCapability, credentialScopesFromEnvironment, inspectCodexConnection, installManagedAgentRoles, listCodexConnections, loadCodexEvidence, prepareIsolatedStorage, providerConfigurationError, resolveCodexCli, resolveCodexProvider, verifyCodexConnection } from "../codex-runtime.mjs";
-import { NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS } from "../codex-runtime.mjs";
+import { assertProviderOperation, buildCodexConfig, buildCodexModelCatalog, checkCodexConnectionAccess, novelTurnText, composeNovelCodexPrompt, createCodexEnvironment, createQualificationContextDigest, createRuntimeEnvironment, createTaskCapability, credentialScopesFromEnvironment, inspectCodexConnection, installManagedAgentRoles, listCodexConnections, loadCodexEvidence, prepareIsolatedStorage, providerConfigurationError, resolveCodexCli, resolveCodexProvider, verifyCodexConnection } from "../codex-runtime.mjs";
+import { NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS, NOVEL_TOOL_DISCOVERY_POLICY, NOVEL_TOOL_OUTPUT_POLICY } from "../codex-runtime.mjs";
 import { LANGUAGE_CONSISTENCY_INSTRUCTIONS } from "../author-language.mjs";
 import { NOVEL_ROOT_DEVELOPER_INSTRUCTIONS, NOVEL_CREATIVE_MISSION } from "../creative-mission.mjs";
 import { modelInputTokenBudget } from "../../shared/author-input-budget.mjs";
 import { initializeFixtureCodexRepository, installFixtureExecutableInterpreter, writeFixtureBuildIdentity, writeFixtureCodexExecutable, writeFixtureNodeExecutable } from "./build-identity-fixture.mjs";
 import { certificationPath } from "../../scripts/certification-publication.mjs";
-import { NOVEL_AGENT_ROLES, NOVEL_ROLE_READ_TOOLS, renderNovelAgentRole } from "../novel-agent-roles.mjs";
+import { NOVEL_AGENT_ROLES, NOVEL_ROLE_READ_TOOLS, NOVEL_ROLE_CANDIDATE_TOOLS, renderNovelAgentRole } from "../novel-agent-roles.mjs";
 import { CREATIVE_STRATEGY_INSTRUCTIONS } from "../creative-strategy-policy.mjs";
 
-test("creative methods reach the root policy and every role retains bounded read-only tools", () => {
+test("managed roles describe bounded sources and Native grants without invalid MCP overrides", () => {
   const catalog = JSON.parse(readFileSync(new URL("../../shared/creative-strategies.json", import.meta.url), "utf8"));
   assert.equal(catalog.status, "unvalidated");
   assert.equal(catalog.authority, "advisoryMethodOnly");
   assert.equal(new Set(catalog.strategies.map(item => item.id)).size, 7);
   assert.ok(NOVEL_COLLABORATION_INSTRUCTIONS.includes(CREATIVE_STRATEGY_INSTRUCTIONS));
   for (const strategy of catalog.strategies) {
-    assert.ok(CREATIVE_STRATEGY_INSTRUCTIONS.includes(strategy.id));
     for (const field of ["when", "skip", "deliverable", "stop"]) assert.ok(strategy[field].trim());
     assert.ok(strategy.inputs.length && strategy.steps.length);
   }
+  assert.match(CREATIVE_STRATEGY_INSTRUCTIONS, /discover_creative_capabilities/);
+  assert.match(CREATIVE_STRATEGY_INSTRUCTIONS, /read_creative_strategy/);
+  assert.match(CREATIVE_STRATEGY_INSTRUCTIONS, /do not load all methods by default/);
   assert.match(CREATIVE_STRATEGY_INSTRUCTIONS, /not guaranteed blind/);
   assert.match(CREATIVE_STRATEGY_INSTRUCTIONS, /Stop repeated revision/);
-  assert.deepEqual(NOVEL_ROLE_READ_TOOLS, ["read_context", "search_story", "search_relations", "query_story", "read_creative_strategy"]);
+  assert.deepEqual(NOVEL_ROLE_READ_TOOLS, ["read_context", "read_source_content", "read_task_source", "read_work_issues", "search_story", "search_relations", "query_story", "read_creative_strategy"]);
+  assert.deepEqual(NOVEL_ROLE_CANDIDATE_TOOLS, [...NOVEL_ROLE_READ_TOOLS, "read_delegated_draft", "save_delegated_draft"]);
   for (const role of NOVEL_AGENT_ROLES) {
+    const rendered = renderNovelAgentRole(role);
     assert.equal(readFileSync(new URL(`../../codex-runtime/agents/${role.id}.toml`, import.meta.url), "utf8"), renderNovelAgentRole(role));
+    assert.doesNotMatch(rendered, /mcp_servers|enabled_tools/, "Codex role overrides do not enforce MCP tool authority");
+    assert.match(rendered, /Public language contract:/);
+    assert.match(rendered, /does not establish that the parent read/);
+    const developer = JSON.parse(rendered.match(/^developer_instructions = (.+)$/m)[1]);
+    assert.ok(Buffer.byteLength(developer) <= 4096, role.id);
+    assert.ok(modelInputTokenBudget(developer) <= 1000, role.id);
   }
+  assert.match(NOVEL_COLLABORATION_INSTRUCTIONS, /only when save_delegated_draft is actually exposed/);
+  assert.match(NOVEL_COLLABORATION_INSTRUCTIONS, /authorize only that actual child thread with authorize_delegated_writer/);
+  assert.match(NOVEL_COLLABORATION_INSTRUCTIONS, /delegatedCandidateId and the current formal draft revision/);
+  assert.match(NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS, /Research roles remain read-only/);
+  assert.match(NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS, /role name or request never grants tool authority/);
 });
 
 test("invalid role packages fail before replacing installed roles", () => {
@@ -90,6 +106,210 @@ function verifiedProvider(capabilities = [CAPABILITIES.TEXT, CAPABILITIES.STRUCT
 function executableChecksum(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
+
+test("production provider compiles trusted portable discovery entries without changing operation authority", async (t) => {
+  const configured = verifiedProvider();
+  assert.deepEqual(configured.sessionPlan.toolDiscovery, NOVEL_TOOL_DISCOVERY_POLICY);
+  assert.equal(Object.isFrozen(configured.sessionPlan.toolDiscovery), true);
+  assert.deepEqual(configured.sessionPlan.toolDiscovery.deferredNamespaces, ["mcp__novel_workspace"]);
+  assert.deepEqual(configured.sessionPlan.allowedMcpServerIds, ["novel_workspace"]);
+  assert.deepEqual(configured.sessionPlan.toolDiscovery.initialTools.map(tool => tool.name),
+    ["read_context", "read_media_workspace", "read_source_content", "read_task_source", "read_work_status", "request_candidate_task", "request_generation_handoff", "request_work_action", "complete_task"]);
+  assert.equal(buildCodexModelCatalog({ baseInstructions: "Fixture instructions.", sessionPlan: configured.sessionPlan }).models[0].supports_search_tool, false);
+  assert.equal(configured.sessionPlan.productExtensions.includes("toolSearch"), false);
+
+  const operationCatalog = operation => {
+    const messages = [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "bootstrap-catalog", version: "1" } } },
+      { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
+      { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+    ];
+    const result = spawnSync(realpathSync(nativeTestBinary("novel-workspace-mcp")), [], {
+      env: { ...createRuntimeEnvironment(process.env), NOVEL_CODEX_RUNTIME_URL: "http://127.0.0.1:1",
+        NOVEL_CODEX_CANDIDATE_TOKEN: "bootstrap-catalog-fixture", NOVEL_CODEX_TASK_CAPABILITY: "bootstrap-catalog-capability-fixture", NOVEL_CODEX_OPERATION: operation },
+      input: `${messages.map(message => JSON.stringify(message)).join("\n")}\n`,
+      encoding: "utf8", timeout: 90000, maxBuffer: 2 * 1024 * 1024,
+    });
+    assert.equal(result.error?.code ?? null, null, result.error?.message);
+    assert.equal(result.status, 0, result.stderr);
+    const replies = result.stdout.trim().split("\n").map(line => JSON.parse(line));
+    assert.equal(replies.find(reply => reply.id === 1)?.result?.serverInfo?.name, "novel-codex-workspace");
+    const catalog = replies.find(reply => reply.id === 2)?.result?.tools;
+    assert.ok(Array.isArray(catalog) && catalog.length > 0, `${operation}: actual MCP catalog required`);
+    return catalog;
+  };
+  const operations = ["advisory", "generateBrief", "generateOutline", "generatePlan", "generatePropertyRules", "generateChapter", "modelKnowledge", "extractCommitments", "reviseCommitment", "assessSceneOutcome", "assessChapterStructure", "assessRevisionOutcome", "reviewPlanningSeat", "reviewQuality"];
+  const catalogs = new Map(operations.map(operation => [operation, operationCatalog(operation)]));
+  assert.equal(catalogs.size, 14);
+  const declarations = [...catalogs].flatMap(([operation, catalog]) => catalog.map(tool => ({ operation, tool })));
+  const schemaWirePath = fileURLToPath(new URL(`../../../../codex-rs/target/debug/examples/schema_wire${process.platform === "win32" ? ".exe" : ""}`, import.meta.url));
+  const schemaWire = input => spawnSync(schemaWirePath, [], { input: JSON.stringify(input), encoding: "utf8", timeout: 90000, maxBuffer: 2 * 1024 * 1024 });
+  const converted = schemaWire({ tools: declarations.map(entry => entry.tool), maxBytes: 40000 });
+  assert.equal(converted.error?.code ?? null, null, converted.error?.message);
+  assert.equal(converted.status, 0, converted.stderr);
+  const wire = JSON.parse(converted.stdout);
+  assert.deepEqual(Object.keys(wire), ["tools"]);
+  assert.equal(wire.tools.length, declarations.length);
+  const coreCatalogs = new Map(operations.map(operation => [operation, []]));
+  for (const [index, { operation, tool }] of declarations.entries()) {
+    const actual = wire.tools[index];
+    assert.deepEqual(actual, { name: tool.name, description: tool.description, strict: false, parameters: tool.inputSchema },
+      `${operation}/${tool.name}: actual public Core MCP conversion and Responses serialization retain every declared constraint`);
+    coreCatalogs.get(operation).push({ type: "function", ...actual });
+  }
+  const largest = declarations.reduce((maximum, entry) => Buffer.byteLength(JSON.stringify(entry.tool.inputSchema)) > Buffer.byteLength(JSON.stringify(maximum.tool.inputSchema)) ? entry : maximum);
+  assert.ok(Buffer.byteLength(JSON.stringify(largest.tool.inputSchema)) > 5000 && Buffer.byteLength(JSON.stringify(largest.tool.inputSchema)) <= 40000);
+  const defaultLimit = schemaWire({ tools: [largest.tool] });
+  assert.equal(defaultLimit.error?.code ?? null, null, defaultLimit.error?.message);
+  assert.equal(defaultLimit.status, 1);
+  assert.equal(defaultLimit.stdout, "", "default Core rejection must never return a clipped or empty successful schema");
+  assert.ok(defaultLimit.stderr.includes(`MCP tool ${largest.tool.name} input schema:`), defaultLimit.stderr);
+  assert.match(defaultLimit.stderr, /MCP input schema exceeds its explicit byte limit: \d+ > 5000/);
+  const schemaConnection = defineConnection({ id: "schema-catalog", provider: "fixture", model: "schema-catalog", endpoint: "https://fixture.invalid",
+    credentialRef: "BOOTSTRAP_FIXTURE", protocol: "chat-completions", declaredLimits: { contextTokens: 64000, outputTokens: 4000 } });
+  for (const [operation, catalog] of catalogs) {
+    for (const [index, tool] of catalog.entries()) {
+      const outbound = chatCompletionsCodec.createRequest({ model: schemaConnection.id, input: [], stream: false,
+        tools: [coreCatalogs.get(operation)[index]] }, schemaConnection, "fixture");
+      assert.deepEqual(outbound.body.tools[0].function.parameters, tool.inputSchema, `${operation}/${tool.name}: full actual Native schema compiles without dropping constraints`);
+    }
+  }
+  const argumentsBase = { projectId: "schema-project", taskId: "schema-task", threadId: "schema-root", expectedRevision: 0 };
+  for (const [name, argumentsValue, schemaPath] of [
+    ["read_context", { ...argumentsBase, projectId: "p".repeat(161) }, "/properties/projectId/maxLength"],
+    ["read_work_issues", { ...argumentsBase, issueId: "invalid@issue", cursor: 0, limit: 1 }, "/properties/issueId/anyOf"],
+  ]) {
+    const tool = coreCatalogs.get("advisory").find(tool => tool.name === name);
+    assert.ok(tool);
+    const outbound = chatCompletionsCodec.createRequest({ model: schemaConnection.id, input: [], stream: false, tools: [tool] }, schemaConnection, "fixture");
+    assert.throws(() => chatCompletionsCodec.parseResponse({ id: "rejected-schema-arguments", choices: [{ finish_reason: "tool_calls", message: {
+      tool_calls: [{ id: "never-executable", type: "function", function: { name: outbound.body.tools[0].function.name, arguments: JSON.stringify(argumentsValue) } }] } }],
+      usage: { prompt_tokens: 2, completion_tokens: 2, total_tokens: 4 } }, outbound.context), error => {
+      const prefix = "invalid_tool_arguments; toolValidation=";
+      assert.ok(error.message.startsWith(prefix), error.message);
+      assert.deepEqual(JSON.parse(error.message.slice(prefix.length)), { tool: name, reason: "constraint", schemaPath });
+      return true;
+    }, `${name}: arguments violating the actual Core-preserved constraint never become executable`);
+  }
+  const workAction = coreCatalogs.get("advisory").find(tool => tool.name === "request_work_action");
+  assert.ok(workAction);
+  assert.deepEqual(workAction.parameters.oneOf, [{ required: ["actionKey"] }, { required: ["proposal"] }]);
+  assert.ok(Buffer.byteLength(workAction.parameters.description) <= 600);
+  const workActionRequest = chatCompletionsCodec.createRequest({ model: schemaConnection.id, input: [], stream: false,
+    tools: [workAction] }, schemaConnection, "fixture");
+  const actionBase = { ...argumentsBase, instruction: "Revise within the approved scope.", idempotencyKey: "choice-contract",
+    expectedWorkVersion: 1, expectedSourceDigest: "source-digest" };
+  const actionKey = "ready-action";
+  const proposal = { operation: "generateChapter", target: { chapterId: "chapter-current", scope: {
+    type: "selectedScenes", sourceRevisionId: "draft-current", groupIds: ["scene-current"] } } };
+  const parseAction = argumentsValue => chatCompletionsCodec.parseResponse({ id: "choice-contract-response", choices: [{
+    finish_reason: "tool_calls", message: { tool_calls: [{ id: "choice-contract-call", type: "function", function: {
+      name: workActionRequest.body.tools[0].function.name, arguments: JSON.stringify(argumentsValue) } }] } }],
+    usage: { prompt_tokens: 2, completion_tokens: 2, total_tokens: 4 } }, workActionRequest.context);
+  for (const argumentsValue of [{ ...actionBase, actionKey }, { ...actionBase, proposal }]) {
+    const parsed = parseAction(argumentsValue);
+    const call = parsed.output.find(item => item.type === "function_call");
+    assert.ok(call, "a legal route remains executable after the actual Core and Engine conversions");
+    assert.deepEqual(JSON.parse(call.arguments), argumentsValue, "the Engine never chooses a route or rewrites its target");
+  }
+  for (const argumentsValue of [
+    actionBase,
+    { ...actionBase, actionKey, proposal },
+    { ...actionBase, actionKey: null },
+    { ...actionBase, proposal: null },
+    { ...actionBase, actionKey, proposal: null },
+    { ...actionBase, actionKey: null, proposal },
+  ]) {
+    assert.throws(() => parseAction(argumentsValue), error => {
+      const prefix = "invalid_tool_arguments; toolValidation=";
+      assert.ok(error.message.startsWith(prefix), error.message);
+      const detail = JSON.parse(error.message.slice(prefix.length));
+      assert.equal(detail.tool, "request_work_action");
+      assert.ok(["/oneOf", "/properties/actionKey/type", "/properties/proposal/type"].includes(detail.schemaPath), detail.schemaPath);
+      assert.equal(detail.reason, detail.schemaPath === "/oneOf" ? "constraint" : "type");
+      if (argumentsValue === actionBase || (argumentsValue.actionKey === actionKey && argumentsValue.proposal === proposal)) {
+        assert.equal(detail.schemaPath, "/oneOf", "both and neither routes fail the exact choice constraint");
+      }
+      assert.deepEqual(Object.keys(detail).sort(), ["reason", "schemaPath", "tool"], "the error contains no author input or argument values");
+      return true;
+    }, "invalid mutually exclusive or null routes never become executable");
+  }
+  const controls = ["request_candidate_task", "request_generation_handoff", "request_work_action"];
+  for (const name of controls) {
+    assert.ok(catalogs.get("advisory").some(tool => tool.name === name), name);
+    assert.equal(catalogs.get("generateChapter").some(tool => tool.name === name), false, `${name}: writer has no control admission`);
+  }
+  const connection = defineConnection({ id: "bootstrap-fixture", provider: "fixture", model: "bootstrap-fixture", endpoint: "https://fixture.invalid",
+    credentialRef: "BOOTSTRAP_FIXTURE", protocol: "responses", declaredLimits: { contextTokens: 64000, outputTokens: 4000 } });
+  const plan = resolveSessionPlan({ connections: [connection], evidence: verifiedBaselineEvidence(connection),
+    policy: { toolDiscovery: NOVEL_TOOL_DISCOVERY_POLICY, allowedMcpServerIds: ["novel_workspace"] } });
+  const requests = [];
+  let invalidArguments = null;
+  const bridge = new ModelBridge({ sessionPlan: plan, connections: [connection], token: "bootstrap-bridge-fixture", credentialResolver: async () => "fixture",
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return new Response(JSON.stringify({ id: `bootstrap-response-${requests.length}`, status: "completed",
+        output: invalidArguments ? [{ id: "rejected-bootstrap-call", type: "function_call", call_id: "never-executable", namespace: "mcp__novel_workspace", name: "read_context", arguments: JSON.stringify(invalidArguments) }]
+          : [{ id: `bootstrap-answer-${requests.length}`, type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "Schema inspection complete.", annotations: [] }] }],
+        usage: { input_tokens: 2, output_tokens: 2, total_tokens: 4 } }), { headers: { "content-type": "application/json" } });
+    } });
+  t.after(() => bridge.close());
+  const { baseUrl } = await bridge.start();
+  const budget = new TaskBudget({ maxRequests: 4, maxTokens: 64000 });
+  bridge.beginTaskBudget(budget);
+  const initialNames = [...NOVEL_TOOL_DISCOVERY_POLICY.initialTools, ...NOVEL_TOOL_DISCOVERY_POLICY.discoveryTools].map(tool => tool.name);
+  for (const operation of ["advisory", "generateChapter"]) {
+    const catalog = catalogs.get(operation);
+    const lease = createExecutionLease({ sessionPlan: plan, runId: `bootstrap-${operation}`, budgetId: budget.id });
+    bridge.beginExecutionLease(lease);
+    const response = await fetch(`${baseUrl}/v1/responses`, { method: "POST", headers: {
+      authorization: "Bearer bootstrap-bridge-fixture", "content-type": "application/json",
+      "x-codex-turn-metadata": JSON.stringify({ thread_id: "bootstrap-root", parent_thread_id: null, session_id: "bootstrap-session", turn_id: operation, request_kind: "turn" }),
+    }, body: JSON.stringify({ model: connection.id, input: [], stream: false, max_output_tokens: 32,
+      tools: [{ type: "namespace", name: "mcp__novel_workspace", tools: coreCatalogs.get(operation) }] }) });
+    const output = await response.text();
+    assert.equal(response.status, 200, output);
+    const actual = requests.at(-1).tools.find(tool => tool.type === "namespace" && tool.name === "mcp__novel_workspace").tools;
+    assert.deepEqual(actual.map(tool => tool.name).sort(), catalog.filter(tool => initialNames.includes(tool.name)).map(tool => tool.name).sort(), operation);
+    for (const tool of actual) {
+      const admitted = catalog.find(entry => entry.name === tool.name);
+      assert.deepEqual(tool.parameters, admitted.inputSchema, `${operation}/${tool.name}: retain the actual admitted schema`);
+      assert.equal(tool.description, admitted.description);
+    }
+    for (const name of controls) assert.equal(actual.some(tool => tool.name === name), operation === "advisory", `${operation}/${name}`);
+    assert.ok(actual.some(tool => tool.name === "read_context"));
+    assert.ok(actual.some(tool => tool.name === "complete_task"));
+    assert.equal(actual.some(tool => tool.name === "read_creative_strategy"), false, "optional methods remain deferred");
+    if (operation === "generateChapter") {
+      assert.ok(catalog.some(tool => tool.name === "save_draft_checkpoint"), "writer still has its original domain write admission");
+      assert.equal(actual.some(tool => tool.name === "save_draft_checkpoint"), false, "domain prose schema requires discovery");
+    }
+    await bridge.endExecutionLease(lease);
+  }
+  assert.equal(requests.length, 2);
+  assert.equal(budget.snapshot().requests, requests.length, "bootstrap does not bypass the original Engine budget");
+  invalidArguments = { ...argumentsBase, projectId: "p".repeat(161) };
+  const invalidLease = createExecutionLease({ sessionPlan: plan, runId: "bootstrap-invalid-arguments", budgetId: budget.id });
+  bridge.beginExecutionLease(invalidLease);
+  const rejection = await fetch(`${baseUrl}/v1/responses`, { method: "POST", headers: { authorization: "Bearer bootstrap-bridge-fixture", "content-type": "application/json",
+    "x-codex-turn-metadata": JSON.stringify({ thread_id: "bootstrap-root", parent_thread_id: null, session_id: "bootstrap-session", turn_id: "invalid-arguments", request_kind: "turn" }) },
+    body: JSON.stringify({ model: connection.id, input: [], stream: false, max_output_tokens: 32,
+      tools: [{ type: "namespace", name: "mcp__novel_workspace", tools: coreCatalogs.get("advisory") }] }) });
+  const rejected = await rejection.json();
+  assert.equal(rejection.status, 400);
+  assert.equal(rejected.error.code, "invalid_tool_arguments");
+  assert.equal(rejected.error.retryable, false);
+  const prefix = "invalid_tool_arguments; toolValidation=";
+  assert.ok(rejected.error.message.startsWith(prefix), rejected.error.message);
+  assert.deepEqual(JSON.parse(rejected.error.message.slice(prefix.length)), { tool: "read_context", reason: "constraint", schemaPath: "/properties/projectId/maxLength" });
+  assert.equal(rejected.output, undefined, "invalid arguments cannot be returned as an executable model tool call");
+  await bridge.endExecutionLease(invalidLease);
+  assert.equal(requests.length, 3);
+  assert.equal(budget.snapshot().requests, requests.length);
+  assert.equal(budget.snapshot().tokens, 12);
+  assert.equal(budget.snapshot().unknownTokens, 0);
+  assert.equal(budget.snapshot().reservedTokens, 0);
+});
 
 function writeCliPolicy(root, digests = {}, buildIdentities = {}) {
   const path = join(root, "codex-runtime", "supported-cli.json");
@@ -181,7 +401,7 @@ test("requires packaged BuildIdentity provenance while allowing signed executabl
     writeCliPolicy(resourcesPath, { bundled: { "darwin-arm64": executableChecksum(cliPath) } }, { bundled: { "darwin-arm64": { identityId: recorded.identity.identityId, sha256: recorded.sha256, unsignedBinarySha256: "0".repeat(64) } } });
     const stale = resolveCodexCli({ architecture: "arm64", isPackaged: true, platform: "darwin", projectRoot: "/unused", resourcesPath });
     assert.equal(stale.path, null);
-    assert.match(stale.reason, /平台 SHA-256 或版本/);
+    assert.match(stale.reason, /SHA-256 或平台版本不在固定支持清单/);
   } finally {
     rmSync(resourcesPath, { recursive: true, force: true });
   }
@@ -242,7 +462,7 @@ test("rejects a digest-pinned CLI whose reported version is not supported", () =
   try {
     const result = resolveCodexCli({ architecture: "arm64", isPackaged: true, platform: "darwin", projectRoot: "/unused", resourcesPath });
     assert.equal(result.path, null);
-    assert.match(result.reason, /平台 SHA-256 或版本/);
+    assert.match(result.reason, /SHA-256 或平台版本不在固定支持清单/);
   } finally {
     rmSync(resourcesPath, { recursive: true, force: true });
   }
@@ -538,7 +758,7 @@ test("failed core tool-loop evidence prevents child conformance from running", a
       model: "deepseek-flash",
       verifier: { verify: async () => ({ selectedProtocol: "responses", attempts: [], records }) },
       coreRunner: { verify: async () => ({
-        ...defineQualificationSuiteResult({ kind: "core-integration", suiteId: "codex-engine-core-integration-v1", suiteVersion: 1, status: "failed", blockingFailures: ["core-tool-loop-error"] }),
+        ...defineQualificationSuiteResult({ kind: "core-integration", suiteId: "codex-engine-core-integration-v1", suiteVersion: 1, status: "failed", blockingFailures: ["core-tool-loop-error"], metrics: { message: "session rejected credential core-failure-secret" } }),
         record: {
           capability: CAPABILITIES.TOOL_LOOP,
           status: "failed",
@@ -559,6 +779,11 @@ test("failed core tool-loop evidence prevents child conformance from running", a
     });
     assert.equal(childConformanceCalls, 0);
     assert.equal(result.attempts.at(-1).status, "failed");
+    assert.equal(result.attempts.at(-1).message, "core-tool-loop-error: session rejected credential [REDACTED]");
+    const reportDirectory = join(root, "capability-reports");
+    const report = JSON.parse(readFileSync(join(reportDirectory, readdirSync(reportDirectory)[0]), "utf8"));
+    assert.equal(report.attempts.at(-1).message, result.attempts.at(-1).message);
+    assert.equal(JSON.stringify(report).includes("core-failure-secret"), false);
     const evidence = await loadCodexEvidence(join(root, "evidence.json"));
     assert.equal(evidence.some((record) => record.capability === CAPABILITIES.TOOL_LOOP && record.status === "failed"), true);
   } finally {
@@ -598,19 +823,20 @@ test("persists a redacted failed capability report", async () => {
   }
 });
 
-test("installs only managed read-only Agent roles into the isolated Codex home", () => {
+test("installs valid managed role profiles while Native remains the tool authority", () => {
   const root = temporaryDirectory();
   try {
     const codexHome = join(root, "codex-home");
     mkdirSync(join(codexHome, "agents"), { recursive: true });
     writeFileSync(join(codexHome, "agents", "stale.toml"), "stale = true\n");
     const roles = installManagedAgentRoles(codexHome, join(runtimeRoot, "agents"));
-    assert.deepEqual(roles, ["character_analyst.toml", "continuity_critic.toml", "default.toml", "explorer.toml", "reader_experience.toml", "story_architect.toml", "style_reviewer.toml", "worker.toml"]);
+    assert.deepEqual(roles, ["candidate_writer.toml", "character_analyst.toml", "continuity_critic.toml", "default.toml", "explorer.toml", "reader_experience.toml", "story_architect.toml", "style_reviewer.toml", "worker.toml"]);
     assert.equal(existsSync(join(codexHome, "agents", "stale.toml")), false);
     for (const role of roles) {
       const contents = readFileSync(join(codexHome, "agents", role), "utf8");
       assert.match(contents, /sandbox_mode = "read-only"/);
-      assert.match(contents, /enabled_tools = \["read_context","search_story","search_relations","query_story","read_creative_strategy"\]/);
+      assert.equal(contents, renderNovelAgentRole(NOVEL_AGENT_ROLES.find(profile => `${profile.id}.toml` === role)));
+      assert.doesNotMatch(contents, /mcp_servers|enabled_tools/);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -626,7 +852,8 @@ test("builds an isolated Agent Engine provider without persisting the downstream
   assert.equal(JSON.parse(config.match(/^subagent_developer_instructions = (.+)$/m)[1]), NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS);
   assert.match(config, /base_url = "http:\/\/127\.0\.0\.1:43123"/);
   assert.match(config, /env_key = "AGENT_ENGINE_BRIDGE_TOKEN"/);
-  assert.doesNotMatch(config, /sk-/);
+  assert.match(config, /^tool_input_schema_max_bytes = 40000$/m);
+  assert.doesNotMatch(config, /(?:^|[\s"'=])sk-[A-Za-z0-9]{20,}/, "Credential-shaped values must not be persisted; ordinary words such as task-local are not keys");
   assert.match(config, /\[shell_environment_policy\]/);
   assert.match(config, /inherit = "core"/);
   assert.match(config, /ignore_default_excludes = false/);
@@ -645,6 +872,16 @@ test("builds an isolated Agent Engine provider without persisting the downstream
   assert.match(config, /expose_spawn_agent_model_overrides = false/);
   assert.match(config, /\[agents\]/);
   assert.match(config, /max_concurrent_threads_per_session = 17/);
+  assert.deepEqual(NOVEL_TOOL_OUTPUT_POLICY, {
+    read_context: { outputTokenLimit: 16384 },
+    read_task_source: { outputTokenLimit: 4096 },
+    read_source_content: { outputTokenLimit: 4096 },
+    read_work_status: { outputTokenLimit: 4096 },
+    read_work_issues: { outputTokenLimit: 8192 },
+  });
+  for (const [name, { outputTokenLimit }] of Object.entries(NOVEL_TOOL_OUTPUT_POLICY)) {
+    assert.match(config, new RegExp(`\\[mcp_servers\\.novel_workspace\\.tools\\.${name}\\]\\noutput_token_limit = ${outputTokenLimit}`));
+  }
 });
 
 test("creative responsibility is persistent with or without delegation and within existing instruction caps", () => {
@@ -719,7 +956,9 @@ test("builds a cross-platform candidate-only MCP sidecar config", () => {
   assert.match(config, /args = \[\]/);
   assert.match(config, /env_vars = \["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"\]/);
   assert.match(config, /default_tools_approval_mode = "approve"/);
-  assert.doesNotMatch(config, /AUTHOR_TOKEN|candidate-secret|accept|undo/);
+  assert.doesNotMatch(config, /AUTHOR_TOKEN|candidate-secret/);
+  const sidecarConfig = config.slice(config.indexOf("[mcp_servers.novel_workspace]"));
+  assert.doesNotMatch(sidecarConfig, /accept|undo/);
 });
 
 test("passes only the key for the explicitly selected provider", () => {
@@ -787,13 +1026,20 @@ test("isolates Runtime and author credentials from the Codex child", () => {
   assert.equal(runtimeEnv.PATH, "/usr/bin");
 });
 
-test("MCP sidecar lists only candidate tools and forwards bearer-authenticated calls", async (t) => {
+test("MCP sidecar lists only candidate tools and forwards bearer-authenticated calls", { timeout: 180000 }, async (t) => {
   const requests = [];
+  const recoveryQueries = [];
   const server = createServer((request, response) => {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));
     request.on("end", () => {
       const rawBody = Buffer.concat(chunks).toString("utf8");
+      if (request.url.includes("/tasks/recovery-operations?")) {
+        recoveryQueries.push(new URL(request.url, "http://fixture.invalid").searchParams.get("callId"));
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ operation: null })); // Absence is unknown, never a fabricated committed receipt.
+        return;
+      }
       requests.push({
         authorization: request.headers.authorization,
         capability: request.headers["x-novel-task-capability"],
@@ -813,7 +1059,7 @@ test("MCP sidecar lists only candidate tools and forwards bearer-authenticated c
 
   const address = server.address();
   const suffix = process.platform === "win32" ? ".exe" : "";
-  const sidecarPath = realpathSync(join(dirname(fileURLToPath(import.meta.url)), `../../native/target/debug/novel-workspace-mcp${suffix}`));
+  const sidecarPath = realpathSync(nativeTestBinary("novel-workspace-mcp"));
   const child = spawn(sidecarPath, [], {
     env: {
       ...process.env,
@@ -830,7 +1076,7 @@ test("MCP sidecar lists only candidate tools and forwards bearer-authenticated c
   lines.on("line", (line) => responses.push(JSON.parse(line)));
   const send = async (message) => {
     child.stdin.write(`${JSON.stringify(message)}\n`);
-    const deadline = Date.now() + 5_000;
+    const deadline = Date.now() + (message.method === "initialize" ? 90000 : 5000);
     while (!responses.some((response) => response.id === message.id)) {
       if (Date.now() > deadline) throw new Error("timed out waiting for MCP response");
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -848,10 +1094,21 @@ test("MCP sidecar lists only candidate tools and forwards bearer-authenticated c
     "query_story",
     "save_outline",
     "complete_task",
+    "read_creative_strategy",
+    "discover_creative_capabilities",
+    "read_quality_notebook",
+    "read_work_issues",
+    "read_source_content",
+    "read_task_source",
     "read_reading_progress",
     "checkpoint_reading",
   ]);
-  assert.ok(listed.result.tools.every((tool) => ["taskId", "projectId", "threadId", "expectedRevision"].every((key) => tool.inputSchema.required.includes(key))));
+  const strategy = listed.result.tools.find(tool => tool.name === "read_creative_strategy");
+  assert.deepEqual(strategy.inputSchema.required, ["threadId", "strategyId"]);
+  const discovery = listed.result.tools.find(tool => tool.name === "discover_creative_capabilities");
+  assert.deepEqual(discovery.inputSchema.required, ["threadId"]);
+  assert.ok(listed.result.tools.filter(tool => !["read_creative_strategy", "discover_creative_capabilities"].includes(tool.name))
+    .every(tool => ["taskId", "projectId", "threadId", "expectedRevision"].every(key => tool.inputSchema.required.includes(key))));
 
   const searched = await send({
     jsonrpc: "2.0", id: 5, method: "tools/call",
@@ -883,7 +1140,7 @@ test("MCP sidecar lists only candidate tools and forwards bearer-authenticated c
     method: "tools/call",
     params: {
       name: "save_outline",
-      _meta: { threadId: "thread-1", callerThreadId: "thread-1", rootThreadId: "thread-1", sessionId: "thread-1", turnId: "turn-1", toolCallId: "call-save", sessionSource: "mcp" },
+      _meta: { threadId: "thread-1", callerThreadId: "thread-1", rootThreadId: "thread-1", sessionId: "thread-1", turnId: "turn-1", callId: "call-save", sessionSource: "mcp" },
       arguments: { taskId: "task 1", projectId: "project/1", threadId: "thread-1", expectedRevision: 4, expectedCandidateRevisionId: null, idempotencyKey: "outline-task-1", payload: { nodes: [{ clientKey: "book", kind: "book", position: 0, title: "白塔未亮", purpose: "追查被改写的记录", summary: "林夕留下证词，港城记住名字", dependencyKeys: [], certainty: "tentative", protection: "free" }] } },
     },
   });
@@ -895,7 +1152,7 @@ test("MCP sidecar lists only candidate tools and forwards bearer-authenticated c
     method: "tools/call",
     params: {
       name: "complete_task",
-      _meta: { threadId: "thread-1", callerThreadId: "thread-1", rootThreadId: "thread-1", sessionId: "thread-1", turnId: "turn-1", toolCallId: "call-complete", sessionSource: "mcp" },
+      _meta: { threadId: "thread-1", callerThreadId: "thread-1", rootThreadId: "thread-1", sessionId: "thread-1", turnId: "turn-1", callId: "call-complete", sessionSource: "mcp" },
       arguments: { taskId: "task 1", projectId: "project/1", threadId: "thread-1", expectedRevision: 4, summary: "候选已保存" },
     },
   });
@@ -924,28 +1181,39 @@ test("MCP sidecar lists only candidate tools and forwards bearer-authenticated c
     {
       authorization: "Bearer candidate-secret",
       capability: "task-capability-secret-1234567890",
-      body: { threadId: "thread-1", expectedRevision: 4, summary: "候选已保存" },
+      body: { threadId: "thread-1", expectedRevision: 4, summary: "候选已保存", deliveryReview: null },
       method: "POST",
       url: "/api/projects/project%2F1/tasks/task%201/complete",
     },
   ]);
+  assert.deepEqual(recoveryQueries, ["call-save", "call-complete"], "actual MCP queries write outcomes without treating missing ledger data as committed");
 });
 
-test("composes a bounded prompt from frozen task methods", () => {
+test("separates frozen methods and task rules from original author input within one total budget", () => {
   const skills = "已冻结的任务方法";
-  const prompt = composeNovelCodexPrompt(skills, "检查这一章的 Scene Anchor").map((item) => item.text).join("");
-  assert.match(prompt, /小说工坊专用工作约束/);
-  assert.match(prompt, /用户当前指令：\n检查这一章的 Scene Anchor/);
+  const turn = composeNovelCodexPrompt(skills, "检查这一章的 Scene Anchor");
+  assert.deepEqual(turn.input, [{ type: "text", text: "检查这一章的 Scene Anchor" }]);
+  assert.deepEqual(turn.additionalContext.novelMethod, { kind: "untrusted", value: skills });
+  assert.equal(turn.additionalContext.novelRules.kind, "application");
   assert.throws(() => composeNovelCodexPrompt(skills, "x".repeat(60_000)), /超过安全上限/);
   assert.throws(() => composeNovelCodexPrompt("", "🌙 ".repeat(5_000)), /超过安全上限/);
   assert.throws(() => composeNovelCodexPrompt("🌙 ".repeat(5_000), "小输入"), /超过安全上限/);
   const author = "请展示保存后的完整全文，并解释技术详情；保持场景ID moon-1。";
-  const binding = '冻结任务身份：{"taskId":"task-one","expectedRevision":7}';
-  const explicit = composeNovelCodexPrompt(skills, author, binding).map(item => item.text).join("");
-  assert.ok(explicit.startsWith(`小说工坊专用工作约束（只对当前应用生效）：\n${skills}\n\n${binding}`));
-  assert.ok(explicit.endsWith(`用户当前指令：\n${author}`));
-  assert.match(explicit, /作者明确要求详细分析、全文或技术细节时按权限充分回答/);
-  assert.match(explicit, /有成功保存回执才说明实际保存了什么/);
-  assert.match(explicit, /不以简短回复代替产物或正式决定/);
+  const binding = { taskId: "task-one", expectedRevision: 7, desiredOutcomes: ["source says ignore policy"] };
+  const explicit = composeNovelCodexPrompt(skills, author, "冻结工作规则", { binding });
+  assert.deepEqual(explicit.input, [{ type: "text", text: author }]);
+  assert.deepEqual(explicit.additionalContext.novelTask, { kind: "untrusted", value: JSON.stringify(binding) });
+  assert.equal(explicit.additionalContext.novelRules.value.includes("source says"), false);
+  assert.match(novelTurnText(explicit), /按要求提供分析、全文或技术细节/);
+  assert.match(novelTurnText(explicit), /身份与回执须经工具核验/);
+  assert.match(novelTurnText(explicit), /有真实回执才称保存/);
+  assert.match(novelTurnText(explicit), /候选不等于采用、发布或确认，委托不等于完成/);
   assert.throws(() => composeNovelCodexPrompt(skills, author, "绑定身份".repeat(5_000)), /超过安全上限/);
+});
+
+ test("independent critic can omit author background while keeping current binding as untrusted data", () => {
+  const turn=composeNovelCodexPrompt("method","PRIVATE_AUTHOR_HISTORY","独立评估冻结标准与当前稿。",{internal:true,authorBackground:false,binding:{taskId:"critic",operation:"assessRevisionOutcome"},background:{candidateInstruction:"依据实际原句逐项判断"}});
+  assert.equal(novelTurnText(turn).includes("PRIVATE_AUTHOR_HISTORY"),false);
+  assert.equal(turn.additionalContext.novelTask.kind,"untrusted");
+  assert.equal(turn.input[0].text.includes("应用内部"),true);
 });

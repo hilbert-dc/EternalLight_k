@@ -1,3 +1,4 @@
+import { nativeTestBinary } from "./helpers/native-binaries.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -21,10 +22,13 @@ function runCrashFixture(indexPath) {
 
 async function pendingWrite(index, { runId, requestId, idempotencyKey = null, operation = "save_outline" }) {
   const journal = new HostRecoveryJournal(index);
-  await journal.beginRun({ runId, planId: "plan-1", threadId: `thread-${runId}`, projectId: "project-1" });
+  const threadId = `thread-${runId}`;
+  await journal.beginRun({ runId, planId: "plan-1", threadId, projectId: "project-1" });
   await journal.observe({
     method: "item/started",
-    params: { item: { id: requestId, type: "mcpToolCall", tool: operation, arguments: { ...(idempotencyKey ? { idempotencyKey } : {}), payload: { secret: "not persisted" }, expectedRevision: 0, expectedCandidateRevisionId: null } } },
+    params: { threadId, turnId: "turn-1", item: { id: requestId, type: "mcpToolCall", server: "novel_workspace", tool: operation,
+      arguments: { projectId: "project-1", taskId: runId, threadId, ...(idempotencyKey ? { idempotencyKey } : {}),
+        payload: { secret: "not persisted" }, expectedRevision: 0, expectedCandidateRevisionId: null } } },
   });
   await journal.abandonRun();
 }
@@ -32,6 +36,110 @@ async function pendingWrite(index, { runId, requestId, idempotencyKey = null, op
 function snapshot(tasks, operations = []) {
   return { fence: "fence-1", watermark: operations.length, complete: true, nextCursor: null, tasks, operations };
 }
+
+test("terminal accepted calls use original evidence and only a fresh Native fence settles recovery", async () => {
+  const root = await mkdtemp(join(tmpdir(), "novel-terminal-evidence-"));
+  try {
+    const index = new RecoveryIndex(join(root, "host.json"));
+    await index.beginRun({ runId: "report-task", threadId: "report-thread", projectId: "project", planId: "plan" });
+    const operations = ["first", "second"].map(call => ({ operation_id: `operation-${call}`, run_id: "report-task",
+      thread_id: "report-thread", turn_id: "report-turn", tool_call_id: call, tool_name: "submit_revision_outcome",
+      request_hash: (call === "first" ? "a" : "b").repeat(64), state: "accepted", receipt_ref: null, updated_at: 10 }));
+    const events = [], evidenceReads = [];
+    let snapshots = 0;
+    await reconcileRecoveryIndex(index, async (path, options) => {
+      const body = JSON.parse(options.body);
+      if (path.endsWith("/recovery-snapshot")) {
+        snapshots++; events.push(`snapshot-${snapshots}`);
+        if (snapshots === 1) {
+          assert.deepEqual(body, { taskIds: ["report-task"] });
+          return { ...snapshot([{ id: "report-task", status: "failed" }], [operations[0]]), complete: false, nextCursor: 1 };
+        }
+        if (snapshots === 2) {
+          assert.deepEqual(body, { taskIds: ["report-task"], fence: "fence-1", cursor: 1 });
+          return snapshot([{ id: "report-task", status: "failed" }], [operations[1]]);
+        }
+        assert.deepEqual(body, { taskIds: ["report-task"] }, "a new freeze cannot reuse the pre-reconciliation fence");
+        return { ...snapshot([{ id: "report-task", status: "failed" }], operations.map(operation => ({ ...operation,
+          state: "rejected" }))), fence: "fresh-fence" };
+      }
+      assert.equal(path, "/api/projects/project/tasks/recovery-operations/reconcile");
+      events.push(`reconcile-${body.callId}`);
+      assert.equal(body.arguments.expectedCandidateRevisionId, "null");
+      assert.equal(Object.hasOwn(body, "projectId"), false);
+      // A transport failure after the second POST still requires a fresh fence.
+      if (body.callId === "second") throw new Error("lost response");
+      return { operation: { ...operations[0], state: "committed", receipt_ref: "must-not-be-trusted" } };
+    }, () => {}, async identity => {
+      evidenceReads.push(identity);
+      const { projectId, ...binding } = identity;
+      return { ...binding, arguments: { projectId, taskId: binding.taskId, threadId: binding.threadId, expectedRevision: 2,
+        expectedCandidateRevisionId: "null", idempotencyKey: `key-${binding.callId}`, payload: { private: "not persisted" } } };
+    });
+    assert.deepEqual(events, ["snapshot-1", "snapshot-2", "reconcile-first", "reconcile-second", "snapshot-3"]);
+    assert.equal(evidenceReads.length, 2);
+    assert.deepEqual(evidenceReads[0], { projectId: "project", taskId: "report-task", threadId: "report-thread", turnId: "report-turn",
+      callId: "first", toolName: "submit_revision_outcome", requestHash: "a".repeat(64) });
+    assert.deepEqual(await index.recoveryReport(), []);
+    const stored = await index.read();
+    for (const call of ["first", "second"]) assert.equal(stored.runs["report-task"].requests[`mcp:${call}`].outcome, "rejected");
+    assert.equal(JSON.stringify(stored).includes("not persisted"), false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("missing original evidence and nonterminal calls stay unknown without dispatching reconciliation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "novel-missing-evidence-"));
+  try {
+    const index = new RecoveryIndex(join(root, "host.json"));
+    for (const taskId of ["terminal", "active"]) await index.beginRun({ runId: taskId, threadId: `thread-${taskId}`, projectId: "project", planId: "plan" });
+    const operations = ["terminal", "active"].map(run => ({ operation_id: `op-${run}`, run_id: run, thread_id: `thread-${run}`,
+      turn_id: "turn", tool_call_id: `call-${run}`, tool_name: "save_brief", request_hash: "a".repeat(64), state: "accepted", receipt_ref: null, updated_at: 10 }));
+    const reads = [], errors = [];
+    await reconcileRecoveryIndex(index, async path => {
+      assert.ok(path.endsWith("/recovery-snapshot"), "missing evidence and an active task cannot POST a verdict");
+      return snapshot([{ id: "terminal", status: "cancelled" }, { id: "active", status: "running" }], operations);
+    }, (...args) => errors.push(args), async identity => {
+      reads.push(identity.taskId); throw new Error("private history must not enter diagnostics");
+    });
+    assert.deepEqual(reads, ["terminal"]);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0][1], "operation");
+    assert.equal(errors[0][2].message.includes("private history"), false);
+    const stored = await index.read();
+    assert.notEqual(stored.runs.terminal.requests["mcp:call-terminal"].outcome, "rejected");
+    assert.notEqual(stored.runs.active.requests["mcp:call-active"].outcome, "rejected");
+    assert.equal((await index.recoveryReport()).some(run => run.runId === "terminal"), true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("reconciliation POST results cannot settle an accepted fresh ledger or mask a fresh snapshot failure", async () => {
+  for (const freshFailure of [null, "unavailable", "reused"]) {
+    const root = await mkdtemp(join(tmpdir(), "novel-reconciliation-fresh-fence-"));
+    try {
+      const index = new RecoveryIndex(join(root, "host.json"));
+      await index.beginRun({ runId: "task", threadId: "thread", projectId: "project", planId: "plan" });
+      const operation = { operation_id: "op", run_id: "task", thread_id: "thread", turn_id: "turn", tool_call_id: "call",
+        tool_name: "save_brief", request_hash: "a".repeat(64), state: "accepted", receipt_ref: null, updated_at: 10 };
+      let reads = 0;
+      await reconcileRecoveryIndex(index, async path => {
+        if (path.endsWith("/recovery-snapshot")) {
+          reads++;
+          if (reads === 2 && freshFailure === "unavailable") throw new Error("fresh ledger unavailable");
+          return { ...snapshot([{ id: "task", status: "failed" }], [operation]), fence: freshFailure === "reused" ? "fence-1" : `fence-${reads}` };
+        }
+        return { operation: { ...operation, state: "rejected" } };
+      }, () => {}, async ({ projectId, ...identity }) => ({ ...identity, arguments: { projectId, taskId: "task", threadId: "thread",
+        expectedRevision: 0, expectedCandidateRevisionId: "wrong", idempotencyKey: "key", payload: {} } }));
+      assert.equal(reads, 2);
+      const stored = await index.read(), report = await index.recoveryReport();
+      assert.equal(report.length, 1);
+      if (freshFailure) {
+        assert.match(report[0].reconciliationRequired.reason, /fresh ledger unavailable|fresh recovery fence/);
+        assert.equal(stored.runs.task.requests["mcp:call"], undefined, "no operation from the old fence may be projected after POST");
+      } else assert.notEqual(stored.runs.task.requests["mcp:call"].outcome, "rejected");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+});
 
 test("a proven Runtime rejection closes recovery without claiming a committed write", async () => {
   const root = await mkdtemp(join(tmpdir(), "novel-rejected-recovery-"));
@@ -59,8 +167,8 @@ test("real Runtime and MCP recover a committed write across process restart with
   const candidate = "test-recovery-candidate-1234567890123";
   const capability = "test-recovery-capability-123456789012";
   const suffix = process.platform === "win32" ? ".exe" : "";
-  const runtimePath = fileURLToPath(new URL(`../../native/target/debug/novel-codex-story-runtime${suffix}`, import.meta.url));
-  const mcpPath = fileURLToPath(new URL(`../../native/target/debug/novel-workspace-mcp${suffix}`, import.meta.url));
+  const runtimePath = nativeTestBinary("novel-codex-story-runtime");
+  const mcpPath = nativeTestBinary("novel-workspace-mcp");
   let runtime;
   async function stop() {
     if (!runtime || runtime.exitCode !== null || runtime.signalCode !== null) return;
@@ -83,30 +191,39 @@ test("real Runtime and MCP recover a committed write across process restart with
     let origin = await start();
     const request = async (path, options = {}) => {
       const response = await fetch(`${origin}${path}`, { ...options, headers: { authorization: `Bearer ${author}`, "content-type": "application/json" } });
-      const body = await response.json();
-      assert.ok(response.ok, JSON.stringify(body));
-      return body;
+      const raw = await response.text();
+      const diagnostic = `${options.method ?? "GET"} ${path}: HTTP ${response.status} ${raw.slice(0, 1024)}`;
+      assert.ok(response.ok, diagnostic);
+      try {
+        return JSON.parse(raw);
+      } catch {
+        assert.fail(`Expected a JSON response: ${diagnostic}`);
+      }
     };
-    const { project } = await request("/api/projects", { method: "POST", body: JSON.stringify({ title: "恢复证明" }) });
+    const { project } = await request("/api/projects", { method: "POST", body: JSON.stringify({
+      title: "恢复证明", logline: "验证候选保存后的进程重启恢复", medium: "novel", idempotencyKey: "recovery-proof-project",
+    }) });
     const projectPath = `/api/projects/${project.id}`;
     const workspace = await request(`${projectPath}/creative-workspace`);
     const task = await request(`${projectPath}/tasks`, { method: "POST", body: JSON.stringify({ operation: "generateBrief", inputRevision: 0, threadId: "root", authorIntent: "写候选简报", target: { type: "artifact" }, capabilityHash: createHash("sha256").update(capability).digest("hex"), capabilityExpiresAt: Math.floor(Date.now() / 1000) + 600,
       initialBudget: { authorizationId: randomUUID(), authorMessageId: randomUUID(), expectedBaseSnapshotId: workspace.headSnapshotId,
         expectedSourceDigest: workspace.sourceDigest, maxRequests: 16, maxTokens: 200_000, deadlineAt: Math.floor(Date.now()/1000)+600 } }) });
     await request(`${projectPath}/tasks/${task.id}/turn`, { method: "POST", body: JSON.stringify({ threadId: "root", turnId: "turn" }) });
-    const arguments_ = { taskId: task.id, projectId: project.id, threadId: "root", expectedRevision: 0, expectedCandidateRevisionId: null, idempotencyKey: "save-one", payload: { premise: "不应保存进恢复日记的正文", draftCount: 1 } };
+    const payload = { premise: "不应保存进恢复日记的正文", promise: "依据真实回执恢复已保存候选", stakes: "重复执行会覆盖作者成果", endingDirection: "重启后保留原候选版本" };
+    const arguments_ = { taskId: task.id, projectId: project.id, threadId: "root", expectedRevision: 0, expectedCandidateRevisionId: null, idempotencyKey: "save-one", payload };
     const indexPath = join(root, "host.json");
     const index = new RecoveryIndex(indexPath);
     const journal = new HostRecoveryJournal(index);
     await journal.beginRun({ runId: task.id, threadId: "root", projectId: project.id, planId: "test" });
-    await journal.observe({ method: "item/started", params: { turnId: "turn", item: { id: "write-call", type: "mcpToolCall", tool: "save_brief", arguments: arguments_ } } });
+    await journal.observe({ method: "item/started", params: { threadId: "root", turnId: "turn",
+      item: { id: "write-call", type: "mcpToolCall", server: "novel_workspace", tool: "save_brief", arguments: arguments_ } } });
     await journal.flush();
     const mcp = spawn(mcpPath, [], { env: { ...process.env, NOVEL_CODEX_RUNTIME_URL: origin, NOVEL_CODEX_CANDIDATE_TOKEN: candidate, NOVEL_CODEX_TASK_CAPABILITY: capability, NOVEL_CODEX_OPERATION: "generateBrief" }, stdio: ["pipe", "pipe", "pipe"] });
     const output = [];
     mcp.stdout.on("data", (chunk) => output.push(chunk));
     const exited = new Promise((resolve, reject) => { mcp.once("error", reject); mcp.once("exit", resolve); });
     const meta = { sessionId: "root", rootThreadId: "root", callerThreadId: "root", turnId: "turn" };
-    const write = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "save_brief", arguments: arguments_, _meta: { ...meta, callId: "write-call" } } }).replace('"draftCount":1', '"draftCount":1.0');
+    const write = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "save_brief", arguments: arguments_, _meta: { ...meta, callId: "write-call" } } });
     const complete = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "complete_task", arguments: { taskId: task.id, projectId: project.id, threadId: "root", expectedRevision: 0, summary: "completed" }, _meta: { ...meta, callId: "complete-call" } } });
     mcp.stdin.end(`${write}\n${complete}\n`);
     assert.equal(await exited, 0);
@@ -115,11 +232,18 @@ test("real Runtime and MCP recover a committed write across process restart with
     for (const response of responses) assert.notEqual(response.result.isError, true, JSON.stringify(response));
     const response = responses[0];
     const revisionId = JSON.parse(response.result.content[0].text).revisionId;
+    assert.equal(typeof revisionId, "string");
+    const saved = (await request(`${projectPath}/creative-workspace`)).artifacts.brief.candidate;
+    assert.equal(saved.id, revisionId);
+    assert.deepEqual(saved.payload, payload);
     // Neither item/completed nor its receipt reaches the Host journal.
     await journal.abandonRun();
     await stop();
     origin = await start();
     await request("/api/tasks/recover-orphans", { method: "POST", body: "{}" });
+    const recovered = (await request(`${projectPath}/creative-workspace`)).artifacts.brief.candidate;
+    assert.equal(recovered.id, revisionId);
+    assert.deepEqual(recovered.payload, payload);
     const reopened = new RecoveryIndex(indexPath);
     await reconcileRecoveryIndex(reopened, request);
     assert.deepEqual(await reopened.recoveryReport(), []);

@@ -25,18 +25,21 @@ const scenarios = [
   {
     tool: "publish_knowledge_batch", operation: "modelKnowledge", field: "value",
     path: "/api/projects/project/modeling-batches/batch/publish", prompt: "整理本章设定并保存。",
-    arguments: (binding, corrected) => ({ ...binding, batchId: "batch", entities: [], assertions: [{ kind: "assertion", subjectId: "person",
-      predicate: "occupation", evidence: { quote: "沈遥是钟表修理师。" }, ...(corrected ? { value: "钟表修理师" } : {}) }] }),
+    arguments: (binding, corrected) => ({ ...binding, batchId: "batch", entities: [], assertions: [
+      { kind: "assertion", subjectId: "person", predicate: "name", value: "沈遥", evidence: { quote: "沈遥是钟表修理师。" } },
+      { kind: "assertion", subjectId: "person", predicate: "occupation", evidence: { quote: "沈遥是钟表修理师。" }, ...(corrected ? { value: "钟表修理师" } : {}) },
+    ] }),
     receipt: { batchId: "batch", publicationState: "committed", nextAction: "complete_task", receiptRef: "fixture-receipt" },
-    assertWrite: body => assert.equal(body.assertions[0].value, "钟表修理师"),
+    assertWrite: body => assert.equal(body.assertions[1].value, "钟表修理师"),
   },
   {
     tool: "save_draft_checkpoint", operation: "generateChapter", field: "title",
     path: "/api/projects/project/drafts/checkpoints", prompt: "保存本章正文，保留绑定范围。",
     arguments: (binding, corrected) => ({ ...binding, expectedCandidateRevisionId: null, idempotencyKey: "draft-checkpoint",
-      payload: { chapterId: "chapter", chapterNumber: 1, completeness: "chapterComplete", body: "沈遥推开钟楼的门。",
+      payload: { chapterId: "chapter", chapterNumber: 1, completeness: "chapterComplete",
+        sceneGroups: [{ id: "opening", sceneId: null, body: "沈遥推开钟楼的门。", locked: false }],
         ...(corrected ? { title: "雨夜钟楼" } : {}) } }),
-    receipt: { revisionId: "draft-revision", chapterId: "chapter", title: "雨夜钟楼", body: "沈遥推开钟楼的门。" },
+    receipt: { checkpointId: "draft-checkpoint", revisionId: "draft-revision", chapterId: "chapter", version: 1 },
     assertWrite: body => {
       assert.equal(body.payload.title, "雨夜钟楼");
       assert.equal(body.payload.body, "沈遥推开钟楼的门。");
@@ -84,6 +87,11 @@ for (const scenario of scenarios) for (const protocol of ["responses", "chat-com
             assert.equal(writes.length, 0, "rejected arguments must not reach Runtime HTTP");
             assert.match(JSON.stringify(output.output), /invalid_tool_arguments/);
             assert.match(JSON.stringify(output.output), new RegExp(scenario.field));
+            if (scenario.tool === "publish_knowledge_batch") {
+              assert.match(JSON.stringify(output.output), /missingField/);
+              assert.match(JSON.stringify(output.output), /instancePath/);
+              assert.match(JSON.stringify(output.output), /assertions\/1/);
+            }
           } else assert.equal(writes.length, 1, "corrected call must be dispatched exactly once");
         }
         const args = scenario.arguments(binding, sequence === 2 && !exhausted);

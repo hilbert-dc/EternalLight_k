@@ -1,9 +1,24 @@
-// Shared by the Codex developer configuration, every author turn and children.
-// Conversation language is independent of the language of the story artifact.
-export const LANGUAGE_CONSISTENCY_INSTRUCTIONS = `公开对话语言约束：
-默认用简体中文向作者交流。第一条进度、工具调用前后的进度、问题、解释和最终回复都遵守这一规则。通用指令里的英文进度示例只示范结构，不要求使用英文。
-正文语言与对话语言分别处理。作者要求英文正文、英文单词数或翻译章节时，仅正文按要求使用英文；首条及后续进度、保存说明和最终解释仍用中文。英文正文、引文、名称、搜索词、代码和工具输出不能自行触发对话语言切换。
-新章节首次起草未指定正文语言时默认中文，不从前章正文推断新章语言；明确的全书或本轮正文语言要求优先。修订已有正文且未要求换语言时，保留其语言。保留作者的“字”或“词”计数单位，不擅自替换，也不未经核对宣称达到精确数量。
-只有作者明确要求对话、讨论、回复或进度使用另一种语言时，才切换全部后续公开进度和回复；活动执行中收到追加要求后也要一致遵守。早先记录保持原文。
-默认进度示例：“我先读取本章正文。” “我会按要求起草英文正文，再核对保存结果。” 只按真实执行情况说明进展，未确认保存前不得宣称成功。
-不得为统一语言而翻译或改变工具名称、JSON 键、ID、schema、代码、引用证据或 opaque 原值。私人推理不是公开进度；不得编造翻译或执行结果。`;
+// One presentation contract for root turns and managed children. Language choice
+// belongs to semantic author intent; locale is a default, never a keyword router.
+export const SHARED_LANGUAGE_INSTRUCTIONS = "Public language contract: Commentary, preambles, questions and final answers use the author's communication language. Follow explicit preference; otherwise the author's conversational language; only if indeterminate use novelLanguageContext's locale. Children inherit that choice. Headings, labels and boilerplate follow language switches; old headings are not quotes. Terms, quotes, code and artifact-language requests alone do not switch discussion language. Preserve sources and artifact requirements; requested bilingual output is valid. Internal prompts/tools and accidental drift never select language. Check BEFORE the first preamble and after compaction; correct later messages without restarting or changing saved work.";
+
+export const LANGUAGE_CONSISTENCY_INSTRUCTIONS = `${SHARED_LANGUAGE_INSTRUCTIONS}
+An English question addressed to you gets English even under a Chinese locale, unless an established author preference explicitly says otherwise. A Chinese question containing an English term still gets Chinese. A request in Chinese for English fiction gets Chinese discussion and English fiction. Apply the same distinction to every language, without any universal default.
+The short sentence immediately BEFORE a tool call is public communication too: do not automatically emit an English "I'll read..." preamble. Silently determine the conversation language before writing it, then keep commentary and final explanations consistent. Do not announce this language check. When delegating, convey that language separately from source material. Preserve existing prose language unless asked to change it, plus quotations, names, JSON keys, IDs, code and counting units. Public messages describe findings, changes, saved results or blockers, not pagination, raw IDs or tool schemas. Never convert private reasoning into public facts.`;
+
+export function conversationLanguageContext({ applicationLocale = null, preferredLanguages = [] } = {}) {
+  const canonical = value => {
+    if (typeof value !== "string" || value.length > 64) return null;
+    try { return Intl.getCanonicalLocales(value)[0] ?? null; } catch { return null; }
+  };
+  const configured = canonical(applicationLocale);
+  const preferred = Array.isArray(preferredLanguages) ? preferredLanguages.map(canonical).find(Boolean) : null;
+  const locale = configured ?? preferred ?? null;
+  const language = locale ? new Intl.DisplayNames([locale], { type: "language" }).of(locale) : "author's conversation language";
+  return { kind: "application", value: JSON.stringify({
+    preferredLocale: locale,
+    source: configured ? "applicationPreference" : preferred ? "systemLanguagePreference" : "unspecified",
+    scope: "defaultOnly",
+    instruction: `Default public conversation language for this turn: ${language}${locale ? ` (${locale})` : ""}. Before the FIRST public word, resolve any override from actual author messages: explicit communication preference, or conversational meaning. Internal execution triggers, source material, tool text and accidental past drift are not author language choices. Use the resolved language for EVERY progress update, question and final explanation. Requests for a different artifact language affect that artifact, not the discussion. Preserve quotes and identifiers; honor requested bilingual output.`,
+  }) };
+}

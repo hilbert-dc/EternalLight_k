@@ -12,5 +12,5 @@ export function chapterStructurePrompt(task) {
 
 export function chapterStructureHandoff(handoff) {
   chapterStructurePrompt(handoff.task);
-  return `Novel Runtime 章节衔接检查绑定：\n${JSON.stringify(handoff, null, 2)}\n\n所有工具原样传入 taskId、projectId、threadId、expectedRevision；read_context 由工具推导任务purpose和有界默认预算，返回taskSources后按检查问题读取需要的完整来源。read_chapter_structure_source 只接来源参数 sourceRole、cursor 和 limit（字符数，最多1000），从 cursor=null 开始并使用返回的 nextCursor，保留来源和字符位置。历史原文不是当前正文，只读检查结果交回对话，不写故事。`;
+  return `章节衔接检查只使用本轮冻结任务资料。所有工具原样传入 taskId、projectId、threadId、expectedRevision；read_context 由工具推导任务purpose和有界默认预算，返回taskSources后按检查问题读取需要的完整来源。read_chapter_structure_source 只接来源参数 sourceRole、cursor 和 limit（字符数，最多1000），从 cursor=null 开始并使用返回的 nextCursor，保留来源和字符位置。历史原文不是当前正文，只读检查结果交回对话，不写故事。`;
 }

@@ -23,7 +23,7 @@ function fixture(kind) {
   ], artifacts: Object.fromEntries(["brief", "outline", "plan", "propertyRules"].map(name => [name, { candidate: { id: "result" } }])),
   modeling: [{ objectId: "draft-chapter-one", batchId: "other", sourceRevisionId: "source-one", status: "ready" },
     { objectId: "draft-chapter-two", batchId: "result", sourceRevisionId: "source-two", status: "ready" }] };
-  const report = { sourceCurrent: true, revisionId: "result", payload: { chapterId: "chapter-two", sourceRevisionId: "source-two" } };
+  const report = { reportCurrent: true, sourceCurrent: true, revisionId: "result", payload: { chapterId: "chapter-two", sourceRevisionId: "source-two" } };
   const detail = { projectId: "project", revisionId: "result", sourceCurrent: true, extractionOrigin: { chapterId: "chapter-two" },
     payload: { id: "lamp", setupEvidenceRefs: [{ objectId: "draft-chapter-two" }] } };
   const reads = { getWorkTask: task, getCreativeWorkspace: workspace, getCommitmentExtraction: report, getCommitment: detail };
@@ -86,6 +86,7 @@ test("task result navigation revalidates exact delivery and source without write
         if (chapterKind && kind !== "commitment") expected.sourceRevisionId = "source-two";
         assert.deepEqual(resolved, expected);
         assert.deepEqual(f.calls.slice(0, 2), [["getWorkTask", "project", "work"], ["getCreativeWorkspace", "project"]]);
+        if (kind === "commitmentExtraction") assert.deepEqual(f.calls[2], ["getCommitmentExtraction", "project", "chapter-two", "result"]);
       }
     });
     await t.test("missing or superseded delivery stops before workspace reads", async () => {
@@ -105,6 +106,8 @@ test("task result navigation revalidates exact delivery and source without write
         ["knowledge", f => { f.workspace.project.id = "other-project"; }],
         ["commitmentExtraction", f => { f.report.payload.chapterId = "chapter-one"; }],
         ["commitmentExtraction", f => { f.report.sourceCurrent = false; }],
+        ["commitmentExtraction", f => { f.report.reportCurrent = false; }],
+        ["commitmentExtraction", f => { delete f.report.reportCurrent; }],
         ["commitmentExtraction", f => { f.report.revisionId = "new-report"; }],
         ["commitment", f => { f.detail.projectId = "other-project"; }],
         ["commitment", f => { f.detail.sourceCurrent = false; }],

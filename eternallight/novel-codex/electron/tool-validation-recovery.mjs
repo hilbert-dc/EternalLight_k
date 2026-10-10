@@ -2,6 +2,12 @@ import { isExecutorValidatedTool } from "./executor-validation-policy.mjs";
 
 const LIMIT_CODE = "tool_argument_correction_limit";
 
+// The public explanation can be translated without changing the protocol
+// failure persisted for Native recovery. Preserve every other diagnostic.
+export function taskFailureDiagnostic(error) {
+  return error?.code === LIMIT_CODE ? LIMIT_CODE : error?.message;
+}
+
 // Only the task-bound workspace executor can declare this terminal condition.
 // Ordinary errors remain visible to Codex so it can correct them in the same turn.
 export function toolCorrectionLimitError(message, waiter) {

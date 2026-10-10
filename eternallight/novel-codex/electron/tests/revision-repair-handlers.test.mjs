@@ -87,12 +87,12 @@ test("preload supplies explicit null by default and forwards the exact repair so
   const calls = [];
   let api;
   runInNewContext(await readFile(new URL("../preload.cjs", import.meta.url), "utf8"), {
-    process, require: () => ({ contextBridge: { exposeInMainWorld: (_name, value) => { api = value; } },
+    crypto: { randomUUID: () => "request-test" }, process, require: () => ({ contextBridge: { exposeInMainWorld: (_name, value) => { api = value; } },
       ipcRenderer: { invoke: (...args) => { calls.push(args); return Promise.resolve({}); } } }),
   });
   await api.agent.sendPrompt("project", "讨论");
   await api.agent.sendPrompt("project", "修复", source, null, "selected-conversation");
-  assert.deepEqual(plain(calls), [["agent:send-prompt", "project", "讨论", null, null, null], ["agent:send-prompt", "project", "修复", source, null, "selected-conversation"]]);
+  assert.deepEqual(plain(calls), [["agent:send-prompt", { requestId: "request-test", args: ["project", "讨论", null, null, null, null] }], ["agent:send-prompt", { requestId: "request-test", args: ["project", "修复", source, null, "selected-conversation", null] }]]);
 });
 
 test("production preflight rejects invalid/latest/foreign/stale sources before any model or task", async () => {
@@ -163,7 +163,7 @@ test("production ordinary and repair submissions both grant independent funded r
   }, command, state);
   const sendTurn = adapter.sendTurn;
   adapter.sendTurn = async function (input, options) {
-    turns.push(typeof input === "string" ? input : input.map(item => item.text ?? "").join(""));
+    turns.push((typeof input === "string" ? input : input.map(item => item.text ?? "").join("")) + "\n" + Object.values(options?.additionalContext ?? {}).map(item => item.value).join("\n"));
     return sendTurn.call(this, input, options);
   };
   try {
@@ -193,8 +193,8 @@ test("production ordinary and repair submissions both grant independent funded r
     assert.match(turns[1], /selectedGroupIds 的非空子集/);
     assert.match(turns[1], /非空的新 desiredOutcomes/);
     assert.match(turns[1], /独立人工审批/);
-    assert.match(turns[0], /无需重复询问启动/);
-    assert.doesNotMatch(turns[1], /无需重复询问启动/);
+    assert.match(turns[0], /登记后complete_task交还Host/);
+    assert.doesNotMatch(turns[1], /登记后complete_task交还Host/);
     assert.match(turns[1], /此入口不支持其他章节或 planning task/);
     assert.deepEqual(plain(repair.workflow.task.inputManifest.revisionRepairInput), frozenInput());
     assert.doesNotMatch(turns[1], /request_candidate_task 指定规划或已有章节/);
@@ -301,7 +301,7 @@ for (const stale of [false, true]) {
     const deadlineAt = Math.floor(Date.now() / 1000) + 900;
     const originalBudget = { authorizationId: "original-repair-authorization", maxRequests: 3, maxTokens: 700, deadlineAt };
     const target = { type: "project", revisionRepairSource: { ...source } };
-    const work = { id: "work-paused-repair", projectId: "project", kind: "conversation", status: "paused", version: 1,
+    const work = { id: "work-paused-repair", projectId: "project", threadId: "repair-root", kind: "conversation", status: "paused", version: 1,
       goal: "过期工作目标", initialBudget: originalBudget,
       steps: [{ id: "step-persisted-repair", operation: "advisory", status: "queued", target,
         currentAttemptId: "original-repair-attempt", dependsOnStepId: null }] };
@@ -323,7 +323,7 @@ for (const stale of [false, true]) {
     }, command, state);
     const sendTurn = adapter.sendTurn;
     adapter.sendTurn = async function (input, options) {
-      turns.push(typeof input === "string" ? input : input.map(item => item.text ?? "").join(""));
+      turns.push((typeof input === "string" ? input : input.map(item => item.text ?? "").join("")) + "\n" + Object.values(options?.additionalContext ?? {}).map(item => item.value).join("\n"));
       return sendTurn.call(this, input, options);
     };
     try {

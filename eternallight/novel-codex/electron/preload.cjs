@@ -1,7 +1,26 @@
 const { contextBridge } = require("electron");
 const { ipcRenderer } = require("electron");
 
-const invoke = (channel) => (...args) => ipcRenderer.invoke(channel, ...args);
+const invoke = (channel) => async (...args) => {
+  const result = await ipcRenderer.invoke(channel, ...args);
+  if (result?.executionRequestFailure?.code === "TASK_CANCELLED") {
+    // contextBridge drops custom properties on Error; a plain rejection record
+    // preserves this execution outcome across the isolated Renderer boundary.
+    throw { code: "TASK_CANCELLED", message: result.executionRequestFailure.message };
+  }
+  if (result?.nativeRequestFailure) {
+    const failure = result.nativeRequestFailure;
+    throw Object.assign(new Error(failure.message), { nativeFailure: failure, code: failure.code, details: failure.details });
+  }
+  return result;
+};
+
+const executionListeners = new Set();
+const invokeExecution = channel => (...args) => {
+  const requestId = globalThis.crypto.randomUUID();
+  for (const listener of executionListeners) listener({ method: "agent/execution-request", params: { requestId, projectId: args[0] } });
+  return invoke(channel)({ requestId, args });
+};
 
 contextBridge.exposeInMainWorld("novelAuthorSession", {
   read: invoke("author:read"),
@@ -13,6 +32,23 @@ contextBridge.exposeInMainWorld("novelAuthorSession", {
 contextBridge.exposeInMainWorld("novelCodex", {
   platform: process.platform,
   version: "0.1.0",
+  multimedia: {
+    listEditions: invoke("media:list-editions"),
+    createEdition: invoke("media:create-edition"),
+    readWorkspace: invoke("media:read-workspace"),
+    readTextPage: invoke("media:read-text-page"),
+    readSubtitleFont: invoke("media:read-subtitle-font"),
+    saveDocument: invoke("media:save-document"),
+    patchDocument: invoke("media:patch-document"),
+    readCanon: invoke("media:read-canon"),
+    saveCanon: invoke("media:save-canon"),
+    sourceImpacts: invoke("media:source-impacts"),
+    importFiles: invoke("media:import-files"),
+    exportEdition: invoke("media:export-edition"),
+    openExport: invoke("media:open-export"),
+    listConnections: invoke("media:list-connections"),
+    saveConnection: invoke("media:save-connection"),
+  },
   app: {
     confirmClose: invoke("app:confirm-close"),
     cancelClose: invoke("app:cancel-close"),
@@ -24,6 +60,7 @@ contextBridge.exposeInMainWorld("novelCodex", {
   },
   runtime: {
     status: invoke("runtime:status"),
+    retryStartup: () => ipcRenderer.invoke("runtime:retry-startup"),
     listProjects: invoke("runtime:list-projects"),
     createProject: invoke("runtime:create-project"),
     getState: invoke("runtime:get-state"),
@@ -35,7 +72,7 @@ contextBridge.exposeInMainWorld("novelCodex", {
     changeQualityNotebook: invoke("runtime:change-quality-notebook"),
     getQualityPacket: invoke("runtime:get-quality-packet"),
     getQualityReview: invoke("runtime:get-quality-review"),
-    reviewQualityPacket: invoke("agent:review-quality-packet"),
+    reviewQualityPacket: invokeExecution("agent:review-quality-packet"),
     listProposalSets: invoke("runtime:list-proposal-sets"),
     createProposalSet: invoke("runtime:create-proposal-set"),
     getProposalSet: invoke("runtime:get-proposal-set"),
@@ -54,7 +91,7 @@ contextBridge.exposeInMainWorld("novelCodex", {
     previewGenerationReplan: invoke("runtime:preview-generation-replan"),
     replanGeneration: invoke("runtime:replan-generation"),
     getSceneAssessment: invoke("runtime:get-scene-assessment"),
-    getCommitmentExtraction: invoke("runtime:get-commitment-extraction"),
+    getCommitmentExtraction: (projectId, chapterId, reportRevisionId = null) => ipcRenderer.invoke("runtime:get-commitment-extraction", projectId, chapterId, reportRevisionId),
     establishCommitment: invoke("runtime:establish-commitment"),
     getCommitment: invoke("runtime:get-commitment"),
     listCommitments: invoke("runtime:list-commitments"),
@@ -84,6 +121,7 @@ contextBridge.exposeInMainWorld("novelCodex", {
     startFactAudit: invoke("runtime:start-fact-audit"),
     controlFactAudit: invoke("runtime:control-fact-audit"),
     getWorkTask: invoke("runtime:get-work-task"),
+    getWorkIssues: invoke("runtime:get-work-issues"),
     getTaskFinalReply: invoke("runtime:get-task-final-reply"),
     getRevisionOutcome: invoke("runtime:get-revision-outcome"),
     decideRevisionOutcome: invoke("runtime:decide-revision-outcome"),
@@ -115,35 +153,44 @@ contextBridge.exposeInMainWorld("novelCodex", {
     search: invoke("runtime:search"),
   },
   agent: {
+    listExecutions: invoke("agent:list-executions"),
+    beginInterlude: invoke("agent:begin-interlude"),
+    returnInterlude: invoke("agent:return-interlude"),
+    readMessage: invoke("agent:read-message"),
+    listMessages: invoke("agent:list-messages"),
+    submitMessage: invoke("agent:submit-message"),
+    changeMessage: invoke("agent:change-message"),
     setWorkspaceContext: invoke("agent:set-workspace-context"),
     retryChapterStructureCheck: invoke("agent:retry-chapter-structure-check"),
     status: invoke("agent:status"),
     recoveryReport: invoke("agent:recovery-report"),
     listConnections: invoke("agent:list-connections"),
     verifyConnection: invoke("agent:verify-connection"),
+    verifyImageInput: invoke("agent:verify-image-input"),
     verifyConnectionEdge: invoke("agent:verify-connection-edge"),
     configure: invoke("agent:configure"),
-    sendPrompt: (projectId, prompt, revisionRepairSource = null, conversationFocus = null, threadId = null) => ipcRenderer.invoke("agent:send-prompt", projectId, prompt, revisionRepairSource, conversationFocus, threadId),
+    setReasoningEffort: invoke("agent:set-reasoning-effort"),
+    sendPrompt: (projectId, prompt, revisionRepairSource = null, conversationFocus = null, threadId = null, mediaInput = null) => invokeExecution("agent:send-prompt")(projectId, prompt, revisionRepairSource, conversationFocus, threadId, mediaInput),
     listProposedActions: invoke("agent:list-proposed-actions"),
     readActionPermission: invoke("agent:read-action-permission"),
     readExecutionScope: invoke("agent:read-execution-scope"),
     previewExecutionScope: invoke("agent:preview-execution-scope"),
     confirmExecutionScope: invoke("agent:confirm-execution-scope"),
-    approveAction: invoke("agent:approve-action"),
+    approveAction: invokeExecution("agent:approve-action"),
     declineAction: invoke("agent:decline-action"),
-    generatePlanning: invoke("agent:generate-planning"),
-    generateWork: invoke("agent:generate-work"),
-    continueWork: invoke("agent:continue-work"),
-    retryWork: invoke("agent:retry-work"),
-    resolveGenerationFeedback: invoke("agent:resolve-generation-feedback"),
+    generatePlanning: invokeExecution("agent:generate-planning"),
+    generateWork: invokeExecution("agent:generate-work"),
+    continueWork: invokeExecution("agent:continue-work"),
+    retryWork: invokeExecution("agent:retry-work"),
+    resolveGenerationFeedback: invokeExecution("agent:resolve-generation-feedback"),
     addFutureIntent: invoke("agent:add-future-intent"),
     reviseCurrentChapter: invoke("agent:revise-current-chapter"),
-    generateChapter: invoke("agent:generate-chapter"),
-    resumeKnowledge: invoke("agent:resume-knowledge"),
-    resumeWorkTask: invoke("agent:resume-work-task"),
-    recoverWorkTask: invoke("agent:recover-work-task"),
+    generateChapter: invokeExecution("agent:generate-chapter"),
+    resumeKnowledge: invokeExecution("agent:resume-knowledge"),
+    resumeWorkTask: invokeExecution("agent:resume-work-task"),
+    recoverWorkTask: invokeExecution("agent:recover-work-task"),
     controlWorkTask: invoke("agent:control-work-task"),
-    reviewPlanning: invoke("agent:review-planning"),
+    reviewPlanning: invokeExecution("agent:review-planning"),
     steer: invoke("agent:steer"),
     interrupt: invoke("agent:interrupt"),
     listThreads: invoke("agent:list-threads"),
@@ -153,8 +200,9 @@ contextBridge.exposeInMainWorld("novelCodex", {
     resumeThread: invoke("agent:resume-thread"),
     reconnectThread: invoke("agent:reconnect-thread"),
     readThread: invoke("agent:read-thread"),
-    reviewThread: invoke("agent:review-thread"),
-    compactThread: invoke("agent:compact-thread"),
+    updateThreadReadState: invoke("agent:update-thread-read-state"),
+    reviewThread: invokeExecution("agent:review-thread"),
+    compactThread: invokeExecution("agent:compact-thread"),
     listBackgroundTerminals: invoke("agent:list-background-terminals"),
     terminateBackgroundTerminal: invoke("agent:terminate-background-terminal"),
     setThreadPinned: invoke("agent:set-thread-pinned"),
@@ -163,8 +211,9 @@ contextBridge.exposeInMainWorld("novelCodex", {
     resolveUserInput: invoke("agent:resolve-user-input"),
     onEvent: (listener) => {
       const handler = (_event, payload) => listener(payload);
+      executionListeners.add(listener);
       ipcRenderer.on("agent:event", handler);
-      return () => ipcRenderer.removeListener("agent:event", handler);
+      return () => { executionListeners.delete(listener); ipcRenderer.removeListener("agent:event", handler); };
     },
     onUserInputRequest: (listener) => {
       const handler = (_event, payload) => listener(payload);

@@ -8,12 +8,15 @@ await journal.beginRun({ runId: "crashed-task", planId: "plan-1", threadId: "cra
 await journal.observe({
   method: "item/started",
   params: {
+    threadId: "crashed-thread",
     turnId: "turn-1",
     item: {
       id: "crashed-write",
       type: "mcpToolCall",
+      server: "novel_workspace",
       tool: "save_outline",
-      arguments: { idempotencyKey: "crashed-attempt-1", payload: { title: "must not be journaled" }, expectedRevision: 0, expectedCandidateRevisionId: null },
+      arguments: { projectId: "project-1", taskId: "crashed-task", threadId: "crashed-thread",
+        idempotencyKey: "crashed-attempt-1", payload: { title: "must not be journaled" }, expectedRevision: 0, expectedCandidateRevisionId: null },
       status: "inProgress",
     },
   },

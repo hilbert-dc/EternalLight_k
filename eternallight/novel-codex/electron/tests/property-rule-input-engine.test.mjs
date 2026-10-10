@@ -1,3 +1,4 @@
+import { nativeTestBinary } from "./helpers/native-binaries.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -18,7 +19,7 @@ import { taskProviderBudgetOptions } from "../task-provider-budget.mjs";
 test("real Codex reconstructs frozen rule pages and saves a candidate without author adoption", { timeout: 45_000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "novel-rule-input-"));
   const suffix = process.platform === "win32" ? ".exe" : "";
-  const binary = (name) => fileURLToPath(new URL(`../../native/target/debug/${name}${suffix}`, import.meta.url));
+  const binary = (name) => nativeTestBinary(name);
   const author = "rules-engine-author-token-1234567890";
   const candidate = "rules-engine-candidate-token-1234567";
   const capability = "rules-engine-capability-1234567890";
@@ -70,7 +71,7 @@ test("real Codex reconstructs frozen rule pages and saves a candidate without au
       } else if (phase === "first") {
         descriptor = readResult().taskSources.entries.find(entry => entry.sectionPath === "/operationContext/propertyRulesBase");
         assert.ok(descriptor?.sourceId, "the task must expose its frozen rule source");
-        name = "read_task_source"; args = { ...binding, sourceId: descriptor.sourceId, cursor: null }; phase = "pages";
+        name = "read_task_source"; args = { ...binding, sourceId: descriptor.sourceId }; phase = "pages";
       } else if (phase === "pages") {
         const page = readResult(); firstPage ??= page; pageCount += 1;
         assert.ok(Buffer.byteLength(JSON.stringify(page)) <= 6500);
@@ -93,7 +94,7 @@ test("real Codex reconstructs frozen rule pages and saves a candidate without au
         }
       } else if (phase === "saved") {
         candidateReceipt = readResult(); assert.ok(candidateReceipt.revisionId);
-        name = "read_task_source"; args = { ...binding, sourceId: descriptor.sourceId, cursor: null }; phase = "frozen";
+        name = "read_task_source"; args = { ...binding, sourceId: descriptor.sourceId }; phase = "frozen";
       } else if (phase === "frozen") {
         assert.deepEqual(readResult(), firstPage);
         name = "complete_task"; args = { ...binding, summary: "规则候选已形成，等待作者采用" }; phase = "done";

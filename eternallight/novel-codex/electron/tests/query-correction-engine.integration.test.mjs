@@ -1,3 +1,4 @@
+import { nativeTestBinary } from "./helpers/native-binaries.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -41,7 +42,7 @@ for (const toolName of ["query_story", "read_context"]) {
           const invalid = structuredClone(plan); delete invalid.ranking;
           item = { type: "function_call", id: "bad-item", call_id: "invalid-query", namespace: namespace.name, name: tool.name,
             arguments: JSON.stringify({ ...binding, ...(toolName === "read_context"
-              ? { purpose: "planner", budget: 24, byteBudget: 60000, queryPlan: invalid } : { plan: invalid }) }) };
+              ? { budget: 24, byteBudget: 60000, queryPlan: invalid } : { plan: invalid }) }) };
         } else if (sequence === 2) {
           assert.equal(received.length, 0, "invalid plan must never reach Runtime");
           const error = output.find(item => item.call_id === "invalid-query");
@@ -49,7 +50,7 @@ for (const toolName of ["query_story", "read_context"]) {
           assert.match(JSON.stringify(error.output), /invalid_query_plan/);
           item = { type: "function_call", id: "good-item", call_id: "corrected-query", namespace: namespace.name, name: tool.name,
             arguments: JSON.stringify({ ...binding, ...(toolName === "read_context"
-              ? { purpose: "planner", budget: 24, byteBudget: 60000, queryPlan: plan } : { plan }) }) };
+              ? { budget: 24, byteBudget: 60000, queryPlan: plan } : { plan }) }) };
         } else {
           assert.equal(sequence, 3, "exactly one correction and one final response");
           assert.equal(received.length, 1);
@@ -84,7 +85,7 @@ for (const toolName of ["query_story", "read_context"]) {
     await bridge.beginExecutionLease(createExecutionLease({ sessionPlan, runId: "query-correction", budgetId: budget.id }));
     const suffix = process.platform === "win32" ? ".exe" : "";
     const codex = fileURLToPath(new URL(`../../../../codex-rs/target/debug/codex${suffix}`, import.meta.url));
-    const mcp = fileURLToPath(new URL(`../../native/target/debug/novel-workspace-mcp${suffix}`, import.meta.url));
+    const mcp = nativeTestBinary("novel-workspace-mcp");
     const catalog = join(root, "catalog.json"); await mkdir(join(root, "sqlite"));
     await writeFile(catalog, JSON.stringify(compileCodexModelCatalog(sessionPlan, { baseInstructions: "Use the bound query tool. Correct a rejected plan without changing the task binding." })));
     const keys = ["NOVEL_CODEX_RUNTIME_URL", "NOVEL_CODEX_CANDIDATE_TOKEN", "NOVEL_CODEX_TASK_CAPABILITY", "NOVEL_CODEX_OPERATION"];

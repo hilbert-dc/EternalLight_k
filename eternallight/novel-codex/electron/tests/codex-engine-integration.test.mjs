@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { nativeTestBinary } from "./helpers/native-binaries.mjs";
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -36,7 +37,7 @@ import { NOVEL_COLLABORATION_INSTRUCTIONS, NOVEL_COLLABORATION_MODE } from "../n
 
 const codex = fileURLToPath(new URL("../../../../codex-rs/target/debug/codex", import.meta.url));
 const mcpServer = fileURLToPath(new URL("./fixture-mcp-server.mjs", import.meta.url));
-const novelMcpServer = fileURLToPath(new URL("../../native/target/debug/novel-workspace-mcp", import.meta.url));
+const novelMcpServer = nativeTestBinary("novel-workspace-mcp");
 
 async function listen(server) {
   await new Promise((resolve, reject) => {
@@ -198,7 +199,8 @@ test("core integration runner proves a root Codex model and MCP result loop", { 
     const transcript = JSON.stringify(body.messages);
     const receipt = transcript.match(/CORE_CONFORMANCE_RECEIPT:[A-Za-z0-9_-]+/)?.[0];
     if (receipt) {
-      stream(response, [{ id: "core-final", choices: [{ delta: { content: receipt } }] }]);
+      stream(response, [{ id: "core-final", choices: [{ delta: { content: receipt } }] },
+        { id: "core-final", choices: [], usage: { prompt_tokens: 30, completion_tokens: 4, total_tokens: 34 } }]);
       return;
     }
     const nonce = transcript.match(/nonce ([A-Za-z0-9_-]+)/)?.[1];
@@ -207,7 +209,8 @@ test("core integration runner proves a root Codex model and MCP result loop", { 
     assert.ok(nonce);
     assert.ok(instruction);
     assert.ok(name);
-    stream(response, [{ id: "core-tool", choices: [{ delta: { tool_calls: [{ index: 0, id: "core_echo", function: { name, arguments: JSON.stringify({ nonce, instruction }) } }] } }] }]);
+    stream(response, [{ id: "core-tool", choices: [{ delta: { tool_calls: [{ index: 0, id: "core_echo", function: { name, arguments: JSON.stringify({ nonce, instruction }) } }] } }] },
+      { id: "core-tool", choices: [], usage: { prompt_tokens: 20, completion_tokens: 3, total_tokens: 23 } }]);
   });
   const endpoint = await listen(downstream);
   t.after(() => new Promise((resolve) => { downstream.closeAllConnections(); downstream.close(resolve); }));
@@ -239,7 +242,7 @@ test("real Codex completes source-bound commitment extraction through native Nov
         const url = new URL(request.url, "http://localhost");
         assert.equal(url.pathname, "/api/projects/project/context");
         assert.equal(url.searchParams.get("threadId"), binding.threadId);
-        assert.equal(url.searchParams.get("purpose"), "critic");
+        assert.equal(url.searchParams.get("purpose"), "critic", "MCP derives purpose from the frozen operation, not caller fields");
         requests.push({ method: "GET", path: url.pathname });
         response.end(JSON.stringify({ extractionFixtureContext: true, relevantText: [{ sourceRevisionId: "source-1", textRepresentation: "body", content: { body: "白塔将亮起。" } }] }));
         return;
@@ -254,7 +257,8 @@ test("real Codex completes source-bound commitment extraction through native Nov
         response.end(JSON.stringify({ extractionFixtureReceipt: true, revisionId: "report-1" }));
       } else {
         assert.equal(request.url, "/api/projects/project/tasks/task/complete");
-        response.end(JSON.stringify({ extractionFixtureComplete: true }));
+        response.end(JSON.stringify({ id: binding.taskId, projectId: binding.projectId, threadId: binding.threadId,
+          status: "completed", resultSummary: body.summary, deliveryStatus: "ready_for_review" }));
       }
     } catch (error) {
       downstreamFailure = error;
@@ -275,12 +279,12 @@ test("real Codex completes source-bound commitment extraction through native Nov
       let argumentsValue;
       if (!transcript.includes("extractionFixtureContext")) {
         name = tool("read_context");
-        argumentsValue = { ...binding, purpose: "critic", budget: 24, byteBudget: 60000 };
+        argumentsValue = { ...binding, budget: 24, byteBudget: 60000 };
       } else if (!transcript.includes("extractionFixtureReceipt")) {
         name = tool("submit_commitment_extraction");
         argumentsValue = { ...binding, chapterId: "chapter-1", expectedCandidateRevisionId: null, idempotencyKey: "extraction-once",
           payload: { chapterId: "chapter-1", sourceRevisionId: "source-1", examinedRanges: [{ start: 0, end: 6 }], candidates: [] } };
-      } else if (!transcript.includes("extractionFixtureComplete")) {
+      } else if (!transcript.includes("acknowledgedRuntimeCompletion")) {
         name = tool("complete_task");
         argumentsValue = { ...binding, summary: "未提出有可靠证据的承诺" };
       } else {
@@ -612,7 +616,7 @@ test("real Novel MCP denies child writes and cross-task reads in a delegated Cod
         const spawnAgent = toolName("spawn_agent");
         assert.ok(spawnAgent, "root must receive spawn_agent");
         stream(response, [
-          { id: "policy-root-spawn", choices: [{ delta: { tool_calls: [{ index: 0, id: "policy_spawn", function: { name: spawnAgent, arguments: JSON.stringify({ task_name: "probe_policy", message: "Attempt a workspace write, then attempt a read using a foreign thread identity. Report both policy results.", fork_turns: "none" }) } }] } }] },
+          { id: "policy-root-spawn", choices: [{ delta: { tool_calls: [{ index: 0, id: "policy_spawn", function: { name: spawnAgent, arguments: JSON.stringify({ task_name: "probe_policy", model: "policy-child", message: "Attempt a workspace write, then attempt a read using a foreign thread identity. Report both policy results.", fork_turns: "none" }) } }] } }] },
         ]);
         return;
       }
@@ -668,7 +672,7 @@ test("real Novel MCP denies child writes and cross-task reads in a delegated Cod
         const readContext = toolName("read_context");
         assert.ok(readContext, "child must receive read_context");
         stream(response, [
-          { id: "policy-child-read", choices: [{ delta: { tool_calls: [{ index: 0, id: "policy_child_read", function: { name: readContext, arguments: JSON.stringify({ taskId: "task-policy", projectId: "project-policy", threadId: "foreign-thread", expectedRevision: 0, purpose: "planner", budget: 24, byteBudget: 60_000 }) } }] } }] },
+          { id: "policy-child-read", choices: [{ delta: { tool_calls: [{ index: 0, id: "policy_child_read", function: { name: readContext, arguments: JSON.stringify({ taskId: "task-policy", projectId: "project-policy", threadId: "foreign-thread", expectedRevision: 0, budget: 24, byteBudget: 60_000 }) } }] } }] },
         ]);
         return;
       }

@@ -1,11 +1,15 @@
+import { conversationLanguageContext } from "./author-language.mjs";
+import { prepareCodexToolOutputs } from "@eternallight/agent-engine";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { isDeepStrictEqual } from "node:util";
 import { selectFinalReply } from "./agent-final-reply.mjs";
 import { terminateEngineProcess } from "./engine-process-lifecycle.mjs";
 import { executeManagedTurn } from "./engine-turn-lifecycle.mjs";
+import { admitBoundedOutputFailure } from "./bounded-output-correction.mjs";
 import { readActiveTurn } from "./active-turn-recovery.mjs";
 import { toolCorrectionLimitError } from "./tool-validation-recovery.mjs";
+import { novelRecoveryOperationHash } from "./novel-recovery-contract.mjs";
 
 const MAX_EVENT_BYTES = 64 * 1024;
 const MAX_AGENT_MESSAGE_TEXT = 64 * 1024;
@@ -14,6 +18,7 @@ const MAX_THREAD_LIST = 20;
 const MAX_THREAD_DETAIL_TURNS = 12;
 const MAX_THREAD_DETAIL_ITEMS = 8;
 const MAX_THREAD_ITEM_TEXT = 8_000;
+const MAX_RECOVERY_EVIDENCE_BYTES = 128 * 1024;
 const MAX_USER_INPUT_QUESTIONS = 3;
 const MAX_USER_INPUT_OPTIONS = 6;
 const MAX_USER_INPUT_TEXT = 240;
@@ -139,7 +144,6 @@ function validateUserInputResponse(response, params) {
     const answer = answers[question.id];
     const values = Array.isArray(answer) ? answer : [answer];
     if (values.length === 0 || values.length > MAX_USER_INPUT_OPTIONS || values.some((value) => !boundedUserInputText(value))) throw new Error("用户回答内容无效或过长");
-    if (question.options.length > 0 && !question.isOther && values.some((value) => !question.options.some((option) => option.label === value))) throw new Error("用户回答不在可选项中");
     normalized[question.id] = { answers: values };
   }
   return { answers: normalized };
@@ -155,7 +159,7 @@ function validateThreadId(threadId) {
   return threadId;
 }
 
-function threadSummary(thread) {
+function threadSummary(thread, readState = null) {
   const status = thread?.status;
   return {
     id: bounded(thread?.id, MAX_THREAD_TEXT),
@@ -167,6 +171,7 @@ function threadSummary(thread) {
     updatedAt: typeof thread?.updatedAt === "number" ? thread.updatedAt : null,
     isPinned: thread?.section?.id === PINNED_THREAD_SECTION_ID,
     ephemeral: thread?.ephemeral === true,
+    readState,
   };
 }
 
@@ -205,7 +210,9 @@ function threadTurnSummary(turn, index) {
 }
 
 export class CodexAppServerAdapter {
-  constructor({ apiKey = null, command = null, commandSource = null, configurationError = null, cwd = process.cwd(), env = process.env, model = "deepseek-flash", modelRoute = model, provider = "deepseek", timeouts = {} }) {
+  constructor({ apiKey = null, command = null, commandSource = null, configurationError = null, cwd = process.cwd(), env = process.env, model = "deepseek-flash", modelRoute = model, provider = "deepseek", timeouts = {}, languagePreferences = () => ({ preferredLanguages: [Intl.DateTimeFormat().resolvedOptions().locale] }) }) {
+    if (typeof languagePreferences !== "function") throw new Error("Language preferences must be a provider");
+    this.languagePreferences = languagePreferences;
     this.timeouts = { startupMs: 90_000, requestMs: 30_000, ...timeouts };
     if (Object.values(this.timeouts).some(value => !Number.isSafeInteger(value) || value < 1 || value > 120_000)
       || Object.keys(this.timeouts).some(key => !["startupMs", "requestMs"].includes(key))) throw new Error("引擎超时配置无效");
@@ -219,6 +226,7 @@ export class CodexAppServerAdapter {
     this.modelRoute = modelRoute;
     this.provider = provider;
     this.process = null;
+    this.conversationOnlyProcess = null;
     this.reader = null;
     this.nextId = 1;
     this.pending = new Map();
@@ -344,35 +352,72 @@ export class CodexAppServerAdapter {
     return (await this.openThread()).thread.id;
   }
 
-  async openThread({ resumeId = null } = {}) {
-    const handshake = this.ensureInitialized({ localOnly: resumeId !== null });
+  async openThread({ resumeId = null, conversationOnly = false, onCreated = null } = {}) {
+    if (!conversationOnly && this.process && this.process === this.conversationOnlyProcess) {
+      throw new Error("请先绑定创作任务，再执行对话");
+    }
+    const handshake = this.ensureInitialized({ localOnly: resumeId !== null || conversationOnly });
     const child = this.process;
     await handshake;
     if (this.process !== child || !this.initialized) throw new Error("创作引擎任务会话已重新绑定");
     if (this.turnWaiter) throw new Error("创作引擎 正在处理上一轮请求");
     if (this.threadStarting) {
-      if (resumeId !== null && this.threadStarting.resumeId !== resumeId) throw new Error("创作引擎会话正在准备，不能切换目标");
+      if (this.threadStarting.conversationOnly !== conversationOnly
+        || (resumeId !== null && this.threadStarting.resumeId !== resumeId)) throw new Error("创作引擎会话正在准备，不能切换目标或用途");
       return this.threadStarting.promise;
     }
     if (resumeId === null && this.threadId) return { thread: { id: this.threadId } };
-    const opening = { resumeId, promise: null };
+    const opening = { resumeId, conversationOnly, promise: null };
     this.threadStarting = opening;
     this.lastError = null;
     opening.promise = (async () => {
+      let createdThread = null;
       try {
-        this.emit({ method: "agent/starting", params: { message: resumeId ? "正在恢复对话并准备作品工具" : "正在准备作品工具" } });
-        const result = await this.request(resumeId ? "thread/resume" : "thread/start", resumeId
-          ? { threadId: resumeId } : { model: this.modelRoute, cwd: this.cwd, serviceName: "novel_codex" });
+        this.emit({ method: "agent/starting", params: { message: conversationOnly
+          ? resumeId ? "正在恢复对话" : "正在准备新对话"
+          : resumeId ? "正在恢复对话并准备作品工具" : "正在准备作品工具" } });
+        // Empty conversation management has no Native Task capability. Native
+        // task execution restores the required server after a real binding;
+        // generic execution retains its caller's explicit server configuration.
+        const config = conversationOnly ? { "mcp_servers.novel_workspace.enabled": false }
+          : this.activeOperation !== null ? {
+            "mcp_servers.novel_workspace.enabled": true, "mcp_servers.novel_workspace.required": true,
+          } : null;
+        if (conversationOnly) this.conversationOnlyProcess = child;
+        const result = await this.request(resumeId ? "thread/resume" : "thread/start", {
+          ...(resumeId ? { threadId: resumeId } : { model: this.modelRoute, cwd: this.cwd, serviceName: "novel_codex" }),
+          ...(config ? { config } : {}),
+        });
         if (this.process !== child) throw new Error("创作引擎任务会话已重新绑定");
         const thread = result?.thread;
         if (resumeId ? thread?.id !== resumeId : typeof thread?.id !== "string" || !thread.id.trim()) throw new Error("创作引擎 未返回匹配的线程");
+        if (!resumeId) {
+          createdThread = thread;
+          // Host keeps this provisional identity for retries, but no UI event
+          // or execution readiness is published before persistence succeeds.
+          onCreated?.(threadSummary(thread));
+          // Core can return an in-memory thread before its paginated history is
+          // readable. Persist the initial display name through the public API.
+          const name = thread.name || "新对话";
+          await this.request("thread/name/set", { threadId: thread.id, name });
+          const persisted = await this.request("thread/read", { threadId: thread.id, includeTurns: true });
+          if (persisted?.thread?.id !== thread.id || persisted.thread.name !== name || !Array.isArray(persisted.thread.turns)) {
+            throw new Error("新对话尚未完成持久化核对");
+          }
+          Object.assign(thread, persisted.thread);
+        }
         this.threadId = thread.id;
         this.turnId = null;
-        if (resumeId) this.emit({ method: "thread/started", params: { thread } });
+        this.emit({ method: "thread/started", params: { thread } });
         this.emit({ method: "agent/ready", params: { threadId: thread.id } });
         return result;
       } catch (error) {
-        if (this.process === child) {
+        if (this.process === child && conversationOnly && createdThread && onCreated) {
+          // A failed name/read receipt may leave a live, not-yet-durable thread.
+          // Retain its process so Host can reconcile that exact identity.
+          this.threadId = createdThread.id;
+          this.lastError = error.message;
+        } else if (this.process === child) {
           this.reader?.close();
           this.process = null;
           this.reader = null;
@@ -407,7 +452,8 @@ export class CodexAppServerAdapter {
   prepareOperationEnvironment(operation, taskCapability) {
     if (typeof taskCapability !== "string" || taskCapability.length < 24 || /[\r\n]/.test(taskCapability)) throw new Error("任务能力凭证无效");
     if (this.turnOperation || this.turnWaiter) throw new Error("创作引擎 正在处理上一轮请求");
-    if (this.process && operation === this.activeOperation && this.env.NOVEL_CODEX_TASK_CAPABILITY === taskCapability) return;
+    if (this.process && this.process !== this.conversationOnlyProcess
+      && operation === this.activeOperation && this.env.NOVEL_CODEX_TASK_CAPABILITY === taskCapability) return;
     if (this.process) {
       this.reader?.close();
       this.process.kill();
@@ -483,7 +529,7 @@ export class CodexAppServerAdapter {
       ...(cursor ? { cursor } : {}),
     });
     const data = Array.isArray(result?.data) ? result.data : [];
-    const threads = data.slice(0, MAX_THREAD_LIST).map(threadSummary).filter((thread) => typeof thread.id === "string" && thread.id.length > 0);
+    const threads = data.slice(0, MAX_THREAD_LIST).map(thread => threadSummary(thread, result.readStates?.[thread.id] ?? null)).filter((thread) => typeof thread.id === "string" && thread.id.length > 0);
     return { threads, nextCursor: typeof result?.nextCursor === "string" && result.nextCursor ? bounded(result.nextCursor, MAX_THREAD_TEXT) : null };
   }
 
@@ -494,20 +540,71 @@ export class CodexAppServerAdapter {
     const thread = result?.thread;
     if (thread?.id !== threadId) throw new Error("创作引擎 未返回匹配的线程");
     const turns = Array.isArray(thread.turns) ? thread.turns.slice(-MAX_THREAD_DETAIL_TURNS).map(threadTurnSummary) : [];
-    return { thread: threadSummary(thread), turns };
+    return { thread: threadSummary(thread, result.readState ?? null), turns };
+  }
+
+  async updateThreadReadState(threadId, { operation, expectedRevision }) {
+    validateThreadId(threadId);
+    if (!["read", "unread"].includes(operation) || typeof expectedRevision !== "string"
+      || !expectedRevision || expectedRevision.length > MAX_THREAD_TEXT || /[\r\n]/.test(expectedRevision)) {
+      throw new Error("对话已读状态或观察版本无效");
+    }
+    await this.ensureInitialized({ localOnly: true });
+    // A conflict requires a new observation and user action, never an automatic retry.
+    return this.request("thread/readState/update", { threadId, operation: { type: operation }, expectedRevision });
+  }
+
+  // Recovery consumes exact request material, never the bounded display history.
+  // Native alone decides whether this original call can be reconciled.
+  async readRecoveryOperationEvidence({ projectId, taskId, threadId, turnId, callId, toolName, requestHash }) {
+    const validIdentity = value => typeof value === "string" && value.length > 0 && value.length <= 160 && !/[\u0000-\u001f\u007f]/.test(value);
+    if (![projectId, taskId, threadId, turnId, callId, toolName].every(validIdentity)
+      || typeof requestHash !== "string" || !/^[a-f0-9]{64}$/.test(requestHash)) throw new Error("原保存调用身份无效");
+    await this.ensureInitialized({ localOnly: true });
+    const result = await this.request("thread/items/read", { threadId, turnId, itemIds: [callId] });
+    if (!Array.isArray(result?.data) || result.data.length !== 1
+      || result.data[0]?.turnId !== turnId || result.data[0]?.item?.id !== callId) throw new Error("原保存调用缺失或身份不匹配");
+    const item = result.data[0].item, args = item.arguments;
+    if (item.type !== "mcpToolCall" || item.server !== "novel_workspace" || item.tool !== toolName
+      || item.displayTruncated === true || !args || typeof args !== "object" || Array.isArray(args)
+      || args.projectId !== projectId || args.taskId !== taskId || args.threadId !== threadId
+      || !Number.isSafeInteger(args.expectedRevision) || args.expectedRevision < 0
+      || !Object.hasOwn(args, "expectedCandidateRevisionId")
+      || !(args.expectedCandidateRevisionId === null || validIdentity(args.expectedCandidateRevisionId))
+      || !validIdentity(args.idempotencyKey)) throw new Error("原保存调用参数不完整或身份不匹配");
+    const evidence = { taskId, threadId, turnId, callId, toolName, requestHash, arguments: args };
+    const serialized = JSON.stringify(evidence);
+    if (Buffer.byteLength(serialized, "utf8") > MAX_RECOVERY_EVIDENCE_BYTES) throw new Error("原保存调用证据超出读取上限");
+    if (novelRecoveryOperationHash({ tool: toolName, arguments: args }) !== requestHash) throw new Error("原保存调用参数与账本哈希不匹配");
+    return JSON.parse(serialized);
   }
 
   async resumeThread(threadId) {
     validateThreadId(threadId);
     if (this.turnOperation) throw new Error("创作引擎 正在处理上一轮请求");
-    const result = await this.openThread({ resumeId: threadId });
+    const result = await this.openThread({ resumeId: threadId, conversationOnly: this.activeOperation === null });
     return { thread: threadSummary(result.thread) };
   }
 
-  async createThread() {
+  async createThread({ onCreated = null } = {}) {
     if (this.turnOperation || this.turnWaiter) throw new Error("当前对话正在执行");
     this.detachThread();
-    const result = await this.openThread();
+    const result = await this.openThread({ conversationOnly: true, onCreated });
+    return { thread: threadSummary(result.thread) };
+  }
+
+  async saveThreadName(threadId, name, { requireHistory = false } = {}) {
+    validateThreadId(threadId);
+    if (typeof name !== "string" || !name || name !== name.trim() || [...name].length > 120 || /[\p{Cc}]/u.test(name)) {
+      throw new Error("对话名称需为 1–120 字符");
+    }
+    if (this.turnOperation || this.turnWaiter) throw new Error("当前对话正在执行");
+    await this.ensureInitialized({ localOnly: true });
+    // Saving the actual creation name also makes a fresh persistent thread durable.
+    await this.request("thread/name/set", { threadId, name });
+    const result = await this.request("thread/read", { threadId, includeTurns: requireHistory });
+    if (result?.thread?.id !== threadId || result.thread.name !== name || requireHistory && !Array.isArray(result.thread.turns)) throw new Error("对话名称保存回执不匹配");
+    if (requireHistory && this.threadId === threadId) this.lastError = null;
     return { thread: threadSummary(result.thread) };
   }
 
@@ -638,6 +735,8 @@ export class CodexAppServerAdapter {
       this.fail(error);
       return;
     }
+    // openThread publishes creation only after the durable read receipt.
+    if (message.method === "thread/started" && this.threadStarting && !this.threadStarting.resumeId) return;
     this.callbacks.onRawEvent(message);
     const safe = safeMessage(message);
     if (message.method?.includes("requestApproval")) {
@@ -750,7 +849,11 @@ export class CodexAppServerAdapter {
       if (completedWaiter.turnId === null || message.params?.threadId !== completedWaiter.threadId || message.params?.turn?.id !== completedWaiter.turnId) return;
       this.turnWaiter = null;
       clearTimeout(completedWaiter.timer);
-      if (message.params?.turn?.status === "failed") completedWaiter.reject(new Error(message.params?.turn?.error?.message ?? "创作引擎 回合失败"));
+      if (message.params?.turn?.status === "failed") {
+        const error = new Error(message.params?.turn?.error?.message ?? "创作引擎 回合失败");
+        admitBoundedOutputFailure(error, message.params.turn);
+        completedWaiter.reject(error);
+      }
       else {
         for (const item of message.params?.turn?.items ?? []) {
           completedWaiter.finalReply = selectFinalReply(completedWaiter.finalReply, item);
@@ -788,13 +891,16 @@ export class CodexAppServerAdapter {
     this.process.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
-  async sendTurn(input, { disableEnvironment = false, threadName = null } = {}) {
+  async sendTurn(input, { disableEnvironment = false, threadName = null, additionalContext = {}, toolOutputs } = {}) {
+    const outputs = prepareCodexToolOutputs(toolOutputs);
     const createdThread = !this.threadId;
     return executeManagedTurn(this, {
       prepare: () => this.ensureSession(),
       start: threadId => this.request("turn/start", {
         threadId,
         input,
+        ...(outputs === undefined ? {} : { toolOutputs: outputs }),
+        additionalContext: { ...additionalContext, novelLanguageContext: conversationLanguageContext(this.languagePreferences()) },
         ...(disableEnvironment ? { environments: [], approvalPolicy: "never" } : {}),
       }),
       afterStart: async threadId => {
@@ -815,13 +921,15 @@ export class CodexAppServerAdapter {
     return { interrupted: true };
   }
 
-  async steerTurn(input) {
-    if (this.activeOperation === "reviewQuality") throw new Error("独立读者只接收冻结阅读材料；请先停止审阅，再准备新的阅读包。");
-    if (!this.turnWaiter || !this.threadId || !this.turnId) return { steered: false };
+  async steerTurn(input, { additionalContext = {}, expectedThreadId, expectedTurnId, runId, leaseId, epoch } = {}) {
+    if (this.activeOperation === "reviewQuality") return { steered: false, delivery: "notSent", reason: "unsupported" };
+    if (!this.turnWaiter || !expectedThreadId || !expectedTurnId || this.threadId !== expectedThreadId || this.turnId !== expectedTurnId
+      || this.executionLease?.revoked || this.executionLease?.runId !== runId || this.executionLease?.leaseId !== leaseId || this.executionLease?.epoch !== epoch) return { steered: false, delivery: "notSent", reason: "executionChanged" };
     await this.request("turn/steer", {
       threadId: this.threadId,
       input,
-      expectedTurnId: this.turnId,
+      additionalContext: { ...additionalContext, novelLanguageContext: conversationLanguageContext(this.languagePreferences()) },
+      expectedTurnId,
     });
     return { steered: true };
   }

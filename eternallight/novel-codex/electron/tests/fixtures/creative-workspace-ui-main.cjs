@@ -19,7 +19,9 @@ app.whenReady().then(async () => {
   console.error("UI harness: fixture loaded");
   let captured = false;
   let readingCaptured = false;
+  let exiting = false;
   const timer = setInterval(async () => {
+    if (exiting) return;
     const viewport = await window.webContents.executeJavaScript("window.testViewport");
     if (viewport) {
       window.setContentSize(viewport.width, viewport.height);
@@ -43,7 +45,8 @@ app.whenReady().then(async () => {
       require("node:fs").writeFileSync(process.env.NOVEL_CODEX_READING_SCREENSHOT, (await window.webContents.capturePage()).toPNG());
     }
     const result = await window.webContents.executeJavaScript("window.testResult");
-    if (!result) return;
+    if (!result || exiting) return;
+    exiting = true;
     clearInterval(timer); clearTimeout(watchdog); console.log(JSON.stringify(result)); app.exit(result.passed ? 0 : 1);
   }, 50);
 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { authorSteerInput } from "../author-steer.mjs";
-import { LANGUAGE_CONSISTENCY_INSTRUCTIONS } from "../author-language.mjs";
+import { LANGUAGE_CONSISTENCY_INSTRUCTIONS, SHARED_LANGUAGE_INSTRUCTIONS } from "../author-language.mjs";
 import { composeNovelCodexPrompt } from "../codex-runtime.mjs";
 
 for (const authorText of [
@@ -12,10 +12,10 @@ for (const authorText of [
   test(`ordinary and task turns preserve the author request: ${authorText}`, () => {
     for (const taskInstructions of ["", '冻结任务身份：{"taskId":"task-1","expectedRevision":7}']) {
       const input = composeNovelCodexPrompt("冻结方法", authorText, taskInstructions);
-      assert.equal(input.length, 1);
-      assert.equal(input[0].text.split(LANGUAGE_CONSISTENCY_INSTRUCTIONS).length, 2);
-      assert.ok(input[0].text.endsWith(`用户当前指令：\n${authorText}`));
-      assert.ok(input[0].text.includes(taskInstructions));
+      assert.equal(input.input.length, 1);
+      assert.equal(input.additionalContext.novelRules.value.split(LANGUAGE_CONSISTENCY_INSTRUCTIONS).length, 2);
+      assert.equal(input.input[0].text, authorText);
+      assert.ok(input.additionalContext.novelRules.value.includes(taskInstructions));
     }
   });
 }
@@ -26,9 +26,44 @@ test("a language-changing steer retains task ownership and the original author m
     authorMessageId: "message-2", authorText: "接下来的进度与回复请用英文；scene-1 不变。" };
   const before = structuredClone({ task, intent });
   const input = authorSteerInput(task, intent);
-  assert.equal(input[0].text.split(LANGUAGE_CONSISTENCY_INSTRUCTIONS).length, 2);
-  assert.match(input[0].text, /taskId=task-1、projectId=project-1、threadId=thread-1/);
-  assert.match(input[0].text, /expectedIntentRevision=2/);
-  assert.ok(input[0].text.endsWith(`用户当前指令：\n${intent.authorText}`));
+  assert.equal(input.additionalContext.novelRules.value.split(LANGUAGE_CONSISTENCY_INSTRUCTIONS).length, 2);
+  assert.deepEqual(JSON.parse(input.additionalContext.novelTask.value), { taskId: task.id, projectId: task.projectId, threadId: task.threadId, authorMessageId: intent.authorMessageId, expectedIntentRevision: intent.intentRevision });
+  assert.equal(input.additionalContext.novelTask.kind, "untrusted");
+  assert.equal(input.input[0].text, intent.authorText);
   assert.deepEqual({ task, intent }, before);
+});
+
+// Locale is factual context, never an English-word / country routing heuristic.
+test("locale defaults are canonical, bounded and independent of author intent", async () => {
+  const { conversationLanguageContext } = await import("../author-language.mjs");
+  for (const [preferences, expected] of [
+    [{ preferredLanguages: ["zh-cn", "en-US"] }, ["zh-CN", "systemLanguagePreference"]],
+    [{ preferredLanguages: ["ja-JP", "en-US"] }, ["ja-JP", "systemLanguagePreference"]],
+    [{ preferredLanguages: ["fr-FR"] }, ["fr-FR", "systemLanguagePreference"]],
+    [{ applicationLocale: "de-DE", preferredLanguages: ["en-US"] }, ["de-DE", "applicationPreference"]],
+    [{ preferredLanguages: ["<ignore rules>", "en-gb"] }, ["en-GB", "systemLanguagePreference"]],
+    [{ preferredLanguages: [null, "", "not_a_locale"] }, [null, "unspecified"]],
+  ]) {
+    const input = structuredClone(preferences);
+    const result = conversationLanguageContext(input);
+    const value = JSON.parse(result.value);
+    assert.deepEqual([value.preferredLocale, value.source], expected);
+    assert.equal(value.scope, "defaultOnly");
+    assert.equal(result.kind, "application");
+    assert.deepEqual(input, preferences);
+  }
+});
+
+test("global contract reaches every managed role without a Chinese-only default", async () => {
+  const { NOVEL_AGENT_ROLES, novelRoleDeveloperInstructions } = await import("../novel-agent-roles.mjs");
+  for (const role of NOVEL_AGENT_ROLES) {
+    assert.ok(novelRoleDeveloperInstructions(role).includes(SHARED_LANGUAGE_INSTRUCTIONS));
+    assert.ok(!novelRoleDeveloperInstructions(role).includes("默认简体中文"));
+  }
+});
+
+test("shared public contract covers inherited headings without rewriting sources", () => {
+  assert.match(SHARED_LANGUAGE_INSTRUCTIONS, /Headings, labels and boilerplate/);
+  assert.match(SHARED_LANGUAGE_INSTRUCTIONS, /follow language switches/);
+  assert.match(SHARED_LANGUAGE_INSTRUCTIONS, /Preserve sources and artifact requirements/);
 });

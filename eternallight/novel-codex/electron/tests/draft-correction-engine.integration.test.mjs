@@ -1,3 +1,4 @@
+import { nativeTestBinary } from "./helpers/native-binaries.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -15,13 +16,15 @@ import { CodexAppServerAdapter } from "../codex-adapter.mjs";
 import { taskProviderBudgetOptions } from "../task-provider-budget.mjs";
 import { createMcpStartupWaiter } from "./helpers/mcp-startup.mjs";
 import { modelInputTokenBudget } from "../../shared/author-input-budget.mjs";
+import { createBoundedOutputSender } from "../bounded-output-correction.mjs";
 
 // Real Core/bridge/MCP/Runtime and a persistent Work budget. Only the provider
 // is synthetic: this proves tool-error correction, not a real model's judgement.
-test("real Core corrects a draft payload through MCP in one task and one original budget", { timeout: 240000 }, async t => {
+for (const correctionKind of ["MCP validation", "output admission"])
+test(`real Core corrects ${correctionKind} in one task, thread and original budget`, { timeout: 240000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), "novel-draft-correction-"));
   const suffix = process.platform === "win32" ? ".exe" : "";
-  const binary = name => fileURLToPath(new URL(`../../native/target/debug/${name}${suffix}`, import.meta.url));
+  const binary = name => nativeTestBinary(name);
   const codex = fileURLToPath(new URL(`../../../../codex-rs/target/debug/codex${suffix}`, import.meta.url));
   const authorToken = "draft-correction-author-123456789", candidateToken = "draft-correction-candidate-123456789";
   const capability = "draft-correction-capability-123456789";
@@ -39,15 +42,16 @@ test("real Core corrects a draft payload through MCP in one task and one origina
   const prose = [
     "林夕沿着潮湿的石阶走进旧港她把密函藏进衣襟听见远处船钟响起守门人认出了信封上的印记却没有追问来历她记起父亲临别时的嘱托决定先找到失踪的信使再向城中的议会交出证据",
     "门外传来三声暗号林夕没有立即开门她先检查窗边留下的脚印确认来人走过码头的泥地旧友隔着木门说出约定的地名她才收起短刀打开门把信中的航线铺在桌上两人决定天亮之前赶往灯塔",
-  ].map(seed => seed.repeat(40).match(/\p{Script=Han}/gu).slice(0, 1500).join("").replace(/(.{50})/gu, "$1。\n"));
-  assert.equal(prose.join("").match(/\p{Script=Han}/gu).length, 3000);
+  ].map(seed => seed.repeat(40).match(/\p{Script=Han}/gu).slice(0, 2250).join("").replace(/(.{50})/gu, "$1。\n"));
+  assert.equal(prose.join("").match(/\p{Script=Han}/gu).length, 4500);
   const corrected = { chapterId: "chapter-one", chapterNumber: 1, title: "留下密函",
     completeness: "chapterComplete", sceneGroups: [
       { id: "opening", sceneId: null, body: ` \n${prose[0]} `, locked: false, writerGuidance: "保留密函线索" },
       { id: "aftermath", sceneId: null, body: `\t${prose[1]}\n`, locked: false },
     ] };
   const canonical = { ...corrected, body: `${prose[0].trim()}\n\n---\n\n${prose[1].trim()}` };
-  const invalid = { ...structuredClone(corrected), body: "这份重复正文不能作为第二份来源。" };
+  const invalid = { ...structuredClone(corrected), body: correctionKind === "output admission"
+    ? canonical.body : "这份重复正文不能作为第二份来源。" };
   let origin;
   const receiver = createServer(async (incoming, response) => {
     try {
@@ -81,9 +85,15 @@ test("real Core corrects a draft payload through MCP in one task and one origina
         assert.equal(writes.length, 0, "the invalid payload must never dispatch an HTTP write");
         if (sequence === 2) {
           const output = outputs.find(item => item.call_id === "invalid-draft");
-          assert.ok(output, "the genuine error must keep the original call ID");
-          assert.match(JSON.stringify(output.output), /invalid_draft_payload/);
-          assert.match(JSON.stringify(output.output), /provide exactly one of body or sceneGroups/);
+          if (correctionKind === "MCP validation") {
+            assert.ok(output, "the genuine error must keep the original call ID");
+            assert.match(JSON.stringify(output.output), /invalid_draft_payload/);
+            assert.match(JSON.stringify(output.output), /provide exactly one of body or sceneGroups/);
+          } else {
+            assert.equal(output, undefined, "rejected provider output cannot execute a tool or create a receipt");
+            assert.equal(JSON.stringify(body.input).includes("invalid-draft"), false, "rejected output cannot pollute the original thread");
+            assert.match(JSON.stringify(body.input), /10K/);
+          }
           const workspace = await request("GET", `${base}/creative-workspace`);
           assert.equal(workspace.chapters[0].candidate.id, original.revisionId);
           assert.equal(workspace.chapters[0].candidate.body, "林夕烧掉密函。");
@@ -92,10 +102,13 @@ test("real Core corrects a draft payload through MCP in one task and one origina
           call_id: sequence === 1 ? "invalid-draft" : "corrected-draft", namespace: namespace.name, name: tool.name,
           arguments: JSON.stringify({ ...binding, expectedCandidateRevisionId: original.revisionId,
             idempotencyKey: "one-corrected-save", payload: sequence === 1 ? invalid : corrected }) };
+        if (sequence === 1 && correctionKind === "output admission") {
+          assert.ok(modelInputTokenBudget(JSON.stringify(item)) > 10000, "duplicate long prose must exercise real bridge rejection");
+        }
         if (sequence === 2) {
           const outputItemTokens = modelInputTokenBudget(JSON.stringify(item));
-          assert.ok(outputItemTokens <= 10000, "3000-Han single-source call must fit the unchanged output item cap");
-          t.diagnostic(`Synthetic corrected call: 3000 Han, ${Buffer.byteLength(item.arguments)} argument UTF-8 bytes, ${outputItemTokens} conservative output item tokens; real bridge admission and complete Native readback required.`);
+          assert.ok(outputItemTokens <= 10000, "4500-Han single-source call must fit the unchanged output item cap");
+          t.diagnostic(`Synthetic corrected call: 4500 Han, ${Buffer.byteLength(item.arguments)} argument UTF-8 bytes, ${outputItemTokens} conservative output item tokens; real bridge admission and complete Native readback required.`);
         }
       } else {
         assert.equal(sequence, 3, "one error, one correction and one final answer");
@@ -104,6 +117,20 @@ test("real Core corrects a draft payload through MCP in one task and one origina
         assert.ok(output); assert.doesNotMatch(JSON.stringify(output.output), /invalid_draft_payload|TaskOutputForbidden/);
         const workspace = await request("GET", `${base}/creative-workspace`);
         const saved = workspace.chapters[0].candidate;
+        const textParts = output.output.filter(part => part.type === "input_text");
+        assert.equal(textParts.length, 2, "Core returns a timing header followed by one bounded MCP receipt");
+        const receipt = JSON.parse(textParts[1].text);
+        assert.deepEqual(Object.keys(receipt).sort(), ["chapterId", "checkpointId", "instruction", "nextAction", "revisionId", "saved", "version"]);
+        assert.equal(receipt.saved, true);
+        assert.equal(receipt.nextAction, "complete_task");
+        assert.equal(typeof receipt.instruction, "string");
+        assert.equal(receipt.chapterId, saved.chapterId);
+        assert.equal(receipt.revisionId, saved.id);
+        assert.equal(receipt.version, saved.version);
+        assert.ok(receipt.checkpointId.startsWith("checkpoint-"));
+        assert.ok(modelInputTokenBudget(JSON.stringify({ ...receipt, body: saved.body, sceneGroups: saved.sceneGroups })) > 10000,
+          "the old full DTO would exceed the unchanged item cap for this saved chapter");
+        assert.ok(modelInputTokenBudget(JSON.stringify(output)) < 500, "saved prose must not be echoed into the next request");
         assert.deepEqual({ chapterId: saved.chapterId, title: saved.title, body: saved.body, sceneGroups: saved.sceneGroups },
           { chapterId: canonical.chapterId, title: canonical.title, body: canonical.body, sceneGroups: corrected.sceneGroups });
         item = { type: "message", id: "final-item", role: "assistant", status: "completed",
@@ -162,11 +189,18 @@ test("real Core corrects a draft payload through MCP in one task and one origina
   await bridge.beginTaskBudget(budget); await bridge.beginExecutionLease(createExecutionLease({ sessionPlan, runId: task.id, budgetId: budget.id }));
   binding = { taskId: task.id, projectId: project.id, threadId: adapter.threadId, expectedRevision: 0 };
   let result;
-  try { result = await adapter.sendTurn([{ type: "text", text: "把本章烧信改为藏信，保存整章修订。" }], { disableEnvironment: true }); }
+  const originalProcess = adapter.process, originalThread = adapter.threadId;
+  const sender = createBoundedOutputSender(adapter, task, path => request("GET", path), () => {});
+  try { result = await sender([{ type: "text", text: "把本章烧信改为藏信，保存整章修订。" }], { disableEnvironment: true }); }
   catch (error) { throw failure ?? error; }
+  assert.equal(adapter.process, originalProcess); assert.equal(adapter.threadId, originalThread);
   assert.ifError(failure); assert.equal(result.turn.status, "completed");
-  assert.deepEqual({ requests: budget.snapshot().requests, tokens: budget.snapshot().tokens, unknownTokens: budget.snapshot().unknownTokens },
-    { requests: 3, tokens: 15, unknownTokens: 0 });
+  const usage = budget.snapshot();
+  assert.equal(usage.requests, 3);
+  assert.equal(usage.tokens, correctionKind === "MCP validation" ? 15 : 10);
+  if (correctionKind === "output admission") assert.ok(usage.unknownTokens > 0,
+    "the rejected response's unadmitted usage must retain its conservative reservation, never be reset to zero");
+  else assert.equal(usage.unknownTokens, 0);
   assert.equal(requests.length, 3); assert.equal(writes.length, 1);
   const { projectId: _projectId, ...runtimeBinding } = binding;
   assert.deepEqual(writes[0], { ...runtimeBinding, expectedCandidateRevisionId: original.revisionId, idempotencyKey: "one-corrected-save", payload: canonical });
@@ -175,17 +209,21 @@ test("real Core corrects a draft payload through MCP in one task and one origina
   const charged = await request("POST", `${base}/work-tasks/${grant.workTaskId}/provider-usage`, { taskId: task.id });
   assert.deepEqual(charged.charges.map(charge => ({ taskId: charge.taskId, budgetId: charge.budgetId,
     requests: charge.requests, tokens: charge.tokens, unknownTokens: charge.unknownTokens })),
-  [{ taskId: task.id, budgetId: budget.id, requests: 3, tokens: 15, unknownTokens: 0 }]);
+  [{ taskId: task.id, budgetId: budget.id, requests: 3, tokens: usage.tokens, unknownTokens: usage.unknownTokens }]);
   assert.deepEqual(await request("GET", `${base}/work-tasks/${grant.workTaskId}/budget-authorization`), authorized, "correction must not issue a new budget authorization");
   await adapter.finishTaskOperation();
   const rollouts = (await readdir(join(root, "sessions"), { recursive: true })).filter(path => path.endsWith(".jsonl")); assert.equal(rollouts.length, 1);
   const items = (await readFile(join(root, "sessions", rollouts[0]), "utf8")).trim().split("\n").map(line => JSON.parse(line))
     .filter(entry => entry.type === "response_item").map(entry => entry.payload);
   const badCall = items.find(item => item.type === "function_call" && item.call_id === "invalid-draft");
-  assert.ok(badCall); assert.deepEqual(JSON.parse(badCall.arguments).payload, invalid);
-  assert.ok(items.some(item => item.type === "function_call_output" && item.call_id === "invalid-draft" && JSON.stringify(item.output).includes("invalid_draft_payload")));
+  if (correctionKind === "MCP validation") {
+    assert.ok(badCall); assert.deepEqual(JSON.parse(badCall.arguments).payload, invalid);
+    assert.ok(items.some(item => item.type === "function_call_output" && item.call_id === "invalid-draft" && JSON.stringify(item.output).includes("invalid_draft_payload")));
+    assert.ok(mcpEvents.some(item => item.id === "invalid-draft" && item.status === "failed"
+      && JSON.stringify(item).includes("invalid_draft_payload")), "Core must expose the genuine MCP error as a failed tool item");
+  } else {
+    assert.equal(badCall, undefined); assert.equal(mcpEvents.some(item => item.id === "invalid-draft"), false);
+  }
   const goodCall = items.find(item => item.type === "function_call" && item.call_id === "corrected-draft");
   assert.ok(goodCall); assert.deepEqual(JSON.parse(goodCall.arguments).payload, corrected);
-  assert.ok(mcpEvents.some(item => item.id === "invalid-draft" && item.status === "failed"
-    && JSON.stringify(item).includes("invalid_draft_payload")), "Core must expose the genuine MCP error as a failed tool item");
 });

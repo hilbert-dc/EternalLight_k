@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { taskBoundInstructions, createTaskBoundHandoff, taskAuthorPrompt } from "../workflow-handoff.mjs";
-import { composeNovelCodexPrompt } from "../codex-runtime.mjs";
+import { novelTurnText, composeNovelCodexPrompt } from "../codex-runtime.mjs";
 import { CHAPTER_LENGTH_INSTRUCTIONS } from "../../shared/chapter-writing-policy.mjs";
 import { CONTEXT_READING_INSTRUCTIONS } from "../context-reading-contract.mjs";
 import { modelInputTokenBudget } from "../../shared/author-input-budget.mjs";
@@ -26,9 +26,9 @@ function assertFrozenSourceReading(instructions) {
   assertClauses(instructions, [
     ["read the frozen directory before requesting source contents", /先read_context核对冻结target、coverage和taskSources/],
     ["the directory is scoped metadata, not delivered source text", /taskSources是已通过同一任务范围\/POV\/时间\/保护规则的冻结资料目录，未交付正文/],
-    ["read frozen source pages without guessing paths or switching to latest", /read_task_source\(sourceId,cursor\)，不猜路径或切换latest/],
+    ["read frozen source pages without guessing paths or switching to latest", /优先read_source_content\(sourceId\).*不猜路径或切换latest/],
     ["fully read required sources without automatically reading the whole book", /原稿修改、保护场景及明确评估\/抽取范围必须实际完整读取，普通问答不默认遍历全书/],
-    ["verify contiguous ranges and hashes before reconstructing source JSON", /连续byteRange与contentHash核对后拼接payloadPart并解析JSON/],
+    ["prefer parsed evidence and verify raw ranges only when necessary", /优先read_source_content.*使用原始分页时才核对连续byteRange\/contentHash并拼接payloadPart/],
     ["the last page does not certify earlier reading or semantic completeness", /最后一页不证明先前已读或语义完整/],
     ["disclose unread, truncated or stale sources instead of claiming completion", /未读\/截断\/来源过期须说明，不能当不存在或伪造完成/],
     ["reconstruct scene groups in canonical order", /textRepresentation=sceneGroups时，按原顺序body\.trim\(\)用双换行、---、双换行重建全文/],
@@ -50,6 +50,8 @@ function assertScopedWriter(instructions) {
 }
 
 test("writer soft-length contract preserves explicit short/English/scoped author requests and frozen bindings", () => {
+  assert.match(CHAPTER_LENGTH_INSTRUCTIONS, /正文语言按作者要求和既有作品确定，无明确线索时沿用本次交流语言/);
+  assert.doesNotMatch(CHAPTER_LENGTH_INSTRUCTIONS, /默认中文/);
   for (const [intent, target] of [
     ["首次起草这一章", {}], ["只写150字中文", {}], ["改写为约100英文单词，对话用中文", {}],
     ["只改第二场结尾，其他正文不动", { scope: { type: "selectedScenes", sourceRevisionId: "draft-before", groupIds: ["second"] } }],
@@ -57,10 +59,10 @@ test("writer soft-length contract preserves explicit short/English/scoped author
     const task = bound("generateChapter", intent, target), original = structuredClone(task);
     const handoff = createTaskBoundHandoff("project", { revision: 1 }, task);
     const instructions = taskBoundInstructions(handoff);
-    const wire = composeNovelCodexPrompt("", taskAuthorPrompt(task), instructions).map(item => item.text).join("");
+    const wire = novelTurnText(composeNovelCodexPrompt("", taskAuthorPrompt(task), instructions));
     assert.equal(instructions.split(CHAPTER_LENGTH_INSTRUCTIONS).length - 1, 1);
     assert.equal(instructions.split(CONTEXT_READING_INSTRUCTIONS).length - 1, 1);
-    assert.ok(wire.endsWith(`用户当前指令：\n${intent}`));
+    assert.equal(composeNovelCodexPrompt("", taskAuthorPrompt(task), instructions).input[0].text, intent);
     assert.deepEqual(handoff.task.target, original.target);
     assert.deepEqual(task, original);
     assert.ok(modelInputTokenBudget(wire) <= 9000);
@@ -122,12 +124,12 @@ test("writer frozen source paging instructions keep protected scenes and author 
   const original = structuredClone(task);
   const handoff = createTaskBoundHandoff("project", { revision: 1 }, task);
   const instructions = taskBoundInstructions(handoff);
-  const wire = composeNovelCodexPrompt("", taskAuthorPrompt(task), instructions).map(item => item.text).join("");
+  const wire = novelTurnText(composeNovelCodexPrompt("", taskAuthorPrompt(task), instructions));
   assert.deepEqual(handoff.task.target, original.target);
   assert.deepEqual(task, original);
   assertFrozenSourceReading(instructions);
   assertScopedWriter(instructions);
-  assert.ok(wire.endsWith(`用户当前指令：\n${original.inputManifest.authorIntent}`));
+  assert.equal(composeNovelCodexPrompt("", taskAuthorPrompt(task), instructions).input[0].text, original.inputManifest.authorIntent);
   assert.ok(modelInputTokenBudget(wire) <= 9000);
   assert.ok(Buffer.byteLength(wire) <= 38000);
 });

@@ -11,7 +11,7 @@ function reviewFixture() {
     authorIntent: "检查规划", authorMessageId: "author-review", sourcePacketHash: "a".repeat(64), seats: [{ role: "structure", taskId: "task-first", status: "completed" },
       { role: "character", taskId: "task-old", status: "failed" }] };
   const work = { id: run.workTaskId, projectId: run.projectId, threadId: "review-root", kind: "direct", goal: run.authorIntent,
-    status: "blocked", version: 2, steps: run.roles.map((role, index) => ({
+    status: "blocked", version: 2, controlRevision: 0, steps: run.roles.map((role, index) => ({
       id: `review-seat-${run.id}-${role}`, operation: "reviewPlanningSeat", inputRevision: 0,
       status: index ? "blocked" : "completed", currentAttemptId: index ? "task-old" : "task-first",
       target: { type: "artifact", artifactKind: run.artifactKind, revisionId: run.revisionId, reviewRunId: run.id, role },
@@ -59,10 +59,10 @@ for (const outcome of ["resume", "finalize", "finalizePaused", "settlementFailur
         return { authorization: { deadlineAt } };
       }
       if (path.endsWith("/control")) {
-        assert.deepEqual(body, { expectedVersion: work.version, command: "resume" });
+        assert.deepEqual({ expectedControlRevision: body.expectedControlRevision, command: body.command }, { expectedControlRevision: work.controlRevision, command: "resume" });
         controls++; work.status = "running";
         if (!onlyFinalize) { reviewSteps[1].status = "queued"; reviewSteps[1].currentAttemptId = null; }
-        work.version++; return work;
+        work.version++; work.controlRevision++; return work;
       }
       if (path.endsWith(`/work-tasks/${work.id}`) || path.endsWith("/work-task")) return work;
       if (path.endsWith(`/planning-reviews/${run.id}`)) return run;
@@ -132,3 +132,187 @@ test("one requested review view resumes without adding other seats", async () =>
   assert.equal(calls.length,1);
   assert.equal(result.run,run);
 });
+
+function savedReviewFixture(kind, status) {
+  const { run, work } = reviewFixture();
+  work.kind = kind;
+  work.status = status;
+  work.resumeMode = "recoverSavedResult";
+  work.resumeBlockReason = "unknownUsage";
+  for (const step of work.steps) step.status = "completed";
+  for (const seat of run.seats) seat.status = "completed";
+  if (kind === "conversation") {
+    run.sourceTaskId = "task-source";
+    run.sourceIntentRevision = 1;
+    work.steps.unshift({ id: "original-dialogue", operation: "advisory", currentAttemptId: run.sourceTaskId,
+      status: "completed", target: {}, attempts: [{ id: run.sourceTaskId, status: "completed", threadId: work.threadId }] });
+  }
+  return { run, work };
+}
+
+async function savedRecoveryHost(work, { resultStatus = "completed", cancelledBeforeControl = false } = {}) {
+  const requests = [];
+  const state = { confirmations: [], budgets: [], leases: [] };
+  const event = rendererEvent();
+  state.rendererWebContents = event.sender;
+  const path = `/api/projects/${work.projectId}/work-tasks/${work.id}`;
+  const readVersion = work.version;
+  const sourceTask = { id: "task-source", projectId: work.projectId, threadId: work.threadId,
+    operation: "advisory", status: "completed", target: {} };
+  // This is the current durable handoff shape accepted by executeWorkContinuation.
+  // A saved-result-only action must not read or consume it, even after completion.
+  const handoff = work.kind === "conversation" ? {
+    task: sourceTask,
+    proposal: { proposalId: "generation-proposal-source", projectId: work.projectId,
+      sourceTaskId: sourceTask.id, threadId: work.threadId,
+      resumeRun: { id: `generation-${"a".repeat(32)}`, expectedVersion: 4 } },
+  } : null;
+  const main = await mainHandlers(async (requestPath, body, options) => {
+    requests.push({ path: requestPath, body, method: options?.method ?? "GET" });
+    if (requestPath === path && !body) return structuredClone(work);
+    if (requestPath === `${path}/provider-usage` && !body) {
+      if (cancelledBeforeControl) {
+        work.status = "cancelled";
+        work.resumeMode = null;
+        work.resumeBlockReason = null;
+        work.version++;
+      }
+      return { pending: null };
+    }
+    if (requestPath === `${path}/control`) {
+      assert.equal(options?.method, "POST");
+      assert.deepEqual({ expectedControlRevision: body.expectedControlRevision, command: body.command }, { expectedControlRevision: work.controlRevision, command: "recoverSavedResult" });
+      if (cancelledBeforeControl) throw Object.assign(new Error("原任务状态已变化，尚未核对保存结果。"), { code: "work_task_stale" });
+      work.version++;
+      work.controlRevision++;
+      work.status = resultStatus;
+      work.resumeMode = null;
+      work.resumeBlockReason = resultStatus === "completed" ? null : "unknownUsage";
+      for (const step of work.steps) {
+        step.status = "completed";
+        for (const attempt of step.attempts ?? []) {
+          if (attempt.id === step.currentAttemptId) attempt.status = "completed";
+        }
+      }
+      return structuredClone(work);
+    }
+    if (requestPath === `${path}/generation-handoff` && !body) return { handoff };
+    assert.fail(`Saved-result-only recovery must not request ${requestPath}`);
+  }, `${process.execPath} ${fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url))}`, state);
+  const modelCalls = [];
+  main.adapter.ensureSession = async () => {
+    modelCalls.push("ensureSession");
+    assert.fail("Saved-result-only recovery must not initialize a model session");
+  };
+  main.adapter.request = async method => {
+    modelCalls.push(method);
+    assert.fail(`Saved-result-only recovery must not send ${method}`);
+  };
+  return { main, event, requests, state, modelCalls, path };
+}
+
+function assertSavedRecoveryOnly(fixture) {
+  const { requests, path, state, modelCalls } = fixture;
+  assert.equal(requests.filter(call => call.method === "POST").length, 1);
+  assert.equal(requests.filter(call => call.path === `${path}/control`).length, 1);
+  assert.ok(requests.every(call => call.path === `${path}/control`
+    || call.method === "GET" && [path, `${path}/provider-usage`].includes(call.path)));
+  assert.deepEqual(modelCalls, []);
+  assert.deepEqual(state.confirmations, []);
+  assert.deepEqual(state.budgets, []);
+  assert.deepEqual(state.leases, []);
+  assert.deepEqual(state.ownerRequests, []);
+}
+
+for (const kind of ["direct", "conversation"]) {
+  for (const status of ["paused", "blocked"]) {
+    test(`explicit saved review recovery performs only Native control: ${kind}/${status}`, async () => {
+      const { work } = savedReviewFixture(kind, status);
+      const originalSteps = structuredClone(work.steps);
+      const fixture = await savedRecoveryHost(work);
+      try {
+        const result = await fixture.main.handlers.get("agent:recover-work-task")(fixture.event, work.projectId, work.id);
+        assert.deepEqual(JSON.parse(JSON.stringify(result)), work);
+        assert.equal(result.status, "completed");
+        assert.deepEqual(work.steps, originalSteps);
+        assertSavedRecoveryOnly(fixture);
+      } finally { fixture.main.adapter.close(); }
+    });
+  }
+}
+
+test("saved review aggregation preserves a paused unfinished conversation without a follow-up", async () => {
+  const { work } = savedReviewFixture("conversation", "paused");
+  const fixture = await savedRecoveryHost(work, { resultStatus: "paused" });
+  try {
+    const result = await fixture.main.handlers.get("agent:recover-work-task")(fixture.event, work.projectId, work.id);
+    assert.equal(result.status, "paused");
+    assert.equal(result.resumeBlockReason, "unknownUsage");
+    assert.equal(result.resumeMode, null);
+    assertSavedRecoveryOnly(fixture);
+  } finally { fixture.main.adapter.close(); }
+});
+
+test("known-usage modeling saved-result recovery keeps its original no-model handler path", async () => {
+  const { work } = savedReviewFixture("conversation", "blocked");
+  work.resumeBlockReason = null;
+  work.steps = [work.steps[0], { id: "knowledge-step", operation: "modelKnowledge", status: "blocked",
+    currentAttemptId: "task-model", target: { batchId: "batch-published", chapterId: "chapter-one" },
+    attempts: [{ id: "task-model", status: "failed", threadId: work.threadId }] }];
+  const fixture = await savedRecoveryHost(work);
+  try {
+    const result = await fixture.main.handlers.get("agent:recover-work-task")(fixture.event, work.projectId, work.id);
+    assert.equal(result.status, "completed");
+    assert.equal(result.id, work.id);
+    assertSavedRecoveryOnly(fixture);
+  } finally { fixture.main.adapter.close(); }
+});
+
+test("explicit saved-result recovery cannot substitute another Native mode or blocked reason", async () => {
+  for (const [mode, reason] of [[null, "unknownUsage"], ["continueExecution", null],
+    [null, "pendingRecovery"], [null, "inputChanged"], [null, "partialOutput"]]) {
+    const { work } = savedReviewFixture("conversation", "paused");
+    work.resumeMode = mode;
+    work.resumeBlockReason = reason;
+    const before = structuredClone(work);
+    const fixture = await savedRecoveryHost(work);
+    try {
+      await assert.rejects(fixture.main.handlers.get("agent:recover-work-task")(fixture.event, work.projectId, work.id), /恢复条件已变化/);
+      assert.deepEqual(work, before);
+      assert.deepEqual(fixture.requests.map(call => [call.path, call.method]), [[fixture.path, "GET"]]);
+      assert.deepEqual(fixture.modelCalls, []);
+      assert.deepEqual(fixture.state.budgets, []);
+    } finally { fixture.main.adapter.close(); }
+  }
+});
+
+test("concurrent Native cancellation rejects saved-result control without substituting continuation", async () => {
+  const { work } = savedReviewFixture("conversation", "paused");
+  const fixture = await savedRecoveryHost(work, { cancelledBeforeControl: true });
+  try {
+    await assert.rejects(fixture.main.handlers.get("agent:recover-work-task")(fixture.event, work.projectId, work.id), /原任务状态已变化/);
+    assert.equal(work.status, "cancelled");
+    assert.equal(work.resumeMode, null);
+    assert.equal(work.resumeBlockReason, null);
+    assertSavedRecoveryOnly(fixture);
+  } finally { fixture.main.adapter.close(); }
+});
+
+for (const status of ["paused", "blocked"]) {
+  test(`automatic production resume cannot invoke author saved-result recovery: ${status}`, async () => {
+    const { work } = savedReviewFixture("conversation", status);
+    const before = structuredClone(work);
+    const fixture = await savedRecoveryHost(work);
+    try {
+      const result = await fixture.main.workExecutionConsumer.resume(work.projectId, work.id,
+        { origin: "automatic", expectedThreadId: work.threadId });
+      assert.deepEqual(JSON.parse(JSON.stringify(result)), before);
+      assert.deepEqual(work, before);
+      assert.deepEqual(fixture.requests.map(call => [call.path, call.method]), [[fixture.path, "GET"]]);
+      assert.deepEqual(fixture.modelCalls, []);
+      assert.deepEqual(fixture.state.budgets, []);
+      assert.deepEqual(fixture.state.confirmations, []);
+      assert.deepEqual(fixture.state.ownerRequests, []);
+    } finally { fixture.main.adapter.close(); }
+  });
+}

@@ -1,4 +1,5 @@
 import { terminateEngineProcess } from "./engine-process-lifecycle.mjs";
+import { isBoundedOutputFailure } from "./bounded-output-correction.mjs";
 
 // Ownership spans preparation, the stream, and follow-up RPCs. Stream completion
 // alone must not unlock another turn while the previous caller is still running.
@@ -36,7 +37,7 @@ export async function executeManagedTurn(adapter, { prepare, start, afterStart }
     assertCurrent();
     return result;
   } catch (error) {
-    if (adapter.turnOperation === operation && child && adapter.process === child) {
+    if (!isBoundedOutputFailure(error) && adapter.turnOperation === operation && child && adapter.process === child) {
       adapter.reader?.close();
       adapter.process = null;
       adapter.reader = null;

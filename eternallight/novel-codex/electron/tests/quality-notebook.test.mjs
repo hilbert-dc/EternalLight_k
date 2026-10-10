@@ -17,7 +17,7 @@ test("reader prompt discards author notes and source mapping rather than request
 });
 test("notebook covers preferences, fidelity, strengths, replay, real trials and calibrated feedback", () => {
   for (const pattern of [/read_work_status/, /request_work_action/, /同Work剩余额度/, /不要求作者点击UI/, /不新建根任务绕过限制/]) assert.match(QUALITY_NOTEBOOK_INSTRUCTIONS, pattern);
-  for (const pattern of [/作者确认/, /来源有效/, /本次偏好不跨任务/, /修改前后证据/, /observation.relatesTo/, /desiredOutcomes\/expectedEffects/, /跨章重复/, /有限试写/, /准备不等于审阅/, /read_quality_review/, /没有实测就不宣称质量提升/]) assert.match(QUALITY_NOTEBOOK_INSTRUCTIONS, pattern);
+  for (const pattern of [/作者确认/, /来源有效/, /本次偏好不跨任务/, /修改前后证据/, /observation.relatesTo/, /goal\/strength\/method/, /Native同Work关系按需回读/, /方法实效或失败观察也保持scope=task/, /不把局部判断当普遍有效/, /desiredOutcomes\/expectedEffects/, /跨章重复/, /有限试写/, /准备不等于审阅/, /read_quality_review/, /没有实测就不宣称质量提升/]) assert.match(QUALITY_NOTEBOOK_INSTRUCTIONS, pattern);
 });
 test("host validates project identifiers and starts only a fresh, sanitized reader request", async () => {
   const handlers = new Map(), calls = [], readers = [];
@@ -50,7 +50,7 @@ test("production reader launch binds an independent budget and sends no author m
     const result = await handlers.get("agent:review-quality-packet")(rendererEvent(), "project", "packet");
     assert.equal(result.completion.status, "completed");
     assert.equal(sent.length, 1); assert.equal(sent[0].options.disableEnvironment, true);
-    const text = sent[0].input.map(item => item.text).join("");
+    const text = sent[0].input.map(item => item.text).join("") + "\n" + Object.values(sent[0].options.additionalContext).map(item=>item.value).join("\n");
     assert.doesNotMatch(text, /SECRET_AUTHOR_PLAN|SECRET_STYLE_EXPLANATION|read_context/);
     assert.match(text, /read_quality_packet/);
     const creation = requests.find(r => r.path.endsWith("/tasks")).body;

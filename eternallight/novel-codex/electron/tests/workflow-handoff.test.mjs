@@ -124,6 +124,21 @@ test("generation feedback prompt preserves author history and requires its froze
   assert.throws(() => taskAuthorPrompt(anonymous), /来源绑定/);
 });
 
+test("resumed candidate preserves native frozen author lineage instead of requiring a new action", () => {
+  const task = { operation:"generateChapter", target:{chapterId:"chapter-seven",resumeStepId:"action-original"},
+    inputManifest:{authorIntent:"先修订第七章，再接回原任务",candidateInstruction:"校正罚银与期限，补足人物行动",
+      authorIntentBinding:{sourceTaskId:"attempt-previous",intentRevision:0,actionId:null}} };
+  const before = structuredClone(task);
+  assert.ok(taskAuthorPrompt(task).includes(task.inputManifest.authorIntent));
+  assert.ok(taskAuthorPrompt(task).includes(task.inputManifest.candidateInstruction));
+  assert.deepEqual(task,before);
+  for (const mutate of [
+    t=>{delete t.target.resumeStepId;}, t=>{t.inputManifest.authorIntentBinding.sourceTaskId="";},
+    t=>{t.inputManifest.authorIntentBinding.intentRevision=-1;}, t=>{t.target.runId="foreign-run";},
+    t=>{t.target.requestedByTaskId="foreign-parent";}, t=>{t.inputManifest.authorIntentBinding.extra="invented";},
+  ]) { const damaged=structuredClone(task); mutate(damaged); assert.throws(()=>taskAuthorPrompt(damaged),/来源绑定/); }
+});
+
 test("handoff contains the immutable task target and manifest without embedding Context", () => {
   const workspace = { revision: 7, artifacts: { brief: { accepted: { payload: { premise: "secret context" } } } } };
   const task = {
@@ -217,7 +232,8 @@ test("local writer handoff retains author-approved criteria without changing the
   const handoff = createTaskBoundHandoff("project", { revision: 0 }, task);
   assert.deepEqual(handoff.task.target, task.target);
   const instructions = taskBoundInstructions(handoff);
-  assert.ok(instructions.includes(desiredOutcomes[0].criterion));
+  assert.ok(JSON.stringify(handoff).includes(desiredOutcomes[0].criterion));
+  assert.equal(instructions.includes(desiredOutcomes[0].criterion),false,"author criteria stay task data, not application rules");
   assert.match(instructions, /不得增删或改变/);
   assert.match(instructions, /明确评估/);
   assert.deepEqual(task, before);
@@ -299,7 +315,7 @@ test("rule generation preserves its frozen baseline and leaves approval to the a
   const instructions = taskBoundInstructions(handoff);
   assert.match(instructions, /冻结规则基准/);
   assert.match(instructions, /read_task_source/);
-  assert.match(instructions, /拼接payloadPart并解析JSON/);
+  assert.match(instructions, /优先read_source_content.*使用原始分页时才核对连续byteRange\/contentHash并拼接payloadPart/);
   assert.match(instructions, /不证明先前已读或语义完整/);
   assert.match(instructions, /只保存规则候选/);
   assert.match(instructions, /不确认属性值或事实/);

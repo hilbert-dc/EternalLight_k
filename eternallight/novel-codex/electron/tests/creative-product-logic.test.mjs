@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { firstOutlineEditorError, formatFactValue, generationStatusLabel, outlinePathLabels, parseFactValue, rebaseEditorBaseline, selectionAwareReviewChecksPass, valueForIdentity } from "../../src/creative-product-logic.ts";
+import { firstOutlineEditorError, formatFactValue, generationStatusLabel, outlinePathLabels, rebaseEditorBaseline, selectionAwareReviewChecksPass, valueForIdentity } from "../../src/creative-product-logic.ts";
 
 test("builds full outline paths for planning targets", () => {
   const paths = outlinePathLabels([
@@ -39,11 +39,9 @@ test("rebasing an editor session replaces both the revision and displayed baseli
   ), { identity: "draft:1", baseProjectRevision: 5, baseCandidateRevisionId: "draft-latest", baseContent: "最新候选" });
 });
 
-test("fact value parsing preserves false and structured values for review", () => {
-  assert.equal(parseFactValue("false"), false);
-  assert.deepEqual(parseFactValue('{"certainty":0.4}'), { certainty: 0.4 });
+test("fact values preserve false and structured data for review", () => {
   assert.equal(formatFactValue(false), "false");
-  assert.throws(() => parseFactValue("不是 JSON"), /有效 JSON/);
+  assert.equal(formatFactValue({ certainty: 0.4 }), '{"certainty":0.4}');
 });
 
 test("rejected or unselected invalid facts do not keep a draft review blocked", () => {

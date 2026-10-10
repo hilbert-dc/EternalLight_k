@@ -68,18 +68,23 @@ test("missing, malformed and failed authorization reads cannot grant an executio
   }
 });
 
-for (const outcome of ["success", "failure"]) {
+for (const outcome of ["success", "failure", "preflightFailure"]) {
   test(`production ordinary workflow settles its persisted budget on ${outcome}`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "ordinary-host-budget-"));
     const budgetDb = join(directory, "engine.sqlite3");
     const runtime = runtimeFixture();
-    const work = { id: "work-source", projectId: "project", kind: "conversation", status: "running", version: 1,
+    const work = { id: "work-source", projectId: "project", threadId: "thr-test", kind: "conversation", status: "running", version: 1,
       goal: "继续规划", steps: [{ id: "action", operation: "generateBrief", status: "queued",
-        sourceTaskId: "source", instruction: "生成简报", target: { type: "artifact" }, dependsOnStepId: null }] };
+        sourceTaskId: "source", inputRevision: 0, currentAttemptId: null, attempts: [], instruction: "生成简报", target: { type: "artifact" }, dependsOnStepId: null },
+        { id: "source-step", status: "completed", attempts: [{ id: "source", threadId: "thr-test", status: "completed" }] }] };
     const deadlineAt = Math.floor(Date.now() / 1000) + 120;
     const receipts = [];
     const fixture = fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url));
     const { handlers, adapter } = await mainHandlers(async (path, body) => {
+      if (path.endsWith("/tasks/source")) return { id: "source", projectId: "project", threadId: "thr-test", operation: "advisory", status: "completed", inputRevision: 0 };
+      if (path.endsWith("/tasks/source/actions")) return { actions: [{ id: "action", sourceTaskId: "source", operation: "generateBrief", status: "queued", resultTaskId: null, inputRevision: 0, intentRevision: 0, instruction: "生成简报", target: { type: "artifact" } }] };
+      if (path.endsWith("/tasks/source/actions/action/permission")) return { permission: { kind: "exactAction", actionId: "action", workTaskId: work.id, actionStatus: "queued", scopePermitId: null,
+        evidence: { projectId: "project", sourceTaskId: "source", inputRevision: 0, intentRevision: 0, operation: "generateBrief", instruction: "生成简报", target: { type: "artifact" }, authorIntent: "继续规划" } } };
       if (path.endsWith("/budget-authorization")) return { authorization: { deadlineAt } };
       if (path.endsWith("/provider-budget")) return { taskId: "child", workTaskId: work.id,
         budgetId: "budget-child", maxRequests: 3, maxTokens: 700, deadlineAt };
@@ -90,26 +95,35 @@ for (const outcome of ["success", "failure"]) {
         receipts.push(PersistentTaskBudget.receipt(budgetDb, "child"));
         return {};
       }
+      if (path.endsWith("/decision")) return { workTaskId:work.id, threadId:work.threadId,
+        step:null, stopReason:work.status === "completed" ? "completed" : "workNotReady" };
       if (path.includes("/work-tasks/") || path.endsWith("/work-task")) return work;
       if (path.endsWith("/tasks")) {
         work.steps[0].currentAttemptId = "child";
-        return { ...body, id: "child", projectId: "project", purpose: "planner",
+        const child = { ...body, id: "child", projectId: "project", purpose: "planner",
           inputManifest: { authorIntent: "继续规划", candidateInstruction: "生成简报",
             authorIntentBinding: { sourceTaskId: "source", intentRevision: 0, actionId: "action" } } };
+        if (outcome === "preflightFailure") delete child.inputManifest.authorIntentBinding;
+        runtime.tasks.set(child.threadId, child);
+        return child;
       }
       if (path.endsWith("/complete")) { work.status = "completed"; work.steps[0].status = "completed"; }
       return runtime.request(path, body);
-    }, `${process.execPath} ${fixture}`, { agentStorage: { budgetDb } });
-    if (outcome === "failure") adapter.sendTurn = async () => { throw new Error("fixture model failed"); };
+    }, `${process.execPath} ${fixture}`, { agentStorage: { budgetDb }, onPrepareDomain(domain) {
+      if (outcome === "failure") domain.codexAdapter.sendTurn = async () => { throw new Error("fixture model failed"); };
+    } });
     try {
       const run = handlers.get("agent:resume-work-task")(rendererEvent(), "project", work.id);
       if (outcome === "failure") await assert.rejects(run, /fixture model failed/);
+      else if (outcome === "preflightFailure") await assert.rejects(run, /来源绑定/);
       else assert.equal((await run).status, "completed");
       assert.equal(receipts.length, 1);
       assert.equal(receipts[0].budgetId, "budget-child");
       assert.equal(receipts[0].runId, "child");
       assert.equal(receipts[0].limits.maxRequests, 3);
       assert.equal(receipts[0].limits.maxTokens, 700);
+      if (outcome === "preflightFailure") assert.deepEqual(receipts[0].usage,
+        { requests:0, tokens:0, unknownTokens:0, overrun:false });
     } finally { adapter.close(); await rm(directory, { recursive: true, force: true }); }
   });
 }
@@ -139,8 +153,9 @@ for (const outcome of ["success", "modelFailure", "settlementFailure"]) {
       }
       if (options?.method === "PATCH") patches.push(body);
       return runtime.request(path, body);
-    }, `${process.execPath} ${fixture}`, { agentStorage: { budgetDb } });
-    if (outcome === "modelFailure") adapter.sendTurn = async () => { throw new Error("fixture model failed"); };
+    }, `${process.execPath} ${fixture}`, { agentStorage: { budgetDb }, onPrepareDomain(domain) {
+      if (outcome === "modelFailure") domain.codexAdapter.sendTurn = async () => { throw new Error("fixture model failed"); };
+    } });
     try {
       const run = handlers.get("agent:send-prompt")(rendererEvent(), "project", "分析故事");
       if (outcome === "success") await run;
@@ -187,4 +202,19 @@ test("ordinary recovery never resumes active, malformed or unaccounted execution
   }, "project", work), /missing receipt/);
   assert.equal(calls, 2);
   assert.equal(await reconcileWorkProviderUsage(async () => ({ pending: null }), "project", work), work);
+});
+
+test('generation recovery rereads trusted receipts without submitting caller usage or starting a model', async () => {
+  const { reconcileGenerationProviderUsage } = await import('../task-provider-budget.mjs');
+  const run = { id: 'run', projectId: 'project', providerBudget: { charges: [{ taskId: 'task', unknownTokens: 7 }] } };
+  const refreshed = { ...run, providerBudget: { charges: [{ taskId: 'task', unknownTokens: 0 }] } };
+  const calls = [];
+  assert.equal(await reconcileGenerationProviderUsage(async (path, options) => {
+    calls.push({ path, options });
+    return options ? {} : refreshed;
+  }, 'project', run), refreshed);
+  assert.deepEqual(JSON.parse(calls[0].options.body), { taskId: 'task' });
+  assert.equal(calls[0].path, '/api/projects/project/generation-runs/run/provider-usage');
+  assert.equal(calls.length, 2);
+  await assert.rejects(reconcileGenerationProviderUsage(async () => { throw Error('must not call'); }, 'other', run), /归属/);
 });

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { validateConversationFocus } from "../conversation-analysis.mjs";
@@ -21,6 +22,7 @@ const receipt = () => ({ taskId: reportId, projectId: "project", state: "recorde
   text: "独立历史报告原文，仅作建议，不复制进新 prompt。", truncated: false } });
 async function harness({ task = report(), reply = receipt(), transformTask, readError } = {}) {
   const runtime = runtimeFixture(); const calls = [], rpc = [];
+  const state = {};
   const created = await mainHandlers(async (path, body, options) => {
     calls.push({ path, body: body ? plain(body) : body });
     if (path === `/api/projects/project/tasks/${reportId}`) {
@@ -31,7 +33,10 @@ async function harness({ task = report(), reply = receipt(), transformTask, read
     if (path.endsWith("creative-workspace")) return workspace();
     const result = await runtime.request(path, body, options);
     return path.endsWith("/tasks") && body && transformTask ? transformTask(result) : result;
-  }, command);
+  }, command, state);
+  await writeFile(`${state.agentStorage.budgetDb}.fixture-threads.json`, JSON.stringify({ threadSequence: 0,
+    threads: [[report().threadId, { id: report().threadId, turns: [{ id: report().turnId, status: "completed", items: [] }] }]] }));
+  await runtime.request("/api/projects/project/conversations", { threadId: report().threadId, title: "删章检查对话", forkedFromId: null, lastTurnId: null });
   const { adapter } = created; const request = adapter.request;
   adapter.request = function(method, params) {
     rpc.push({ method, params: plain(params), operation: this.activeOperation,
@@ -39,8 +44,8 @@ async function harness({ task = report(), reply = receipt(), transformTask, read
     return request.call(this, method, params);
   };
   return { ...created, calls, rpc, runtime,
-    send: (prompt, requested = focus, repair = null) => created.handlers.get("agent:send-prompt")(
-      rendererEvent(), "project", prompt, repair, requested) };
+    send: (prompt, requested = focus, repair = null, threadId = null) => created.handlers.get("agent:send-prompt")(
+      rendererEvent(), "project", prompt, repair, requested, threadId) };
 }
 const newTasks = h => h.calls.filter(call => call.path.endsWith("/tasks") && call.body);
 const turns = h => h.rpc.filter(call => call.method === "turn/start");
@@ -51,7 +56,7 @@ test("production moves old advisory to exact report history with fresh advisory 
   try {
     await h.send("此前的一般讨论", { view: "world" });
     await h.send("先不改，只讨论方案");
-    await h.send("继续讨论这个方案", { view: "chapters", chapterId: "chapter-two", chapterNumber: 2 });
+    await h.send("继续讨论这个方案", { view: "chapters", chapterId: "chapter-two", chapterNumber: 2 }, null, report().threadId);
     const tasks = newTasks(h).map(call => call.body);
     assert.deepEqual(tasks.map(task => ({ operation: task.operation, threadId: task.threadId, inputRevision: task.inputRevision, target: task.target })), [
       { operation: "advisory", threadId: "thr-test", inputRevision: 12, target: { type: "project", conversationFocus: { view: "world" } } },
@@ -68,7 +73,7 @@ test("production moves old advisory to exact report history with fresh advisory 
     assert.deepEqual(starts.map(call => call.capabilityHash), tasks.map(task => task.capabilityHash));
     assert.equal(new Set(tasks.map(task => task.capabilityHash)).size, 3);
     assert.ok(tasks.every(task => task.capabilityHash !== report().capabilityHash && task.initialBudget));
-    const input = starts[1].params.input.map(item => item.text ?? "").join("");
+    const input = starts[1].params.input.map(item => item.text ?? "").join("") + Object.values(starts[1].params.additionalContext).map(item => item.value).join("\n");
     assert.match(input, /旧检查仅是历史建议/);
     assert.match(input, /不沿用旧任务的工具绑定或权限/);
     assert.ok(!input.includes(receipt().binding.text));

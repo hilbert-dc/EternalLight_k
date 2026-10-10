@@ -24,6 +24,12 @@ export async function resolveTaskBudgetAuthority({ runtimeRequest, projectId, ta
     usagePath = `${root}/generation-runs/${encodeURIComponent(generationRun.id)}/provider-usage`;
   } else {
     const work = await runtimeRequest(`${root}/tasks/${encodeURIComponent(taskId)}/work-task`);
+    const interlude = work?.steps?.find(step => step.currentAttemptId === taskId && step.target?.interludeId);
+    if (interlude && work.projectId === projectId) {
+      const grant = await runtimeRequest(`${root}/tasks/${encodeURIComponent(taskId)}/provider-budget`);
+      return {deadlineAt: grant.deadlineAt, usagePath: `${root}/work-tasks/${encodeURIComponent(work.id)}/provider-usage`,
+        options: taskProviderBudgetOptions(grant, {taskId,workTaskId:work.id,deadlineAt:grant.deadlineAt,now})};
+    }
     if (work?.projectId !== projectId || !["conversation", "direct"].includes(work.kind)
       || typeof work.id !== "string" || !work.id
       || !work.steps?.some((step) => step.currentAttemptId === taskId)) throw new Error("普通任务预算归属不匹配");
@@ -53,6 +59,22 @@ export async function reconcileWorkProviderUsage(runtimeRequest, projectId, work
   return refreshed;
 }
 import { PersistentTaskBudget } from "@eternallight/agent-engine";
+
+export async function reconcileGenerationProviderUsage(runtimeRequest, projectId, run) {
+  if (run?.projectId !== projectId || typeof run.id !== "string" || !run.id || !Array.isArray(run.providerBudget?.charges)) {
+    throw new Error("核账生成任务归属不匹配");
+  }
+  const path = `/api/projects/${encodeURIComponent(projectId)}/generation-runs/${encodeURIComponent(run.id)}`;
+  const pending = run.providerBudget.charges.filter(charge => charge.unknownTokens > 0);
+  for (const charge of pending) {
+    if (typeof charge.taskId !== "string" || !charge.taskId || charge.taskId.length > 160) throw new Error("核账请求身份无效");
+    await runtimeRequest(`${path}/provider-usage`, { method: "POST", body: JSON.stringify({ taskId: charge.taskId }) });
+  }
+  if (!pending.length) return run;
+  const refreshed = await runtimeRequest(path);
+  if (refreshed?.id !== run.id || refreshed.projectId !== projectId) throw new Error("核账后生成任务归属不匹配");
+  return refreshed;
+}
 
 export async function settleTaskProviderBudget(execution, runtimeRequest, taskId) {
   if (!execution.budgetUsagePath) return;

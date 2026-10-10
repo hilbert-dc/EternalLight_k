@@ -120,7 +120,7 @@ async function approvalFixture(failure) {
   const sendTurn = adapter.sendTurn;
   adapter.sendTurn = async function (input, options) {
     turns.push({ operation: this.activeOperation,
-      prompt: typeof input === "string" ? input : input.map(item => item.text ?? "").join("") });
+      prompt: typeof input === "string" ? input : input.map(item => item.text ?? "").join("") + "\n" + Object.values(options?.additionalContext ?? {}).map(item => item.value).join("\n") });
     if (failure === "turn" && this.activeOperation === "assessRevisionOutcome") throw new Error("assessment turn unavailable");
     if (failure === "writer" && this.activeOperation === "generateChapter" && !writerFailed) {
       writerFailed = true;
@@ -183,7 +183,7 @@ for (const failure of [null, "lookup", "turn"]) test(`production exact approval 
       assert.equal(assessment.purpose, "critic");
       assert.equal(assessment.initialBudget, undefined);
       const prompt = turns.find(turn => turn.operation === "assessRevisionOutcome").prompt;
-      const binding = prompt.match(/Novel Runtime任务绑定：\n(\{[^\n]+\})\n\n/);
+      const binding = prompt.match(/(\{"task":\{[^\n]+\}\})/);
       assert.ok(binding, "production runner must send the compact frozen assessment handoff");
       const handoff = JSON.parse(binding[1]);
       assert.equal(handoff.task.purpose, "critic");

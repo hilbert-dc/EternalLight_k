@@ -32,7 +32,8 @@ export async function readActiveTurn(adapter, threadId, turnId, isCurrent, onInt
       adapter.handleLine(JSON.stringify({ method: "turn/completed", params: { threadId,
         turn: { id: turnId, status: turn.status, items: reply ? [{ id: reply.itemId, type: "agentMessage", phase: reply.phase,
           status: "completed", text: reply.text, displayTruncated: reply.truncated }] : [],
-        error: turn.error ? { message: String(turn.error.message ?? "回合失败").slice(0, 2048) } : null } } }));
+        error: turn.error ? { message: String(turn.error.message ?? "回合失败").slice(0, 2048),
+          codexErrorInfo: turn.error.codexErrorInfo } : null } } }));
       if (adapter.protocolFailure) throw new Error(adapter.lastError ?? "模型工具协议校验失败");
     }
     adapter.lastError = null;

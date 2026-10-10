@@ -86,13 +86,16 @@ test("Unrelated Work, root thread, action or origin cannot rebind; cancelled exe
   } finally { await rm(m.directory, { recursive: true, force: true }); }
 });
 
- test("actual tool events project new decision operations as author-readable activities", async () => {
+test("actual tool events project meaningful actions and keep status plumbing diagnostic", async () => {
   const m = await load();
   try {
     let run = m.reduceAgentEvent(m.createAgentRun("继续创作"), { method: "turn/started", params: { threadId: "thread", turn: { id: "turn" } } });
-    for (const [tool, title] of [["read_task_source", "读取写作资料"], ["read_work_status", "核对创作进展"], ["request_work_action", "安排下一步"], ["request_generation_handoff", "准备续写安排"]]) {
+    for (const [tool, title, category] of [["read_task_source", "读取原始资料片段", "read"], ["read_work_status", "内部操作", "diagnostic"], ["request_work_action", "安排下一步", "arrange"], ["request_generation_handoff", "准备续写安排", "arrange"]]) {
       run = m.reduceAgentEvent(run, { method: "item/started", params: { threadId: "thread", turnId: "turn", item: { id: tool, type: "mcpToolCall", tool, status: "running" } } });
-      assert.equal(run.steps.find(item => item.id === tool)?.title, title);
+      const step = run.steps.find(item => item.id === tool);
+      assert.equal(step.title, title);
+      assert.equal(step.operation.category, category);
+      assert.equal(step.operation.tool, tool);
     }
   } finally { await rm(m.directory, { recursive: true, force: true }); }
 });
@@ -123,4 +126,43 @@ test("resume initializes only exact persisted Work origin and binds an already q
     const unknown = structuredClone(work); unknown.steps[1].target.workDecision.originTaskId = undefined;
     assert.equal(m.createRecoveredExecutionOwner(unknown), null);
   } finally { await rm(m.directory, { recursive: true, force: true }); }
+});
+
+test("background Work continuation streams in its original conversation without a send pipeline", async () => {
+  const m = await load();
+  try {
+    const event = decision();
+    const task = event.params.workflow.task;
+    const work = { id:'work-root',projectId:'project',threadId:'root-thread',kind:'generation',status:'running',goal:'继续写作',steps:[{
+      id:'decision-step-1',operation:'advisory',target:task.target,currentAttemptId:task.id,
+      attempts:[{id:task.id,threadId:task.threadId,turnId:null}],
+    }] };
+    const prior = {...m.createAgentRun('原作者要求'),state:'completed',taskId:'previous',threadId:'root-thread',answer:'前一步完成'};
+    const attached = m.applyBackgroundExecutionEvent(prior,event,[work],'project','root-thread');
+    assert.equal(attached.rootThreadId,'root-thread');
+    assert.equal(attached.run.taskId,'decision-1'); assert.equal(attached.run.state,'running');
+    assert.equal(attached.run.history.filter(item=>item.taskId==='previous').length,1);
+    assert.equal(m.applyBackgroundExecutionEvent(attached.run,event,[work],'project','root-thread'),null);
+    let streamed = m.reduceAgentEvent(attached.run, { method: 'turn/started', params: { threadId: 'root-thread', turn: { id: 'background-turn' } } });
+    const scope = { threadId: 'root-thread', turnId: 'background-turn' };
+    streamed = m.reduceAgentEvent(streamed, { method: 'item/started', params: { ...scope, item: { id: 'progress', type: 'agentMessage', phase: 'commentary', text: '' } } });
+    for (const delta of ['已读回保存的正文。', '正在检查前后衔接。']) {
+      streamed = m.reduceAgentEvent(streamed, { method: 'item/agentMessage/delta', params: { ...scope, itemId: 'progress', delta } });
+    }
+    assert.equal(streamed.steps.find(step => step.id === 'message:progress').text, '已读回保存的正文。正在检查前后衔接。');
+    assert.equal(streamed.steps.find(step => step.id === 'message:progress').messagePhase, 'commentary');
+    for (const status of ['running', 'completed']) {
+      streamed = m.reduceAgentEvent(streamed, { method: status === 'running' ? 'item/started' : 'item/completed', params: { ...scope, item: { id: 'read-source', type: 'mcpToolCall', tool: 'read_task_source', status } } });
+      assert.equal(streamed.steps.find(step => step.id === 'read-source').status, status);
+    }
+    assert.equal(m.reduceAgentEvent(streamed, { method: 'item/agentMessage/delta', params: { ...scope, threadId: 'other-thread', itemId: 'progress', delta: '无关内容' } }), streamed);
+    assert.equal(streamed.history.filter(item => item.taskId === 'previous').length, 1);
+    for (const changed of [{projectId:'other'},{threadId:'other'},{status:'paused'},{status:'cancelled'}]) {
+      assert.equal(m.applyBackgroundExecutionEvent(prior,event,[{...work,...changed}],'project','root-thread'),null);
+    }
+    assert.equal(m.applyBackgroundExecutionEvent(prior,event,[work],'project','other-thread'),null);
+    assert.equal(m.applyBackgroundExecutionEvent({...prior,state:'cancelled'},event,[work],'project','root-thread'),null);
+    const forged = structuredClone(event); forged.params.workflow.executionBinding.originTaskId='other-author';
+    assert.equal(m.applyBackgroundExecutionEvent(prior,forged,[work],'project','root-thread'),null);
+  } finally { await rm(m.directory,{recursive:true,force:true}); }
 });

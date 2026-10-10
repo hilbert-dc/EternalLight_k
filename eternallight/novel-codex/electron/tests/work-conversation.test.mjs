@@ -12,7 +12,14 @@ test("public activity excludes reasoning and keeps author commentary distinct fr
     const output = join(directory, "logic.mjs");
     await build({ entryPoints: [new URL("../../src/work-conversation.ts", import.meta.url).pathname],
       outfile: output, bundle: true, format: "esm", platform: "node" });
-    const { conversationActivity, conversationWorkSteps, sameConversationFailure, taskContainsTurn, conversationItems, attemptContainsRun, primaryReply } = await import(pathToFileURL(output).href);
+    const { currentWorkError, conversationActivity, conversationWorkSteps, sameConversationFailure, taskContainsTurn, conversationItems, attemptContainsRun, primaryReply } = await import(pathToFileURL(output).href);
+    const failedAttempt = { id: "old", status: "failed", error: "old failure" };
+    const failedWork = { status: "blocked", error: null, steps: [{ status: "blocked", currentAttemptId: "old", attempts: [failedAttempt] }] };
+    assert.equal(currentWorkError(failedWork), "old failure");
+    assert.equal(currentWorkError({ ...failedWork, status: "completed" }), null);
+    assert.equal(currentWorkError({ ...failedWork, steps: [{ ...failedWork.steps[0], status: "superseded" }] }), null);
+    assert.equal(currentWorkError({ ...failedWork, steps: [{ ...failedWork.steps[0], currentAttemptId: "new", attempts: [failedAttempt, { id: "new", status: "completed", error: null }] }] }), null);
+    assert.equal(currentWorkError({ ...failedWork, error: "current task failure" }), "current task failure");
     const commentary = { id: "public", kind: "system", title: "Agent 进度", text: "我正在检查第二章的时间线。", messagePhase: "commentary", status: "completed" };
     const tool = { id: "tool", kind: "tool", title: "读取本章正文", detail: '{"secretFixtureArgument":true}', status: "running" };
     const reasoning = { id: "reason", kind: "system", sourceType: "reasoning", title: "正在分析", status: "running" };
@@ -21,6 +28,18 @@ test("public activity excludes reasoning and keeps author commentary distinct fr
     assert.deepEqual(conversationActivity(run), { title: "读取本章正文", commentary: commentary.text });
     assert.deepEqual(conversationActivity({ ...run, steps: [reasoning] }), { title: "正在分析", commentary: "" });
     assert.deepEqual(conversationActivity({ ...run, steps: [] }), { title: "正在处理", commentary: "" });
+    const maintenance = { id: "context-compaction", kind: "system", sourceType: "contextCompaction", title: "压缩上下文", status: "running" };
+    const failedMaintenance = { ...maintenance, id: "failed-maintenance", status: "failed" };
+    assert.deepEqual(conversationWorkSteps({ steps: [maintenance, failedMaintenance, commentary, tool] }), [maintenance, failedMaintenance, commentary, tool]);
+    const untypedMaintenance = { ...maintenance, sourceType: undefined };
+    assert.deepEqual(conversationWorkSteps({ steps: [untypedMaintenance] }), []);
+    assert.equal(conversationActivity({ ...run, steps: [untypedMaintenance] }).title, "正在处理");
+    assert.equal(conversationActivity({ ...run, steps: [maintenance] }).title, "正在整理对话，稍后继续");
+    assert.equal(conversationActivity({ ...run, state: "completed", steps: [maintenance] }).title, "正在处理");
+    assert.equal(conversationActivity({ ...run, steps: [{ ...maintenance, id: "retry:turn", title: "正在重试当前请求" }] }).title, "正在重试请求，稍后继续");
+    assert.equal(conversationActivity({ ...run, steps: [{ ...maintenance, id: "retry:turn", title: "正在重试当前请求" }, tool] }).title, tool.title);
+    const steer = { id: "steer:1", kind: "system", title: "已追加创作指令", detail: "补充要求", status: "completed" };
+    assert.deepEqual(conversationWorkSteps({ steps: [maintenance, steer] }), [maintenance, steer]);
     assert.deepEqual(conversationActivity({ ...run, answer: "已有部分公开回复", steps: [commentary, { ...tool, status: "completed" }, reasoning] }),
       { title: "正在分析", commentary: commentary.text });
     assert.equal(sameConversationFailure("Error invoking remote method 'agent:resume': Error: precise failure", "precise failure"), true);
@@ -203,34 +222,5 @@ test("generation continuation reuses only its exact original Work author attempt
     }
     assert.equal(hasOriginalAuthorMessage(generation, []), false);
     assert.equal(hasOriginalAuthorMessage(generation, [parent, { ...parent, id: "duplicate" }]), false);
-  } finally { await rm(directory, { recursive: true, force: true }); }
-});
-
-
-test("internal completed replies move under their exact step while failures and the last reply stay visible", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "work-reply-placement-"));
-  try {
-    const output = join(directory, "logic.mjs");
-    await build({ entryPoints: [new URL("../../src/work-conversation.ts", import.meta.url).pathname],
-      outfile: output, bundle: true, format: "esm", platform: "node" });
-    const { intermediateReplyStep } = await import(pathToFileURL(output).href);
-    const attempt = { id: "writer", threadId: "writer-thread", turnId: "turn", status: "completed" };
-    const run = { taskId: attempt.id, threadId: attempt.threadId, turnId: attempt.turnId, state: "completed" };
-    const writer = { id: "write", status: "completed", attempts: [attempt] };
-    const task = { steps: [writer, { id: "decision", status: "queued", attempts: [] }] };
-    assert.deepEqual(intermediateReplyStep(task, run), { stepId: "write", attemptId: "writer" });
-    assert.equal(intermediateReplyStep({ steps: [writer] }, run), null);
-    assert.equal(intermediateReplyStep(task, { ...run, state: "error", error: "save uncertain" }), null);
-    assert.equal(intermediateReplyStep(task, { ...run, state: "running" }), null);
-    assert.equal(intermediateReplyStep(task, { ...run, threadId: "foreign" }), null);
-    assert.equal(intermediateReplyStep({ steps: [writer, writer] }, run), null);
-    assert.equal(intermediateReplyStep({ steps: [{ ...writer, attempts: [{ ...attempt, error: "uncertain" }] }, task.steps[1]] }, run), null);
-    assert.equal(intermediateReplyStep({ steps: [writer, { ...task.steps[1], status: "cancelled" }] }, run), null);
-    const failed = { ...writer, status: "superseded", attempts: [{ ...attempt, status: "failed", error: "invalid arguments" }] };
-    const failedRun = { ...run, state: "error", error: "invalid arguments" };
-    assert.deepEqual(intermediateReplyStep({ steps: [failed, task.steps[1]] }, failedRun), { stepId: "write", attemptId: "writer" });
-    assert.equal(intermediateReplyStep({ steps: [{ ...failed, status: "blocked" }, task.steps[1]] }, failedRun), null);
-    assert.equal(intermediateReplyStep({ steps: [failed] }, failedRun), null);
-
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

@@ -14,15 +14,15 @@ const command = `${process.execPath} ${fixture}`;
 test("generation leaf sends its unique operation after Runtime freezes the whole author goal", async () => {
   const authorGoal = "[要求版本 0] 实际创作并保存第1–3章，每章1500–2000个中文字符；保存必要规划，不正式发布。";
   const operations = {
-    generateBrief: { kind: "brief", tool: "save_brief", responsibility: "只建立本作品创作简报候选" },
-    generateOutline: { kind: "outline", tool: "save_outline", responsibility: "只生成全书层级大纲候选" },
-    generatePlan: { kind: "plan", tool: "save_chapter_plans", responsibility: "只生成近章章纲候选" },
-    generateChapter: { kind: "draft", tool: "save_draft_checkpoint", responsibility: "只生成或修改冻结 target" },
+    generateBrief: { kind: "brief", tool: "save_brief", responsibility: "只保存简报候选" },
+    generateOutline: { kind: "outline", tool: "save_outline", responsibility: "全书主线冲突与目标" },
+    generatePlan: { kind: "plan", tool: "save_chapter_plans", responsibility: "不自行更换起章号" },
+    generateChapter: { kind: "draft", tool: "save_draft_checkpoint", responsibility: "只改选中组正文" },
   };
   for (const [operation, contract] of Object.entries(operations)) {
     const runtime = runtimeFixture();
     const runId = `generation-${"e".repeat(32)}`, workId = `work-${runId}`;
-    const owner = { id: workId, status: "running", version: 0, kind: "generation", steps: [],
+    const owner = { id: workId, projectId: "project", threadId: "thr-test", status: "running", version: 0, kind: "generation", steps: [],
       initialBudget: { maxRequests: null, maxTokens: null, deadlineAt: null } };
     runtime.workTasks.set(workId, owner);
     const runPath = `/api/projects/project/generation-runs/${runId}`;
@@ -57,12 +57,14 @@ test("generation leaf sends its unique operation after Runtime freezes the whole
       return result;
     }, command);
     const send = adapter.sendTurn.bind(adapter);
-    adapter.sendTurn = async (input, options) => { sent.push(input); return send(input, options); };
+    adapter.sendTurn = async (input, options) => { sent.push({ input, additionalContext: options.additionalContext, operation: adapter.activeOperation }); return send(input, options); };
     try {
       assert.equal((await handlers.get("agent:continue-work")(rendererEvent(), "project", runId)).status, "completed");
       assert.equal(sent.length, 1);
-      const text = sent[0].map(item => item.text).join("");
-      assert.ok(text.includes(contract.responsibility) && text.includes(contract.tool), operation);
+      const text = sent[0].input.map(item => item.text).join("") + Object.values(sent[0].additionalContext).map(item => item.value).join("\n");
+      assert.ok(text.includes(contract.responsibility), operation);
+      assert.equal(sent[0].operation, operation, "Adapter exposes only this task's Native operation capability");
+      assert.equal(JSON.parse(sent[0].additionalContext.novelTask.value).task.operation, operation);
       assert.ok(text.includes("read_task_source"), "the worker reads frozen source pages on demand");
       assert.ok(text.includes(authorGoal), "complete author source remains present");
       assert.equal(frozen[0].inputManifest.authorIntent, authorGoal);
@@ -78,7 +80,7 @@ test("automatic generation executes commitment extraction through the existing A
   const budgetDb = join(directory, "engine-budget.sqlite3");
   const runtime = runtimeFixture();
   const runId = `generation-${"c".repeat(32)}`;
-  runtime.workTasks.set(`work-${runId}`, { id: `work-${runId}`, status: "running", version: 0, kind: "generation", steps: [{ id: "admitted-step", operation: "extractCommitments", status: "queued" }] });
+  runtime.workTasks.set(`work-${runId}`, { id: `work-${runId}`, projectId: "project", threadId: "thr-test", status: "running", version: 0, kind: "generation", steps: [{ id: "admitted-step", operation: "extractCommitments", status: "queued" }] });
   const runPath = `/api/projects/project/generation-runs/${runId}`;
   let run = { id: runId, projectId: "project", version: 7, status: "running", stage: "coordinate", activeTaskId: null,
     deadlineAt: Math.floor(Date.now() / 1000) + 600,
@@ -138,7 +140,7 @@ test("desktop binds feedback decisions to the author assessment and resumes the 
     if (path.endsWith("/scene-assessments")) return { revisionId: "assessment-rev", state: "current", assessment: { assessments: [] } };
     if (path === runPath) return { version: 7 };
     if (path.endsWith("/resolve-feedback")) return { status: "running" };
-    if (path.endsWith(`/work-tasks/work-${runId}`)) return { status: "running" };
+    if (path.endsWith(`/work-tasks/work-${runId}`)) return { id: `work-${runId}`, projectId: "project", threadId: "thr-test", status: "running", kind: "generation", version: 0, steps: [] };
     if (path.endsWith("/next")) return { run: { id: runId, status: "completed" }, action: null };
     throw new Error(`Unexpected Runtime request: ${path}`);
   }, command);
@@ -152,6 +154,7 @@ test("desktop binds feedback decisions to the author assessment and resumes the 
     assert.deepEqual(requests.slice(1), [
       { path: runPath, body: null, method: "GET" },
       { path: `${runPath}/resolve-feedback`, body: { expectedVersion: 7, assessmentRevisionId: "assessment-rev", choice: "repairDraft", instruction: "补上第二场事件" }, method: "POST" },
+      { path: `/api/projects/project/work-tasks/work-${runId}`, body: null, method: "GET" },
       { path: `/api/projects/project/work-tasks/work-${runId}`, body: null, method: "GET" },
       { path: `${runPath}/next`, body: {}, method: "POST" },
     ]);
@@ -189,11 +192,11 @@ test("opening a work reconciles terminal generation usage without hiding an unse
   try {
     const list = () => handlers.get("runtime:list-generation-runs")(rendererEvent(), "project");
     const unsettled = await list();
-    assert.equal(unsettled.runs[0].usageUnsettled, true);
+    assert.deepEqual(unsettled.runs[0].usageCheck, { state: "unavailable", phase: "usageSettlement", code: null });
     assert.equal(unsettled.runs[0].providerBudget.usedRequests, 0);
     canCharge = true;
     const settled = await list();
-    assert.equal(settled.runs[0].usageUnsettled, false);
+    assert.deepEqual(settled.runs[0].usageCheck, { state: "current" });
     assert.equal(settled.runs[0].providerBudget.unknownTokens, 20);
     assert.deepEqual(await list(), settled);
     assert.equal(chargeCalls, 2);

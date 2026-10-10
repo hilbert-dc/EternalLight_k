@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { PersistentTaskBudget } from "@eternallight/agent-engine";
 import { registerChapterRebindHandlers } from "../../chapter-rebind-handlers.mjs";
 import { registerGenerationReplanHandlers } from "../../generation-replan-handlers.mjs";
+import { taskProviderBudgetOptions } from "../../task-provider-budget.mjs";
 import { isTrustedIpcSender } from "../../navigation-policy.mjs";
 import { seedRebindRuntime } from "./rebind-runtime-seed.mjs";
 import { completeReboundChapter } from "./rebind-runtime-continuation.mjs";
@@ -29,10 +30,20 @@ async function startRuntime() {
   runtime.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-4000); });
   return new Promise((resolve, reject) => {
     const lines = createInterface({ input: runtime.stdout });
-    const timeout = setTimeout(() => reject(new Error(`Runtime startup timed out: ${stderr}`)), 10000);
-    lines.on("line", line => { if (line.startsWith("Story Runtime listening on ")) { clearTimeout(timeout); resolve(line.slice("Story Runtime listening on ".length)); } });
-    runtime.once("error", error => { clearTimeout(timeout); reject(error); });
-    runtime.once("exit", () => { clearTimeout(timeout); reject(new Error(`Runtime exited: ${stderr}`)); });
+    let settled = false;
+    const complete = (error, origin) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      lines.close();
+      if (error) reject(error); else resolve(origin);
+    };
+    // Match the bounded startup allowance for a cold Native executable. This
+    // fixture wait does not change any model, generation or provider budget.
+    const timeout = setTimeout(() => complete(new Error(`Runtime startup timed out: ${stderr}`)), 180000);
+    lines.on("line", line => { if (line.startsWith("Story Runtime listening on ")) complete(null, line.slice("Story Runtime listening on ".length)); });
+    runtime.once("error", error => complete(error));
+    runtime.once("exit", () => complete(new Error(`Runtime exited: ${stderr}`)));
     runtime.stdin.end(JSON.stringify({ authorToken: author, candidateToken: candidate }) + "\n");
   });
 }
@@ -61,20 +72,24 @@ async function main() {
     };
     const request = (path, body, token) => transport(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }, token);
     const chargedTaskIds = new Set();
+    const taskBudgets = new Map();
+    const bindBudget = async (projectId, task) => {
+      const grant = await request(`/api/projects/${projectId}/tasks/${task.id}/provider-budget`);
+      taskBudgets.set(task.id, new PersistentTaskBudget({ databasePath: join(directory, "engine-budget.sqlite3"), runId: task.id,
+        ...taskProviderBudgetOptions(grant, { taskId: task.id, workTaskId: grant.workTaskId, deadlineAt: grant.deadlineAt }) }));
+    };
     const recordUsage = async (projectId, runId, taskId) => {
       if (!chargedTaskIds.has(taskId)) {
         const task = await request(`/api/projects/${projectId}/tasks/${taskId}`);
         assert.ok(["completed", "failed", "cancelled"].includes(task.status));
-        const grant = await request(`/api/projects/${projectId}/tasks/${taskId}/provider-budget`);
-        const budget = new PersistentTaskBudget({ databasePath: join(directory, "engine-budget.sqlite3"), runId: taskId,
-          id: grant.budgetId, maxRequests: grant.maxRequests, maxTokens: grant.maxTokens,
-          deadlineAt: grant.deadlineAt });
+        const budget = taskBudgets.get(taskId);
+        assert.ok(budget, "a task must bind its active execution budget before producing its terminal receipt");
         budget.complete(task.status);
         chargedTaskIds.add(taskId);
       }
       return request(`/api/projects/${projectId}/generation-runs/${runId}/provider-usage`, { taskId });
     };
-    const fixture = await seedRebindRuntime(request, (path, body) => request(path, body, candidate), capability, recordUsage);
+    const fixture = await seedRebindRuntime(request, (path, body) => request(path, body, candidate), capability, recordUsage, bindBudget);
     const trusted = { handle(channel, listener) { ipcMain.handle(channel, (event, ...args) => {
       assert.ok(isTrustedIpcSender(event, window?.webContents, { isPackaged: true, packagedEntry: entry }), "Untrusted sender");
       return listener(event, ...args);
@@ -128,6 +143,34 @@ async function main() {
     };
     const contains = text => evaluate(`document.body.textContent.includes(${JSON.stringify(text)})`);
     const enter = (selector, value) => evaluate(`(() => { const t=document.querySelector(${JSON.stringify(selector)}); const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set; set.call(t,${JSON.stringify(value)}); t.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+    const readWriterBinding = async () => {
+      const current = await request(`${fixture.base}/creative-workspace`);
+      const binding = current.chapterPlanBindings.find(item => item.chapter_id === fixture.chapterId);
+      const position = binding.writerProjection;
+      const query = new URLSearchParams({ purpose: "writer", projectRevision: String(current.revision),
+        readingChapter: "1", sceneOrder: "1", budget: "24", byteBudget: "60000" });
+      if (position.povCharacterId !== null) query.set("povCharacterId", position.povCharacterId);
+      if (position.storyTime !== null) query.set("storyTime", String(position.storyTime));
+      const context = await request(`${fixture.base}/context?${query}`);
+      assert.equal(context.taskId, null, "author preview is not a frozen writer task");
+      assert.equal(context.purpose, "writer");
+      assert.equal(context.coverage.semanticCompleteness, "unknown");
+      const plan = context.plannedEffects[0].value;
+      assert.equal(plan.planRevisionId, binding.plan_revision_id);
+      const chapter = plan.chapters.find(item => item.chapterNumber === 1);
+      const draft = context.relevantText.find(item => item.content.chapterId === fixture.chapterId);
+      assert.ok(draft, "the actual author preview must include this saved source");
+      assert.equal(draft.sourceRevisionId, fixture.draft.revisionId);
+      assert.equal(draft.content.body ?? draft.content.sceneGroups.map(group => group.body.trim()).join("\n\n---\n\n"), "他藏好密函。");
+      assert.equal(current.chapters[0].candidate.id, fixture.draft.revisionId);
+      assert.equal(draft.authority, "candidate");
+      assert.match(context.contentHash, /^[0-9a-f]{64}$/);
+      return { planTitle: chapter.publicTitle, guidance: chapter.writerGuidance,
+        position: context.target.position,
+        currentDraft: { chapterNumber: draft.content.chapterNumber, authority: draft.authority,
+          sourceRevisionId: "<当前候选修订>" },
+        coverage: { complete: context.coverage.complete, semanticCompleteness: context.coverage.semanticCompleteness } };
+    };
     await open(); await click("预览章纲调整");
     await waitFor(() => evaluate(`document.querySelector('.chapter-plan-rebind .rebind-preserved-prose')?.textContent.includes('他藏好密函。')`), "preserved source in completed preview");
     assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent==='确认替换章纲关联').disabled`), true);
@@ -136,16 +179,20 @@ async function main() {
     assert.equal((await request(`${fixture.base}/creative-workspace`)).chapters[0].candidate.body, "他藏好密函。");
     await click("放弃未保存输入");
     await waitFor(() => evaluate(`document.querySelector('textarea[aria-label="场景 1 正文"]').value === '他藏好密函。'`), "discard reloads persisted author draft");
-    await waitFor(() => contains("语义完整性尚未认证"), "real Writer Context Pack rendered");
     assert.equal(await evaluate(`document.querySelector('.standalone-planning-card') === null`), true);
-    assert.equal(await evaluate(`document.querySelector('.writer-runtime-preview strong').textContent`), "焚信");
-    assert.equal(await evaluate(`document.querySelector('.writer-runtime-preview').textContent.includes('主角焚烧密函。')`), true);
-    const previewSnapshot = await evaluate(`(() => { const p=document.querySelector('.writer-runtime-preview'); return {title:p.querySelector('summary').textContent,description:p.querySelector('p').textContent,planTitle:p.querySelector('strong').textContent,guidance:p.querySelectorAll('p')[1].textContent,position:[...p.querySelectorAll('small')].find(e=>e.textContent.startsWith('公开承诺')).textContent,source:[...p.querySelectorAll('small')].find(e=>e.textContent.startsWith('当前目标稿')).textContent,coverage:[...p.querySelectorAll('small')].find(e=>e.textContent.startsWith('覆盖：')).textContent}; })()`);
+    assert.equal(await evaluate(`document.querySelector('.writer-runtime-preview') === null`), true,
+      "the simple workspace does not restore a diagnostic context pack for this test");
+    const previewSnapshot = await readWriterBinding();
+    assert.equal(previewSnapshot.planTitle, "焚信");
+    assert.equal(previewSnapshot.guidance, "主角焚烧密函。");
+    assert.match(fixture.draft.revisionId, /^draft-[0-9a-f]{32}$/);
     if (process.env.NOVEL_CODEX_UI_SCREENSHOT) {
-      await evaluate(`document.querySelector('.writer-runtime-preview').open=true; document.querySelector('.writer-runtime-preview').scrollIntoView({block:'start'})`);
+      await evaluate(`document.querySelector('.chapter-plan-rebind').scrollIntoView({block:'start'})`);
       await writeFile(process.env.NOVEL_CODEX_UI_SCREENSHOT, (await window.webContents.capturePage()).toPNG());
     }
-    await evaluate(`document.querySelector('input[type="checkbox"]').click()`);
+    await waitFor(() => evaluate(`document.querySelector('.rebind-acknowledgment input[type="checkbox"]')?.disabled === false`), "chapter rebind acknowledgment is available");
+    await evaluate(`document.querySelector('.rebind-acknowledgment input[type="checkbox"]').click()`);
+    assert.equal(await evaluate(`document.querySelector('.rebind-acknowledgment input[type="checkbox"]').checked`), true);
     await click("确认替换章纲关联");
     await waitFor(() => contains("关联已更新至作品版本"), "binding receipt");
     const rebound = await request(fixture.uri);
@@ -156,9 +203,10 @@ async function main() {
     assert.equal(workspace.chapters[0].candidate.id, fixture.draft.revisionId);
     assert.equal(workspace.chapterPlanBindings[0].plan_revision_id, fixture.newPlan.revisionId);
     assert.equal(workspace.chapterPlanBindings[0].writerProjection.publicTitle, "藏信");
-    await waitFor(() => evaluate(`document.querySelector('.writer-runtime-preview strong')?.textContent === '藏信'`), "parent preview follows confirmed immutable binding");
-    const reboundPreviewSnapshot = await evaluate(`(() => { const p=document.querySelector('.writer-runtime-preview'); return {planTitle:p.querySelector('strong').textContent,guidance:p.querySelectorAll('p')[1].textContent,position:[...p.querySelectorAll('small')].find(e=>e.textContent.startsWith('公开承诺')).textContent}; })()`);
-    assert.deepEqual(reboundPreviewSnapshot, { planTitle: "藏信", guidance: "保留作者藏信稿，记录证词。", position: "公开承诺：无 · 视角：zhangheng · 故事时间：20" });
+    const reboundPreviewSnapshot = await readWriterBinding();
+    assert.equal(reboundPreviewSnapshot.planTitle, "藏信");
+    assert.equal(reboundPreviewSnapshot.guidance, "保留作者藏信稿，记录证词。");
+    assert.deepEqual(reboundPreviewSnapshot.position, { readingChapter: 1, sceneOrder: 1, povCharacterId: "zhangheng", storyTime: 20 });
     await click("简报页");
     await waitFor(() => contains("章纲已更新，需重新规划"), "parent shows new run state");
     const blockedSnapshot = await evaluate(`[...document.querySelectorAll('.creative-alert[role="status"]')].find(e=>e.textContent.includes('自动创作')).textContent.trim()`);

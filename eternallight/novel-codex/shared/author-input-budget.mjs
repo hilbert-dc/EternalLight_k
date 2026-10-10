@@ -21,8 +21,10 @@ export function modelInputTokenBudget(text) {
   return Math.max(...counts);
 }
 
-export function authorIntentError(text) {
-  if (typeof text !== "string" || !text.trim()) return "创作意图不能为空";
+export function authorIntentError(text, { imageAssetRevisionIds = [] } = {}) {
+  const hasImages = Array.isArray(imageAssetRevisionIds) && imageAssetRevisionIds.length > 0 && imageAssetRevisionIds.length <= 5
+    && imageAssetRevisionIds.every(id => typeof id === "string" && id.trim() === id && id.length > 0 && id.length <= 160 && !/[\p{Cc}]/u.test(id));
+  if (typeof text !== "string" || !text.trim() && !hasImages) return "创作意图不能为空";
   const characters = text.length;
   const bytes = new TextEncoder().encode(text).byteLength;
   if (characters > MAX_AUTHOR_INTENT_CHARACTERS || bytes > MAX_AUTHOR_INTENT_BYTES) {
@@ -33,7 +35,7 @@ export function authorIntentError(text) {
   return null;
 }
 
-export function validateAuthorIntent(text) {
-  const error = authorIntentError(text);
+export function validateAuthorIntent(text, options) {
+  const error = authorIntentError(text, options);
   if (error) throw new Error(error);
 }
