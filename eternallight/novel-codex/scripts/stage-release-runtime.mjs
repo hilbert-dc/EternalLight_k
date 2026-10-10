@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { readBuildIdentity, verifyBuildIdentity } from "./build-provenance.mjs";
 import { resolveBuildLayout } from "./build-layout.mjs";
 import { certificationPath } from "./certification-publication.mjs";
+import { stageMediaRuntimeBundle } from "./media-runtime-bundle.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -55,7 +56,8 @@ function signNestedBinaries(paths, signer = process.env.NOVEL_CODEX_NESTED_SIGNE
   }
 }
 
-export function stageReleaseRuntime({ source, runtimeServerSource, mcpServerSource, provenanceSource = join(root, "codex-runtime", "build-identities", `${process.platform}-${process.arch}.json`), destination = defaultLayout.resources, platform = defaultLayout.platform, architecture = defaultLayout.architecture, nestedSigner = null }) {
+export function stageReleaseRuntime({ source, runtimeServerSource, mcpServerSource, mediaRuntimeSource = process.env.NOVEL_CODEX_RELEASE_MEDIA_RUNTIME, provenanceSource = join(root, "codex-runtime", "build-identities", `${process.platform}-${process.arch}.json`), destination = defaultLayout.resources, platform = defaultLayout.platform, architecture = defaultLayout.architecture, nestedSigner = null }) {
+  if (!mediaRuntimeSource) throw new Error("必须提供经过校验的便携媒体组件目录 NOVEL_CODEX_RELEASE_MEDIA_RUNTIME");
   if (!runtimeServerSource || !mcpServerSource) throw new Error("必须提供固定的 Creative Runtime 与 MCP 可执行文件");
   const repositoryRoot = resolve(root, "../..");
   const buildIdentity = readBuildIdentity(resolve(provenanceSource));
@@ -131,6 +133,8 @@ export function stageReleaseRuntime({ source, runtimeServerSource, mcpServerSour
   for (const path of Object.values(sourceFiles)) {
     if (!statSync(path).isFile() && !statSync(path).isDirectory()) throw new Error(`发布来源缺失：${path}`);
   }
+  const mediaRuntime = stageMediaRuntimeBundle({ sourceDirectory: resolve(mediaRuntimeSource), destinationDirectory: join(resolve(destination), "media-runtime"), platform, architecture,
+    nestedSigner: typeof nestedSigner === "function" ? nestedSigner : path => signNestedBinaries([path], nestedSigner) });
   const releaseManifest = {
     version: 1,
     product: {
@@ -163,6 +167,7 @@ export function stageReleaseRuntime({ source, runtimeServerSource, mcpServerSour
       conformanceRunnerSha256: digest(sourceFiles.conformanceRunner),
       conformanceMcpSha256: digest(sourceFiles.conformanceMcp),
       storyCoreSha256: treeDigest(sourceFiles.storyCore),
+      mediaRuntimeManifestSha256: mediaRuntime.manifestSha256,
       files: null,
     },
     reports: (process.env.NOVEL_CODEX_RELEASE_REPORTS ?? "").split(",").map((value) => value.trim()).filter(Boolean),
@@ -178,6 +183,7 @@ if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
     source: process.env.NOVEL_CODEX_RELEASE_CLI,
     runtimeServerSource: process.env.NOVEL_CODEX_RELEASE_RUNTIME_SERVER,
     mcpServerSource: process.env.NOVEL_CODEX_RELEASE_MCP_SERVER,
+    mediaRuntimeSource: process.env.NOVEL_CODEX_RELEASE_MEDIA_RUNTIME,
     provenanceSource: process.env.NOVEL_CODEX_RELEASE_PROVENANCE,
     destination: process.env.NOVEL_CODEX_RELEASE_RESOURCES,
   });

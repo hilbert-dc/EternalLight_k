@@ -55,6 +55,10 @@ jobs:
           git remote add upstream https://github.com/openai/codex.git
           git fetch upstream main
       - run: npm ci
+      - name: Verify product and engine architecture boundaries
+        run: npm run architecture:check
+      - name: Verify boundary checker rejects cross-layer dependencies
+        run: npm run test:architecture
       - name: Build and attest App Server used by integration tests
         run: npm run build:codex-runtime
       - name: Bind the local CLI policy to this runner's build
@@ -69,6 +73,8 @@ jobs:
       - run: npm run test:agent
       - name: Test Electron UI
         run: xvfb-run -a npm run test:ui
+      - name: Test conversation control and durable recovery
+        run: xvfb-run -a npm run test:task-controls
 
   package:
     name: Independent package (${{ matrix.os }})

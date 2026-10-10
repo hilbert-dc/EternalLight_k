@@ -4,9 +4,11 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { codexSourceTreeDigest, defineBuildIdentity } from "./build-provenance.mjs";
 import { resolveBuildLayout } from "./build-layout.mjs";
+import { assertCodexMigrationVersionsUnique } from "./verify-migration-identities.mjs";
 
 const { productRoot, repositoryRoot } = resolveBuildLayout();
 const codexRoot = join(repositoryRoot, "codex-rs");
+assertCodexMigrationVersionsUnique(repositoryRoot);
 const profile = process.env.NOVEL_CODEX_CARGO_PROFILE?.trim() || "debug";
 if (!["debug", "release"].includes(profile)) throw new Error("NOVEL_CODEX_CARGO_PROFILE must be debug or release");
 const command = ["cargo", "build", "--locked", "--message-format=json-render-diagnostics", ...(profile === "release" ? ["--release"] : []), "-p", "codex-cli", "--bin", "codex"];

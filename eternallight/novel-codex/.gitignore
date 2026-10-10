@@ -11,3 +11,10 @@ release/
 
 # Local packaged conversation acceptance build
 release-conversation/
+
+# Local acceptance runtime data and packaged outputs
+.experience-100chapters/
+.release-startup-sample.txt
+release-fresh/
+release-ready/
+release-verified/

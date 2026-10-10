@@ -8,6 +8,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { readBuildIdentity } from "./build-provenance.mjs";
 import { resolveBuildLayout } from "./build-layout.mjs";
+import { verifyMediaRuntimeBundle } from "./media-runtime-bundle.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -124,7 +125,7 @@ async function verifyRuntime(path, timeoutMs) {
   }
 }
 
-export async function verifyReleaseRuntime({ resources = defaultLayout.resources, platform = defaultLayout.platform, timeoutMs = 30_000 } = {}) {
+export async function verifyReleaseRuntime({ resources = defaultLayout.resources, platform = defaultLayout.platform, timeoutMs = 30_000, electronExecutable } = {}) {
   const resolvedResources = resolve(resources);
   const executableSuffix = platform === "win32" ? ".exe" : "";
   const cli = join(resolvedResources, "codex-runtime", "bin", `codex${executableSuffix}`);
@@ -132,6 +133,8 @@ export async function verifyReleaseRuntime({ resources = defaultLayout.resources
   const mcp = join(resolvedResources, "runtime", "bin", `novel-workspace-mcp${executableSuffix}`);
   const manifest = JSON.parse(readFileSync(join(resolvedResources, "release-manifest.json"), "utf8"));
   verifyDeclaredFiles(resolvedResources, manifest.resources.files);
+  const mediaRuntime = verifyMediaRuntimeBundle({ directory: join(resolvedResources, "media-runtime"), platform, architecture: manifest.target.architecture, smoke: true, electronExecutable });
+  assertEqual(mediaRuntime.manifestSha256, manifest.resources.mediaRuntimeManifestSha256, "媒体组件清单");
   const buildIdentityPath = join(resolvedResources, "codex-runtime", "build-identity.json");
   const buildIdentity = readBuildIdentity(buildIdentityPath);
   assertEqual(buildIdentity.identityId, manifest.codex.buildIdentityId, "Codex BuildIdentity");
@@ -148,10 +151,10 @@ export async function verifyReleaseRuntime({ resources = defaultLayout.resources
   assertEqual(version.stdout.trim(), manifest.codex.binaryVersion, "Codex CLI 版本");
   await verifyMcp(mcp, timeoutMs);
   await verifyRuntime(runtime, timeoutMs);
-  return { cli: "verified", mcp: "verified", runtime: "verified" };
+  return { cli: "verified", mcp: "verified", runtime: "verified", media: "verified" };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
-  const result = await verifyReleaseRuntime({ resources: process.env.NOVEL_CODEX_RELEASE_RESOURCES });
+  const result = await verifyReleaseRuntime({ resources: process.env.NOVEL_CODEX_RELEASE_RESOURCES, electronExecutable: process.env.NOVEL_CODEX_RELEASE_ELECTRON });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
