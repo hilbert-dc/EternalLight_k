@@ -203,13 +203,7 @@ impl SqliteStoryRepository {
             .as_array()
             .cloned()
             .unwrap_or_default();
-        let actual = report["coverage"].as_array().cloned().unwrap_or_default();
-        let complete = actual.len() == expected.len()
-            && actual.iter().all(|item| item["status"] == "checked")
-            && actual
-                .iter()
-                .all(|item| expected.contains(&item["checkId"]));
-        let status = if complete { "complete" } else { "partial" };
+        let status = coverage_status(report, &expected);
         if let Some(existing) = transaction
             .query_row(
                 "SELECT report_json FROM story_planning_review_reports_v2 WHERE task_id = ?1",
@@ -295,25 +289,7 @@ impl SqliteStoryRepository {
             transaction.execute("UPDATE story_tasks_v2 SET status = 'cancelled', stage = 'cancelled', delivery_status = 'incomplete', capability_revoked_at = ?1 WHERE task_id IN (SELECT task_id FROM story_planning_review_seats_v2 WHERE run_id = ?2) AND status IN ('queued','running','waiting')", params![now, run_id]).map_err(storage_error)?;
             transaction.execute("UPDATE story_planning_review_runs_v2 SET status = 'cancelled', updated_at = ?1 WHERE run_id = ?2", params![now, run_id]).map_err(storage_error)?;
         } else {
-            let reports = current["reports"].as_array().cloned().unwrap_or_default();
-            let roles = current["roles"].as_array().cloned().unwrap_or_default();
-            let incomplete = roles
-                .iter()
-                .filter(|role| {
-                    !reports
-                        .iter()
-                        .any(|report| report["role"] == **role && report["status"] == "complete")
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            let priorities = reports.iter().flat_map(|report| report["report"]["findings"].as_array().into_iter().flatten().enumerate().map(|(index, _)| serde_json::json!({"role": report["role"], "reportId": report["id"], "findingIndex": index}))).collect::<Vec<_>>();
-            let status = if incomplete.is_empty() {
-                "complete"
-            } else {
-                "partial"
-            };
-            let synthesis = serde_json::json!({"priorities": priorities, "disagreements": [], "incompleteRoles": incomplete});
-            transaction.execute("UPDATE story_planning_review_runs_v2 SET status = ?1, synthesis_json = ?2, updated_at = ?3 WHERE run_id = ?4", params![status, synthesis.to_string(), now, run_id]).map_err(storage_error)?;
+            aggregate_reports(&transaction, run_id, &current, now)?;
         }
         crate::planning_review_work::close(
             &transaction,
@@ -330,6 +306,217 @@ impl SqliteStoryRepository {
         transaction.commit().map_err(storage_error)?;
         Ok(result)
     }
+}
+
+/// A pure saved-result recovery covers the original all-steps-completed report
+/// boundary only. It validates frozen publication identities, not new inputs.
+pub(crate) fn eligible_saved_reviews(
+    db: &rusqlite::Connection,
+    project: &ProjectId,
+    work: &str,
+) -> Result<Vec<String>, RepositoryError> {
+    let ready: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM story_work_tasks_v1 w WHERE w.id=?1 AND w.project_id=?2
+         AND w.kind IN ('direct','conversation') AND w.status IN ('running','paused','blocked')
+         AND EXISTS(SELECT 1 FROM story_work_steps_v1 s WHERE s.work_task_id=w.id)
+         AND NOT EXISTS(SELECT 1 FROM story_work_steps_v1 s WHERE s.work_task_id=w.id AND s.status!='completed'))
+         AND NOT EXISTS(SELECT 1 FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id
+           JOIN story_tasks_v2 t ON t.task_id=a.attempt_id WHERE s.work_task_id=?1 AND t.status IN ('queued','running','waiting'))",
+        params![work,project.as_str()], |row|row.get(0),
+    ).map_err(storage_error)?;
+    if !ready || crate::work_modeling_recovery::pending_results(db, project, work)? {
+        return Ok(Vec::new());
+    }
+    let mut query = db
+        .prepare(
+            "SELECT run_id FROM story_planning_review_runs_v2
+        WHERE work_task_id=?1 AND project_id=?2 AND status='open' ORDER BY created_at,run_id",
+        )
+        .map_err(storage_error)?;
+    let runs = query
+        .query_map(params![work, project.as_str()], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)?;
+    for run_id in &runs {
+        let run = load_run(db, project, run_id)?;
+        let roles: Vec<String> = serde_json::from_value(run["roles"].clone())
+            .map_err(|_| RepositoryError::CorruptState)?;
+        if !valid_roles(&roles)
+            || run["seats"]
+                .as_array()
+                .is_none_or(|seats| seats.len() != roles.len())
+            || run["reports"]
+                .as_array()
+                .is_none_or(|reports| reports.len() != roles.len())
+        {
+            return Ok(Vec::new());
+        }
+        if let Some(source_id) = run["sourceTaskId"].as_str() {
+            let source = crate::tasks::load_task(db, source_id)?;
+            let terminal_source: bool = db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id
+                 WHERE a.attempt_id=?1 AND s.current_attempt_id=a.attempt_id AND s.work_task_id=?2
+                   AND s.operation='advisory' AND s.status='completed' AND a.completed_at IS NOT NULL)",
+                params![source_id,work], |row|row.get(0),
+            ).map_err(storage_error)?;
+            if !terminal_source
+                || source.status != "completed"
+                || source.capability_revoked_at.is_none()
+            {
+                return Ok(Vec::new());
+            }
+        }
+        for role in &roles {
+            let step_id = format!("review-seat-{run_id}-{role}");
+            let task_id: Option<String> = db.query_row(
+                "SELECT seat.task_id FROM story_planning_review_seats_v2 seat
+                 JOIN story_work_steps_v1 s ON s.id=?3 AND s.work_task_id=?4 AND s.operation='reviewPlanningSeat'
+                   AND s.status='completed' AND s.current_attempt_id=seat.task_id
+                 JOIN story_work_attempts_v1 a ON a.step_id=s.id AND a.attempt_id=seat.task_id AND a.completed_at IS NOT NULL
+                 WHERE seat.run_id=?1 AND seat.role=?2",
+                params![run_id,role,step_id,work], |row|row.get(0),
+            ).optional().map_err(storage_error)?.flatten();
+            let Some(task_id) = task_id else {
+                return Ok(Vec::new());
+            };
+            let task = crate::tasks::load_task(db, &task_id)?;
+            if task.project_id != *project
+                || task.status != "completed"
+                || task.required_output_kind.as_deref() != Some("critique")
+                || task.capability_revoked_at.is_none()
+            {
+                return Ok(Vec::new());
+            }
+            let manifest: Value = serde_json::from_str(&task.input_manifest_json)
+                .map_err(|_| RepositoryError::CorruptState)?;
+            let target: Value = serde_json::from_str(&task.target_json)
+                .map_err(|_| RepositoryError::CorruptState)?;
+            crate::planning_review_author_source::validate_task(db, &task, &manifest, &target)?;
+            let report: Option<(String, String, String)> = db
+                .query_row(
+                    "SELECT report_id,report_json,status FROM story_planning_review_reports_v2
+                 WHERE run_id=?1 AND role=?2 AND task_id=?3",
+                    params![run_id, role, task_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()
+                .map_err(storage_error)?;
+            let Some((report_id, report_json, status)) = report else {
+                return Ok(Vec::new());
+            };
+            let report: Value =
+                serde_json::from_str(&report_json).map_err(|_| RepositoryError::CorruptState)?;
+            validate_report(&report).map_err(|_| RepositoryError::CorruptState)?;
+            let expected = run["checksByRole"][role]
+                .as_array()
+                .ok_or(RepositoryError::CorruptState)?;
+            if coverage_status(&report, expected) != status {
+                return Ok(Vec::new());
+            }
+            let outputs: Vec<(String, String, Option<String>, Option<String>)> = {
+                let mut query = db
+                    .prepare(
+                        "SELECT output_kind,revision_id,working_base_revision_id,completeness
+                    FROM story_task_outputs_v2 WHERE task_id=?1 ORDER BY ordinal",
+                    )
+                    .map_err(storage_error)?;
+                query
+                    .query_map([&task_id], |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                    })
+                    .map_err(storage_error)?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(storage_error)?
+            };
+            let refs: Value = serde_json::from_str(&task.output_refs_json)
+                .map_err(|_| RepositoryError::CorruptState)?;
+            if outputs != vec![("critique".into(), report_id.clone(), None, Some(status))]
+                || refs
+                    != serde_json::json!([{"kind":"critique","revisionId":report_id,
+                    "objectId":format!("planning-review-{run_id}")}])
+            {
+                return Ok(Vec::new());
+            }
+        }
+    }
+    Ok(runs)
+}
+
+/// Called only inside the author control Immediate transaction after its exact
+/// recovery mode and Work CAS have been checked. No provider execution is granted.
+pub(crate) fn recover_saved_reviews(
+    db: &rusqlite::Connection,
+    project: &ProjectId,
+    work: &str,
+    now: i64,
+) -> Result<(), RepositoryError> {
+    for run_id in eligible_saved_reviews(db, project, work)? {
+        let run = load_run(db, project, &run_id)?;
+        aggregate_reports(db, &run_id, &run, now)?;
+        crate::planning_review_work::close(
+            db,
+            project,
+            &run_id,
+            crate::planning_review_work::ReviewEnd::RecoverSaved,
+            now,
+        )?;
+    }
+    Ok(())
+}
+
+fn coverage_status(report: &Value, expected: &[Value]) -> &'static str {
+    let actual = report["coverage"].as_array().cloned().unwrap_or_default();
+    let complete = actual.len() == expected.len()
+        && actual.iter().all(|item| item["status"] == "checked")
+        && actual
+            .iter()
+            .all(|item| expected.contains(&item["checkId"]));
+    if complete { "complete" } else { "partial" }
+}
+
+fn aggregate_reports(
+    db: &rusqlite::Connection,
+    run_id: &str,
+    current: &Value,
+    now: i64,
+) -> Result<(), RepositoryError> {
+    let reports = current["reports"].as_array().cloned().unwrap_or_default();
+    let roles = current["roles"].as_array().cloned().unwrap_or_default();
+    let incomplete = roles
+        .iter()
+        .filter(|role| {
+            !reports
+                .iter()
+                .any(|report| report["role"] == **role && report["status"] == "complete")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let priorities = reports
+        .iter()
+        .flat_map(|report| {
+            report["report"]["findings"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .map(|(index, _)| {
+                    serde_json::json!({
+            "role":report["role"],"reportId":report["id"],"findingIndex":index})
+                })
+        })
+        .collect::<Vec<_>>();
+    let status = if incomplete.is_empty() {
+        "complete"
+    } else {
+        "partial"
+    };
+    let synthesis = serde_json::json!({"priorities":priorities,"disagreements":[],"incompleteRoles":incomplete});
+    db.execute("UPDATE story_planning_review_runs_v2 SET status=?1,synthesis_json=?2,updated_at=?3 WHERE run_id=?4",
+        params![status,synthesis.to_string(),now,run_id]).map_err(storage_error)?;
+    Ok(())
 }
 
 pub(crate) fn load_run(

@@ -32,7 +32,7 @@ fn retry_preserves_author_method_selection_and_creates_new_frozen_attempt() {
         &first.project_id,
         "work-experiment",
         "resume",
-        work.version,
+        work.control_revision,
         6,
     )
     .unwrap();

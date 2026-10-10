@@ -50,7 +50,7 @@ async fn author_reads_frozen_permission_without_granting_candidate_access_or_new
         &path,
         "POST",
         "/api/projects",
-        json!({"title":"许可依据"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"许可依据"}),
         AUTHOR,
     )
     .await;
@@ -115,7 +115,7 @@ async fn author_reads_frozen_permission_without_granting_candidate_access_or_new
         &path,
         "POST",
         "/api/projects",
-        json!({"title":"另一作品"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"另一作品"}),
         AUTHOR,
     )
     .await;

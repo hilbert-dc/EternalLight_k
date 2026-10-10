@@ -13,6 +13,7 @@ novel-codex-story-core = { path = "../story-core" }
 novel-codex-story-authoring = { path = "../story-authoring" }
 eternallight-engine-core = { path = "../../../agent-engine/native/engine-core" }
 axum = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

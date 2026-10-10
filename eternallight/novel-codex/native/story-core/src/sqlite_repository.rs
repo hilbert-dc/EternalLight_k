@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS story_conversations_v1 (
   forked_from_id TEXT REFERENCES story_conversations_v1(thread_id),
   last_turn_id TEXT,
   registration_json TEXT NOT NULL,
+  scope_id TEXT,
   version INTEGER NOT NULL DEFAULT 0 CHECK(version >= 0)
 );
 CREATE INDEX IF NOT EXISTS story_conversations_project_v1
@@ -200,7 +201,8 @@ CREATE TRIGGER IF NOT EXISTS story_snapshot_chapters_capture_v1
 AFTER INSERT ON story_snapshots_v2
 BEGIN
   INSERT INTO story_snapshot_chapters_v1(snapshot_id, chapter_id, number)
-  SELECT NEW.snapshot_id, chapter_id, number FROM story_chapters_v2 WHERE project_id = NEW.project_id;
+  SELECT NEW.snapshot_id, chapter_id, number FROM story_chapters_v2 WHERE project_id = NEW.project_id
+    AND EXISTS(SELECT 1 FROM story_editions_v1 e WHERE e.project_id=NEW.project_id AND e.medium='novel' AND e.main_branch_id=NEW.branch_id);
 END;
 CREATE TABLE IF NOT EXISTS story_commits_v2 (
   commit_id TEXT PRIMARY KEY,
@@ -427,7 +429,7 @@ CREATE TABLE IF NOT EXISTS story_task_intents_v1 (
   intent_revision INTEGER NOT NULL CHECK(intent_revision > 0),
   author_message_id TEXT NOT NULL UNIQUE REFERENCES story_author_messages_v1(message_id),
   author_text TEXT NOT NULL,
-  status TEXT NOT NULL CHECK(status IN ('pending','delivered')),
+  status TEXT NOT NULL CHECK(status IN ('pending','delivered','notSent')),
   created_at INTEGER NOT NULL,
   delivered_at INTEGER,
   PRIMARY KEY(task_id, intent_revision)
@@ -442,6 +444,7 @@ CREATE TABLE IF NOT EXISTS story_work_tasks_v1 (
   kind TEXT NOT NULL CHECK(kind IN ('conversation','direct','generation')),
   status TEXT NOT NULL CHECK(status IN ('running','paused','blocked','completed','cancelled')),
   version INTEGER NOT NULL DEFAULT 0,
+  control_revision INTEGER NOT NULL DEFAULT 0 CHECK(control_revision >= 0),
   input_revision INTEGER NOT NULL,
   error TEXT
 );
@@ -460,6 +463,7 @@ CREATE TABLE IF NOT EXISTS story_work_budget_authorizations_v1 (
   authorization_json TEXT NOT NULL,
   after_attempt_sequence INTEGER NOT NULL,
   initial_request_digest TEXT,
+  initial_authorization_id TEXT,
   granted_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS story_task_provider_budget_active_v1
@@ -969,6 +973,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS story_entity_audit_active_v1
 pub struct SqliteStoryRepository {
     pub(crate) connection: Connection,
     pub(crate) recovery_operation: Option<crate::RecoveryOperationBinding>,
+    pub(crate) generation_work_control_guard: Option<(String, i64)>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1073,19 +1078,50 @@ impl SqliteStoryRepository {
     }
 
     fn from_connection(connection: Connection) -> Result<Self, RepositoryError> {
+        crate::current_schema::validate(&connection, SCHEMA)?;
         connection
             .execute_batch(
                 "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL;",
             )
             .map_err(storage_error)?;
         connection.execute_batch(SCHEMA).map_err(storage_error)?;
+        connection.execute_batch(crate::work_control_commands::SCHEMA).map_err(storage_error)?;
+        connection.execute_batch(crate::conversation_messages::SCHEMA).map_err(storage_error)?;
+        connection.execute_batch(crate::work_pause_barrier::SCHEMA).map_err(storage_error)?;
+        connection.execute_batch(crate::work_interludes::SCHEMA).map_err(storage_error)?;
+        connection.execute_batch(crate::multimedia::SCHEMA).map_err(storage_error)?;
         connection
-            .execute_batch(crate::work_decision::SCHEMA)
+            .execute_batch(&format!(
+                "{}{}{}",
+                crate::work_decision::SCHEMA,
+                crate::direct_verification::SCHEMA,
+                crate::model_work_plan::SCHEMA
+            ))
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::work_execution_events::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::generation_handoff_execution::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::generation_model_control::SCHEMA)
             .map_err(storage_error)?;
         connection
             .execute_batch(crate::task_sources::SCHEMA)
             .map_err(storage_error)?;
-        connection.execute_batch(crate::quality_notebook::SCHEMA).map_err(storage_error)?;
+        connection
+            .execute_batch(crate::quality_notebook::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::delegated_candidates::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::work_issues::SCHEMA)
+            .map_err(storage_error)?;
+        connection
+            .execute_batch(crate::task_workspace::SCHEMA)
+            .map_err(storage_error)?;
         connection
             .execute_batch(crate::chapter_deletion::SCHEMA)
             .map_err(storage_error)?;
@@ -1119,6 +1155,7 @@ impl SqliteStoryRepository {
         Ok(Self {
             connection,
             recovery_operation: None,
+            generation_work_control_guard: None,
         })
     }
 
@@ -1167,6 +1204,7 @@ impl SqliteStoryRepository {
                 params![project.project_id.as_str(), branch_id.as_str(), snapshot_id.as_str()],
             )
             .map_err(storage_error)?;
+        crate::multimedia::initialize_project(&transaction, project.project_id.as_str(), &project.title, branch_id.as_str(), crate::CreativeMedium::Novel, project.created_at)?;
         transaction.commit().map_err(storage_error)?;
         Ok(project)
     }
@@ -1396,17 +1434,27 @@ impl SqliteStoryRepository {
                 &request.content_json,
             )
         {
-            // Task validation precedes all draft domain writes. Only its explicit
-            // content rejection proves that this call has no save receipt.
-            if request.object_kind == "draft"
-                && matches!(&error, RepositoryError::InvalidContent(_))
+            // Task validation precedes every candidate domain write. Only these
+            // constructor-owned rejections prove this exact call has no receipt.
+            if matches!(&error,
+                RepositoryError::InvalidContent(_)
+                    | RepositoryError::PayloadValidation { .. }
+                    | RepositoryError::TaskBindingInvalid
+                    | RepositoryError::TaskInputStale
+                    | RepositoryError::TaskNotWritable
+                    | RepositoryError::TaskOutputForbidden
+                    | RepositoryError::TaskOutputMissing
+                    | RepositoryError::WorkTaskStale
+                    | RepositoryError::AuthoringRunStale
+                    | RepositoryError::StaleProjectRevision { .. }
+            )
             {
                 crate::recovery_operations::reject_operation(
                     &transaction,
                     self.recovery_operation.as_ref(),
                     &request.project_id,
                     &binding.task_id,
-                    "save_draft_checkpoint",
+                    crate::recovery_operations::candidate_tool(&request.object_kind)?,
                 )?;
                 transaction.commit().map_err(storage_error)?;
             }

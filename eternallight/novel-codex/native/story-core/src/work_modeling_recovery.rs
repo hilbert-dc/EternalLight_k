@@ -18,16 +18,48 @@ pub(crate) fn resume_mode(
     status: &str,
     block_reason: Option<&str>,
 ) -> Result<Option<WorkResumeMode>, RepositoryError> {
-    if !matches!(status, "paused" | "blocked") || block_reason.is_some() {
+    if !matches!(status, "paused" | "blocked")
+        || block_reason.is_some_and(|reason| reason != "unknownUsage")
+    {
         return Ok(None);
     }
-    Ok(Some(
-        if kind != "generation" && !eligible_attempts(db, project, work)?.is_empty() {
-            WorkResumeMode::RecoverSavedResult
-        } else {
-            WorkResumeMode::ContinueExecution
-        },
-    ))
+    if kind != "generation"
+        && (!eligible_attempts(db, project, work)?.is_empty()
+            || !crate::planning_reviews::eligible_saved_reviews(db, project, work)?.is_empty())
+    {
+        // This exact operation verifies a durable saved domain result;
+        // it neither resolves unknown usage nor admits another model attempt.
+        return Ok(Some(WorkResumeMode::RecoverSavedResult));
+    }
+    Ok(block_reason
+        .is_none()
+        .then_some(WorkResumeMode::ContinueExecution))
+}
+
+pub(crate) fn pending_results(db: &Connection, project: &ProjectId, work: &str) -> Result<bool, RepositoryError> {
+    Ok(pending_reason(db, project, work)?.is_some())
+}
+
+/// Keep write uncertainty separate from the provider grant settlement fence.
+/// Both may hold at once; neither is inferred from a read failure.
+pub(crate) fn pending_reason(db: &Connection, project: &ProjectId, work: &str) -> Result<Option<&'static str>, RepositoryError> {
+    let (writes, usage): (bool, bool) = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM story_tool_operations_v1 o \
+         JOIN story_work_attempts_v1 a ON a.attempt_id=o.task_id \
+         JOIN story_work_steps_v1 s ON s.id=a.step_id \
+         JOIN story_work_tasks_v1 w ON w.id=s.work_task_id \
+         WHERE w.id=?1 AND w.project_id=?2 AND o.project_id=?2 AND o.state='accepted'), \
+         EXISTS(SELECT 1 FROM story_task_provider_budgets_v1 g \
+         JOIN story_work_tasks_v1 w ON w.id=g.work_task_id \
+         WHERE w.id=?1 AND w.project_id=?2 AND g.settled=0)",
+        params![work, project.as_str()], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(storage_error)?;
+    Ok(match (writes, usage) {
+        (true, true) => Some("pendingWriteAndUsage"),
+        (true, false) => Some("pendingRecovery"),
+        (false, true) => Some("pendingUsage"),
+        (false, false) => None,
+    })
 }
 
 /// Only a durable, still-current publication owned by this failed attempt can
@@ -37,6 +69,9 @@ pub(crate) fn eligible_attempts(
     project: &ProjectId,
     work: &str,
 ) -> Result<Vec<String>, RepositoryError> {
+    if pending_results(db, project, work)? {
+        return Ok(Vec::new());
+    }
     let mut statement = db.prepare(
         "SELECT t.task_id FROM story_work_steps_v1 s JOIN story_work_tasks_v1 w ON w.id=s.work_task_id \
          JOIN story_tasks_v2 t ON t.task_id=s.current_attempt_id \
@@ -125,4 +160,23 @@ pub(crate) fn recover_published_steps(
 
 fn storage_error(error: rusqlite::Error) -> RepositoryError {
     RepositoryError::Storage(error.to_string())
+}
+
+#[cfg(test)]
+mod pending_state_tests {
+    use super::*;
+    #[test]
+    fn write_and_usage_pending_are_independent_and_project_scoped() {
+        let db=Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE story_work_tasks_v1(id TEXT,project_id TEXT); CREATE TABLE story_work_steps_v1(id TEXT,work_task_id TEXT); CREATE TABLE story_work_attempts_v1(attempt_id TEXT,step_id TEXT); CREATE TABLE story_tool_operations_v1(task_id TEXT,project_id TEXT,state TEXT); CREATE TABLE story_task_provider_budgets_v1(task_id TEXT,work_task_id TEXT,settled INTEGER); INSERT INTO story_work_tasks_v1 VALUES('w','project'); INSERT INTO story_work_steps_v1 VALUES('s','w'); INSERT INTO story_work_attempts_v1 VALUES('t','s');").unwrap();
+        let project=ProjectId::parse("project").unwrap();
+        for (write,usage,expected) in [(false,false,None),(true,false,Some("pendingRecovery")),(false,true,Some("pendingUsage")),(true,true,Some("pendingWriteAndUsage"))] {
+            db.execute("DELETE FROM story_tool_operations_v1",[]).unwrap();
+            db.execute("DELETE FROM story_task_provider_budgets_v1",[]).unwrap();
+            if write { db.execute("INSERT INTO story_tool_operations_v1 VALUES('t','project','accepted')",[]).unwrap(); }
+            if usage { db.execute("INSERT INTO story_task_provider_budgets_v1 VALUES('t','w',0)",[]).unwrap(); }
+            assert_eq!(pending_reason(&db,&project,"w").unwrap(),expected);
+            assert_eq!(pending_reason(&db,&ProjectId::parse("other").unwrap(),"w").unwrap(),None);
+        }
+    }
 }

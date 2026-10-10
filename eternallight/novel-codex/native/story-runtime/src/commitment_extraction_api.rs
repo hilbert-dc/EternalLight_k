@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
@@ -37,6 +37,12 @@ pub(crate) struct EstablishRequest {
     idempotency_key: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ReadQuery {
+    report_revision_id: Option<String>,
+}
+
 pub(crate) async fn establish(
     State(state): State<RuntimeState>,
     Path((project, chapter)): Path<(String, String)>,
@@ -71,16 +77,21 @@ pub(crate) async fn establish(
 pub(crate) async fn get(
     State(state): State<RuntimeState>,
     Path((project, chapter)): Path<(String, String)>,
+    Query(query): Query<ReadQuery>,
 ) -> Response {
     let project = match ProjectId::parse(project) {
         Ok(value) => value,
         Err(source) => return bad_request("invalid_project_id", source),
     };
+    let report_revision = match query.report_revision_id.map(RevisionId::parse).transpose() {
+        Ok(value) => value,
+        Err(source) => return bad_request("invalid_report_revision_id", source),
+    };
     let repository = match SqliteStoryRepository::open(&state.database_path) {
         Ok(value) => value,
         Err(source) => return repository_error(source),
     };
-    match repository.commitment_extraction(&project, &chapter) {
+    match repository.commitment_extraction(&project, &chapter, report_revision.as_ref()) {
         Ok(Some(value)) => Json(value).into_response(),
         Ok(None) => Json(Value::Null).into_response(),
         Err(source) => repository_error(source),

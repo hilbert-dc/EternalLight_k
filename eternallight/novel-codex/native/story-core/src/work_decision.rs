@@ -7,6 +7,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 pub(crate) const SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS story_work_execution_conditions (
+ work_task_id TEXT PRIMARY KEY REFERENCES story_work_tasks_v1(id), digest TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS story_work_decisions_v1 (
  work_task_id TEXT PRIMARY KEY REFERENCES story_work_tasks_v1(id),
  origin_task_id TEXT, finished INTEGER NOT NULL DEFAULT 0,
@@ -31,6 +34,23 @@ CREATE TABLE IF NOT EXISTS story_generation_handoffs_v1 (
  idempotency_key TEXT NOT NULL, content_json TEXT NOT NULL, consumed_run_id TEXT,
  UNIQUE(source_task_id,idempotency_key)
 );";
+
+/// Register the need for author-goal delivery as soon as a model records work.
+/// Worker completion alone must not close the owning conversation Work.
+pub(crate) fn ensure_author_delivery_pending(
+    db: &Connection,
+    task: &TaskRecord,
+) -> Result<(), RepositoryError> {
+    if task.operation != "advisory" {
+        return Err(RepositoryError::TaskBindingInvalid);
+    }
+    if binding(db, task)?.is_some() {
+        return Ok(());
+    }
+    let work = crate::model_work_plan::work_for(db, task)?;
+    db.execute("INSERT INTO story_work_decisions_v1(work_task_id,origin_task_id) VALUES(?1,?2) ON CONFLICT(work_task_id) DO UPDATE SET finished=0 WHERE story_work_decisions_v1.origin_task_id=excluded.origin_task_id",params![work,task.task_id]).map_err(storage_error)?;
+    Ok(())
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -129,7 +149,7 @@ pub(crate) fn freeze(
         }
         manifest["workDecision"] = value;
         manifest["candidateInstruction"] = json!(
-            "Read the current Work status and its bounded receipts. Decide which authorized ready action is necessary for the author goal, or finish when all mandatory requirements are satisfied. Optional checks are choices; do not claim an unperformed check."
+            "Read the current Work status, persisted model plan, bounded receipts and the complete author goal. Choose the necessary authorized action; canFinish only describes persisted dependencies and does not replace the author's prerequisites or continuation goal. Record a future continuation in the work plan before its prerequisites, then register its real handoff after they settle. Complete only after all substantive goals and handoffs are evidenced, or explicitly record a blocked goal and honestly report partial delivery. Optional checks are choices; do not claim an unperformed check."
         );
     } else {
         let (parent,key,instruction,source,revision):(String,String,String,Option<String>,Option<String>)=db.query_row("SELECT decision_task_id,action_key,instruction,source_task_id,source_revision_id FROM story_work_decision_actions_v1 WHERE step_id=?1 AND work_task_id=?2",params![step,work],|r|Ok((r.get(/*idx*/0)?,r.get(/*idx*/1)?,r.get(/*idx*/2)?,r.get(/*idx*/3)?,r.get(/*idx*/4)?))).optional().map_err(storage_error)?.ok_or(RepositoryError::TaskBindingInvalid)?;
@@ -149,7 +169,9 @@ pub(crate) fn freeze(
         }
         manifest["workDecisionAction"] = value;
         manifest["candidateInstruction"] = json!(instruction);
-        if let Some(plan) = target.get("recoveryPlan") { manifest["recoveryPlan"] = plan.clone(); }
+        if let Some(plan) = target.get("recoveryPlan") {
+            manifest["recoveryPlan"] = plan.clone();
+        }
     }
     if kind == "generation" {
         crate::generation_author_source::freeze(db, request, target, manifest)?;
@@ -185,6 +207,24 @@ pub(crate) fn require_cas(
     Ok(())
 }
 
+fn completion_ready(
+    db: &Connection,
+    work: &str,
+    kind: &str,
+    steps: &[WorkStep],
+) -> Result<bool, RepositoryError> {
+    let closed:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_decisions_v1 WHERE work_task_id=?1 AND finished=1)",[work],|r|r.get(0)).map_err(storage_error)?;
+    let meaningful:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_task_outputs_v2 o JOIN story_work_attempts_v1 a ON a.attempt_id=o.task_id JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE s.work_task_id=?1) OR EXISTS(SELECT 1 FROM story_task_action_requests_v1 a JOIN story_work_attempts_v1 wa ON wa.attempt_id=a.source_task_id JOIN story_work_steps_v1 s ON s.id=wa.step_id WHERE s.work_task_id=?1)",[work],|r|r.get(0)).map_err(storage_error)?;
+    let quality_work:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_quality_packets_v1 p JOIN story_work_attempts_v1 a ON a.attempt_id=p.created_by_task_id JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE s.work_task_id=?1)",[work],|r|r.get(0)).map_err(storage_error)?;
+    let active_plan =
+        crate::model_work_plan::load(db, work)?.is_some_and(|(_, p)| p.active_goal_id.is_some());
+    let delivery_pending:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_decisions_v1 WHERE work_task_id=?1 AND finished=0)",[work],|r|r.get(0)).map_err(storage_error)?;
+    Ok(closed
+        || (!(meaningful || quality_work || active_plan || delivery_pending)
+            && kind != "generation"
+            && steps.iter().all(|s| s.status == "completed")))
+}
+
 impl SqliteStoryRepository {
     /// Prepares a decision under existing Work authority after all dispatched children have settled.
     pub fn prepare_work_decision(
@@ -197,6 +237,7 @@ impl SqliteStoryRepository {
             rusqlite::Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)
                 .map_err(storage_error)?;
         require_cas(&tx, project, work, request)?;
+        crate::work_pause_barrier::assert_can_schedule(&tx, work)?;
         let current = crate::work_tasks::load_work_task(self, &tx, project, work)?;
         let origin:Option<String>=tx.query_row("SELECT a.attempt_id FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE s.work_task_id=?1 ORDER BY a.sequence LIMIT 1",[work],|r|r.get(/*idx*/0)).optional().map_err(storage_error)?;
         let stored_origin: Option<Option<String>> = tx
@@ -221,6 +262,31 @@ impl SqliteStoryRepository {
             step: None,
             stop_reason: None,
         };
+        // Replaying a durable final delivery neither starts a model nor grants
+        // more allowance. Outstanding writes, charges and handoffs stay fenced.
+        let unsettled:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM story_tool_operations_v1 o JOIN story_work_attempts_v1 a ON a.attempt_id=o.task_id JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE s.work_task_id=?1 AND o.state='accepted') OR EXISTS(SELECT 1 FROM story_task_provider_budgets_v1 WHERE work_task_id=?1 AND settled=0) OR EXISTS(SELECT 1 FROM story_generation_handoffs_v1 h JOIN story_work_attempts_v1 a ON a.attempt_id=h.source_task_id JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE s.work_task_id=?1 AND h.consumed_run_id IS NULL)",[work],|r|r.get(0)).map_err(storage_error)?;
+        if current.status == "completed"
+            && !unsettled
+            && !current
+                .steps
+                .iter()
+                .any(|s| matches!(s.status.as_str(), "queued" | "running"))
+            && completion_ready(&tx, work, &current.kind, &current.steps)?
+        {
+            response.stop_reason = Some("completed");
+            tx.commit().map_err(storage_error)?;
+            return Ok(response);
+        }
+        let budget = crate::work_budget_storage::load(&tx, project, work)?;
+        if budget.continuation_block_reason()
+            == Some(crate::provider_budget::ProviderContinuationBlock::UnknownUsage)
+        {
+            response.stop_reason = Some("unknownUsage");
+            tx.commit().map_err(storage_error)?;
+            return Ok(response);
+        }
+        crate::task_actions::reconsider_unstarted_planning(&tx, work)?;
+        let current = crate::work_tasks::load_work_task(self, &tx, project, work)?;
         if let Some(step) = current
             .steps
             .iter()
@@ -240,9 +306,11 @@ impl SqliteStoryRepository {
         {
             response.stop_reason = Some("workNotReady");
         }
-        let unknown:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM story_tool_operations_v1 o JOIN story_work_attempts_v1 a ON a.attempt_id=o.task_id JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE s.work_task_id=?1 AND o.state='accepted') OR EXISTS(SELECT 1 FROM story_task_provider_budgets_v1 WHERE work_task_id=?1 AND settled=0)",[work],|r|r.get(/*idx*/0)).map_err(storage_error)?;
-        if response.stop_reason.is_none() && unknown {
-            response.stop_reason = Some("pendingRecovery")
+        // A persisted completion is the idempotent result of complete_task.
+        // Reconcile only that operation; unknown candidate writes still block.
+        tx.execute("UPDATE story_tool_operations_v1 SET state='committed',receipt_ref='runtime:task:'||task_id||':completed',updated_at=unixepoch() WHERE project_id=?1 AND tool_name='complete_task' AND state='accepted' AND task_id IN (SELECT t.task_id FROM story_tasks_v2 t JOIN story_work_attempts_v1 a ON a.attempt_id=t.task_id JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE s.work_task_id=?2 AND t.project_id=?1 AND t.status='completed')", params![project.as_str(),work]).map_err(storage_error)?;
+        if response.stop_reason.is_none() {
+            response.stop_reason = crate::work_modeling_recovery::pending_reason(&tx, project, work)?;
         }
         for step in current.steps.iter().filter(|s| s.status == "blocked") {
             if response.stop_reason.is_none()
@@ -256,39 +324,32 @@ impl SqliteStoryRepository {
                 response.stop_reason = Some("executionBlocked")
             }
         }
-        let closed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM story_work_decisions_v1 WHERE work_task_id=?1 AND finished=1)",[work],|r|r.get(/*idx*/0)).map_err(storage_error)?;
-        let meaningful:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM story_task_outputs_v2 o JOIN story_work_attempts_v1 a ON a.attempt_id=o.task_id JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE s.work_task_id=?1) OR EXISTS(SELECT 1 FROM story_task_action_requests_v1 a JOIN story_work_attempts_v1 wa ON wa.attempt_id=a.source_task_id JOIN story_work_steps_v1 s ON s.id=wa.step_id WHERE s.work_task_id=?1)",[work],|r|r.get(/*idx*/0)).map_err(storage_error)?;
-        let quality_work: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM story_quality_packets_v1 p JOIN story_work_attempts_v1 a ON a.attempt_id=p.created_by_task_id JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE s.work_task_id=?1)", [work], |r| r.get(0)).map_err(storage_error)?;
-        let meaningful = meaningful || quality_work;
         if response.stop_reason.is_none()
-            && (closed
-                || (!meaningful
-                    && current.kind != "generation"
-                    && current.steps.iter().all(|s| s.status == "completed")))
+            && completion_ready(&tx, work, &current.kind, &current.steps)?
         {
             response.stop_reason = Some("completed")
         }
-        let fingerprint = format!(
-            "{:x}",
-            Sha256::digest(format!(
-                "{}:{}",
-                request.expected_revision, request.expected_source_digest
-            ))
-        );
-        let unchanged_failures:i64=tx.query_row("SELECT COUNT(*) FROM story_work_steps_v1 s JOIN story_tasks_v2 t ON t.task_id=s.current_attempt_id WHERE s.work_task_id=?1 AND s.operation='advisory' AND json_extract(s.target_json,'$.workDecision.fingerprint')=?2 AND t.status='failed'",params![work,fingerprint],|r|r.get(/*idx*/0)).map_err(storage_error)?;
+        let fingerprint = recovery_fingerprint(&tx, work)?;
+        let unchanged_failures = unchanged_failures(&tx, work, &fingerprint)?;
         if response.stop_reason.is_none() && unchanged_failures >= 2 {
             response.stop_reason = Some("recoveryStalled")
         }
         if response.stop_reason.is_none() {
             let (_, ready) = crate::work_decision_status::actions(&tx, project, work)?;
+            let decision_status = crate::work_decision_status::status(&tx, project, work)?;
+            let plan_needs_review = crate::model_work_plan::summary(&tx, work)?["pendingGoals"]
+                .as_u64()
+                .unwrap_or(0)
+                > 0;
             if ready.is_empty()
-                && crate::work_decision_status::status(&tx, project, work)?["canFinish"] != true
+                && decision_status["canFinish"] != true
+                && decision_status["canReportPartial"] != true
+                && !plan_needs_review
             {
                 response.stop_reason = Some("noReadyActions")
             }
-            let budget = crate::work_budget_storage::load(&tx, project, work)?;
-            if budget.exhausted() {
-                response.stop_reason = Some("budgetExhausted")
+            if let Some(reason) = budget.continuation_block_reason() {
+                response.stop_reason = Some(reason.as_str())
             }
 
             crate::execution_scope_storage::assert_attempt_capacity(&tx, project, work)?;
@@ -304,6 +365,7 @@ impl SqliteStoryRepository {
             .steps
             .iter()
             .rev()
+            .filter(|s| s.target.get("interludeId").is_none())
             .filter_map(|s| s.current_attempt_id.as_ref())
             .next()
             .cloned();
@@ -323,6 +385,14 @@ impl SqliteStoryRepository {
         Ok(response)
     }
 
+    pub fn task_conversation_runs(&self, task: &TaskRecord) -> Result<Value, RepositoryError> {
+        self.with_read_snapshot(|| {
+            crate::task_input::assert_task_inputs_current(&self.connection, task)?;
+            crate::model_work_plan::work_for(&self.connection, task)?;
+            conversation_status(&self.connection, task)
+        })?
+    }
+
     pub fn task_work_decision(
         &self,
         task: &TaskRecord,
@@ -330,8 +400,10 @@ impl SqliteStoryRepository {
     ) -> Result<Value, RepositoryError> {
         self.with_read_snapshot(|| {
             crate::task_input::assert_task_inputs_current(&self.connection, task)?;
-            let bound =
-                binding(&self.connection, task)?.ok_or(RepositoryError::TaskBindingInvalid)?;
+            let Some(bound) = binding(&self.connection, task)? else {
+                if task.operation != "advisory" || cursor.is_some() { return Err(RepositoryError::TaskBindingInvalid); }
+                return conversation_status(&self.connection,task);
+            };
             let mut status = crate::work_decision_status::status_page(
                 &self.connection,
                 &task.project_id,
@@ -342,7 +414,8 @@ impl SqliteStoryRepository {
                 cursor,
             )?;
             let selected: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM story_work_decision_actions_v1 WHERE decision_task_id=?1)", [&task.task_id], |row| row.get(0)).map_err(storage_error)?;
-            status["deliveryReviewRequired"] = json!(crate::work_decision_generation::final_delivery_review_required(&self.connection, task)? || (!selected && (status["canFinish"] == true || status["canReportPartial"] == true)));
+            status["workPlan"]=crate::model_work_plan::summary(&self.connection,bound["workTaskId"].as_str().ok_or(RepositoryError::CorruptState)?)?;
+            status["deliveryReviewRequired"] = json!(crate::work_decision_generation::final_delivery_review_required(&self.connection, task)? || !selected);
             for (key, value) in bound.as_object().ok_or(RepositoryError::CorruptState)? {
                 status[key] = value.clone()
             }
@@ -351,15 +424,127 @@ impl SqliteStoryRepository {
     }
 }
 
-pub(crate) fn bounded(value: Value) -> Result<Value, RepositoryError> {
+fn conversation_status(db: &Connection, task: &TaskRecord) -> Result<Value, RepositoryError> {
+    let work = crate::model_work_plan::work_for(db, task)?;
+    let resume_review = crate::work_decision_status::root_review_required(db, task)?;
+    let review_status = if resume_review {
+        Some(crate::work_decision_status::status(
+            db,
+            &task.project_id,
+            &work,
+        )?)
+    } else {
+        None
+    };
+    let mut query = db.prepare("SELECT r.state_json,w.goal FROM story_generation_runs_v1 r JOIN story_work_tasks_v1 w ON w.id='work-'||r.run_id AND w.project_id=r.project_id WHERE r.project_id=?1 AND w.thread_id=?2 AND w.status IN ('paused','blocked','running') ORDER BY w.rowid DESC LIMIT 9").map_err(storage_error)?;
+    let rows = query
+        .query_map(params![task.project_id.as_str(), task.thread_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(storage_error)?;
+    let mut runs = Vec::new();
+    for row in rows {
+        let (state, goal) = row.map_err(storage_error)?;
+        let run: Value = serde_json::from_str(&state).map_err(|_| RepositoryError::CorruptState)?;
+        runs.push(json!({"id":run["id"],"expectedVersion":run["version"],"goal":goal.chars().take(1000).collect::<String>(),
+                        "status":run["status"],"completedChapters":run["completedChapters"],"targetChapters":run["targetChapters"],
+                        "blockedReason":run["blockedReason"],"activeTaskId":run["activeTaskId"],"currentChapterId":run["currentChapterId"]}));
+    }
+    let mut query = db.prepare("SELECT action_id,operation,status,result_task_id FROM story_task_action_requests_v1 WHERE project_id=?1 AND source_task_id=?2 ORDER BY rowid LIMIT 3").map_err(storage_error)?;
+    let registered_actions = query.query_map(params![task.project_id.as_str(),task.task_id], |r| Ok(json!({"id":r.get::<_,String>(0)?,"operation":r.get::<_,String>(1)?,"status":r.get::<_,String>(2)?,"resultTaskId":r.get::<_,Option<String>>(3)?}))).map_err(storage_error)?.collect::<Result<Vec<_>,_>>().map_err(storage_error)?;
+    let handoff: Option<(String, String, Option<String>)> = db.query_row(
+        "SELECT content_json,idempotency_key,consumed_run_id FROM story_generation_handoffs_v1 WHERE source_task_id=?1",
+        [&task.task_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+    ).optional().map_err(storage_error)?;
+    let handoff = handoff.map(|(encoded,key,run)| {
+        let proposal: Value = serde_json::from_str(&encoded).map_err(|_| RepositoryError::CorruptState)?;
+        Ok::<_,RepositoryError>(json!({"proposal":proposal,"idempotencyKey":key,"consumedRunId":run}))
+    }).transpose()?;
+    let truncated = runs.len() > 8;
+    runs.truncate(8);
+    let mut response = json!({"mode":"conversation","registeredActions":registered_actions,"generationHandoff":handoff,"workPlan":crate::model_work_plan::summary(db,&work)?,"conversationRuns":runs,"truncated":truncated,"deliveryReviewRequired":resume_review,
+                    "instruction":"Use registeredActions and generationHandoff to verify this task's prior registrations after compaction; generationHandoff is a saved scope proposal, not executed chapters. A saved proposal requires no new registration or guessed idempotency key; complete the current task and report its actual approval state; a later rejected retry does not undo a saved action. Interpret the author's intent in context. Resume only an explicitly intended existing run using request_generation_handoff.resumeRun and its original targetChapters. Discussion, negation, planning edits or prerequisite checks do not authorize immediate continuation. New scope requires a new proposal. Never guess a missing run or reset its allowance. After registering resumeRun, re-read this state and submit the required deliveryReview before completing; fulfilled covers the prerequisites and registered transfer, not all future chapters."});
+    if let Some(status) = review_status {
+        for key in [
+            "workTaskId",
+            "version",
+            "sourceDigest",
+            "canFinish",
+            "canReportPartial",
+        ] {
+            response[key] = status[key].clone();
+        }
+    }
+    bounded(response)
+}
+
+pub(crate) fn bounded(mut value: Value) -> Result<Value, RepositoryError> {
     if serde_json::to_vec(&value)
         .map_err(|_| RepositoryError::CorruptState)?
         .len()
         > 6500
+        && value["issues"]["entries"].is_array()
     {
-        return Err(RepositoryError::InvalidContent(
-            "workflow decision metadata exceeds 6500 bytes".into(),
-        ));
+        value["issues"]["entries"] = json!([]);
+        value["issues"]["hasMore"] = json!(value["issues"]["totalCount"].as_u64().unwrap_or(0) > 0);
+    }
+    let bytes = serde_json::to_vec(&value)
+        .map_err(|_| RepositoryError::CorruptState)?
+        .len();
+    if bytes > 6500 {
+        return Err(RepositoryError::InvalidContent(format!(
+            "workflow decision metadata exceeds 6500 bytes ({bytes} bytes)"
+        )));
     }
     Ok(value)
+}
+
+// Stable execution conditions and real saved progress delimit a recovery episode.
+// Error prose, failed attempts, timestamps and fresh IDs never reset it.
+pub(crate) fn recovery_fingerprint(db: &Connection, work: &str) -> Result<String, RepositoryError> {
+    let condition: Option<String> = db.query_row("SELECT digest FROM story_work_execution_conditions WHERE work_task_id=?1", [work], |r|r.get(0)).optional().map_err(storage_error)?;
+    let intent: i64 = db.query_row("SELECT COALESCE(MAX(intent_revision),0) FROM story_author_messages_v1 WHERE work_task_id=?1", [work], |r|r.get(0)).map_err(storage_error)?;
+    Ok(format!("{:x}", Sha256::digest(json!([condition,intent]).to_string())))
+}
+pub(crate) fn unchanged_failures(db: &Connection, work: &str, fingerprint: &str) -> Result<i64, RepositoryError> {
+    // A committed domain output is progress; a coordinator's text report is not.
+    db.query_row("SELECT COUNT(*) FROM story_work_steps_v1 s JOIN story_work_attempts_v1 a ON a.attempt_id=s.current_attempt_id JOIN story_tasks_v2 t ON t.task_id=a.attempt_id WHERE s.work_task_id=?1 AND s.operation='advisory' AND json_extract(s.target_json,'$.workDecision.fingerprint')=?2 AND t.status='failed' AND a.sequence>COALESCE((SELECT MAX(p.sequence) FROM story_work_attempts_v1 p JOIN story_work_steps_v1 ps ON ps.id=p.step_id JOIN story_task_outputs_v2 o ON o.task_id=p.attempt_id WHERE ps.work_task_id=?1 AND o.output_kind!='completionReport'),0)", params![work,fingerprint], |r|r.get(0)).map_err(storage_error)
+}
+impl SqliteStoryRepository {
+    /// Author transport supplies a verified Engine configuration digest, never model text.
+    pub fn record_work_execution_condition(&mut self, project: &ProjectId, work: &str, digest: &str) -> Result<(), RepositoryError> {
+        if digest.len()!=64 || !digest.bytes().all(|c|c.is_ascii_hexdigit()) { return Err(RepositoryError::TaskBindingInvalid); }
+        let tx = self.connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+        let owned: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM story_work_tasks_v1 WHERE id=?1 AND project_id=?2)", params![work,project.as_str()], |r|r.get(0)).map_err(storage_error)?;
+        if !owned { return Err(RepositoryError::TaskNotFound); }
+        tx.execute("INSERT INTO story_work_execution_conditions(work_task_id,digest) VALUES(?1,?2) ON CONFLICT(work_task_id) DO UPDATE SET digest=excluded.digest WHERE digest!=excluded.digest", params![work,digest]).map_err(storage_error)?;
+        tx.commit().map_err(storage_error)
+    }
+}
+
+#[cfg(test)]
+mod episode_tests {
+    use super::*;
+    #[test]
+    fn unchanged_failures_are_scoped_to_saved_progress_and_stable_conditions() {
+        let db=Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE story_work_execution_conditions(work_task_id TEXT,digest TEXT); CREATE TABLE story_author_messages_v1(work_task_id TEXT,intent_revision INTEGER); CREATE TABLE story_work_steps_v1(id TEXT,work_task_id TEXT,current_attempt_id TEXT,operation TEXT,target_json TEXT); CREATE TABLE story_work_attempts_v1(attempt_id TEXT,step_id TEXT,sequence INTEGER); CREATE TABLE story_tasks_v2(task_id TEXT,status TEXT); CREATE TABLE story_task_outputs_v2(task_id TEXT,output_kind TEXT);").unwrap();
+        let set=|digest:&str|{db.execute("DELETE FROM story_work_execution_conditions",[]).unwrap();db.execute("INSERT INTO story_work_execution_conditions VALUES('w',?1)",[digest]).unwrap();};
+        set("A");let a=recovery_fingerprint(&db,"w").unwrap();
+        for i in 1..=2 {
+            let id=format!("attempt-{i}");
+            db.execute("INSERT INTO story_work_steps_v1 VALUES(?1,'w',?1,'advisory',?2)",params![id,json!({"workDecision":{"fingerprint":a}}).to_string()]).unwrap();
+            db.execute("INSERT INTO story_work_attempts_v1 VALUES(?1,?1,?2)",params![id,i]).unwrap();
+            db.execute("INSERT INTO story_tasks_v2 VALUES(?1,'failed')",[id]).unwrap();
+        }
+        assert_eq!(unchanged_failures(&db,"w",&a).unwrap(),2);
+        set("B");assert_eq!(unchanged_failures(&db,"w",&recovery_fingerprint(&db,"w").unwrap()).unwrap(),0);
+        set("A");assert_eq!(unchanged_failures(&db,"w",&recovery_fingerprint(&db,"w").unwrap()).unwrap(),2,"A/B oscillation cannot erase attempts");
+        db.execute("INSERT INTO story_work_steps_v1 VALUES('saved','w','saved','generateChapter','{}')",[]).unwrap();
+        db.execute("INSERT INTO story_work_attempts_v1 VALUES('saved','saved',3)",[]).unwrap();
+        db.execute("INSERT INTO story_task_outputs_v2 VALUES('saved','completionReport')",[]).unwrap();
+        assert_eq!(unchanged_failures(&db,"w",&a).unwrap(),2,"a coordinator report is not domain progress");
+        db.execute("INSERT INTO story_task_outputs_v2 VALUES('saved','draft')",[]).unwrap();
+        assert_eq!(unchanged_failures(&db,"w",&a).unwrap(),0);
+    }
 }

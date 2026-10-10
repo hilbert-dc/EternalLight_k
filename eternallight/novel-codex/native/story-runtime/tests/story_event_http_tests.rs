@@ -54,7 +54,7 @@ async fn cross_chapter_prerequisites_publish_atomically_and_replay_after_source_
         &path,
         "POST",
         "/api/projects",
-        json!({"title":"跨章交信"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"跨章交信"}),
         Role::Author,
     )
     .await;
@@ -359,7 +359,7 @@ async fn typed_event_lifecycle_preserves_sources_participant_recall_and_independ
         &path,
         "POST",
         "/api/projects",
-        json!({"title":"交信"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"交信"}),
         Role::Author,
     )
     .await;

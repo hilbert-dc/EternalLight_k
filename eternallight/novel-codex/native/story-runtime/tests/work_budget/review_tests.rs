@@ -5,13 +5,19 @@ use serde_json::{Value, json};
 
 #[tokio::test]
 async fn review_seats_share_one_work_budget_and_cannot_run_ahead_of_unsettled_usage() {
+    for known in [false, true] {
+        review_seats_under_actual_usage(known).await;
+    }
+}
+
+async fn review_seats_under_actual_usage(known: bool) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("review.sqlite3");
     let (_, created) = call(
         &path,
         "POST",
         "/api/projects",
-        json!({"title":"审阅"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"审阅"}),
         AUTHOR,
     )
     .await;
@@ -211,14 +217,24 @@ async fn review_seats_share_one_work_budget_and_cannot_run_ahead_of_unsettled_us
     let engine_path = path.with_extension("engine.sqlite3");
     let mut engine = eternallight_engine_core::PersistentBudget::new(&engine_path,task_id,
         json!({"options":{"id":format!("budget-{task_id}"),"maxRequests":3,"maxTokens":1000,"startedAt":1000},"now":1000})).unwrap();
-    engine
+    let reservation = engine
         .apply(
             "budget.reserve",
             json!({"parameters":{"maxOutputTokens":100},"now":1001}),
         )
         .unwrap();
-    drop(engine);
-    eternallight_engine_core::PersistentBudget::recover(&engine_path).unwrap();
+    if known {
+        engine
+            .apply(
+                "budget.settle",
+                json!({"id":reservation,"usage":{"total_tokens":100},"now":1002}),
+            )
+            .unwrap();
+        engine.complete("completed").unwrap();
+    } else {
+        drop(engine);
+        eternallight_engine_core::PersistentBudget::recover(&engine_path).unwrap();
+    }
     assert_eq!(
         call(
             &path,
@@ -231,6 +247,7 @@ async fn review_seats_share_one_work_budget_and_cannot_run_ahead_of_unsettled_us
         .0,
         StatusCode::OK
     );
+    let before_claim = super::unknown_usage_admission::snapshot(&path);
     let (status, second) = call(
         &path,
         "POST",
@@ -239,6 +256,15 @@ async fn review_seats_share_one_work_budget_and_cannot_run_ahead_of_unsettled_us
         AUTHOR,
     )
     .await;
+    if !known {
+        assert_eq!(status, StatusCode::CONFLICT, "{second}");
+        assert_eq!(second["error"]["code"], "work_usage_unknown");
+        assert_eq!(
+            super::unknown_usage_admission::snapshot(&path),
+            before_claim
+        );
+        return;
+    }
     assert_eq!(status, StatusCode::OK, "{second}");
     let second_id = second["id"].as_str().unwrap();
     let (_, grant) = call(
@@ -275,31 +301,41 @@ async fn review_seats_share_one_work_budget_and_cannot_run_ahead_of_unsettled_us
     );
     let mut engine = eternallight_engine_core::PersistentBudget::new(&engine_path,second_id,
         json!({"options":{"id":format!("budget-{second_id}"),"maxRequests":2,"maxTokens":900,"startedAt":1000},"now":1000})).unwrap();
-    engine
+    let reservation = engine
         .apply(
             "budget.reserve",
             json!({"parameters":{"maxOutputTokens":100},"now":1001}),
         )
         .unwrap();
-    drop(engine);
-    eternallight_engine_core::PersistentBudget::recover(&engine_path).unwrap();
+    engine
+        .apply(
+            "budget.settle",
+            json!({"id":reservation,"usage":{"total_tokens":100},"now":1002}),
+        )
+        .unwrap();
+    engine.complete("failed").unwrap();
     let (_, blocked) = call(&path, "GET", &work_uri, Value::Null, AUTHOR).await;
     assert_eq!(blocked["status"], "blocked");
     // Work control alone never releases the old reservation.
+    let before_resume = super::unknown_usage_admission::snapshot(&path);
+    let (status, rejected) = call(
+        &path,
+        "POST",
+        &format!("{work_uri}/control"),
+        json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":blocked["threadId"],
+            "command":"resume","expectedControlRevision":blocked["controlRevision"]
+        }),
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{rejected}");
+    assert_eq!(rejected["error"]["code"], "work_control_rejected");
+    assert_eq!(rejected["outcome"]["receipt"]["reason"], "TaskInputStale");
     assert_eq!(
-        call(
-            &path,
-            "POST",
-            &format!("{work_uri}/control"),
-            json!({
-                "command":"resume","expectedVersion":blocked["version"]
-            }),
-            AUTHOR
-        )
-        .await
-        .0,
-        StatusCode::OK
+        rejected["error"]["message"],
+        novel_codex_story_core::RepositoryError::TaskInputStale.to_string()
     );
+    super::unknown_usage_admission::assert_rejected_control_only(&path, &before_resume, &rejected);
     let (_, before_retry) = call(&path, "GET", &work_uri, Value::Null, AUTHOR).await;
     assert!(
         !call(
@@ -330,6 +366,16 @@ async fn review_seats_share_one_work_budget_and_cannot_run_ahead_of_unsettled_us
         StatusCode::OK
     );
     let (_, before_retry) = call(&path, "GET", &work_uri, Value::Null, AUTHOR).await;
+    let (status, resumed) = call(
+        &path,
+        "POST",
+        &format!("{work_uri}/control"),
+        json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":before_retry["threadId"],"command":"resume","expectedControlRevision":before_retry["controlRevision"]}),
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resumed}");
+    let before_retry = resumed;
     let seats_before = call(&path, "GET", &run_uri, Value::Null, AUTHOR).await.1["seats"].clone();
     db.execute_batch("CREATE TRIGGER reject_review_binding BEFORE UPDATE OF task_id ON story_planning_review_seats_v2 BEGIN SELECT RAISE(ABORT, 'seat failure'); END;").unwrap();
     assert!(
@@ -438,7 +484,7 @@ async fn review_seats_share_one_work_budget_and_cannot_run_ahead_of_unsettled_us
             reports_ready["status"].clone(),
             reports_ready["resumeBlockReason"].clone()
         ),
-        (json!("blocked"), Value::Null)
+        (json!("blocked"), json!("pendingUsage"))
     );
     let before_finalize = call(&path, "GET", &run_uri, Value::Null, AUTHOR).await.1;
     assert!(
@@ -482,7 +528,7 @@ async fn review_seats_share_one_work_budget_and_cannot_run_ahead_of_unsettled_us
             &path,
             "POST",
             &format!("{work_uri}/control"),
-            json!({"command":"pause","expectedVersion":ready["version"]}),
+            json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":ready["threadId"],"command":"pause","expectedControlRevision":ready["controlRevision"]}),
             AUTHOR
         )
         .await
@@ -511,7 +557,7 @@ async fn review_seats_share_one_work_budget_and_cannot_run_ahead_of_unsettled_us
             &path,
             "POST",
             &format!("{work_uri}/control"),
-            json!({"command":"resume","expectedVersion":paused["version"]}),
+            json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":paused["threadId"],"command":"resume","expectedControlRevision":paused["controlRevision"]}),
             AUTHOR
         )
         .await
@@ -573,13 +619,15 @@ async fn review_seats_share_one_work_budget_and_cannot_run_ahead_of_unsettled_us
         (json!(run_id), json!("completed"), 2)
     );
     let newest_id = newest["id"].as_str().unwrap();
-    let control_uri = format!("{root}/work-tasks/work-{newest_id}/control");
+    let newest_work_uri = format!("{root}/work-tasks/work-{newest_id}");
+    let (_, newest_work) = call(&path, "GET", &newest_work_uri, Value::Null, AUTHOR).await;
+    let control_uri = format!("{newest_work_uri}/control");
     assert_eq!(
         call(
             &path,
             "POST",
             &control_uri,
-            json!({"command":"cancel","expectedVersion":0}),
+            json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":newest_work["threadId"],"command":"cancel","expectedControlRevision":newest_work["controlRevision"]}),
             AUTHOR
         )
         .await
@@ -604,7 +652,7 @@ async fn review_seats_share_one_work_budget_and_cannot_run_ahead_of_unsettled_us
         &path,
         "POST",
         "/api/projects",
-        json!({"title":"其他作品"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"其他作品"}),
         AUTHOR,
     )
     .await;

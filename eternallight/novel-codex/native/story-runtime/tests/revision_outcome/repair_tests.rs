@@ -1,4 +1,8 @@
-use super::{decision_tests::*, fixture::*, flow::Flow};
+use super::{
+    decision_tests::*,
+    fixture::*,
+    flow::{Flow, evidence},
+};
 use axum::http::StatusCode;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -41,7 +45,7 @@ async fn root_request(f: &Fixture, source: Value, key: &str) -> Value {
     request
 }
 
-async fn root(flow: &Flow, receipt: &Value, decision: &Value) -> Value {
+async fn unplanned_root(flow: &Flow, receipt: &Value, decision: &Value) -> Value {
     let request = root_request(&flow.fixture, source(flow, receipt, decision), "root").await;
     let (status, task) = flow
         .fixture
@@ -51,10 +55,87 @@ async fn root(flow: &Flow, receipt: &Value, decision: &Value) -> Value {
     task
 }
 
+async fn root(flow: &Flow, receipt: &Value, decision: &Value) -> Value {
+    let task = unplanned_root(flow, receipt, decision).await;
+    flow.fixture
+        .save_execution_plan(&task, "repair-plan", REPAIR_INTENT)
+        .await;
+    task
+}
+
 fn repair_target(flow: &Flow) -> Value {
     let mut target = flow.fixture.target.clone();
     target["scope"]["sourceRevisionId"] = flow.draft["revisionId"].clone();
     target
+}
+
+#[tokio::test]
+async fn source_bound_repair_can_omit_method_plan_without_expanding_revision_authority() {
+    let (flow, receipt) = completed_outcome().await;
+    let decision = repair_decision(&flow, &receipt).await;
+    let f = &flow.fixture;
+    let task = unplanned_root(&flow, &receipt, &decision).await;
+    let target = repair_target(&flow);
+    let before = f.ledger_counts();
+    let (status, simple) = propose(f, &task, target.clone(), "without-method-plan").await;
+    assert_eq!(status, StatusCode::CREATED, "{simple}");
+    assert_eq!(simple["status"], "proposed");
+    assert_eq!(simple["target"]["scope"], target["scope"]);
+    let mut expected = before.clone();
+    expected[13] = json!(before[13].as_u64().unwrap() + 1);
+    assert_eq!(
+        f.ledger_counts(),
+        expected,
+        "only the proposal is recorded; execution and budget are unchanged"
+    );
+
+    f.save_execution_plan(&task, "repair-plan", REPAIR_INTENT)
+        .await;
+    let before = database_snapshot(f);
+    for (pointer, value) in [
+        ("/chapterId", json!("unrelated-chapter")),
+        ("/scope/groupIds", json!(["opening"])),
+        ("/scope/sourceRevisionId", f.original["revisionId"].clone()),
+    ] {
+        let mut forbidden = target.clone();
+        *forbidden.pointer_mut(pointer).unwrap() = value;
+        let (status, error) = propose(f, &task, forbidden, pointer).await;
+        assert!(status.is_client_error(), "{pointer}: {error}");
+        assert_eq!(database_snapshot(f), before);
+    }
+    let (status, handoff) = f
+        .request(
+            "POST",
+            &format!("/tasks/{}/generation-handoff", task["id"].as_str().unwrap()),
+            CANDIDATE,
+            json!({"taskId":task["id"],"threadId":task["threadId"],
+            "expectedRevision":task["inputRevision"],"expectedIntentRevision":0,
+            "targetChapters":2,"instruction":"另开连续范围","idempotencyKey":"forbidden-handoff"}),
+        )
+        .await;
+    assert!(status.is_client_error(), "{handoff}");
+    assert_eq!(database_snapshot(f), before);
+
+    let (status, duplicate) = propose(f, &task, target, "authorized-source-repair").await;
+    assert!(status.is_client_error(), "{duplicate}");
+    assert_eq!(database_snapshot(f), before);
+    let action = simple;
+    let (status, permission) = f
+        .request(
+            "GET",
+            &format!("{}/permission", action_path(&task, &action)),
+            AUTHOR,
+            Value::Null,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{permission}");
+    assert_eq!(permission["permission"], Value::Null);
+    let before = database_snapshot(f);
+    let (status, unapproved) = f
+        .create_task("generateChapter", claim_target(&task, &action))
+        .await;
+    assert!(status.is_client_error(), "{unapproved}");
+    assert_eq!(database_snapshot(f), before);
 }
 
 async fn propose(f: &Fixture, root: &Value, target: Value, key: &str) -> (StatusCode, Value) {
@@ -370,7 +451,8 @@ async fn repair_input_is_complete_under_context_pressure_and_oversize_creation_r
             json!([
                 {"id":"hide-letter","status":"supported","reason":"月".repeat(500)},
                 {"id":"confess","status":"unmet","reason":"月".repeat(500)},
-                {"id":"guard-motive","status":"insufficientEvidence","reason":"月".repeat(500)}
+                {"id":"guard-motive","status":"insufficientEvidence","reason":"月".repeat(500)},
+                {"id":"whole-chapter","status":"supported","reason":"月".repeat(500)}
             ])
         );
         let (status, roomy) = context(f, &root, 60_000).await;
@@ -412,9 +494,15 @@ async fn stale_decision_or_draft_rejects_root_proposal_approval_and_writer_claim
         let target = repair_target(&flow);
         let (status, action) = propose(f, &task, target.clone(), "before-change").await;
         assert_eq!(status, StatusCode::CREATED, "{action}");
-        let (status, queued) = propose(f, &task, target.clone(), "queued-before-change").await;
+        let queued_request = root_request(f, source(&flow, &receipt, &decision), "queued").await;
+        let (status, queued_root) = f.request("POST", "/tasks", AUTHOR, queued_request).await;
+        assert_eq!(status, StatusCode::CREATED, "{queued_root}");
+        f.save_execution_plan(&queued_root, "queued-plan", REPAIR_INTENT)
+            .await;
+        let (status, queued) =
+            propose(f, &queued_root, target.clone(), "queued-before-change").await;
         assert_eq!(status, StatusCode::CREATED, "{queued}");
-        let (status, approved) = approve(f, &task, &queued).await;
+        let (status, approved) = approve(f, &queued_root, &queued).await;
         assert_eq!(status, StatusCode::OK, "{approved}");
         if change == "decision" {
             let (status, changed) = decide(
@@ -449,7 +537,7 @@ async fn stale_decision_or_draft_rejects_root_proposal_approval_and_writer_claim
         assert!(status.is_client_error(), "{change}: {error}");
         assert_eq!(database_snapshot(f), before);
         let (status, error) = f
-            .create_task("generateChapter", claim_target(&task, &queued))
+            .create_task("generateChapter", claim_target(&queued_root, &queued))
             .await;
         assert!(status.is_client_error(), "{change}: {error}");
         assert_eq!(database_snapshot(f), before);
@@ -671,17 +759,22 @@ async fn approved_repair_writer_models_and_assesses_with_frozen_history_in_one_n
         "/operationContext/revisionOutcomeInput",
     )
     .await;
-    assert_eq!(outcome_input["desiredOutcomes"], desired_outcomes());
-    assert_eq!(outcome_input["beforeScenes"][0]["body"], NEW_BODY);
+    assert_eq!(
+        json!(&outcome_input["desiredOutcomes"].as_array().unwrap()[1..]),
+        desired_outcomes()
+    );
+    assert_eq!(outcome_input["beforeScenes"][1]["body"], NEW_BODY);
+    f.read_author_requirements(&assessment).await;
     let mut report = flow.report();
     report["writerTaskId"] = writer["id"].clone();
     report["originalRevisionId"] = flow.draft["revisionId"].clone();
     report["draftRevisionId"] = draft["revisionId"].clone();
     report["knowledgeBatchId"] = batch["id"].clone();
     report["outcomes"] = json!([
-        {"id":"hide-letter","status":"insufficientEvidence","reason":"沿用已支持的藏信，没有新增藏信证据。","evidence":[]},
-        {"id":"confess","status":"supported","reason":"本次明确坦白。","evidence":[super::flow::evidence("letter", REPAIRED_BODY, "她向守卫坦白密函的存在。")]},
-        {"id":"guard-motive","status":"supported","reason":"本次交代保护林夕的动机。","evidence":[super::flow::evidence("witness", "守卫为了保护林夕而沉默。", "守卫为了保护林夕而沉默。")]}
+        {"id":"hide-letter","status":"insufficientEvidence","reason":"沿用已支持的藏信，没有新增藏信证据。","issue":{"issueId":"repair-hide-letter-evidence","newIssue":{"summary":"本次修订尚无新的藏信证据"},"resolutionOf":[]},"evidence":[]},
+        {"id":"confess","status":"supported","reason":"本次明确坦白。","issue":null,"evidence":[super::flow::evidence("letter", REPAIRED_BODY, "她向守卫坦白密函的存在。")]},
+        {"id":"guard-motive","status":"supported","reason":"本次交代保护林夕的动机。","issue":null,"evidence":[super::flow::evidence("witness", "守卫为了保护林夕而沉默。", "守卫为了保护林夕而沉默。")]},
+        {"id":"whole-chapter","status":"supported","reason":"开场、守卫和结尾保持完整。","issue":null,"evidence":[evidence("opening","林夕走进港口。","林夕走进港口。")]}
     ]);
     let (status, outcome) = f
         .request(
@@ -706,13 +799,17 @@ async fn approved_repair_writer_models_and_assesses_with_frozen_history_in_one_n
     assert_eq!(
         current,
         json!({"revisionId":outcome["revisionId"],"authority":"candidateAnalysis",
-        "state":"current","assessment":report,"decisions":[]})
+        "state":"current","assessment":report,"decisions":[],
+        "issues":[{"issueId":"repair-hide-letter-evidence","summary":"本次修订尚无新的藏信证据",
+        "status":"open","chapterId":"chapter-one","currentDraftRevisionId":draft["revisionId"],
+        "observations":[],"observationCount":1,"hasMoreObservations":true}]})
     );
     let (_, history) = f.request("GET", &flow.path(), AUTHOR, Value::Null).await;
     assert_eq!(
         history,
         json!({"revisionId":receipt["revisionId"],"authority":"candidateAnalysis",
-        "state":"stale","assessment":flow.report(),"decisions":[decision]})
+        "state":"stale","assessment":flow.report(),"decisions":[decision],
+        "issues":expected_issue_summaries(&draft["revisionId"], "stale", 1)})
     );
 }
 
@@ -746,9 +843,9 @@ async fn paused_repair_resumes_the_frozen_source_and_account_but_cannot_reactiva
         let mut repository = f.repo();
         let work = repository.work_task(&f.project(), work_id).unwrap();
         let paused = repository
-            .control_work_task(&f.project(), work_id, "pause", work.version, /*now*/ 1)
+            .control_work_task(&f.project(), work_id, "pause", work.control_revision, /*now*/ 1)
             .unwrap();
-        repository
+        assert_eq!(repository
             .update_task(
                 &f.project(),
                 task["id"].as_str().unwrap(),
@@ -759,8 +856,10 @@ async fn paused_repair_resumes_the_frozen_source_and_account_but_cannot_reactiva
                     result_summary: None,
                     now: 2,
                 },
-            )
-            .unwrap();
+            ), Err(novel_codex_story_core::RepositoryError::TaskNotWritable));
+        let stopped = repository.task(&f.project(), task["id"].as_str().unwrap()).unwrap().unwrap();
+        assert!(stopped.was_author_paused());
+        assert_eq!(stopped.capability_revoked_at, Some(1));
         f.settle(&task);
         let latest = repository.work_task(&f.project(), &paused.id).unwrap();
         assert_eq!(latest.status, "paused");
@@ -782,7 +881,7 @@ async fn paused_repair_resumes_the_frozen_source_and_account_but_cannot_reactiva
             &f.project(),
             work_id,
             "resume",
-            latest.version,
+            latest.control_revision,
             /*now*/ 3,
         );
         if source_changed {

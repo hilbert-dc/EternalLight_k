@@ -117,7 +117,8 @@ fn recovery_commit_receipt_survives_reopen_and_replay_without_body_or_author_acc
         &project(),
         "task",
         "root",
-        "not persisted in recovery".into(), None,
+        "not persisted in recovery".into(),
+        None,
         /*now*/ 30,
     )
     .unwrap();
@@ -189,8 +190,15 @@ fn recovery_pages_freeze_operation_states_task_status_and_scope_across_reopen() 
         )
         .unwrap();
     assert_eq!(first["complete"], false);
-    repo.complete_task(&project(), "task", "root", String::new(), None, /*now*/ 30)
-        .unwrap();
+    repo.complete_task(
+        &project(),
+        "task",
+        "root",
+        String::new(),
+        None,
+        /*now*/ 30,
+    )
+    .unwrap();
     drop(repo);
     let mut repo = SqliteStoryRepository::open(&path).unwrap();
     let fence = first["fence"].as_str().unwrap();
@@ -273,6 +281,9 @@ fn advisory_action_and_knowledge_publication_have_typed_proofs_not_candidate_gue
     };
     repo.create_task(make_task("advisory", "advisory", json!({"type":"project"})))
         .unwrap();
+    let advisory = repo.task(&project(), "advisory").unwrap().unwrap();
+    let plan=serde_json::from_value(json!({"expectedPlanVersion":0,"idempotencyKey":"outline-goal","plan":{"intentMode":"executeGoals","goals":[{"id":"outline","title":"创建候选大纲","acceptance":"保存授权大纲候选","kind":"deliverable","status":"inProgress","dependsOn":[],"readingQuestion":"","checkScope":"大纲","approach":"创建并核对保存回执","assessment":"","evidence":[],"sourceIds":[],"sourceChecks":[],"continuation":null}]}})).unwrap();
+    repo.update_model_work_plan(&advisory, &plan).unwrap();
     let mut action_binding = binding("action-call", "request_candidate_task");
     action_binding.task_id = "advisory".into();
     repo.bind_recovery_operation(action_binding.clone())
@@ -516,6 +527,56 @@ fn planning_report_proof_is_stable_on_exact_replay_and_not_a_formal_acceptance()
             .map(|v| v["receipt_ref"].clone())
             .collect::<Vec<_>>(),
         vec![json!(expected), json!(expected)]
+    );
+    assert_eq!(
+        repo.object_heads(&project()).unwrap()[0].accepted_revision_id,
+        None
+    );
+}
+
+#[test]
+fn rejected_completion_settles_and_terminal_recovery_proves_only_completion() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("completion.sqlite");
+    let mut repo = setup(&path);
+    repo.bind_recovery_operation(binding("bad-completion", "complete_task"))
+        .unwrap();
+    assert!(matches!(
+        repo.complete_task(&project(), "task", "wrong-thread", String::new(), None, 20),
+        Err(RepositoryError::TaskBindingInvalid)
+    ));
+    assert_eq!(snapshot(&mut repo)["operations"][0]["state"], "rejected");
+    repo.bind_recovery_operation(binding("missing-output", "complete_task"))
+        .unwrap();
+    assert!(matches!(
+        repo.complete_task(&project(), "task", "root", String::new(), None, 20),
+        Err(RepositoryError::TaskOutputMissing)
+    ));
+    assert_eq!(snapshot(&mut repo)["operations"][1]["state"], "rejected");
+    repo.bind_recovery_operation(binding("saved", "save_brief"))
+        .unwrap();
+    repo.save_candidate(candidate()).unwrap();
+    repo.bind_recovery_operation(binding("complete-success", "complete_task"))
+        .unwrap();
+    repo.complete_task(&project(), "task", "root", "saved".into(), None, 30)
+        .unwrap();
+    drop(repo);
+    // Crash fixture: an unobserved completion and an unrelated unknown write.
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute("UPDATE story_tool_operations_v1 SET state='accepted',receipt_ref=NULL WHERE call_id IN ('complete-success','saved')", []).unwrap();
+    drop(db);
+    let mut repo = SqliteStoryRepository::open(&path).unwrap();
+    let recovered = snapshot(&mut repo);
+    let calls = recovered["operations"].as_array().unwrap();
+    let completion = calls
+        .iter()
+        .find(|v| v["tool_call_id"] == "complete-success")
+        .unwrap();
+    assert_eq!(completion["state"], "committed");
+    assert_eq!(completion["receipt_ref"], "runtime:task:task:completed");
+    assert_eq!(
+        calls.iter().find(|v| v["tool_call_id"] == "saved").unwrap()["state"],
+        "accepted"
     );
     assert_eq!(
         repo.object_heads(&project()).unwrap()[0].accepted_revision_id,

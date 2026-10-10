@@ -2,9 +2,27 @@ use crate::RepositoryError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ProviderContinuationBlock {
+    UnknownUsage,
+    BudgetExhausted,
+}
+
+impl ProviderContinuationBlock {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::UnknownUsage => "unknownUsage",
+            Self::BudgetExhausted => "budgetExhausted",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderUsageCharge {
+    /// Observed execution failures from the bound Engine receipt, independent of cost.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_observations: Option<Vec<Value>>,
     pub task_id: String,
     pub budget_id: String,
     pub status: String,
@@ -135,6 +153,19 @@ impl ProviderBudget {
         self.overrun || self.remaining_requests() == Some(0) || self.remaining_tokens() == Some(0)
     }
 
+    /// Unknown historical usage remains recorded. Only a finite token ceiling
+    /// requires it to block further Work execution; metering-only Work still
+    /// passes the independent write, ownership and lifecycle admission checks.
+    pub(crate) fn continuation_block_reason(&self) -> Option<ProviderContinuationBlock> {
+        if self.unknown_tokens > 0 && self.max_tokens.is_some() {
+            Some(ProviderContinuationBlock::UnknownUsage)
+        } else if self.exhausted() {
+            Some(ProviderContinuationBlock::BudgetExhausted)
+        } else {
+            None
+        }
+    }
+
     pub fn has_charge(&self, task_id: &str) -> bool {
         self.charges.iter().any(|charge| charge.task_id == task_id)
     }
@@ -207,7 +238,16 @@ fn charge(task_id: &str, receipt: &Value) -> Result<ProviderUsageCharge, Reposit
     if limit(&receipt["limits"]["maxRequests"])?.is_some_and(|maximum| requests > maximum) {
         return Err(RepositoryError::TaskBindingInvalid);
     }
+    let failure_observations = receipt.get("failureObservations").map(|value| {
+        let facts = value.as_array().ok_or(RepositoryError::TaskBindingInvalid)?;
+        if facts.len() > 2 || facts.iter().any(|fact| fact["issuer"] != "engine" || fact["runId"] != task_id
+            || fact["phase"] != "modelRequest" || fact["requestId"].as_str().is_none()) {
+            return Err(RepositoryError::TaskBindingInvalid);
+        }
+        Ok(facts.clone())
+    }).transpose()?.filter(|facts| !facts.is_empty());
     Ok(ProviderUsageCharge {
+        failure_observations,
         task_id: task_id.into(),
         budget_id: budget_id.into(),
         status: status.into(),
@@ -234,12 +274,20 @@ impl ProviderBudget {
     ) -> Result<UsageChargeOutcome, RepositoryError> {
         self.validate()?;
         let charge = charge(task_id, receipt)?;
-        if let Some(existing) = self.charges.iter().find(|item| item.task_id == task_id) {
-            return if existing == &charge {
-                Ok(UsageChargeOutcome::AlreadyCharged)
-            } else {
-                Err(RepositoryError::TaskBindingInvalid)
-            };
+        if let Some(index) = self.charges.iter().position(|item| item.task_id == task_id) {
+            let existing = &self.charges[index];
+            if existing == &charge { return Ok(UsageChargeOutcome::AlreadyCharged); }
+            verify_reconciliation(existing, &charge, receipt)?;
+            let mut updated = self.clone();
+            updated.used_tokens = updated.used_tokens.checked_sub(existing.tokens).and_then(|n| n.checked_add(charge.tokens)).ok_or(RepositoryError::TaskBindingInvalid)?;
+            updated.unknown_tokens = updated.unknown_tokens.checked_sub(existing.unknown_tokens).and_then(|n| n.checked_add(charge.unknown_tokens)).ok_or(RepositoryError::TaskBindingInvalid)?;
+            updated.charges[index] = charge;
+            updated.overrun = updated.charges.iter().any(|c| c.overrun)
+                || updated.max_requests.is_some_and(|limit| updated.used_requests > limit)
+                || updated.max_tokens.is_some_and(|limit| updated.used_tokens.saturating_add(updated.unknown_tokens) > limit);
+            updated.validate()?;
+            *self = updated;
+            return Ok(UsageChargeOutcome::Applied);
         }
         if self
             .charges
@@ -271,5 +319,64 @@ impl ProviderBudget {
         self.overrun |= overrun;
         self.charges.push(charge);
         Ok(UsageChargeOutcome::Applied)
+    }
+}
+
+// Runtime obtains this proof only from the Engine ledger; public requests contain
+// a task ID, never caller-supplied usage. Each link replaces unknown accounting.
+fn verify_reconciliation(old: &ProviderUsageCharge, new: &ProviderUsageCharge, receipt: &Value) -> Result<(), RepositoryError> {
+    let proofs = receipt["usageReconciliations"].as_array().ok_or(RepositoryError::TaskBindingInvalid)?;
+    if old.task_id != new.task_id || old.budget_id != new.budget_id || old.status != new.status || old.requests != new.requests
+        || new.unknown_tokens >= old.unknown_tokens || new.tokens < old.tokens {
+        return Err(RepositoryError::TaskBindingInvalid);
+    }
+    let mut current = old.clone();
+    for _ in 0..proofs.len() {
+        let mut next = None;
+        for proof in proofs {
+            if proof["receiptRef"].as_str().is_none_or(|s| s.is_empty() || s.len() > 256)
+                || proof["before"]["id"] != old.budget_id || proof["after"]["id"] != old.budget_id { continue; }
+            let mut candidate = receipt.clone();
+            candidate["usage"] = proof["before"].clone();
+            if charge(&old.task_id, &candidate)? != current { continue; }
+            candidate["usage"] = proof["after"].clone();
+            let after = charge(&old.task_id, &candidate)?;
+            if after.requests != current.requests || after.tokens < current.tokens || after.unknown_tokens >= current.unknown_tokens || next.is_some() {
+                return Err(RepositoryError::TaskBindingInvalid);
+            }
+            next = Some(after);
+        }
+        current = next.ok_or(RepositoryError::TaskBindingInvalid)?;
+        if &current == new { return Ok(()); }
+    }
+    Err(RepositoryError::TaskBindingInvalid)
+}
+
+#[cfg(test)]
+mod reconciliation_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn engine_proof_updates_only_unknown_charge_and_is_idempotent() {
+        let mut ledger: ProviderBudget = serde_json::from_value(json!({"maxRequests":null,"maxTokens":null,"usedRequests":0,"usedTokens":0,"unknownTokens":0,"overrun":false,"charges":[]})).unwrap();
+        let mut receipt=json!({"runId":"task","budgetId":"budget-task","status":"failed","limits":{"maxRequests":null,"maxTokens":null,"maxDurationMs":null},"usage":{"requests":1,"tokens":4,"unknownTokens":50,"overrun":false}});
+        ledger.charge_receipt("task", &receipt).unwrap();
+        let old=ledger.clone();
+        let before=json!({"id":"budget-task","requests":1,"tokens":4,"unknownTokens":50,"overrun":false});
+        let after=json!({"id":"budget-task","requests":1,"tokens":21,"unknownTokens":0,"overrun":false});
+        receipt["usage"]=after.clone();
+        assert!(ledger.charge_receipt("task", &receipt).is_err());
+        assert_eq!(ledger,old);
+        receipt["usageReconciliations"]=json!([{"before":before,"after":after,"receiptRef":"provider-receipt"}]);
+        let mut forged=receipt.clone();
+        forged["usageReconciliations"][0]["before"]["tokens"]=json!(5);
+        assert!(ledger.charge_receipt("task", &forged).is_err());
+        assert_eq!(ledger,old);
+        forged=receipt.clone();forged["usageReconciliations"][0]["after"]["id"]=json!("other-budget");
+        assert!(ledger.charge_receipt("task", &forged).is_err());
+        assert_eq!(ledger.charge_receipt("task", &receipt).unwrap(),UsageChargeOutcome::Applied);
+        assert_eq!((ledger.used_requests,ledger.used_tokens,ledger.unknown_tokens),(1,21,0));
+        assert_eq!(ledger.charges[0].status,"failed");
+        assert_eq!(ledger.charge_receipt("task", &receipt).unwrap(),UsageChargeOutcome::AlreadyCharged);
     }
 }

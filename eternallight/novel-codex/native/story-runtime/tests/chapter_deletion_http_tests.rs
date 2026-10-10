@@ -55,7 +55,7 @@ async fn create_project(app: &Router) -> String {
         "POST",
         "/api/projects",
         AUTHOR,
-        json!({"title":"真实删除","logline":"不重排其余章"}),
+        json!({"medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"真实删除","logline":"不重排其余章"}),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
@@ -222,7 +222,7 @@ async fn deleting_published_chapter_removes_current_authority_and_preserves_exac
     let position = read(&app, &format!("{root}/generation-start-position")).await;
     assert_eq!(
         position,
-        json!({"completedChapters":3,"firstStage":"rollingPlan"})
+        json!({"completedChapters":3,"firstStage":"coordinate"})
     );
     for table in [
         "story_chapters_v2",

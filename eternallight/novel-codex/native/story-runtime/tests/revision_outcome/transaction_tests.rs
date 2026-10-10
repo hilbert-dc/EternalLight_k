@@ -290,7 +290,7 @@ async fn paused_work_cannot_claim_and_cancellation_revokes_live_assessment_submi
             "POST",
             &path,
             AUTHOR,
-            json!({"command":"pause","expectedVersion":work["version"]}),
+            json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":work["threadId"],"command":"pause","expectedControlRevision":work["controlRevision"]}),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{paused}");
@@ -306,7 +306,7 @@ async fn paused_work_cannot_claim_and_cancellation_revokes_live_assessment_submi
             "POST",
             &path,
             AUTHOR,
-            json!({"command":"resume","expectedVersion":paused["version"]}),
+            json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":paused["threadId"],"command":"resume","expectedControlRevision":paused["controlRevision"]}),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{resumed}");
@@ -317,7 +317,7 @@ async fn paused_work_cannot_claim_and_cancellation_revokes_live_assessment_submi
             "POST",
             &path,
             AUTHOR,
-            json!({"command":"cancel","expectedVersion":active["version"]}),
+            json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":active["threadId"],"command":"cancel","expectedControlRevision":active["controlRevision"]}),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{cancelled}");

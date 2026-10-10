@@ -19,6 +19,33 @@ pub struct TaskIntentRecord {
 }
 
 impl SqliteStoryRepository {
+    /// Trusted Host evidence: the directed-input call was rejected before send.
+    /// Pause and revoke atomically so the old attempt cannot act on absent input.
+    pub fn retain_unsent_task_intent(&mut self, project_id: &ProjectId, task_id: &str, revision: i64, now: i64) -> Result<TaskIntentRecord, RepositoryError> {
+        let tx = self.connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+        let task = crate::tasks::load_task(&tx, task_id)?;
+        if task.project_id != *project_id || task.operation != "advisory" { return Err(RepositoryError::TaskBindingInvalid); }
+        let record = load_intent(&tx, task_id, revision)?;
+        if record.status == "notSent" { return Ok(record); }
+        if record.status != "pending" || intent_head(&tx, task_id)?.0 != revision { return Err(RepositoryError::TaskInputStale); }
+        let (work, status): (String, String) = tx.query_row(
+            "SELECT w.id,w.status FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id JOIN story_work_tasks_v1 w ON w.id=s.work_task_id WHERE a.attempt_id=?1 AND s.current_attempt_id=?1 AND w.project_id=?2 AND w.kind='conversation'",
+            params![task_id,project_id.as_str()], |r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(storage_error)?.ok_or(RepositoryError::TaskBindingInvalid)?;
+        if !matches!(status.as_str(), "running" | "paused" | "blocked" | "cancelled") { return Err(RepositoryError::TaskNotWritable); }
+        if status != "cancelled" {
+            if status != "paused" {
+                tx.execute("UPDATE story_work_tasks_v1 SET status='paused',version=version+1,control_revision=control_revision+1 WHERE id=?1", [&work]).map_err(storage_error)?;
+            }
+            crate::work_tasks::pause_active_attempts(&tx, &work, now)?;
+            crate::work_pause_barrier::clear(&tx, &work)?;
+            crate::work_interludes::invalidate(&tx, &work)?;
+        }
+        tx.execute("UPDATE story_task_intents_v1 SET status='notSent' WHERE task_id=?1 AND intent_revision=?2 AND status='pending'", params![task_id,revision]).map_err(storage_error)?;
+        let retained = load_intent(&tx, task_id, revision)?;
+        tx.commit().map_err(storage_error)?;
+        Ok(retained)
+    }
+
     pub fn append_task_intent(
         &mut self,
         project_id: &ProjectId,
@@ -37,6 +64,17 @@ impl SqliteStoryRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage_error)?;
         let task = crate::tasks::load_task(&tx, task_id)?;
+        if task.project_id != *project_id || task.operation != "advisory" {
+            return Err(RepositoryError::TaskBindingInvalid);
+        }
+        let (current, pending) = intent_head(&tx, task_id)?;
+        if expected_intent_revision < 0 { return Err(RepositoryError::TaskInputStale); }
+        if current > expected_intent_revision {
+            let receipt = load_intent(&tx, task_id, expected_intent_revision + 1)?;
+            return if receipt.author_text == author_text { Ok(receipt) }
+                else { Err(RepositoryError::TaskInputStale) };
+        }
+        if crate::work_interludes::is_attempt(&tx,task_id)? {return Err(RepositoryError::TaskNotWritable);}
         let reply_saved: bool = tx
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM story_task_final_replies_v1 WHERE task_id=?1)",
@@ -54,7 +92,6 @@ impl SqliteStoryRepository {
         {
             return Err(RepositoryError::TaskBindingInvalid);
         }
-        let (current, pending) = intent_head(&tx, task_id)?;
         if pending || current != expected_intent_revision || current >= MAX_STEERS {
             return Err(RepositoryError::TaskInputStale);
         }
@@ -129,6 +166,7 @@ impl SqliteStoryRepository {
         if record.status == "delivered" {
             return Ok(record);
         }
+        if record.status != "pending" { return Err(RepositoryError::TaskInputStale); }
         tx.execute(
             "UPDATE story_task_intents_v1 SET status='delivered',delivered_at=?1 WHERE task_id=?2 AND intent_revision=?3 AND status='pending'",
             params![now,task_id,intent_revision],

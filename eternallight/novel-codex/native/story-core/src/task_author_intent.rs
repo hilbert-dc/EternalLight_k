@@ -30,6 +30,11 @@ fn source_intent_at_depth(
         .map_err(|_| RepositoryError::CorruptState)?;
     let target: Value =
         serde_json::from_str(&source.target_json).map_err(|_| RepositoryError::CorruptState)?;
+    if manifest.get("interludeBinding").is_some() {
+        if revision!=0 {return Err(RepositoryError::TaskInputStale);}
+        crate::work_interludes::validate_source(db,&source,&manifest)?;
+        return manifest["authorIntent"].as_str().map(str::to_owned).ok_or(RepositoryError::TaskBindingInvalid);
+    }
     let review_source = crate::planning_review_author_source::owns_task(db, source_id)?
         || source.operation == "reviewPlanningSeat"
         || target.get("reviewRunId").is_some()
@@ -47,9 +52,9 @@ fn source_intent_at_depth(
     }
     let mut text = manifest["authorIntent"]
         .as_str()
-        .filter(|text| !text.trim().is_empty())
         .ok_or(RepositoryError::TaskBindingInvalid)?
         .to_owned();
+    crate::author_message::validate_text(db, source.project_id.as_str(), &target, &text)?;
     if let Some(binding) = manifest.get("authorIntentBinding") {
         let prior_id = binding["sourceTaskId"]
             .as_str()
@@ -84,7 +89,7 @@ fn source_intent_at_depth(
         let generation = row.map_err(storage_error)?;
         let record = crate::task_intents::load_intent(db, source_id, generation)?;
         count += 1;
-        if generation != count || record.status != "delivered" {
+        if generation != count || !matches!(record.status.as_str(), "delivered" | "notSent") {
             return Err(RepositoryError::TaskInputStale);
         }
         text.push_str("\n\n作者追加要求：\n");
@@ -117,6 +122,7 @@ pub(crate) fn freeze(
     if manifest.get("workDecision").is_some() || manifest.get("workDecisionAction").is_some() {
         return Err(RepositoryError::TaskBindingInvalid);
     }
+    if crate::work_interludes::freeze(db,request,target,manifest)? { return Ok(()); }
     if crate::work_decision::freeze(db, request, target, manifest)? {
         return Ok(());
     }

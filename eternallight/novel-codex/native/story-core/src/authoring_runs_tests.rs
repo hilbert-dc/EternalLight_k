@@ -152,9 +152,9 @@ fn claiming_generation_uses_validated_ledger_and_never_claims_a_refunded_balance
         "deadlineAt":now+600,"usedTaskAttempts":1,"maxTaskAttempts":10,"sourceDigest":source,"baseSnapshotId":"budget-snapshot",
         "providerBudget": {
             "maxRequests":10,"maxTokens":100,"usedRequests":1,"usedTokens":20,
-            "unknownTokens":10,"overrun":false,"charges":[{
+            "unknownTokens":0,"overrun":false,"charges":[{
                 "taskId":"task-first","budgetId":"budget-first","status":"completed",
-                "requests":1,"tokens":20,"unknownTokens":10,"overrun":false
+                "requests":1,"tokens":20,"unknownTokens":0,"overrun":false
             }]
         }
     });
@@ -183,7 +183,7 @@ fn claiming_generation_uses_validated_ledger_and_never_claims_a_refunded_balance
     assert_eq!(target["workDecision"]["workTaskId"], "work-run-budget");
     for field in ["usedRequests", "usedTokens", "unknownTokens"] {
         let mut corrupted = budget.clone();
-        corrupted[field] = json!(0);
+        corrupted[field] = json!(if field == "unknownTokens" { 1 } else { 0 });
         repository
             .connection
             .execute(
@@ -266,7 +266,7 @@ fn claiming_generation_uses_validated_ledger_and_never_claims_a_refunded_balance
             "task-later",
             Some(i64::MAX),
         ),
-        Err(RepositoryError::TaskBindingInvalid)
+        Err(RepositoryError::WorkUsageUnsettled)
     ));
     // Even another writer bypassing the service guard cannot double-allocate the account.
     let duplicate = repository.connection.execute(
@@ -277,6 +277,64 @@ fn claiming_generation_uses_validated_ledger_and_never_claims_a_refunded_balance
     );
     let count: i64 = repository.connection.query_row(
         "SELECT COUNT(*) FROM story_task_provider_budgets_v1 WHERE work_task_id='work-run-budget' AND settled=0", [], |row|row.get(0),
+    ).unwrap();
+    assert_eq!(count, 1);
+
+    // A terminal provider charge containing unknown usage is not authority for
+    // another attempt, even when its finite metered allowance is not exhausted.
+    let mut unknown_budget = budget;
+    unknown_budget["unknownTokens"] = json!(10);
+    unknown_budget["charges"][0]["unknownTokens"] = json!(10);
+    let unknown_budget = unknown_budget.to_string();
+    repository
+        .connection
+        .execute(
+            "UPDATE story_work_budgets_v1 SET ledger_json=?1 WHERE work_task_id='work-run-budget'",
+            [&unknown_budget],
+        )
+        .unwrap();
+    assert!(matches!(
+        crate::task_provider_budget::reserve(
+            &repository.connection,
+            &project,
+            "work-run-budget",
+            "task-later",
+            Some(i64::MAX),
+        ),
+        Err(RepositoryError::WorkUsageUnknown)
+    ));
+    let work = repository.work_task(&project, "work-run-budget").unwrap();
+    assert_eq!(work.resume_block_reason.as_deref(), Some("unknownUsage"));
+    let stopped = repository
+        .prepare_work_decision(
+            &project,
+            "work-run-budget",
+            &crate::WorkDecisionRequest {
+                expected_work_version: work.version,
+                expected_revision: repository.project_revision(&project).unwrap(),
+                expected_source_digest: project_source_digest(&repository.connection, &project)
+                    .unwrap(),
+            },
+        )
+        .unwrap();
+    assert_eq!(stopped.stop_reason, Some("unknownUsage"));
+    assert!(stopped.step.is_none());
+    assert_eq!(
+        repository.work_task(&project, "work-run-budget").unwrap(),
+        work
+    );
+    let stored_budget: String = repository
+        .connection
+        .query_row(
+            "SELECT ledger_json FROM story_work_budgets_v1 WHERE work_task_id='work-run-budget'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored_budget, unknown_budget);
+    let count: i64 = repository.connection.query_row(
+        "SELECT COUNT(*) FROM story_task_provider_budgets_v1 WHERE work_task_id='work-run-budget'",
+        [], |row|row.get(0),
     ).unwrap();
     assert_eq!(count, 1);
 }

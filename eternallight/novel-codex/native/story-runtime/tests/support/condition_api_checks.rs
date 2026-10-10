@@ -74,7 +74,7 @@ pub(super) async fn verify(path: &Path, base: &str, target: &ConditionEvaluation
         path,
         "POST",
         "/api/projects",
-        json!({"title":"隔离作品"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"隔离作品"}),
         Role::Author,
     )
     .await;

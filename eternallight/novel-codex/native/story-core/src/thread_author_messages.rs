@@ -37,20 +37,38 @@ impl SqliteStoryRepository {
                 continue;
             };
             let task = crate::tasks::load_task(&read, &task_id)?;
+            // A task's inherited execution intent is not a new author message.
+            // Only the persisted messages attached to this exact task may be shown.
+            let mut statement = read.prepare(
+                "SELECT m.author_text FROM story_author_messages_v1 m
+                 WHERE m.project_id=?1 AND m.thread_id=?2 AND m.task_id=?3
+                   AND m.generation_run_id IS NULL AND m.review_run_id IS NULL
+                   AND (m.intent_revision=0 OR EXISTS (
+                     SELECT 1 FROM story_task_intents_v1 i WHERE i.task_id=m.task_id
+                     AND i.author_message_id=m.message_id AND i.status='delivered'))
+                 ORDER BY m.intent_revision,m.rowid",
+            ).map_err(|error| RepositoryError::Storage(error.to_string()))?;
+            let texts = statement.query_map(params![project.as_str(), task.thread_id, task_id], |row| row.get::<_,String>(0))
+                .map_err(|error| RepositoryError::Storage(error.to_string()))?
+                .collect::<Result<Vec<_>,_>>().map_err(|error| RepositoryError::Storage(error.to_string()))?;
+            if texts.is_empty() { continue; }
             crate::author_message::validate_execution(&read, &task)?;
-            let text = {
-                let revision: i64 = read.query_row(
-                    "SELECT COALESCE(MAX(intent_revision),0) FROM story_task_intents_v1 WHERE task_id=?1 AND status='delivered'",
-                    [task_id], |row| row.get(0),
-                ).map_err(|error| RepositoryError::Storage(error.to_string()))?;
-                let text = crate::task_author_intent::source_intent(&read, &task_id, revision)?;
-                let mut visible: String = text.chars().take(8_000).collect();
-                if visible.len() < text.len() {
-                    visible.push('…');
+            let text = texts.join("\n\n作者追加要求：\n");
+            let mut visible: String = text.chars().take(8_000).collect();
+            if visible.len() < text.len() { visible.push('…'); }
+            let text = visible;
+            let target:Value=serde_json::from_str(&task.target_json).map_err(|_|RepositoryError::CorruptState)?;
+            let mut images=Vec::<String>::new();
+            if let Some(ids)=target.get("imageAssetRevisionIds").and_then(Value::as_array) {
+                if ids.len()>8 {return Err(RepositoryError::CorruptState);}
+                for id in ids {
+                    let id=id.as_str().ok_or(RepositoryError::CorruptState)?;
+                    let belongs:bool=read.query_row("SELECT EXISTS(SELECT 1 FROM story_media_assets_v1 a JOIN story_conversations_v1 c ON c.project_id=a.project_id AND c.scope_id=a.scope_id WHERE a.project_id=?1 AND a.asset_revision_id=?2 AND c.thread_id=?3 AND json_extract(a.metadata_json,'$.kind')='image')",params![project.as_str(),id,thread_id],|r|r.get(0)).map_err(|e|RepositoryError::Storage(e.to_string()))?;
+                    if !belongs {return Err(RepositoryError::CrossProjectReference);}
+                    images.push(id.to_owned());
                 }
-                Some(visible)
-            };
-            messages.push(json!({"turnId":turn_id,"text":text}));
+            }
+            messages.push(json!({"turnId":turn_id,"text":text,"imageAssetRevisionIds":images}));
         }
         read.commit()
             .map_err(|error| RepositoryError::Storage(error.to_string()))?;

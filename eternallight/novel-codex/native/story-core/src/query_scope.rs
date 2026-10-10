@@ -17,6 +17,7 @@ impl TaskQueryScope {
     ) -> Result<Self, RepositoryError> {
         let target: Value =
             serde_json::from_str(&task.target_json).map_err(|_| RepositoryError::CorruptState)?;
+        if target["type"] == "edition" { return Err(RepositoryError::TaskOutputForbidden); }
         let bounded = |chapter, structured_through, text_scope, scope_name, source_revision_id| {
             Self::Bounded(BoundedQueryScope {
                 chapter,

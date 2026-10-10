@@ -4,6 +4,26 @@ use serde_json::Value;
 use crate::authoring_runs::storage_error;
 use crate::{CreateTaskRequest, RepositoryError, TaskRecord};
 
+/// Empty author text is a real image-only message, never a generated instruction.
+/// Its attachment authority is checked against the frozen Edition and immutable assets.
+pub(crate) fn validate_text(db: &Connection, project: &str, target: &Value, text: &str) -> Result<(), RepositoryError> {
+    if !text.trim().is_empty() { return Ok(()); }
+    let edition = crate::multimedia::media_target(db, project, target)?.ok_or(RepositoryError::TaskBindingInvalid)?;
+    let ids = target["imageAssetRevisionIds"].as_array().filter(|ids| !ids.is_empty() && ids.len() <= 5).ok_or(RepositoryError::TaskBindingInvalid)?;
+    let mut seen = std::collections::BTreeSet::new();
+    for id in ids {
+        let id = id.as_str().filter(|id| !id.is_empty() && id.len() <= 160 && id.trim() == *id && !id.chars().any(char::is_control)).ok_or(RepositoryError::TaskBindingInvalid)?;
+        if !seen.insert(id) { return Err(RepositoryError::TaskBindingInvalid); }
+        let metadata: Option<String> = db.query_row(
+            "SELECT metadata_json FROM story_media_assets_v1 WHERE project_id=?1 AND scope_id=?2 AND asset_revision_id=?3",
+            params![project,edition.scope_id,id],|row|row.get(0),
+        ).optional().map_err(storage_error)?;
+        let metadata: Value = serde_json::from_str(&metadata.ok_or(RepositoryError::TaskBindingInvalid)?).map_err(|_|RepositoryError::CorruptState)?;
+        if metadata["kind"] != "image" { return Err(RepositoryError::TaskBindingInvalid); }
+    }
+    Ok(())
+}
+
 pub(crate) fn record(
     db: &Connection,
     request: &CreateTaskRequest,
@@ -17,8 +37,9 @@ pub(crate) fn record(
         .map_err(|_| RepositoryError::CorruptState)?;
     let text = manifest["authorIntent"]
         .as_str()
-        .filter(|text| !text.trim().is_empty())
         .ok_or(RepositoryError::TaskBindingInvalid)?;
+    let target: Value = serde_json::from_str(&request.target_json).map_err(|_| RepositoryError::CorruptState)?;
+    validate_text(db, request.project_id.as_str(), &target, text)?;
     db.execute(
         "INSERT INTO story_author_messages_v1(message_id,project_id,work_task_id,task_id,thread_id,author_text,created_at,intent_revision)
          VALUES(?1,?2,?3,?4,?5,?6,?7,0)",

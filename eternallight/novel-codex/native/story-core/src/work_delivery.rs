@@ -29,6 +29,8 @@ pub struct WorkDeliveryEvidence {
 #[serde(rename_all = "camelCase")]
 pub struct WorkDeliveryReport {
     pub delivery_review: Option<serde_json::Value>,
+    pub issues: serde_json::Value,
+    pub chapter_acceptance_reports: Vec<serde_json::Value>,
     pub evidence: Vec<WorkDeliveryEvidence>,
     pub pending_action_ids: Vec<String>,
     pub unsettled_attempt_ids: Vec<String>,
@@ -45,15 +47,7 @@ impl WorkDeliveryReport {
             // Historical rolling plans need not remain today's selected plan.
             // The run's existing transactional chapter checkpoints are the
             // authority; do not replace them with ordinary candidate-head rules.
-            let (run_id, stored): (String,String) = db.query_row(
-                "SELECT run_id,state_json FROM story_generation_runs_v1 WHERE project_id=?1 AND 'work-'||run_id=?2",
-                params![project.as_str(),work.id], |row| Ok((row.get(0)?,row.get(1)?)),
-            ).optional().map_err(storage_error)?.ok_or(RepositoryError::CorruptState)?;
-            let hydrated = crate::work_budget_storage::hydrate(db, project, &run_id, &stored)?;
-            let state: serde_json::Value =
-                serde_json::from_str(&hydrated).map_err(|_| RepositoryError::CorruptState)?;
-            crate::generation_author_source::validate_run(db, project, &run_id, &state)?;
-            if state["status"] != work.status {
+            if generation_status(db, project, &work.id)? != work.status {
                 return Err(RepositoryError::TaskBindingInvalid);
             }
             if work.status == "completed"
@@ -103,6 +97,32 @@ impl WorkDeliveryReport {
     }
 }
 
+/// GenerationRun owns execution state. Work stores a query index, not a second
+/// completion authority; public generation state always comes from the Run.
+pub(crate) fn generation_status(
+    db: &Connection,
+    project: &ProjectId,
+    work: &str,
+) -> Result<String, RepositoryError> {
+    let (run_id, stored): (String, String) = db.query_row(
+        "SELECT run_id,state_json FROM story_generation_runs_v1 WHERE project_id=?1 AND 'work-'||run_id=?2",
+        params![project.as_str(),work], |row| Ok((row.get(0)?,row.get(1)?)),
+    ).optional().map_err(storage_error)?.ok_or(RepositoryError::CorruptState)?;
+    let hydrated = crate::work_budget_storage::hydrate(db, project, &run_id, &stored)?;
+    let state: serde_json::Value =
+        serde_json::from_str(&hydrated).map_err(|_| RepositoryError::CorruptState)?;
+    crate::generation_author_source::validate_run(db, project, &run_id, &state)?;
+    if crate::work_interludes::top(db, work)?.is_some()
+        && !matches!(state["status"].as_str(), Some("paused" | "cancelled"))
+    {
+        return Ok("running".to_owned());
+    }
+    state["status"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or(RepositoryError::CorruptState)
+}
+
 /// Derived inside the work-list/get read transaction. No duplicate persisted
 /// completion flag, mutation, new scheduling authority, or nested transaction.
 pub(crate) fn load(
@@ -111,6 +131,30 @@ pub(crate) fn load(
     work_id: &str,
     steps: &[WorkStep],
 ) -> Result<WorkDeliveryReport, RepositoryError> {
+    let mut chapter_acceptance_reports = Vec::new();
+    for step in steps
+        .iter()
+        .rev()
+        .filter(|s| s.operation == "generateChapter" && s.status == "completed")
+    {
+        if let Some(writer) = &step.current_attempt_id {
+            let task = crate::tasks::load_task(db, writer)?;
+            let target: serde_json::Value = serde_json::from_str(&task.target_json)
+                .map_err(|_| RepositoryError::CorruptState)?;
+            if target["chapterAcceptance"].is_object()
+                && !chapter_acceptance_reports
+                    .iter()
+                    .any(|s: &serde_json::Value| s["chapterId"] == target["chapterId"])
+            {
+                let revision:Option<String>=db.query_row("SELECT revision_id FROM story_task_outputs_v2 WHERE task_id=?1 AND output_kind='draft' AND completeness='chapterComplete' ORDER BY ordinal DESC LIMIT 1",[writer],|r|r.get(0)).optional().map_err(storage_error)?;
+                if let Some(revision) = revision {
+                    chapter_acceptance_reports.push(crate::revision_outcome::assessment_state(
+                        db, project, writer, &revision,
+                    )?);
+                }
+            }
+        }
+    }
     let mut evidence = Vec::new();
     for step in steps.iter().filter(|step| step.status != "superseded") {
         let kind = if matches!(
@@ -188,7 +232,9 @@ pub(crate) fn load(
                     "SELECT id FROM story_quality_packets_v1 WHERE project_id=?1 AND task_id=?2 AND id=json_extract(?3,'$.qualityPacketId') AND report_json IS NOT NULL AND json_extract(report_json,'$.taskId')=task_id",
                     params![project.as_str(),attempt_id,task.target_json], |row| row.get(0),
                 ).optional().map_err(storage_error)?;
-                if item.reference_id.is_some() { item.state = WorkEvidenceState::Recorded; }
+                if item.reference_id.is_some() {
+                    item.state = WorkEvidenceState::Recorded;
+                }
             } else if step.operation == "modelKnowledge" {
                 let batch: Option<(String, bool)> = db.query_row(
                     "SELECT b.batch_id,EXISTS(SELECT 1 FROM story_knowledge_heads_v2 k
@@ -262,8 +308,12 @@ pub(crate) fn load(
         .map(|row| row.map_err(storage_error))
         .collect::<Result<_, _>>()?;
     let delivery_review: Option<String> = db.query_row("SELECT r.content_json FROM story_work_delivery_reviews_v1 r JOIN story_work_steps_v1 s ON s.current_attempt_id=r.decision_task_id WHERE r.work_task_id=?1 ORDER BY s.ordinal DESC LIMIT 1", [work_id], |row| row.get(0)).optional().map_err(storage_error)?;
-    let delivery_review = delivery_review.map(|raw| serde_json::from_str(&raw).map_err(|_| RepositoryError::CorruptState)).transpose()?;
+    let delivery_review = delivery_review
+        .map(|raw| serde_json::from_str(&raw).map_err(|_| RepositoryError::CorruptState))
+        .transpose()?;
     Ok(WorkDeliveryReport {
+        issues: crate::work_issues::summary(db, project, work_id)?,
+        chapter_acceptance_reports,
         delivery_review,
         evidence,
         pending_action_ids,

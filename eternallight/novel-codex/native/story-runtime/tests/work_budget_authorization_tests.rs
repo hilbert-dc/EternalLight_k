@@ -1,3 +1,5 @@
+#[path = "support/work_control_response.rs"]
+mod control_response;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -20,6 +22,10 @@ mod initial;
 mod review;
 #[path = "work_budget/review_author_source_tests.rs"]
 mod review_author_source;
+#[path = "work_budget/saved_review_recovery_tests.rs"]
+mod saved_review_recovery;
+#[path = "work_budget/unknown_usage_admission_tests.rs"]
+mod unknown_usage_admission;
 
 #[tokio::test]
 async fn ordinary_retry_reserves_atomically_and_cannot_run_ahead_of_unsettled_usage() {
@@ -57,7 +63,7 @@ async fn ordinary_retry_reserves_atomically_and_cannot_run_ahead_of_unsettled_us
     );
     let confirmed = repo.work_task(&project_id, &work).unwrap();
     let resumed = repo
-        .control_work_task(&project_id, &work, "resume", confirmed.version, 2)
+        .control_work_task(&project_id, &work, "resume", confirmed.control_revision, 2)
         .unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -151,9 +157,12 @@ async fn ordinary_retry_reserves_atomically_and_cannot_run_ahead_of_unsettled_us
     )
     .unwrap();
     let failed = repo.work_task(&project_id, &work).unwrap();
-    let resumed = repo
-        .control_work_task(&project_id, &work, "resume", failed.version, 4)
-        .unwrap();
+    let before_resume = unknown_usage_admission::snapshot(&path);
+    assert!(matches!(
+        repo.control_work_task(&project_id, &work, "resume", failed.control_revision, 4),
+        Err(novel_codex_story_core::RepositoryError::TaskInputStale)
+    ));
+    assert_eq!(unknown_usage_admission::snapshot(&path), before_resume);
     assert!(
         !call(
             &path,
@@ -166,7 +175,7 @@ async fn ordinary_retry_reserves_atomically_and_cannot_run_ahead_of_unsettled_us
         .0
         .is_success()
     );
-    assert_eq!(repo.work_task(&project_id, &work).unwrap(), resumed);
+    assert_eq!(repo.work_task(&project_id, &work).unwrap(), failed);
     assert_eq!(repo.tasks(&project_id).unwrap().len(), 2);
     let usage_request = json!({"taskId":next_id});
     assert_eq!(
@@ -176,7 +185,7 @@ async fn ordinary_retry_reserves_atomically_and_cannot_run_ahead_of_unsettled_us
             json!({"pending":{"taskId":next_id,"status":"failed"}})
         )
     );
-    assert_eq!(repo.work_task(&project_id, &work).unwrap(), resumed);
+    assert_eq!(repo.work_task(&project_id, &work).unwrap(), failed);
     assert!(
         !call(&path, "POST", &usage_uri, usage_request.clone(), AUTHOR)
             .await
@@ -186,7 +195,7 @@ async fn ordinary_retry_reserves_atomically_and_cannot_run_ahead_of_unsettled_us
     let engine_path = path.with_extension("engine.sqlite3");
     let mut engine = eternallight_engine_core::PersistentBudget::new(&engine_path,next_id,
         json!({"options":{"id":format!("budget-{next_id}"),"maxRequests":10,"maxTokens":1000,"startedAt":1000},"now":1000})).unwrap();
-    engine
+    let reservation = engine
         .apply(
             "budget.reserve",
             json!({"parameters":{"maxOutputTokens":100},"now":1001}),
@@ -198,8 +207,13 @@ async fn ordinary_retry_reserves_atomically_and_cannot_run_ahead_of_unsettled_us
             .0
             .is_success()
     );
-    drop(engine);
-    eternallight_engine_core::PersistentBudget::recover(&engine_path).unwrap();
+    engine
+        .apply(
+            "budget.settle",
+            json!({"id":reservation,"usage":{"total_tokens":0},"now":1002}),
+        )
+        .unwrap();
+    engine.complete("completed").unwrap();
     assert_eq!(
         call(&path, "POST", &usage_uri, usage_request.clone(), CANDIDATE)
             .await
@@ -233,7 +247,7 @@ async fn ordinary_retry_reserves_atomically_and_cannot_run_ahead_of_unsettled_us
         )
         .unwrap();
     assert_eq!(unsettled, 0);
-    assert_eq!(repo.work_task(&project_id, &work).unwrap(), resumed);
+    assert_eq!(repo.work_task(&project_id, &work).unwrap(), failed);
     db.execute_batch("DROP TRIGGER reject_usage;").unwrap();
     let (status, charged) = call(&path, "POST", &usage_uri, usage_request.clone(), AUTHOR).await;
     assert_eq!(status, StatusCode::OK, "{charged}");
@@ -242,7 +256,7 @@ async fn ordinary_retry_reserves_atomically_and_cannot_run_ahead_of_unsettled_us
             charged["usedRequests"].clone(),
             charged["unknownTokens"].clone()
         ),
-        (json!(1), json!(100))
+        (json!(1), json!(0))
     );
     let after_charge = repo.work_task(&project_id, &work).unwrap();
     assert_eq!(
@@ -254,22 +268,25 @@ async fn ordinary_retry_reserves_atomically_and_cannot_run_ahead_of_unsettled_us
         (StatusCode::OK, charged)
     );
     assert_eq!(repo.work_task(&project_id, &work).unwrap(), after_charge);
+    repo.control_work_task(&project_id, &work, "resume", after_charge.control_revision, 5)
+        .unwrap();
     let (status, retry) = call(&path, "POST", &format!("{root}/tasks"), request, AUTHOR).await;
     assert_eq!(status, StatusCode::CREATED, "{retry}");
-    let retry_id = retry["id"].as_str().unwrap();
     assert_eq!(
         call(
             &path,
             "GET",
-            &format!("{root}/tasks/{retry_id}/provider-budget"),
+            &format!(
+                "{root}/tasks/{}/provider-budget",
+                retry["id"].as_str().unwrap()
+            ),
             Value::Null,
             AUTHOR
         )
         .await,
         (
             StatusCode::OK,
-            json!({"taskId":retry_id,"workTaskId":work,"budgetId":format!("budget-{retry_id}"),
-            "maxRequests":9,"maxTokens":900,"deadlineAt":authorization["deadlineAt"]})
+            json!({"taskId":retry["id"],"workTaskId":work,"budgetId":format!("budget-{}",retry["id"].as_str().unwrap()),"maxRequests":9,"maxTokens":1000,"deadlineAt":authorization["deadlineAt"]})
         )
     );
 }
@@ -295,7 +312,7 @@ async fn unfunded_existing_work_cannot_consume_a_resumable_step() {
     .unwrap();
     let before = repo.work_task(&project_id, &work).unwrap();
     let resumed = repo
-        .control_work_task(&project_id, &work, "resume", before.version, 2)
+        .control_work_task(&project_id, &work, "resume", before.control_revision, 2)
         .unwrap();
     let mut target = resumed.steps[0].target.clone();
     target["resumeStepId"] = json!(resumed.steps[0].id);
@@ -356,7 +373,7 @@ async fn call(
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     (
         status,
-        serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes))),
+        control_response::work_control_response(uri, status, serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)))),
     )
 }
 
@@ -365,7 +382,7 @@ async fn setup(path: &std::path::Path) -> (String, String, String, Value) {
         path,
         "POST",
         "/api/projects",
-        json!({"title":"额度确认"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"额度确认"}),
         AUTHOR,
     )
     .await;
@@ -571,7 +588,7 @@ async fn confirmation_cannot_cross_project_or_replace_generation_or_cancelled_au
         &path,
         "POST",
         "/api/projects",
-        json!({"title":"另一个作品"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"另一个作品"}),
         AUTHOR,
     )
     .await;
@@ -619,7 +636,7 @@ async fn confirmation_cannot_cross_project_or_replace_generation_or_cancelled_au
             &ProjectId::parse(&cancelled_project).unwrap(),
             &cancelled_work,
             "cancel",
-            cancelled_request["expectedVersion"].as_i64().unwrap(),
+            repo.work_task(&ProjectId::parse(&cancelled_project).unwrap(), &cancelled_work).unwrap().control_revision,
             now as i64,
         )
         .unwrap();
@@ -637,4 +654,110 @@ async fn confirmation_cannot_cross_project_or_replace_generation_or_cancelled_au
     let counts:(i64,i64) = db.query_row("SELECT (SELECT COUNT(*) FROM story_work_budget_authorizations_v1),(SELECT COUNT(*) FROM story_work_budgets_v1 WHERE work_task_id=?1)",
         [&work],|row|Ok((row.get(0)?,row.get(1)?))).unwrap();
     assert_eq!(counts, (0, 0));
+}
+
+#[tokio::test]
+async fn only_proven_unstarted_terminal_attempts_settle_missing_engine_usage() {
+    for case in [
+        "unstarted",
+        "active",
+        "turn",
+        "write",
+        "operation",
+        "ledgerActive",
+        "ledgerUsed",
+        "ledgerCorrupt",
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("unstarted.sqlite3");
+        let (root, request) = initial::request(&path).await;
+        let (code, task) = call(&path, "POST", &format!("{root}/tasks"), request, AUTHOR).await;
+        assert_eq!(code, StatusCode::CREATED, "{task}");
+        let id = task["id"].as_str().unwrap();
+        let project = ProjectId::parse(root.trim_start_matches("/api/projects/")).unwrap();
+        let work = format!("work-{id}");
+        let budget_path = path.with_extension("engine.sqlite3");
+        let mut seed=eternallight_engine_core::PersistentBudget::new(&budget_path,"unrelated",json!({"options":{"id":"budget-unrelated","maxRequests":1,"maxTokens":20,"maxDurationMs":null},"now":1000})).unwrap();
+        seed.complete("completed").unwrap();
+        let mut repo = SqliteStoryRepository::open(&path).unwrap();
+        if case == "turn" {
+            repo.bind_task_turn(&project, id, "budget-thread", "turn-started")
+                .unwrap();
+        }
+        if case != "active" {
+            repo.update_task(
+                &project,
+                id,
+                "budget-thread",
+                TaskUpdate {
+                    status: "failed".into(),
+                    error: Some("host setup failed".into()),
+                    result_summary: None,
+                    now: 1,
+                },
+            )
+            .unwrap();
+        }
+        if case == "write" {
+            let db = rusqlite::Connection::open(&path).unwrap();
+            db.execute(
+                "UPDATE story_tasks_v2 SET output_refs_json='[{}]' WHERE task_id=?1",
+                [id],
+            )
+            .unwrap();
+        }
+        if case == "operation" {
+            let db = rusqlite::Connection::open(&path).unwrap();
+            db.execute("INSERT INTO story_tool_operations_v1 VALUES ('operation-pending',?1,?2,'budget-thread','turn-pending','call-pending','save_draft_checkpoint','hash',NULL,'accepted',NULL,1,1)",rusqlite::params![project.as_str(),id]).unwrap();
+        }
+        let mut actual = None;
+        if ["ledgerActive", "ledgerUsed", "ledgerCorrupt"].contains(&case) {
+            let mut engine=eternallight_engine_core::PersistentBudget::new(&budget_path,id,json!({"options":{"id":format!("budget-{id}"),"maxRequests":3,"maxTokens":700,"maxDurationMs":null},"now":1000})).unwrap();
+            if case == "ledgerUsed" {
+                let reservation = engine
+                    .apply(
+                        "budget.reserve",
+                        json!({"parameters":{"maxOutputTokens":30},"now":1001}),
+                    )
+                    .unwrap();
+                engine
+                    .apply(
+                        "budget.settle",
+                        json!({"id":reservation,"usage":{"total_tokens":22},"now":1002}),
+                    )
+                    .unwrap();
+                engine.complete("failed").unwrap();
+            }
+            actual = Some(engine);
+            if case == "ledgerCorrupt" {
+                rusqlite::Connection::open(&budget_path).unwrap().execute("UPDATE engine_budgets SET status='failed',state_json='corrupt' WHERE run_id=?1",[id]).unwrap();
+            }
+        }
+        let uri = format!("{root}/work-tasks/{work}/provider-usage");
+        let (code, result) = call(&path, "POST", &uri, json!({"taskId":id}), AUTHOR).await;
+        if ["unstarted", "ledgerUsed"].contains(&case) {
+            assert_eq!(code, StatusCode::OK, "{case}: {result}");
+            assert_eq!(
+                result["usedRequests"],
+                if case == "unstarted" { 0 } else { 1 }
+            );
+            if case == "ledgerUsed" {
+                assert_eq!(result["usedTokens"], 22);
+            }
+            assert_eq!(result["unknownTokens"], 0);
+            assert_eq!(result["maxRequests"], 3);
+            assert_eq!(result["maxTokens"], 700);
+            assert_eq!(
+                call(&path, "POST", &uri, json!({"taskId":id}), AUTHOR).await,
+                (StatusCode::OK, result.clone())
+            );
+            assert_eq!(
+                call(&path, "GET", &uri, Value::Null, AUTHOR).await.1["pending"],
+                Value::Null
+            );
+        } else {
+            assert!(!code.is_success(), "{case}: {result}");
+        }
+        drop(actual);
+    }
 }

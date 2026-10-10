@@ -24,15 +24,24 @@ async fn call(
     actor: &str,
     body: Value,
 ) -> (StatusCode, Value) {
+    let mut request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("authorization", format!("Bearer {actor}"))
+        .header("x-novel-task-capability", CAPABILITY)
+        .header("content-type", "application/json");
+    if method == "GET" && actor == CANDIDATE && uri.contains("/task-source?") {
+        request = request
+            .header("x-novel-tool-name", "read_task_source")
+            .header("x-novel-root-thread", "assessSceneOutcome")
+            .header("x-novel-caller-thread", "assessSceneOutcome")
+            .header("x-novel-turn", "mapping-assessment-turn")
+            .header("x-novel-tool-call", "mapping-read-assessment-source");
+    }
     let response = app
         .clone()
         .author_fixture_request(
-            Request::builder()
-                .method(method)
-                .uri(uri)
-                .header("authorization", format!("Bearer {actor}"))
-                .header("x-novel-task-capability", CAPABILITY)
-                .header("content-type", "application/json")
+            request
                 .body(if body.is_null() {
                     Body::empty()
                 } else {
@@ -44,7 +53,79 @@ async fn call(
         .unwrap();
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    (status, serde_json::from_slice(&bytes).unwrap())
+    let value = serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+        panic!(
+            "{method} {uri}: {status}: {error}: {}",
+            String::from_utf8_lossy(&bytes)
+        )
+    });
+    (status, value)
+}
+
+async fn read_scene_links(app: &Router, base: &str, task: &Value, context: &Value) -> Value {
+    let path = "/operationContext/scenePlanDraftLinks";
+    let sources: Vec<_> = context["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["sectionPath"] == path)
+        .collect();
+    assert_eq!(sources.len(), 1, "{context}");
+    let source = sources[0];
+    assert_eq!(
+        context.pointer(path).unwrap()["sourceId"],
+        source["sourceId"]
+    );
+    assert_eq!(context.pointer(path).unwrap()["textDelivered"], false);
+    let endpoint = format!(
+        "{base}/tasks/{}/task-source?threadId={}&expectedRevision={}&sourceId={}",
+        task["id"].as_str().unwrap(),
+        task["threadId"].as_str().unwrap(),
+        task["inputRevision"],
+        source["sourceId"].as_str().unwrap()
+    );
+    let mut suffix = String::new();
+    let mut text = String::new();
+    loop {
+        let (status, page) = call(
+            app,
+            "GET",
+            &format!("{endpoint}{suffix}"),
+            CANDIDATE,
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], source["sourceId"]);
+        assert_eq!(page["contentHash"], source["contentHash"]);
+        assert!(page.to_string().len() <= 6500);
+        assert_eq!(page["byteRange"]["start"], text.len());
+        let part = page["payloadPart"].as_str().unwrap();
+        assert!(part.len() <= 2000);
+        text.push_str(part);
+        assert_eq!(page["byteRange"]["end"], text.len());
+        assert_eq!(page["byteRange"]["total"], source["payloadBytes"]);
+        assert!(text.len() <= source["payloadBytes"].as_u64().unwrap() as usize);
+        if let Some(cursor) = page["nextCursor"].as_str() {
+            assert!(!part.is_empty());
+            assert_eq!(page["endOfInputFromCursor"], false);
+            let next = format!("&cursor={}", cursor.replace(':', "%3A"));
+            assert_ne!(suffix, next);
+            suffix = next;
+        } else {
+            assert_eq!(page["endOfInputFromCursor"], true);
+            assert_eq!(
+                text.len(),
+                source["payloadBytes"].as_u64().unwrap() as usize
+            );
+            break;
+        }
+    }
+    assert_eq!(
+        format!("{:x}", Sha256::digest(text.as_bytes())),
+        source["contentHash"].as_str().unwrap()
+    );
+    serde_json::from_str(&text).unwrap()
 }
 
 async fn workspace(app: &Router, base: &str) -> Value {
@@ -73,7 +154,7 @@ async fn planned_complete_requires_real_mapping_not_all_planned_scenes_or_realiz
         "POST",
         "/api/projects",
         AUTHOR,
-        json!({"title":"映射来源"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"映射来源"}),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
@@ -161,9 +242,16 @@ async fn planned_complete_requires_real_mapping_not_all_planned_scenes_or_realiz
     let (status, context) = call(&app, "GET", &format!("{base}/context?taskId={}&threadId=assessSceneOutcome&projectRevision={}&purpose=critic&budget=24&byteBudget=60000",
         assessment["id"].as_str().unwrap(),current["revision"].as_i64().unwrap()), CANDIDATE, Value::Null).await;
     assert_eq!(status, StatusCode::OK, "{context}");
-    let links = context["operationContext"]["scenePlanDraftLinks"]
-        .as_array()
-        .unwrap();
+    let mapping = read_scene_links(&app, &base, &assessment, &context).await;
+    let links = mapping.as_array().unwrap();
+    assert_eq!(links.len(), 2);
+    assert_eq!(
+        links
+            .iter()
+            .map(|link| link["sceneId"].clone())
+            .collect::<Vec<_>>(),
+        vec![json!("scene-one"), json!("scene-two")]
+    );
     assert!(links.iter().all(
         |link| link["actualSceneGroupIds"] == json!([]) && link["actualEventRefs"] == json!([])
     ));

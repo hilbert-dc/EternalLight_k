@@ -58,8 +58,10 @@ fn plans() -> Vec<(&'static str, usize, Value)> {
 
 pub(super) fn client(listener: &TcpListener) -> RuntimeClient {
     RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: listener.local_addr().unwrap().port(),
@@ -82,8 +84,10 @@ pub(super) fn call(client: &RuntimeClient, tool: &str, plan: Value) -> Value {
     handle_message(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
         "name":tool,"arguments":arguments,
         "_meta":{"rootThreadId":"root","callerThreadId":"root","sessionId":"root","turnId":"turn","callId":"query"}}}),
-        &Ok(RuntimeClient { publication_gate: super::publication_gate::PublicationGate::default(),
+        &Ok(RuntimeClient {
+        request_dispatched: Default::default(), publication_gate: super::publication_gate::PublicationGate::default(),
             read_progress: Default::default(),
+            completion_receipt: Default::default(),
             argument_validation: Default::default(),
             host: client.host.clone(), port: client.port, candidate_token: client.candidate_token.clone(),
             capability: client.capability.clone(), operation: client.operation.clone() })).unwrap()
@@ -94,13 +98,20 @@ pub(super) fn call(client: &RuntimeClient, tool: &str, plan: Value) -> Value {
 pub(super) fn parameter_error(response: &Value, tool: &str) -> Value {
     assert_eq!(response["result"]["isError"], true);
     let text = response["result"]["content"][0]["text"].as_str().unwrap();
-    let diagnostic: Value = serde_json::from_str(text).unwrap();
+    let mut diagnostic: Value = serde_json::from_str(text).unwrap();
     assert_eq!(response["result"]["structuredContent"], diagnostic);
+    if let Some(proof) = diagnostic.as_object_mut().unwrap().remove("recoveryOperation") {
+        assert_eq!(proof["authority"], "novelWorkspaceMcp");
+        assert_eq!(proof["phase"], "beforeDispatch");
+        assert_eq!(proof["outcome"], "rejected");
+        assert_eq!(proof["toolName"], tool);
+        assert_eq!(proof["operationId"], Value::Null);
+    }
     assert_eq!(diagnostic["code"], "invalid_tool_arguments");
     assert_eq!(diagnostic["tool"], tool);
     assert_eq!(diagnostic["attempt"], 1);
     assert_eq!(diagnostic["limit"], 3);
-    assert!(text.len() <= 1600);
+    assert!(diagnostic.to_string().len() <= 1600);
     diagnostic
 }
 
@@ -203,11 +214,15 @@ fn query_utf8_boundaries_and_unicode_character_fields_forward_unchanged() {
     });
     for plan in &plans {
         for tool in ["query_story", "read_context"] {
-            assert_eq!(
-                call(&client, tool, plan.clone()),
-                json!({"jsonrpc":"2.0","id":1,"result":{
-            "content":[{"type":"text","text":"{\"readOnly\":true}"}]}})
-            );
+            let reply=call(&client,tool,plan.clone());
+            assert_eq!(reply["id"],1);
+            let body:Value=serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+            assert_eq!(body["readOnly"],true);
+            if tool=="read_context" {
+                assert_eq!(body["executionIdentity"]["authority"],"trustedRuntimeIdentity");
+                assert_eq!(body["executionIdentity"]["rootThreadId"],"root");
+                assert_eq!(body["executionIdentity"]["callerThreadId"],"root");
+            } else {assert!(body.get("executionIdentity").is_none());}
         }
     }
     assert_eq!(

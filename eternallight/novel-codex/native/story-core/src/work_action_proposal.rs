@@ -96,7 +96,7 @@ fn chapter_source(
     Ok((number, revision))
 }
 
-fn validate_artifact(
+pub(crate) fn validate_artifact(
     db: &Connection,
     project: &ProjectId,
     operation: &str,
@@ -139,10 +139,17 @@ fn narrow_scope(
         let permitted = match (original_kind, kind) {
             ("wholeChapter", "wholeChapter" | "selectedScenes" | "throughScene") => true,
             ("selectedScenes", "selectedScenes") => {
-                scope["groupIds"].as_array().is_some_and(|ids| {
+                let groups_allowed = scope["groupIds"].as_array().is_some_and(|ids| {
                     original["groupIds"]
                         .as_array()
                         .is_some_and(|allowed| ids.iter().all(|id| allowed.contains(id)))
+                });
+                groups_allowed && original.get("bodyRanges").is_none_or(|ranges| {
+                    scope["bodyRanges"].as_array().is_some_and(|next| next.iter().all(|r| {
+                        ranges.as_array().is_some_and(|old| old.iter().any(|p| p["groupId"] == r["groupId"]
+                            && r["start"].as_u64().zip(p["start"].as_u64()).is_some_and(|(a,b)| a >= b)
+                            && r["end"].as_u64().zip(p["end"].as_u64()).is_some_and(|(a,b)| a <= b)))
+                    }))
                 })
             }
             ("throughScene", "throughScene") => scope["endSceneOrder"]
@@ -157,7 +164,7 @@ fn narrow_scope(
         let allowed: &[&str] = match kind {
             "wholeChapter" => &["type"],
             "throughScene" => &["type", "endSceneOrder"],
-            "selectedScenes" => &["type", "groupIds", "sourceRevisionId"],
+            "selectedScenes" => &["type", "groupIds", "sourceRevisionId", "bodyRanges"],
             _ => return Err(denied()),
         };
         if scope
@@ -170,6 +177,9 @@ fn narrow_scope(
             .get("sourceRevisionId")
             .is_some_and(|id| id != revision)
         {
+            return Err(RepositoryError::TaskInputStale);
+        }
+        if scope.get("bodyRanges").is_some() && scope["sourceRevisionId"] != revision {
             return Err(RepositoryError::TaskInputStale);
         }
         target["scope"] = scope.clone();
@@ -230,6 +240,7 @@ pub(crate) fn derive(
                 return Err(RepositoryError::TaskInputStale);
             }
             target["chapterNumber"] = json!(number);
+            crate::scene_revision::rebase_ranges(db, project, &mut target, &revision)?;
             narrow_scope(&mut target, proposal.target.scope.as_ref(), &revision)?;
             crate::scene_revision::validate_target(db, project, &target)?;
             action("generateChapter", target, source, Some(revision), false)
@@ -245,12 +256,36 @@ pub(crate) fn derive(
             {
                 return Err(denied());
             }
-            let (source, mut target) = anchor(db, project, work, proposal)?;
             if generation.is_some() {
                 return Err(denied());
             }
-            validate_artifact(db, project, &proposal.operation, &mut target)?;
-            action(&proposal.operation, target, Some(source), None, false)
+            let permitted: Vec<_> = ready
+                .iter()
+                .filter(|candidate| {
+                    candidate.author_action_id.is_some()
+                        && candidate.operation == proposal.operation
+                        && candidate.source_task == proposal.target.source_task_id
+                })
+                .collect();
+            if permitted.len() > 1 {
+                return Err(RepositoryError::InvalidContent("Choose the exact approved planning actionKey when this source has multiple targets".into()));
+            }
+            let mut candidate = if let Some(approved) = permitted.first() {
+                let mut candidate = action(
+                    &approved.operation,
+                    approved.target.clone(),
+                    approved.source_task.clone(),
+                    None,
+                    true,
+                );
+                candidate.author_action_id = approved.author_action_id.clone();
+                candidate
+            } else {
+                let (source, target) = anchor(db, project, work, proposal)?;
+                action(&proposal.operation, target, Some(source), None, false)
+            };
+            validate_artifact(db, project, &proposal.operation, &mut candidate.target)?;
+            candidate
         }
         "modelKnowledge" | "extractCommitments" => {
             if proposal.target.scope.is_some() || proposal.target.source_task_id.is_some() {
@@ -419,3 +454,16 @@ mod tests {
         }
     }
 }
+    #[test]
+    fn text_ranges_cannot_be_removed_widened_or_reused_without_current_version() {
+        let base=json!({"scope":{"type":"selectedScenes","sourceRevisionId":"current","groupIds":["a"],"bodyRanges":[{"groupId":"a","start":5,"end":12}]}});
+        for ranges in [Value::Null,json!([]),json!([{"groupId":"a","start":4,"end":12}]),json!([{"groupId":"a","start":5,"end":13}])] {
+            let mut scope=base["scope"].clone();
+            if ranges.is_null(){scope.as_object_mut().unwrap().remove("bodyRanges");}else{scope["bodyRanges"]=ranges;}
+            let result=narrow_scope(&mut base.clone(),Some(&scope),"current");
+            assert!(result.is_err(),"{scope}");
+        }
+        let mut narrower=base["scope"].clone();narrower["bodyRanges"][0]["start"]=json!(7);
+        assert!(narrow_scope(&mut base.clone(),Some(&narrower),"current").is_ok());
+        assert!(narrow_scope(&mut base.clone(),Some(&narrower),"new-version").is_err());
+    }

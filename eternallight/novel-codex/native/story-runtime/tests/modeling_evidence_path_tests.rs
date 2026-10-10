@@ -31,7 +31,7 @@ async fn failed_evidence_identifies_original_field_without_partial_publication_t
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"信"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"信"})),
         Actor::Author,
     )
     .await;
@@ -81,13 +81,16 @@ async fn failed_evidence_identifies_original_field_without_partial_publication_t
         "{root}/modeling-batches/{}/publish",
         batch["id"].as_str().unwrap()
     );
-    for (collection, index, field, quote, reason) in [
+    let ambiguous_instruction = "Extend the verbatim quote until unique, or call resolve_story_evidence and choose the intended exact match. Do not guess offsets.";
+    let missing_instruction = "Read the bound source and copy a verbatim quote, including punctuation and whitespace. Do not paraphrase evidence or reuse another revision's offsets.";
+    for (collection, index, field, quote, reason, instruction) in [
         (
             "entities",
             1,
             "evidence",
             "林夕",
             "evidence_quote_ambiguous",
+            ambiguous_instruction,
         ),
         (
             "assertions",
@@ -95,6 +98,7 @@ async fn failed_evidence_identifies_original_field_without_partial_publication_t
             "evidence",
             "不存在的摘录",
             "evidence_quote_not_found",
+            missing_instruction,
         ),
         (
             "assertions",
@@ -102,6 +106,7 @@ async fn failed_evidence_identifies_original_field_without_partial_publication_t
             "validUntilEvidence",
             "林夕",
             "evidence_quote_ambiguous",
+            ambiguous_instruction,
         ),
         (
             "assertions",
@@ -109,6 +114,7 @@ async fn failed_evidence_identifies_original_field_without_partial_publication_t
             "epistemicUntilEvidence",
             "不存在的摘录",
             "evidence_quote_not_found",
+            missing_instruction,
         ),
     ] {
         let mut invalid = valid.clone();
@@ -120,8 +126,10 @@ async fn failed_evidence_identifies_original_field_without_partial_publication_t
             (
                 StatusCode::BAD_REQUEST,
                 json!({
-                    "code":"invalid_request","details":{},"recovery":null,
-                    "message":format!("InvalidContent(\"{collection}[{index}].{field}: {reason}\")")
+                    "code":"invalid_source_evidence",
+                    "message":format!("{collection}[{index}].{field}: {reason}"),
+                    "details":{"field":format!("{collection}[{index}].{field}"),"reason":reason,"publicationState":"rejected"},
+                    "recovery":{"nextAction":"correct_evidence","instruction":instruction,"preserveValidEntries":true,"retryUnchanged":false}
                 })
             )
         );

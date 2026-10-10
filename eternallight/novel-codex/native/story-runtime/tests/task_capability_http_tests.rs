@@ -41,7 +41,7 @@ async fn call(path: &std::path::Path, token: &str, uri: &str, body: Value) -> (S
 async fn only_author_host_can_renew_the_exact_live_task_without_creating_an_attempt() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("renew.sqlite3");
-    let (_, project) = call(&path, AUTHOR, "/api/projects", json!({"title":"续期测试"})).await;
+    let (_, project) = call(&path, AUTHOR, "/api/projects", json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"续期测试"})).await;
     let id = project["project"]["id"].as_str().unwrap();
     let base = format!("/api/projects/{id}");
     let (_, workspace) = call(
@@ -90,7 +90,7 @@ async fn only_author_host_can_renew_the_exact_live_task_without_creating_an_atte
         call(&path, AUTHOR, &history_endpoint, history_payload).await,
         (
             StatusCode::OK,
-            json!({"threadId":"renew-thread","messages":[{"turnId":"renew-turn","text":"分析小说"}]})
+            json!({"threadId":"renew-thread","messages":[{"turnId":"renew-turn","text":"分析小说","imageAssetRevisionIds":[]}]})
         )
     );
     let endpoint = format!("{base}/tasks/{task_id}/capability/renew");

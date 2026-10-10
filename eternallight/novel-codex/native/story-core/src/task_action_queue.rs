@@ -12,6 +12,7 @@ pub(crate) fn queue(
     basis: PermissionBasis<'_>,
     now: i64,
 ) -> Result<(), RepositoryError> {
+    crate::work_pause_barrier::assert_can_schedule(db, parent)?;
     let prior: Option<String> = db.query_row(
         "SELECT id FROM story_work_steps_v1 WHERE work_task_id=?1 AND status!='superseded' ORDER BY ordinal DESC LIMIT 1",
         [parent], |row|row.get(0),

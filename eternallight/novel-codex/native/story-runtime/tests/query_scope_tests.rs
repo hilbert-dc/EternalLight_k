@@ -97,6 +97,104 @@ async fn context(
     call(app, "GET", &format!("/api/projects/{project}/context?taskId={id}&threadId=query-scope-thread&projectRevision=0&purpose={purpose}&byteBudget={byte_budget}&queryPlan={encoded}"), Value::Null, CANDIDATE).await
 }
 
+fn model_item_tokens(value: &Value) -> u64 {
+    let result = json!({"content":[{"type":"text","text":value.to_string()}]});
+    let item = json!({"type":"function_call_output","call_id":"x".repeat(160),"output":result.to_string()});
+    eternallight_engine_core::dispatch("tokens.count", json!(item.to_string()))
+        .unwrap()
+        .as_u64()
+        .unwrap()
+}
+
+async fn read_section(app: &Router, project: &str, id: &str, pack: &Value, path: &str) -> Value {
+    let source = pack["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["sectionPath"] == path)
+        .unwrap();
+    assert_eq!(pack["taskSources"]["authority"], "frozenVisibleInput");
+    assert_eq!(pack.pointer(path).unwrap()["textDelivered"], false);
+    assert_eq!(pack.pointer(path).unwrap()["sourceId"], source["sourceId"]);
+    let mut text = String::new();
+    let mut cursor = Value::Null;
+    let mut seen_cursors = std::collections::BTreeSet::new();
+    let mut pages = 0;
+    loop {
+        let suffix = if cursor.is_null() {
+            String::new()
+        } else {
+            let issued = cursor.as_str().unwrap();
+            assert!(seen_cursors.insert(issued.to_owned()));
+            format!("&cursor={}", issued.replace(':', "%3A"))
+        };
+        let (status, page) = call(
+            app,
+            "GET",
+            &format!("/api/projects/{project}/tasks/{id}/task-source?threadId=query-scope-thread&expectedRevision=0&sourceId={}{suffix}", source["sourceId"].as_str().unwrap()),
+            Value::Null,
+            CANDIDATE,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], source["sourceId"]);
+        assert_eq!(page["sectionPath"], path);
+        assert_eq!(page["contentHash"], source["contentHash"]);
+        assert_eq!(page["payloadEncoding"], "jsonUtf8");
+        assert_eq!(page["byteRange"]["start"], text.len());
+        assert_eq!(page["byteRange"]["total"], source["payloadBytes"]);
+        let part = page["payloadPart"].as_str().unwrap();
+        assert!(part.len() <= 2000);
+        assert!(page.to_string().len() <= 6500);
+        assert!(model_item_tokens(&page) <= 9000);
+        text.push_str(part);
+        assert_eq!(page["byteRange"]["end"], text.len());
+        pages += 1;
+        cursor = page["nextCursor"].clone();
+        if cursor.is_null() {
+            assert_eq!(page["endOfInputFromCursor"], true);
+            assert_eq!(page["byteRange"]["total"], text.len());
+            break;
+        }
+        assert_eq!(page["endOfInputFromCursor"], false);
+    }
+    assert_eq!(text.len() as u64, source["payloadBytes"].as_u64().unwrap());
+    if text.len() > 2000 {
+        assert!(pages > 1);
+    }
+    assert_eq!(
+        format!("{:x}", Sha256::digest(text.as_bytes())),
+        source["contentHash"].as_str().unwrap()
+    );
+    serde_json::from_str(&text).unwrap()
+}
+
+fn assert_original_draft(repo: &SqliteStoryRepository, draft: &Value, chapter: i64) {
+    assert_eq!(draft["objectId"], format!("draft-chapter-{chapter}"));
+    assert_eq!(draft["sourceRevisionId"], format!("revision-{chapter}"));
+    let mut original: Value = serde_json::from_str(
+        &repo
+            .revision_content(&RevisionId::parse(format!("revision-{chapter}")).unwrap())
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    let body = original.as_object_mut().unwrap().remove("body").unwrap();
+    assert_eq!(draft["textRepresentation"], "sceneGroups");
+    assert_eq!(draft["content"], original);
+    assert_eq!(
+        draft["content"]["sceneGroups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|group| group["body"].as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("\n\n---\n\n"),
+        body.as_str().unwrap()
+    );
+    assert!(body.as_str().unwrap().chars().count() >= 2000);
+}
+
 #[tokio::test]
 async fn brief_outline_and_project_plan_compose_all_channels_without_author_writes() {
     let directory = tempfile::tempdir().unwrap();
@@ -214,15 +312,42 @@ async fn rolling_plan_and_plain_search_share_prior_chapter_scope_including_empty
             pack["sourceWatermarks"]["digest"],
             report["sourceWatermarks"]["digest"]
         );
+        if from == 1 {
+            assert_eq!(pack["relevantText"], json!([]));
+            assert!(
+                pack["taskSources"]["entries"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|source| source["sectionPath"] != "/relevantText")
+            );
+        } else {
+            let text = read_section(&app, project.as_str(), &id, &pack, "/relevantText").await;
+            let drafts = text.as_array().unwrap();
+            assert_eq!(drafts.len(), (from - 1) as usize);
+            for chapter in 1..from {
+                let draft = drafts
+                    .iter()
+                    .find(|draft| draft["content"]["chapterNumber"] == chapter)
+                    .unwrap();
+                assert_original_draft(&repo, draft, chapter);
+            }
+            assert!(
+                drafts
+                    .iter()
+                    .all(|draft| draft["content"]["chapterNumber"].as_i64().unwrap() < from)
+            );
+        }
+        let knowledge = read_section(
+            &app,
+            project.as_str(),
+            &id,
+            &pack,
+            "/operationContext/workingKnowledge",
+        )
+        .await;
         assert!(
-            pack["relevantText"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|draft| draft["content"]["chapterNumber"].as_i64().unwrap() < from)
-        );
-        assert!(
-            pack["operationContext"]["workingKnowledge"]["entries"]
+            knowledge["entries"]
                 .as_array()
                 .unwrap()
                 .iter()
@@ -302,8 +427,60 @@ async fn modeling_query_and_context_bind_exact_source_and_hide_later_evidence() 
         &plan(3, "world"),
     )
     .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{pack}");
-    assert_eq!(pack["error"]["code"], "context_model_item_budget_exceeded");
+    assert_eq!(status, StatusCode::OK, "{pack}");
+    assert_eq!(pack["queryReport"], report);
+    assert_eq!(pack["queryScope"], report["policy"]);
+    assert_eq!(
+        pack["sourceWatermarks"]["digest"],
+        report["sourceWatermarks"]["digest"]
+    );
+    assert_eq!(pack["budgetsUsed"]["byteSize"], pack.to_string().len());
+    assert!(pack.to_string().len() <= 60000);
+    assert!(model_item_tokens(&pack) <= 9000);
+    assert_eq!(pack["coverage"]["complete"], false);
+    let large_sources = pack["taskSources"]["entries"].clone();
+    let full_text = read_section(&app, project.as_str(), &id, &pack, "/relevantText").await;
+    assert_eq!(full_text.as_array().unwrap().len(), 1);
+    assert_original_draft(&repo, &full_text[0], 3);
+    let full_batch = read_section(
+        &app,
+        project.as_str(),
+        &id,
+        &pack,
+        "/operationContext/modelingBatch",
+    )
+    .await;
+    assert_eq!(full_batch, batch.as_json());
+    let full_catalog = read_section(
+        &app,
+        project.as_str(),
+        &id,
+        &pack,
+        "/operationContext/entityCatalog",
+    )
+    .await;
+    let full_modeling = read_section(
+        &app,
+        project.as_str(),
+        &id,
+        &pack,
+        "/operationContext/modeling",
+    )
+    .await;
+    assert!(!full_catalog.to_string().contains("revision-4"));
+    assert!(!full_modeling.to_string().contains("revision-4"));
+    // The complete admitted large sources cannot fit as one model item. Pages
+    // retain all original text instead of trimming it to make the pack fit.
+    let mut inline = pack.clone();
+    for (path, source) in [
+        ("/relevantText", &full_text),
+        ("/operationContext/modelingBatch", &full_batch),
+        ("/operationContext/entityCatalog", &full_catalog),
+        ("/operationContext/modeling", &full_modeling),
+    ] {
+        *inline.pointer_mut(path).unwrap() = source.clone();
+    }
+    assert!(model_item_tokens(&inline) > 9000);
     // Read the full source with a smaller query alongside it, within the same frozen task.
     let mut bounded_plan = plan(3, "world");
     bounded_plan["byteBudget"] = json!(4000);
@@ -324,23 +501,73 @@ async fn modeling_query_and_context_bind_exact_source_and_hide_later_evidence() 
     .await;
     assert_eq!(status, StatusCode::OK, "{pack}");
     assert_eq!(pack["queryReport"], bounded_report);
+    assert_eq!(pack["queryScope"], bounded_report["policy"]);
     assert_eq!(
-        pack["operationContext"]["modelingBatch"]["sourceRevisionId"],
-        "revision-3"
+        pack["sourceWatermarks"]["digest"],
+        bounded_report["sourceWatermarks"]["digest"]
     );
-    assert!(
-        !pack["operationContext"]["entityCatalog"]
-            .to_string()
-            .contains("revision-4")
+    for path in [
+        "/relevantText",
+        "/operationContext/modelingBatch",
+        "/operationContext/entityCatalog",
+        "/operationContext/modeling",
+    ] {
+        let original = large_sources
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["sectionPath"] == path)
+            .unwrap();
+        let current = pack["taskSources"]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["sectionPath"] == path)
+            .unwrap();
+        for field in ["sourceId", "contentHash", "payloadBytes"] {
+            assert_eq!(current[field], original[field], "frozen {path} {field}");
+        }
+    }
+    assert_eq!(
+        read_section(
+            &app,
+            project.as_str(),
+            &id,
+            &pack,
+            "/operationContext/modelingBatch"
+        )
+        .await,
+        full_batch
+    );
+    assert_eq!(
+        read_section(
+            &app,
+            project.as_str(),
+            &id,
+            &pack,
+            "/operationContext/entityCatalog"
+        )
+        .await,
+        full_catalog
     );
     assert!(pack.to_string().len() <= 60_000);
     assert_eq!(pack["budgetsUsed"]["byteSize"], pack.to_string().len());
-    assert_eq!(pack["relevantText"][0]["sourceRevisionId"], "revision-3");
-    assert!(
-        !pack["operationContext"]["modeling"]
-            .to_string()
-            .contains("revision-4")
+    assert_eq!(
+        read_section(&app, project.as_str(), &id, &pack, "/relevantText").await,
+        full_text
     );
+    assert_eq!(
+        read_section(
+            &app,
+            project.as_str(),
+            &id,
+            &pack,
+            "/operationContext/modeling"
+        )
+        .await,
+        full_modeling
+    );
+    assert!(model_item_tokens(&pack) <= 9000);
     let (status, too_small) = context(
         &app,
         project.as_str(),
@@ -351,6 +578,11 @@ async fn modeling_query_and_context_bind_exact_source_and_hide_later_evidence() 
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{too_small}");
+    assert_eq!(too_small["error"]["code"], "context_budget_exceeded");
+    assert_eq!(
+        read_section(&app, project.as_str(), &id, &pack, "/relevantText").await,
+        full_text
+    );
     for chapter in [1, 4] {
         let (status, empty) = query(&app, project.as_str(), &id, &plan(chapter, "world")).await;
         assert_eq!(status, StatusCode::OK, "{empty}");

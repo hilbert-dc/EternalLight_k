@@ -37,7 +37,7 @@ async fn planning_pack_trims_whole_proposals_and_rehashes_accurate_coverage() {
         .take(/*n*/ 4)
         .collect::<String>();
     let candidates = (0..8).map(|index|json!({
-        "id":format!("proposal-{index}"),"kind":"suspense","summary":"等待后续揭示".repeat(/*n*/ 30),"relatedEntityIds":[],"plotThreadId":null,"characterArcId":null,
+        "id":format!("proposal-{index}"),"kind":"suspense","summary":"等待后续揭示".repeat(/*n*/ 60),"relatedEntityIds":[],"plotThreadId":null,"characterArcId":null,
         "setupEvidenceRefs":[{"objectId":"draft-chapter-1","revisionId":"revision-1","quote":quote,"start":0,"end":4}],
         "fulfillmentCriteria":"后文提供原文证据","targetWindow":{"kind":"open"},"status":"open","fulfillmentEvidenceRefs":[],"decisionReason":null
     })).collect::<Vec<_>>();
@@ -91,7 +91,8 @@ async fn planning_pack_trims_whole_proposals_and_rehashes_accurate_coverage() {
         &project,
         &bound.task_id,
         &bound.thread_id,
-        String::new(), None,
+        String::new(),
+        None,
         /*now*/ 10,
     )
     .unwrap();
@@ -113,8 +114,14 @@ async fn planning_pack_trims_whole_proposals_and_rehashes_accurate_coverage() {
     );
     let (status, roomy) = call(&application, candidate_request(&format!("{uri}60000"))).await;
     assert_eq!(status, StatusCode::OK, "{roomy}");
-    let entries = roomy["candidateCommitmentProposals"].as_array().unwrap();
+    assert_eq!(
+        roomy["candidateCommitmentProposals"]["textDelivered"],
+        false
+    );
+    let proposals = read_proposals(&application, &project, &task, &roomy).await;
+    let entries = proposals.as_array().unwrap();
     assert!(!entries.is_empty());
+    assert!(entries.len() < candidates.len());
     assert_eq!(roomy["relevantCommitments"], json!([]));
     assert!(
         entries
@@ -123,40 +130,91 @@ async fn planning_pack_trims_whole_proposals_and_rehashes_accurate_coverage() {
                 && entry["sourceRevisionId"] == "revision-1"
                 && entry["authority"] == "candidateProposal")
     );
-    let budget = roomy.to_string().len() - 300;
-    let (status, trimmed) = call(&application, candidate_request(&format!("{uri}{budget}"))).await;
-    assert_eq!(status, StatusCode::OK, "{trimmed}");
-    let selected = trimmed["candidateCommitmentProposals"].as_array().unwrap();
-    assert!(selected.len() < entries.len());
-    assert!(trimmed.to_string().len() <= budget);
+    for entry in entries {
+        let original = candidates
+            .iter()
+            .find(|candidate| candidate["id"] == entry["proposalId"])
+            .unwrap();
+        for field in [
+            "kind",
+            "summary",
+            "fulfillmentCriteria",
+            "setupEvidenceRefs",
+        ] {
+            assert_eq!(
+                entry[field], original[field],
+                "no partial candidate field: {field}"
+            );
+        }
+        assert_eq!(entry["established"], false);
+        assert_eq!(entry["chapterId"], "chapter-1");
+        assert_eq!(entry["chapterNumber"], 1);
+        assert_eq!(entry["confirmationState"], "unconfirmed");
+        assert_eq!(entry["sourceCurrent"], true);
+        assert_eq!(entry["literaryFulfillmentVerified"], false);
+    }
+    let proposal_coverage = &roomy["operationContext"]["commitmentProposalCoverage"];
+    let omitted = candidates
+        .iter()
+        .filter(|candidate| {
+            !entries
+                .iter()
+                .any(|entry| entry["proposalId"] == candidate["id"])
+        })
+        .collect::<Vec<_>>();
+    assert!(!omitted.is_empty());
+    assert_eq!(omitted.len(), candidates.len() - entries.len());
     assert_eq!(
-        trimmed["operationContext"]["commitmentProposalCoverage"]["includedEntries"],
-        selected.len()
+        entries
+            .iter()
+            .map(|entry| entry["proposalId"].as_str().unwrap())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        entries.len()
     );
-    assert_eq!(
-        trimmed["operationContext"]["commitmentProposalCoverage"]["complete"],
-        false
-    );
+    assert_eq!(proposal_coverage["includedEntries"], entries.len());
+    assert_eq!(proposal_coverage["scannedCandidates"], candidates.len());
+    assert_eq!(proposal_coverage["truncated"], true);
+    assert_eq!(proposal_coverage["oversizedEntriesOmitted"], false);
+    assert_eq!(proposal_coverage["byteLimit"], 8_000);
+    assert!(proposals.to_string().len() <= 8_000);
+    assert!(entries.iter().all(|entry| entry.to_string().len() <= 2_000));
+    assert_eq!(proposal_coverage["complete"], false);
     assert!(
-        trimmed["coverage"]["missingScope"]
+        roomy["coverage"]["missingScope"]
             .as_array()
             .unwrap()
             .contains(&json!("commitmentProposals"))
     );
     assert!(
-        trimmed["coverage"]["truncationReasons"]
+        roomy["coverage"]["truncationReasons"]
             .as_array()
             .unwrap()
-            .contains(&json!("contextProposalBudget"))
+            .contains(&json!("proposalSelectionBudget"))
     );
-    let mut hashed = trimmed.clone();
-    hashed.as_object_mut().unwrap().remove("id");
-    hashed.as_object_mut().unwrap().remove("contentHash");
+    assert_context_hash(&roomy);
+    // Bound sources are frozen before transport fitting. Tight transport must
+    // reject honestly; it cannot silently delete part of the registered source.
+    let budget = roomy.to_string().len() - 300;
+    assert!(budget >= 4_000);
+    let (status, rejected) = call(&application, candidate_request(&format!("{uri}{budget}"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{rejected}");
+    assert_eq!(rejected["error"]["code"], "context_budget_exceeded");
+    assert!(rejected.get("contentHash").is_none());
     assert_eq!(
-        trimmed["contentHash"],
-        format!("{:x}", Sha256::digest(hashed.to_string().as_bytes()))
+        read_proposals(&application, &project, &task, &roomy).await,
+        proposals
     );
-    assert_ne!(trimmed["contentHash"], roomy["contentHash"]);
+    let (status, refreshed) = call(&application, candidate_request(&format!("{uri}59999"))).await;
+    assert_eq!(status, StatusCode::OK, "{refreshed}");
+    assert_context_hash(&refreshed);
+    assert!(refreshed.to_string().len() <= 59_999);
+    assert_eq!(refreshed["budgetsUsed"]["byteLimit"], 59_999);
+    assert_eq!(
+        refreshed["candidateCommitmentProposals"]["sourceId"],
+        roomy["candidateCommitmentProposals"]["sourceId"]
+    );
+    assert_ne!(refreshed["contentHash"], roomy["contentHash"]);
     let (status,rolling) = call(&application,Request::builder().method("POST").uri(format!("/api/projects/{project}/tasks"))
         .header("authorization",format!("Bearer {AUTHOR}")).header("content-type","application/json")
         .body(Body::from(json!({"operation":"generatePlan","inputRevision":0,"threadId":"rolling-thread","target":{"planFromChapter":3},
@@ -165,22 +223,77 @@ async fn planning_pack_trims_whole_proposals_and_rehashes_accurate_coverage() {
     let task_id = rolling["id"].as_str().unwrap();
     let (status,pack) = call(&application,candidate_request(&format!("/api/projects/{project}/context?taskId={task_id}&threadId=rolling-thread&projectRevision=0&purpose=planner&budget=24&byteBudget=60000"))).await;
     assert_eq!(status, StatusCode::OK, "{pack}");
-    assert_eq!(
-        pack["candidateCommitmentProposals"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
-    assert_eq!(
-        pack["candidateCommitmentProposals"][0]["reportRevisionId"],
-        "report-1"
-    );
+    assert_eq!(pack["candidateCommitmentProposals"]["textDelivered"], false);
+    let rolling_proposals = read_proposals(&application, &project, &rolling, &pack).await;
+    assert_eq!(rolling_proposals, proposals);
     assert_eq!(
         pack["operationContext"]["commitmentProposalCoverage"]["includedEntries"],
-        1
+        entries.len()
     );
     assert!(pack.to_string().len() <= 60_000);
+    assert_context_hash(&pack);
+    assert_ne!(pack["contentHash"], roomy["contentHash"]);
+}
+
+fn assert_context_hash(pack: &Value) {
+    let mut hashed = pack.clone();
+    hashed.as_object_mut().unwrap().remove("id");
+    hashed.as_object_mut().unwrap().remove("contentHash");
+    assert_eq!(
+        pack["contentHash"],
+        format!("{:x}", Sha256::digest(hashed.to_string().as_bytes()))
+    );
+    assert_eq!(pack["budgetsUsed"]["byteSize"], pack.to_string().len());
+}
+
+async fn read_proposals(
+    application: &Router,
+    project: &ProjectId,
+    task: &Value,
+    pack: &Value,
+) -> Value {
+    let source = pack["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|source| source["sectionPath"] == "/candidateCommitmentProposals")
+        .unwrap();
+    assert_eq!(
+        source["sourceId"],
+        pack["candidateCommitmentProposals"]["sourceId"]
+    );
+    let uri = format!(
+        "/api/projects/{project}/tasks/{}/task-source?threadId={}&expectedRevision={}&sourceId={}",
+        task["id"].as_str().unwrap(),
+        task["threadId"].as_str().unwrap(),
+        task["inputRevision"],
+        source["sourceId"].as_str().unwrap()
+    );
+    let mut suffix = String::new();
+    let mut payload = String::new();
+    loop {
+        let (status, page) = call(application, candidate_request(&format!("{uri}{suffix}"))).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert!(page.to_string().len() <= 6_500);
+        assert_eq!(page["sourceId"], source["sourceId"]);
+        assert_eq!(page["contentHash"], source["contentHash"]);
+        assert_eq!(page["byteRange"]["start"], payload.len());
+        payload.push_str(page["payloadPart"].as_str().unwrap());
+        assert_eq!(page["byteRange"]["end"], payload.len());
+        if let Some(cursor) = page["nextCursor"].as_str() {
+            suffix = format!("&cursor={}", cursor.replace(':', "%3A"));
+        } else {
+            assert_eq!(page["byteRange"]["total"], payload.len());
+            assert_eq!(page["endOfInputFromCursor"], true);
+            break;
+        }
+    }
+    assert_eq!(source["payloadBytes"], payload.len());
+    assert_eq!(
+        source["contentHash"],
+        format!("{:x}", Sha256::digest(payload.as_bytes()))
+    );
+    serde_json::from_str(&payload).unwrap()
 }
 
 fn candidate_request(uri: &str) -> Request<Body> {

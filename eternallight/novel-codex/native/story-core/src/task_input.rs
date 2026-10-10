@@ -20,6 +20,12 @@ pub(crate) fn capture_task_inputs(
     task_id: &str,
     project_id: &ProjectId,
 ) -> Result<(), RepositoryError> {
+    let task = crate::tasks::load_task(connection, task_id)?;
+    let target: Value = serde_json::from_str(&task.target_json).map_err(|_| RepositoryError::CorruptState)?;
+    if target["type"] == "edition" {
+        crate::task_sources::capture(connection, task_id, project_id)?;
+        return Ok(());
+    }
     connection.execute(
         "INSERT INTO story_task_input_heads_v2(task_id,object_id,candidate_revision_id,accepted_revision_id,working_revision_id,working_selection_revision)
          SELECT ?1,h.object_id,h.candidate_revision_id,h.accepted_revision_id,b.revision_id,b.selection_revision
@@ -93,6 +99,7 @@ fn assert_inputs(
     consume_siblings: bool,
 ) -> Result<(), RepositoryError> {
     crate::author_message::validate_execution(connection, task)?;
+    if crate::multimedia::assert_media_inputs(connection, task)? { return Ok(()); }
     if task.operation == "assessChapterStructure" {
         let event = crate::chapter_structure::assert_task(connection, task)?;
         let manifest: Value = serde_json::from_str(&task.input_manifest_json)
@@ -122,6 +129,23 @@ fn assert_inputs(
         let action =
             crate::task_actions::load_action(connection, &task.project_id, source, action)?;
         crate::execution_scope_storage::assert_current(connection, &task.project_id, &action)?;
+    }
+    if task.operation == "assessRevisionOutcome" {
+        // Required current draft/batch and author execution are checked above.
+        // Optional long-book sources become dependencies only when actually returned.
+        if !crate::task_workspace::dependencies_current(connection, &task.task_id)? {
+            return Err(RepositoryError::TaskInputStale);
+        }
+        let (object, expected) =
+            expected_task_target(connection, task)?.ok_or(RepositoryError::TaskBindingInvalid)?;
+        let actual: Option<String> = connection.query_row(
+            "SELECT candidate_revision_id FROM story_object_heads_v2 WHERE project_id=?1 AND object_id=?2",
+            params![task.project_id.as_str(),object.as_str()], |row|row.get(0),
+        ).optional().map_err(storage_error)?.flatten();
+        if actual.as_deref() != expected.as_ref().map(RevisionId::as_str) {
+            return Err(RepositoryError::TaskInputStale);
+        }
+        return Ok(());
     }
     let revision: i64 = connection
         .query_row(

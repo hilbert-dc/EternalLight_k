@@ -120,6 +120,14 @@ pub(crate) async fn request(
         );
     };
     if request.operation == "generateChapter" {
+        let Some(acceptance) = request.target.get("chapterAcceptance") else {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "invalid_action",
+                "generateChapter requires chapterAcceptance before drafting",
+            );
+        };
+        target["chapterAcceptance"] = acceptance.clone();
         if let Some(outcomes) = request.target.get("desiredOutcomes") {
             target["desiredOutcomes"] = outcomes.clone();
         }

@@ -52,6 +52,18 @@ pub struct ReplanRun<'a> {
     pub now: i64,
 }
 
+/// Refreshing execution context is not a new author instruction. Both paths
+/// share checkpoint guards, but only an author replan changes intent identity.
+pub struct RebindRun<'a> {
+    pub project_id: &'a ProjectId,
+    pub run_id: &'a str,
+    pub expected_version: i64,
+    pub expected_project_revision: i64,
+    pub expected_source_digest: &'a str,
+    pub restart_from: ReplanStage,
+    pub now: i64,
+}
+
 impl AuthoringService<'_> {
     pub fn preview_replan(
         &self,
@@ -100,6 +112,34 @@ impl AuthoringService<'_> {
     }
 
     pub fn replan(&mut self, request: ReplanRun<'_>) -> Result<GenerationRun, RepositoryError> {
+        self.refresh_checkpoint(
+            RebindRun {
+                project_id: request.project_id,
+                run_id: request.run_id,
+                expected_version: request.expected_version,
+                expected_project_revision: request.expected_project_revision,
+                expected_source_digest: request.expected_source_digest,
+                restart_from: request.restart_from,
+                now: request.now,
+            },
+            Some(request.instruction), None,
+        )
+    }
+
+    pub fn rebind(&mut self, request: RebindRun<'_>) -> Result<GenerationRun, RepositoryError> {
+        self.refresh_checkpoint(request, None, None)
+    }
+
+    pub(crate) fn rebind_handoff(&mut self, request:RebindRun<'_>, source_task_id:&str)->Result<GenerationRun,RepositoryError>{
+        self.refresh_checkpoint(request,None,Some(source_task_id))
+    }
+
+    fn refresh_checkpoint(
+        &mut self,
+        request: RebindRun<'_>,
+        author_instruction: Option<&str>,
+        handoff_source: Option<&str>,
+    ) -> Result<GenerationRun, RepositoryError> {
         let mut run = self.get(request.project_id, request.run_id)?;
         let chapter_replan = request.restart_from == ReplanStage::CurrentChapter;
         if run.version != request.expected_version
@@ -164,13 +204,17 @@ impl AuthoringService<'_> {
                 "remaining generation allowance is exhausted".into(),
             ));
         }
-        let instruction = bounded_intent(&run, request.instruction)?;
+        let instruction = author_instruction
+            .map(|value| bounded_intent(&run, value))
+            .transpose()?;
         let branch = BranchId::parse("main").expect("static branch id");
         let snapshot = self
             .repository
             .branch_head(request.project_id, &branch)?
             .ok_or(RepositoryError::BranchNotFound)?;
-        run.intent_generation += 1;
+        if instruction.is_some() {
+            run.intent_generation += 1;
+        }
         run.replans.push(ReplanRecord {
             previous_version: run.version,
             previous_stage: run.stage,
@@ -183,16 +227,18 @@ impl AuthoringService<'_> {
             intent_generation: run.intent_generation,
             created_at: request.now,
         });
-        run.intent_revisions.push(CreativeIntentRevision {
-            id: format!("intent-{}", Uuid::new_v4().simple()),
-            generation: run.intent_generation,
-            instruction,
-            effective_from_chapter: run.completed_chapters + 1,
-            source: CreativeIntentSource::AuthorMessage {
-                author_message_id: format!("author-message-{}", Uuid::new_v4().simple()),
-                created_at: request.now,
-            },
-        });
+        if let Some(instruction) = instruction {
+            run.intent_revisions.push(CreativeIntentRevision {
+                id: format!("intent-{}", Uuid::new_v4().simple()),
+                generation: run.intent_generation,
+                instruction,
+                effective_from_chapter: run.completed_chapters + 1,
+                source: CreativeIntentSource::AuthorMessage {
+                    author_message_id: format!("author-message-{}", Uuid::new_v4().simple()),
+                    created_at: request.now,
+                },
+            });
+        }
         run.stage = RunStage::Coordinate;
         run.active_task_id = None;
         run.pending_current_intent_generation = None;
@@ -204,13 +250,12 @@ impl AuthoringService<'_> {
         run.source_digest = digest;
         run.step_token = Uuid::new_v4().simple().to_string();
         run.version += 1;
-        self.repository.update_generation_run_if_source_matches(
-            request.project_id,
-            request.run_id,
-            request.expected_version,
-            &serde_json::to_string(&run).map_err(|_| RepositoryError::CorruptState)?,
-            &run.source_digest,
-        )?;
+        let encoded=serde_json::to_string(&run).map_err(|_|RepositoryError::CorruptState)?;
+        if let Some(source)=handoff_source {
+            self.repository.update_generation_run_for_handoff(request.project_id,request.run_id,request.expected_version,&encoded,&run.source_digest,source)?;
+        } else {
+            self.repository.update_generation_run_if_source_matches(request.project_id,request.run_id,request.expected_version,&encoded,&run.source_digest)?;
+        }
         Ok(run)
     }
 }

@@ -7,6 +7,91 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 #[tokio::test]
+async fn thousand_chapter_assessment_constructs_bounded_inputs_and_reads_far_evidence_lazily() {
+    let flow = Flow::from_fixture(Fixture::with_long_book(1000).await, Goals::Approved).await;
+    let f = &flow.fixture;
+    let (status, completed) = f.complete(&flow.model).await;
+    assert_eq!(status, StatusCode::OK, "{completed}");
+    f.settle(&flow.model);
+    f.choose(&flow.model, "assessRevisionOutcome").await;
+    let task = flow.assessment().await;
+    let record = f
+        .repo()
+        .task(&f.project(), task["id"].as_str().unwrap())
+        .unwrap()
+        .unwrap();
+    let input = f.repo().revision_outcome_input(&record).unwrap();
+    assert!(input.get("priorChapters").is_none());
+    assert!(input.to_string().len() < 12000);
+    let db = f.db();
+    let bytes:i64=db.query_row("SELECT SUM(length(CAST(payload_json AS BLOB))) FROM story_task_source_items_v2 WHERE task_id=?1",[task["id"].as_str().unwrap()],|r|r.get(0)).unwrap();
+    assert!(
+        bytes < 20000,
+        "assessment constructor must not copy prior prose: {bytes}"
+    );
+    let source = input["workspaceRef"]["sourceId"].as_str().unwrap();
+    let endpoint = format!(
+        "/tasks/{}/task-source-content?threadId={}&expectedRevision={}",
+        task["id"].as_str().unwrap(),
+        task["threadId"].as_str().unwrap(),
+        task["inputRevision"]
+    );
+    let (status, dir) = f
+        .request(
+            "GET",
+            &format!(
+                "{endpoint}&sourceId={source}&view=workspace&chapterNumber=7&objectKind=draft"
+            ),
+            CANDIDATE,
+            Value::Null,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{dir}");
+    assert_eq!(dir["items"][0]["revisionId"], "prior-revision-7");
+    assert_eq!(dir["items"][0]["purpose"], "priorText");
+    let leaf = dir["items"][0]["sourceId"].as_str().unwrap();
+    let (status, text) = f
+        .request(
+            "GET",
+            &format!("{endpoint}&sourceId={leaf}"),
+            CANDIDATE,
+            Value::Null,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{text}");
+    assert!(text.to_string().contains("远章独有的实际证据"));
+    assert!(text.to_string().len() <= 6500);
+    let cache:i64=db.query_row("SELECT COUNT(*) FROM story_task_source_items_v2 WHERE task_id=?1 AND policy_digest='workspaceObject'",[task["id"].as_str().unwrap()],|r|r.get(0)).unwrap();
+    assert_eq!(cache, 1);
+    db.execute("UPDATE story_object_heads_v2 SET candidate_revision_id='unrelated-future-change' WHERE project_id=?1 AND object_id='draft-prior-999'",[f.project().as_str()]).unwrap();
+    let (status, text) = f
+        .request(
+            "GET",
+            &format!("{endpoint}&sourceId={leaf}"),
+            CANDIDATE,
+            Value::Null,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "unread unrelated source must not invalidate assessment: {text}"
+    );
+    db.execute("UPDATE story_object_heads_v2 SET candidate_revision_id='relevant-source-change' WHERE project_id=?1 AND object_id='draft-prior-7'",[f.project().as_str()]).unwrap();
+    assert!(
+        f.request(
+            "GET",
+            &format!("{endpoint}&sourceId={leaf}"),
+            CANDIDATE,
+            Value::Null
+        )
+        .await
+        .0
+        .is_client_error()
+    );
+}
+
+#[tokio::test]
 async fn approved_revision_models_then_assesses_under_one_author_budget_and_keeps_stale_history() {
     let flow = Flow::queued().await;
     let f = &flow.fixture;
@@ -67,13 +152,27 @@ async fn approved_revision_models_then_assesses_under_one_author_budget_and_keep
         )
         .unwrap();
     assert_eq!(
-        input,
-        json!({"desiredOutcomes":desired_outcomes(),
-        "beforeScenes":[{"groupId":"letter","body":"她烧掉密函。","truncated":false},
-            {"groupId":"witness","body":"守卫沉默。","truncated":false}],
-        "afterScenes":[{"groupId":"letter","body":NEW_BODY,"truncated":false},
-            {"groupId":"witness","body":"守卫沉默。","truncated":false}],
-        "coverage":{"complete":true,"delivery":"taskSourcePages"}})
+        input["chapterAcceptance"],
+        flow.writer["target"]["chapterAcceptance"]
+    );
+    assert_eq!(input["chapterNumber"], 1);
+    assert!(input.get("priorChapters").is_none());
+    assert_eq!(input["workspaceRef"]["view"], "workspace");
+    assert_eq!(
+        json!(&input["desiredOutcomes"].as_array().unwrap()[1..]),
+        desired_outcomes()
+    );
+    assert_eq!(input["desiredOutcomes"][0]["id"], "whole-chapter");
+    assert_eq!(input["beforeScenes"].as_array().unwrap().len(), 4);
+    assert_eq!(input["afterScenes"][1]["body"], NEW_BODY);
+    assert_eq!(
+        input["actualLength"]["characterCount"],
+        flow.draft["body"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .filter(|c| !c.is_whitespace() && *c != '\u{feff}')
+            .count()
     );
     let (status, context) = f.request("GET", &format!(
         "/context?taskId={}&threadId=assessRevisionOutcome&projectRevision=0&purpose=critic&budget=24&byteBudget=60000",
@@ -84,6 +183,7 @@ async fn approved_revision_models_then_assesses_under_one_author_budget_and_keep
         input
     );
     assert_eq!(context["relevantText"], json!([]));
+    assert_eq!(context["queryReport"], Value::Null);
     let relations_path = format!(
         "/tasks/{}/relations?threadId=assessRevisionOutcome&expectedRevision=0&entityId=letter",
         task["id"].as_str().unwrap()
@@ -151,7 +251,8 @@ async fn approved_revision_models_then_assesses_under_one_author_budget_and_keep
     );
     f.settle(&task);
     let expected = json!({"revisionId":receipt["revisionId"],"authority":"candidateAnalysis",
-        "state":"current","assessment":report,"decisions":[]});
+        "state":"current","assessment":report,"decisions":[],
+        "issues":expected_issue_summaries(&flow.draft["revisionId"], "open", 1)});
     assert_eq!(
         f.request("GET", &flow.path(), AUTHOR, Value::Null).await,
         (StatusCode::OK, expected.clone())
@@ -196,6 +297,7 @@ async fn approved_revision_models_then_assesses_under_one_author_budget_and_keep
     assert_eq!(status, StatusCode::CREATED, "{edited}");
     let mut stale = expected;
     stale["state"] = json!("stale");
+    stale["issues"] = expected_issue_summaries(&edited["revisionId"], "stale", 1);
     assert_eq!(
         f.request("GET", &flow.path(), AUTHOR, Value::Null).await,
         (StatusCode::OK, stale)
@@ -247,10 +349,13 @@ async fn large_unicode_scene_inputs_page_complete_originals_and_approved_criteri
         input
     );
     assert_eq!(pack["coverage"]["complete"], false);
-    assert_eq!(input["desiredOutcomes"], desired_outcomes());
+    assert_eq!(
+        json!(&input["desiredOutcomes"].as_array().unwrap()[1..]),
+        desired_outcomes()
+    );
     assert_eq!(
         input["coverage"],
-        json!({"complete":true,"delivery":"taskSourcePages"})
+        json!({"complete":false,"delivery":"taskSourcePages","optionalPriorText":"taskWorkspace"})
     );
     let scenes = input["beforeScenes"]
         .as_array()
@@ -263,152 +368,73 @@ async fn large_unicode_scene_inputs_page_complete_originals_and_approved_criteri
         .sum();
     assert!(text_bytes > 15_000, "{text_bytes}");
     assert!(scenes.clone().all(|scene| scene["truncated"] == false));
-    assert!(
-        scenes
-            .clone()
-            .all(|scene| scene["groupId"] == "letter" || scene["groupId"] == "witness")
-    );
-    assert_eq!(input["beforeScenes"][0]["body"], "潮".repeat(5000));
-    assert_eq!(input["afterScenes"][0]["body"], NEW_BODY);
+    assert!(scenes.clone().all(|scene| {
+        ["opening", "letter", "witness", "ending"]
+            .iter()
+            .any(|id| scene["groupId"] == *id)
+    }));
+    assert_eq!(input["beforeScenes"][1]["body"], "潮".repeat(5000));
+    assert_eq!(input["afterScenes"][1]["body"], NEW_BODY);
     for side in ["beforeScenes", "afterScenes"] {
-        assert_eq!(input[side].as_array().unwrap().len(), 2);
-        assert_eq!(input[side][1]["body"], "守卫沉默。");
+        assert_eq!(input[side].as_array().unwrap().len(), 4);
+        assert_eq!(input[side][2]["body"], "守卫沉默。");
     }
 }
 
 #[tokio::test]
-async fn policy_selected_optional_modeling_can_finish_without_an_assessment_step() {
+async fn optional_modeling_never_replaces_independent_chapter_acceptance() {
     let flow = Flow::modeled(Goals::Absent).await;
-    let (status, completed) = flow.fixture.complete(&flow.model).await;
-    assert_eq!(status, StatusCode::OK, "{completed}");
+    assert_eq!(flow.fixture.complete(&flow.model).await.0, StatusCode::OK);
     flow.fixture.settle(&flow.model);
     let (parent, read) = flow.fixture.decision(&flow.model).await;
-    assert_eq!(read["canFinish"], true);
-    assert_eq!(flow.fixture.complete(&parent).await.0, StatusCode::OK);
-    flow.fixture.settle(&parent);
-    let work = flow.fixture.work().await;
-    assert_eq!(work["status"], "completed");
-    assert_eq!(
-        work["steps"]
+    assert_eq!(read["canFinish"], false);
+    assert!(
+        read["readyActions"]
             .as_array()
             .unwrap()
             .iter()
-            .filter(|step| step["operation"] != "advisory")
-            .map(|step| step["operation"].clone())
-            .collect::<Vec<_>>(),
-        vec![json!("generateChapter"), json!("modelKnowledge")]
+            .any(|a| a["operation"] == "assessRevisionOutcome" && a["required"] == true)
     );
-    let count: i64 = flow
-        .fixture
-        .db()
-        .query_row(
-            "SELECT COUNT(*) FROM story_revisions_v2 WHERE object_kind='revisionOutcome'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 0);
+    assert!(flow.fixture.complete(&parent).await.0.is_client_error());
 }
 
 #[tokio::test]
-async fn policy_ordinary_revision_can_finish_without_modeling_and_explicit_outcomes_require_only_assessment()
- {
-    for (approved_outcomes, manual_same_chapter) in [(false, false), (false, true), (true, false)] {
+async fn ordinary_revision_requires_independent_assessment_without_mandatory_modeling() {
+    for desired in [false, true] {
         let f = Fixture::new().await;
         let mut target = f.target.clone();
-        if !approved_outcomes {
+        if !desired {
             target.as_object_mut().unwrap().remove("desiredOutcomes");
         }
         let writer = f.writer(target).await;
-        let mut output = f.original.clone();
-        output["sceneGroups"][1]["body"] = json!(NEW_BODY);
-        join_body(&mut output);
-        let (code, draft) = f
-            .checkpoint(Some(&writer), &f.original, output, "saved-revision")
-            .await;
-        assert_eq!(code, StatusCode::CREATED, "{draft}");
+        let mut draft = f.original.clone();
+        draft["sceneGroups"][1]["body"] = json!(NEW_BODY);
+        join_body(&mut draft);
+        assert_eq!(
+            f.checkpoint(Some(&writer), &f.original, draft, "chapter-saved")
+                .await
+                .0,
+            StatusCode::CREATED
+        );
         assert_eq!(f.complete(&writer).await.0, StatusCode::OK);
         f.settle(&writer);
         let (parent, read) = f.decision(&writer).await;
-        assert_eq!(read["canFinish"], !approved_outcomes, "{read}");
-        let knowledge = read["readyActions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|action| action["operation"] == "modelKnowledge")
-            .unwrap();
-        assert_eq!(knowledge["required"], false);
-        assert_eq!(
-            read["requirements"]
+        assert_eq!(read["canFinish"], false);
+        assert!(
+            read["readyActions"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|r| r["kind"] == "knowledge" && r["status"] == "pending"),
-            false
+                .any(|a| a["operation"] == "modelKnowledge" && a["required"] == false)
         );
-        let receipt = &read["receipts"]["items"][0]["outputs"][0];
-        assert_eq!(receipt["chapterId"], "chapter-one");
-        assert_eq!(receipt["revisionId"], draft["revisionId"]);
-        let (code, result) = f.complete(&parent).await;
-        assert_eq!(code.is_success(), !approved_outcomes, "{result}");
-        if !approved_outcomes {
-            f.settle(&parent);
-            let work = f.work().await;
-            assert_eq!(work["status"], "completed");
-            assert!(
-                !work["steps"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|step| step["operation"] == "modelKnowledge")
-            );
-            let pending: (String, String) = f.db().query_row(
-                "SELECT status,source_revision_id FROM story_modeling_outbox_v1 WHERE object_id='draft-chapter-one'", [],
-                |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
-            assert_eq!(
-                pending,
-                (
-                    "pending".into(),
-                    draft["revisionId"].as_str().unwrap().into()
-                )
-            );
-            // A later manual edit remains source-tracked without creating model work.
-            let tasks_before: i64 = f
-                .db()
-                .query_row("SELECT COUNT(*) FROM story_tasks_v2", [], |row| row.get(0))
-                .unwrap();
-            let (manual, previous, chapter) = if manual_same_chapter {
-                let mut manual = f.original.clone();
-                manual["sceneGroups"][0]["body"] = json!("林夕走过港口。");
-                manual["sceneGroups"][1]["body"] = json!(NEW_BODY);
-                join_body(&mut manual);
-                (manual, draft.clone(), "chapter-one")
-            } else {
-                (
-                    json!({"chapterId":"chapter-two","chapterNumber":2,"title":"翌日","body":"港口下起了雨。"}),
-                    json!({"revisionId":null}),
-                    "chapter-two",
-                )
-            };
-            let (code, saved) = f
-                .checkpoint(None, &previous, manual, "manual-after-agent")
-                .await;
-            assert_eq!(code, StatusCode::CREATED, "{saved}");
-            let tasks_after: i64 = f
-                .db()
-                .query_row("SELECT COUNT(*) FROM story_tasks_v2", [], |row| row.get(0))
-                .unwrap();
-            assert_eq!(tasks_after, tasks_before);
-            let tracked: String = f
-                .db()
-                .query_row(
-                    "SELECT source_revision_id FROM story_modeling_outbox_v1 WHERE object_id=?1",
-                    [format!("draft-{chapter}")],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            assert_eq!(tracked, saved["revisionId"].as_str().unwrap());
-        }
+        assert!(
+            read["readyActions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|a| a["operation"] == "assessRevisionOutcome" && a["required"] == true)
+        );
+        assert!(f.complete(&parent).await.0.is_client_error());
     }
 }
 
@@ -431,20 +457,37 @@ async fn policy_explicit_revision_outcomes_still_require_saved_assessment_before
     assert_eq!(f.complete(&task).await.0, StatusCode::OK);
     f.settle(&task);
     let (parent, read) = f.decision(&task).await;
-    assert_eq!(read["canFinish"], true);
+    assert_eq!(read["canFinish"], false);
+    assert_eq!(read["issues"]["totalCount"], 2);
+    assert_eq!(read["issues"]["openCount"], 2);
+    assert!(
+        read["issues"]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|issue| issue["observations"] == json!([]))
+    );
     for kind in ["revisionOutcome"] {
         assert!(
             read["requirements"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|r| r["kind"] == kind && r["status"] == "satisfied"),
+                .any(|r| r["kind"] == kind && r["status"] == "pending"),
             "{read}"
         );
     }
-    assert_eq!(f.complete(&parent).await.0, StatusCode::OK);
-    f.settle(&parent);
-    assert_eq!(f.work().await["status"], "completed");
+    let before = f.ledger_counts();
+    let (code, blocked) = f.request("POST", &format!("/tasks/{}/generation-handoff", parent["id"].as_str().unwrap()), CANDIDATE,
+        json!({"taskId":parent["id"],"threadId":parent["threadId"],"expectedRevision":parent["inputRevision"],"expectedIntentRevision":0,"targetChapters":2,"instruction":"完成核对后再继续下一章","idempotencyKey":"unmet-report-handoff"})).await;
+    assert_eq!(code, StatusCode::BAD_REQUEST, "{blocked}");
+    assert!(
+        blocked.to_string().contains("independent assessment"),
+        "{blocked}"
+    );
+    assert_eq!(f.ledger_counts(), before);
+    assert!(f.complete(&parent).await.0.is_client_error());
+    assert_ne!(f.work().await["status"], "completed");
     // The assessment is persisted candidate evidence, not accepted story facts.
     let report = f
         .repo()
@@ -476,8 +519,9 @@ async fn requested_revision_outcomes_compare_exact_prose_without_semantic_extrac
     assert_eq!(status, StatusCode::OK, "{context}");
     let input =
         read_context_source(f, &task, &context, "/operationContext/revisionOutcomeInput").await;
-    assert_eq!(input["coverage"]["complete"], true);
-    assert_eq!(input["afterScenes"][0]["body"], NEW_BODY);
+    assert_eq!(input["coverage"]["complete"], false);
+    assert_eq!(input["coverage"]["optionalPriorText"], "taskWorkspace");
+    assert_eq!(input["afterScenes"][1]["body"], NEW_BODY);
     let mut forged = flow.report();
     forged["knowledgeBatchId"] = json!("invented-batch");
     assert!(

@@ -45,6 +45,21 @@ async fn call(
                 format!("{:x}", Sha256::digest(payload.to_string().as_bytes())),
             );
     }
+    if method == "GET" && actor == CANDIDATE && uri.contains("/task-source?") {
+        let thread = uri
+            .split("threadId=")
+            .nth(1)
+            .unwrap()
+            .split('&')
+            .next()
+            .unwrap();
+        request = request
+            .header("x-novel-tool-name", "read_task_source")
+            .header("x-novel-root-thread", thread)
+            .header("x-novel-caller-thread", thread)
+            .header("x-novel-turn", "extraction-turn")
+            .header("x-novel-tool-call", "fixture-read-extraction-source");
+    }
     let response = app
         .clone()
         .author_fixture_request(
@@ -57,6 +72,54 @@ async fn call(
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     (status, serde_json::from_slice(&bytes).unwrap())
+}
+
+async fn read_author_requirements(app: &Router, base: &str, task: &Value) -> Value {
+    let id = task["id"].as_str().unwrap();
+    let thread = task["threadId"].as_str().unwrap();
+    let (status, context) = call(app, "GET", &format!("{base}/context?taskId={id}&threadId={thread}&projectRevision={}&purpose=planner&byteBudget=60000",task["inputRevision"]), CANDIDATE, None).await;
+    assert_eq!(status, StatusCode::OK, "{context}");
+    let entry = context["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["sectionPath"] == "/authorRequirementsSource")
+        .unwrap();
+    let mut cursor = String::new();
+    let mut content = String::new();
+    loop {
+        let (status, page) = call(app, "GET", &format!("{base}/tasks/{id}/task-source?threadId={thread}&expectedRevision={}&sourceId={}{cursor}",task["inputRevision"],entry["sourceId"].as_str().unwrap()), CANDIDATE, None).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], entry["sourceId"]);
+        assert_eq!(page["contentHash"], entry["contentHash"]);
+        assert_eq!(page["byteRange"]["start"], content.len());
+        let part = page["payloadPart"].as_str().unwrap();
+        assert!(part.len() <= 2000);
+        assert!(page.to_string().len() <= 6500);
+        let result = json!({"content":[{"type":"text","text":page.to_string()}]});
+        let item = json!({"type":"function_call_output","call_id":"x".repeat(160),"output":result.to_string()});
+        let tokens = eternallight_engine_core::dispatch("tokens.count", json!(item.to_string()))
+            .unwrap()
+            .as_u64()
+            .unwrap();
+        assert!(tokens <= 9000);
+        content.push_str(part);
+        assert_eq!(page["byteRange"]["end"], content.len());
+        let Some(next) = page["nextCursor"].as_str() else {
+            assert_eq!(page["byteRange"]["total"], content.len());
+            assert_eq!(page["endOfInputFromCursor"], true);
+            break;
+        };
+        let next = format!("&cursor={next}");
+        assert_ne!(cursor, next);
+        cursor = next;
+    }
+    assert_eq!(entry["payloadBytes"], content.len());
+    assert_eq!(
+        entry["contentHash"],
+        format!("{:x}", Sha256::digest(content.as_bytes()))
+    );
+    serde_json::from_str(&content).unwrap()
 }
 
 #[tokio::test]
@@ -205,8 +268,50 @@ async fn conversation_extraction_uses_bound_candidate_output_and_an_author_only_
     );
     let (status, pack) = call(&app, "GET", &context_uri, CANDIDATE, /*body*/ None).await;
     assert_eq!(status, StatusCode::OK, "{pack}");
-    assert_eq!(pack["relevantText"].as_array().unwrap().len(), 1);
-    assert_eq!(pack["relevantText"][0]["sourceRevisionId"], "source-1");
+    let text_sources: Vec<_> = pack["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|source| source["sectionPath"] == "/relevantText")
+        .collect();
+    assert_eq!(text_sources.len(), 1);
+    let source = text_sources[0];
+    assert_eq!(source["chapterNumbers"], json!([1]));
+    assert_eq!(pack["relevantText"]["sourceId"], source["sourceId"]);
+    assert_eq!(pack["relevantText"]["textDelivered"], false);
+    let source_uri = format!(
+        "/api/projects/extraction-http/tasks/{id}/task-source?threadId=extraction&expectedRevision=0&sourceId={}",
+        source["sourceId"].as_str().unwrap()
+    );
+    let mut cursor = Value::Null;
+    let mut text = String::new();
+    loop {
+        let uri = cursor
+            .as_str()
+            .map(|cursor| format!("{source_uri}&cursor={cursor}"))
+            .unwrap_or_else(|| source_uri.clone());
+        let (status, page) = call(&app, "GET", &uri, CANDIDATE, None).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["contentHash"], source["contentHash"]);
+        assert_eq!(page["byteRange"]["start"], text.len());
+        text.push_str(page["payloadPart"].as_str().unwrap());
+        assert_eq!(page["byteRange"]["end"], text.len());
+        assert!(text.len() <= source["payloadBytes"].as_u64().unwrap() as usize);
+        cursor = page["nextCursor"].clone();
+        if cursor.is_null() {
+            assert_eq!(page["endOfInputFromCursor"], true);
+            assert_eq!(page["byteRange"]["total"], text.len());
+            break;
+        }
+    }
+    assert_eq!(
+        format!("{:x}", Sha256::digest(text.as_bytes())),
+        source["contentHash"].as_str().unwrap()
+    );
+    let visible_text: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(visible_text.as_array().unwrap().len(), 1);
+    assert_eq!(visible_text[0]["sourceRevisionId"], "source-1");
+    assert!(!text.contains("未来的秘密不可读取"));
     assert!(!pack.to_string().contains("未来的秘密不可读取"));
     let submit = "/api/projects/extraction-http/chapters/chapter-1/commitment-extractions";
     let input = json!({"taskId":id,"threadId":"extraction","expectedRevision":0,"expectedCandidateRevisionId":null,"idempotencyKey":"save-extraction",
@@ -319,6 +424,87 @@ async fn conversation_extraction_uses_bound_candidate_output_and_an_author_only_
     let (_, report_two) = call(&app, "GET", submit, AUTHOR, /*body*/ None).await;
     assert_eq!(report_two["revisionId"], saved_two["revisionId"]);
     assert_eq!(report_two["payload"], two["payload"]);
+    assert_eq!(report_two["reportCurrent"], true);
+    let original_uri = format!(
+        "{submit}?reportRevisionId={}",
+        saved["revisionId"].as_str().unwrap()
+    );
+    let (status, original_report) = call(&app, "GET", &original_uri, AUTHOR, None).await;
+    assert_eq!(status, StatusCode::OK, "{original_report}");
+    assert_eq!(original_report["revisionId"], saved["revisionId"]);
+    assert_eq!(original_report["payload"], input["payload"]);
+    assert_eq!(original_report["reportCurrent"], false);
+    assert_eq!(original_report["sourceCurrent"], true);
+    assert_eq!(original_report["snapshotId"], report_two["snapshotId"]);
+    assert_eq!(
+        original_report["projectRevision"],
+        report_two["projectRevision"]
+    );
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            &format!(
+                "{submit}?reportRevisionId={}",
+                saved_two["revisionId"].as_str().unwrap()
+            ),
+            AUTHOR,
+            None,
+        )
+        .await,
+        (StatusCode::OK, report_two.clone())
+    );
+    for uri in [
+        format!("{submit}?reportRevisionId=unknown-report"),
+        format!("{submit}?reportRevisionId=source-1"),
+        original_uri.replace("chapter-1", "chapter-2"),
+    ] {
+        assert_eq!(
+            call(&app, "GET", &uri, AUTHOR, None).await,
+            (StatusCode::OK, Value::Null)
+        );
+    }
+    let (status, foreign) = call(
+        &app,
+        "GET",
+        &original_uri.replace("extraction-http", "foreign-project"),
+        AUTHOR,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{foreign}");
+    assert_eq!(foreign["error"]["code"], "novel_scope_required");
+    for revision in ["", "%20", "bad%0Aid"] {
+        let (status, rejected) = call(
+            &app,
+            "GET",
+            &format!("{submit}?reportRevisionId={revision}"),
+            AUTHOR,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{rejected}");
+        assert_eq!(rejected["error"]["code"], "invalid_report_revision_id");
+    }
+    assert_eq!(
+        call(&app, "GET", &original_uri, CANDIDATE, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let stale_choice = json!({"reportRevisionId":original_report["revisionId"],"proposalId":"lamp",
+        "baseSnapshotId":original_report["snapshotId"],"expectedRevision":original_report["projectRevision"],"idempotencyKey":"choose-old-report"});
+    assert_ne!(
+        call(
+            &app,
+            "POST",
+            &format!("{submit}/establish"),
+            AUTHOR,
+            Some(stale_choice)
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    assert_eq!(call(&app, "GET", submit, AUTHOR, None).await.1, report_two);
     // Replaying an older successful write returns that exact saved revision's count.
     assert_eq!(
         call(&app, "POST", submit, CANDIDATE, Some(input.clone())).await,
@@ -352,6 +538,7 @@ async fn conversation_extraction_uses_bound_candidate_output_and_an_author_only_
     let (status, report) = call(&app, "GET", submit, AUTHOR, /*body*/ None).await;
     assert_eq!(status, StatusCode::OK, "{report}");
     assert_eq!(report["authority"], "candidateProposalBatch");
+    assert_eq!(report["reportCurrent"], true);
     assert_eq!(report["coverage"]["semanticCompleteness"], "unknown");
     let (status, completed) = call(
         &app,
@@ -364,16 +551,113 @@ async fn conversation_extraction_uses_bound_candidate_output_and_an_author_only_
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{completed}");
+    assert_eq!(completed["status"], "completed");
+    let work_id = format!("work-{root}");
     let work = SqliteStoryRepository::open(&path)
         .unwrap()
-        .work_task(&project, &format!("work-{root}"))
+        .work_task(&project, &work_id)
         .unwrap();
-    assert_eq!(work.status, "completed");
+    assert_eq!(work.status, "running");
+    assert_eq!(work.steps.last().unwrap().status, "completed");
     assert_eq!(
         work.steps.last().unwrap().output_refs[0]["kind"],
         "commitmentExtraction"
     );
+    assert_eq!(
+        work.steps
+            .last()
+            .unwrap()
+            .output_refs
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["revisionId"],
+        saved["revisionId"]
+    );
     assert_ne!(call(&app,"POST",submit,CANDIDATE,Some(json!({"taskId":id,"threadId":"extraction","expectedRevision":0,"idempotencyKey":"late","payload":{}}))).await.0,StatusCode::CREATED);
+    // A completed extraction is a saved candidate, not the final Work review.
+    // Close that real obligation through the current Native decision transport.
+    settle_fixture::settle(&path, "extraction-http", id);
+    let settled_work = SqliteStoryRepository::open(&path)
+        .unwrap()
+        .work_task(&project, &work_id)
+        .unwrap();
+    let base = "/api/projects/extraction-http";
+    let (_, workspace) = call(
+        &app,
+        "GET",
+        &format!("{base}/creative-workspace"),
+        AUTHOR,
+        None,
+    )
+    .await;
+    let (status, next) = call(&app, "POST", &format!("{base}/work-tasks/{work_id}/decision"), AUTHOR,
+        Some(json!({"expectedWorkVersion":settled_work.version,"expectedRevision":workspace["revision"],"expectedSourceDigest":workspace["sourceDigest"]}))).await;
+    assert_eq!(status, StatusCode::OK, "{next}");
+    assert_eq!(next["stopReason"], Value::Null);
+    assert_eq!(next["workTaskId"], work_id);
+    assert_eq!(next["threadId"], "discussion");
+    assert_eq!(next["originTaskId"], root);
+    assert_eq!(next["step"]["operation"], "advisory");
+    let mut decision_target = next["step"]["target"].clone();
+    decision_target["resumeStepId"] = next["step"]["id"].clone();
+    let (status, decision) = call(&app, "POST", &format!("{base}/tasks"), AUTHOR,
+        Some(json!({"operation":"advisory","threadId":next["threadId"],"inputRevision":next["step"]["inputRevision"],
+            "target":decision_target,"authorIntent":discussion["inputManifest"]["authorIntent"],
+            "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":expires}))).await;
+    assert_eq!(status, StatusCode::CREATED, "{decision}");
+    let decision_id = decision["id"].as_str().unwrap();
+    assert_eq!(decision["threadId"], "discussion");
+    let requirements = read_author_requirements(&app, base, &decision).await;
+    assert!(
+        requirements
+            .to_string()
+            .contains("提取并保存第一章的伏笔候选")
+    );
+    let (status, state) = call(
+        &app,
+        "GET",
+        &format!(
+            "{base}/tasks/{decision_id}/work-decision?threadId=discussion&expectedRevision={}",
+            decision["inputRevision"]
+        ),
+        CANDIDATE,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{state}");
+    assert_eq!(state["canFinish"], true, "{state}");
+    assert_eq!(state["deliveryReviewRequired"], true);
+    let review = json!({"expectedWorkVersion":state["version"],"expectedSourceDigest":state["sourceDigest"],
+        "goalStatus":"fulfilled","goalAssessment":"已按作者要求提取并保存第一章的开放承诺候选，未采用为正式承诺",
+        "checkedScope":"第一章原文与实际保存的候选报告；未判断全书质量或采用候选",
+        "unresolved":[],"issueResolutions":[],"authorDecisions":[],
+        "evidence":[{"taskId":id,"revisionId":saved["revisionId"]}]});
+    let (status, final_task) = call(&app, "POST", &format!("{base}/tasks/{decision_id}/complete"), CANDIDATE,
+        Some(json!({"threadId":"discussion","expectedRevision":decision["inputRevision"],"summary":"第一章承诺候选已保存并核对","deliveryReview":review}))).await;
+    assert_eq!(status, StatusCode::OK, "{final_task}");
+    assert_eq!(final_task["status"], "completed");
+    settle_fixture::settle(&path, "extraction-http", decision_id);
+    let finished = SqliteStoryRepository::open(&path)
+        .unwrap()
+        .work_task(&project, &work_id)
+        .unwrap();
+    assert_eq!(finished.status, "completed");
+    assert!(finished.steps.iter().all(|step| step.status == "completed"));
+    let (status, finished_http) = call(
+        &app,
+        "GET",
+        &format!("{base}/work-tasks/{work_id}"),
+        AUTHOR,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{finished_http}");
+    assert_eq!(finished_http["deliveryReport"]["deliveryReview"], review);
+    assert_eq!(
+        finished_http["deliveryReport"]["unsettledAttemptIds"],
+        json!([])
+    );
 
     let (_, report) = call(&app, "GET", submit, AUTHOR, /*body*/ None).await;
     let establish_uri = format!("{submit}/establish");

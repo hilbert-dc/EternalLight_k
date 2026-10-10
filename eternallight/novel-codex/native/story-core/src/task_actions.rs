@@ -74,7 +74,12 @@ impl SqliteStoryRepository {
         let source_task = crate::tasks::load_task(&tx, source_task_id)?;
         let source_target: Value = serde_json::from_str(&source_task.target_json)
             .map_err(|_| RepositoryError::CorruptState)?;
-        if source_target["conversationFocus"]["readOnly"].as_bool() == Some(true) {
+        if source_target["conversationFocus"]["readOnly"] == true || source_target["readOnly"] == true {
+            return Err(RepositoryError::TaskOutputForbidden);
+        }
+        let has_resume: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM story_generation_handoffs_v1 WHERE source_task_id=?1 AND json_extract(content_json,'$.resumeRun.id') IS NOT NULL)",
+            [source_task_id], |row| row.get(0)).map_err(storage_error)?;
+        if has_resume {
             return Err(RepositoryError::TaskOutputForbidden);
         }
         let requested_target_json = action.target.to_string();
@@ -104,6 +109,8 @@ impl SqliteStoryRepository {
             tx.commit().map_err(storage_error)?;
             return Ok(stored);
         }
+        crate::work_pause_barrier::assert_can_schedule(&tx, &format!("work-{source_task_id}"))?;
+        crate::model_work_plan::action_ready(&tx, &format!("work-{source_task_id}"))?;
         let current_revision = tx
             .query_row(
                 "SELECT revision FROM story_workspaces_v2 WHERE project_id = ?1",
@@ -162,13 +169,23 @@ impl SqliteStoryRepository {
         if crate::work_decision::binding(&tx, &task)?.is_some() {
             return Err(RepositoryError::TaskOutputForbidden);
         }
+        if action.operation == "generateChapter" {
+            let pending: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM story_task_action_requests_v1 WHERE source_task_id=?1 AND operation='generateChapter' AND json_extract(target_json,'$.chapterId')=?2 AND status IN ('proposed','queued','running'))",
+                params![source_task_id, action.target["chapterId"].as_str()], |row| row.get(0),
+            ).map_err(storage_error)?;
+            if pending {
+                return Err(RepositoryError::InvalidContent(
+                    "A revision of this chapter is already registered. Complete this advisory task to hand execution to Host; do not wait for a save or register it again in this turn. Verify the actual saved output in the next Work decision.".into(),
+                ));
+            }
+        }
         if action.operation == "modelKnowledge" {
             let writer_pending: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM story_task_action_requests_v1 WHERE source_task_id=?1 AND operation='generateChapter' AND json_extract(target_json,'$.chapterId')=?2 AND status IN ('proposed','queued','running'))", params![source_task_id, action.target["chapterId"].as_str()], |row| row.get(/*idx*/0)).map_err(storage_error)?;
             if writer_pending {
                 return Err(RepositoryError::InvalidContent("A pending chapter revision already includes knowledge modeling of its actual saved output; do not bind another action to the old draft".into()));
             }
         }
-        let target_json = action.target.to_string();
         if action.operation == "reviseCommitment" {
             crate::commitment_revision::validate_target(&tx, project_id, &action.target)?;
         }
@@ -176,6 +193,17 @@ impl SqliteStoryRepository {
             "SELECT s.work_task_id FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id = a.step_id WHERE a.attempt_id = ?1",
             [source_task_id], |row| row.get(0),
         ).map_err(storage_error)?;
+        if action.operation == "generateChapter" {
+            let acceptance = action.target.get("chapterAcceptance").cloned();
+            crate::chapter_delivery_review::bind_acceptance(
+                &tx,
+                project_id,
+                &parent,
+                &mut action.target,
+                acceptance.as_ref(),
+            )?;
+        }
+        let target_json = action.target.to_string();
         let count = tx
             .query_row(
                 "SELECT COUNT(*) FROM story_task_action_requests_v1 WHERE source_task_id = ?1",
@@ -197,6 +225,9 @@ impl SqliteStoryRepository {
             [&parent],
         )
         .map_err(storage_error)?;
+        // The final author delivery decision must survive the interval between
+        // a worker committing output and Host admitting the next decision.
+        crate::work_decision::ensure_author_delivery_pending(&tx, &task)?;
         crate::recovery_operations::commit_operation(
             &tx,
             self.recovery_operation.as_ref(),
@@ -488,6 +519,116 @@ impl SqliteStoryRepository {
         tx.commit().map_err(storage_error)?;
         Ok(action)
     }
+}
+
+/// A stale, unstarted planning step is a proposal to reconsider, never a failed
+/// or completed execution. Its frozen author action and pending duty survive.
+pub(crate) fn reconsider_unstarted_planning(
+    db: &Connection,
+    work: &str,
+) -> Result<(), RepositoryError> {
+    let project: String = db
+        .query_row(
+            "SELECT project_id FROM story_work_tasks_v1 WHERE id=?1",
+            [work],
+            |r| r.get(0),
+        )
+        .map_err(storage_error)?;
+    let project = ProjectId::parse(project).map_err(|_| RepositoryError::CorruptState)?;
+    let mut statement = db.prepare(
+        "SELECT a.source_task_id,a.action_id FROM story_task_action_requests_v1 a
+         JOIN story_work_steps_v1 s ON s.id=a.action_id AND s.work_task_id=?1
+         WHERE a.project_id=?2 AND a.status='queued' AND a.result_task_id IS NULL
+           AND s.status='queued' AND s.current_attempt_id IS NULL
+           AND json_extract(s.target_json,'$.workDecisionAction') IS NULL
+           AND a.operation IN ('generateBrief','generateOutline','generatePlan','generatePropertyRules')
+           AND NOT EXISTS(SELECT 1 FROM story_work_attempts_v1 WHERE step_id=s.id)
+           AND NOT EXISTS(SELECT 1 FROM story_tool_operations_v1 o
+               JOIN story_work_attempts_v1 wa ON wa.attempt_id=o.task_id
+               JOIN story_work_steps_v1 ws ON ws.id=wa.step_id
+               WHERE ws.work_task_id=?1 AND o.state='accepted' AND o.tool_name!='complete_task')",
+    ).map_err(storage_error)?;
+    let ids = statement
+        .query_map(params![work, project.as_str()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)?;
+    drop(statement);
+    let mut changed = 0;
+    for (source, id) in ids {
+        let action = load_action(db, &project, &source, &id)?;
+        let source_task = crate::tasks::load_task(db, &source)?;
+        let current_revision: i64 = db
+            .query_row(
+                "SELECT revision FROM story_workspaces_v2 WHERE project_id=?1",
+                [project.as_str()],
+                |r| r.get(0),
+            )
+            .map_err(storage_error)?;
+        let inputs_current = match crate::task_input::assert_task_inputs_current(db, &source_task) {
+            Ok(()) => true,
+            Err(RepositoryError::TaskInputStale) => false,
+            Err(error) => return Err(error),
+        };
+        if action.input_revision == current_revision && inputs_current {
+            continue;
+        }
+        // Only an existing real author permit can survive a source refresh.
+        // Revoked intent/scope is not interpreted as a new permission.
+        if !crate::task_action_permit::granted(db, &project, &action)? {
+            continue;
+        }
+        crate::task_intents::assert_action_intent(db, &source, action.intent_revision)?;
+        crate::execution_scope_storage::assert_current(db, &project, &action)?;
+        changed += db.execute("UPDATE story_work_steps_v1 SET status='superseded' WHERE id=?1 AND status='queued' AND current_attempt_id IS NULL",[&id]).map_err(storage_error)?;
+    }
+    if changed > 0 {
+        db.execute(
+            "UPDATE story_work_tasks_v1 SET version=version+1 WHERE id=?1",
+            [work],
+        )
+        .map_err(storage_error)?;
+    }
+    Ok(())
+}
+
+/// Returns only the exact pending author targets in this Work. The caller may
+/// refresh their input revision, but cannot add another operation or target.
+pub(crate) fn pending_planning_actions(
+    db: &Connection,
+    project: &ProjectId,
+    work: &str,
+) -> Result<Vec<TaskActionRequest>, RepositoryError> {
+    let mut statement = db.prepare(
+        "SELECT a.source_task_id,a.action_id FROM story_task_action_requests_v1 a
+         JOIN story_work_steps_v1 s ON s.id=a.action_id AND s.work_task_id=?1
+         WHERE a.project_id=?2 AND a.status='queued' AND a.result_task_id IS NULL
+           AND s.status='superseded' AND s.current_attempt_id IS NULL
+           AND a.operation IN ('generateBrief','generateOutline','generatePlan','generatePropertyRules')
+           AND NOT EXISTS(SELECT 1 FROM story_work_attempts_v1 WHERE step_id=s.id)
+         ORDER BY s.ordinal",
+    ).map_err(storage_error)?;
+    let ids = statement
+        .query_map(params![work, project.as_str()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)?;
+    drop(statement);
+    ids.into_iter()
+        .map(|(source, id)| {
+            let action = load_action(db, project, &source, &id)?;
+            if !crate::task_action_permit::granted(db, project, &action)? {
+                return Err(RepositoryError::TaskBindingInvalid);
+            }
+            crate::task_intents::assert_action_intent(db, &source, action.intent_revision)?;
+            crate::execution_scope_storage::assert_current(db, project, &action)?;
+            Ok(action)
+        })
+        .collect()
 }
 
 pub(crate) fn load_action(

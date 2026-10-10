@@ -55,7 +55,7 @@ async fn writer(app: &Router, project: &str, perspective: Perspective) -> String
         .unwrap()
         .as_secs() as i64;
     let mut target = json!({"chapterId":"chapter-3", "chapterNumber":3, "readingChapter":3,
-        "sceneOrder":1, "scope":{"type":"throughScene","endSceneOrder":1}, "storyTime":1});
+        "sceneOrder":1, "scope":{"type":"throughScene","endSceneOrder":1},"readScope":{"type":"throughScene","endSceneOrder":1}, "storyTime":1});
     if matches!(perspective, Perspective::Character) {
         target["povCharacterId"] = json!("person-0");
     } else if matches!(perspective, Perspective::Unspecified) {

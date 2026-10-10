@@ -86,13 +86,17 @@ pub(crate) fn attach_attempt(
             .as_object_mut()
             .ok_or(RepositoryError::TaskBindingInvalid)?
             .remove("resumeStepId");
-        let original: Value =
+        resumed.as_object_mut().unwrap().remove("messageDispatch");
+        let mut original: Value =
             serde_json::from_str(&original).map_err(|_| RepositoryError::CorruptState)?;
+        original.as_object_mut().ok_or(RepositoryError::TaskBindingInvalid)?.remove("messageDispatch");
         if resumed != original {
             return Err(RepositoryError::TaskBindingInvalid);
         }
         step.to_owned()
     } else {
+        let held:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_interludes_v1 i JOIN story_work_tasks_v1 w ON w.id=i.work_id WHERE w.project_id=?1 AND w.thread_id=?2 AND i.state='open')",params![request.project_id.as_str(),request.thread_id],|r|r.get(0)).map_err(storage_error)?;
+        if held {return Err(RepositoryError::TaskNotWritable);}
         let parent = format!("work-{}", request.task_id);
         let kind = if request.operation == "advisory" {
             "conversation"
@@ -110,12 +114,19 @@ pub(crate) fn attach_attempt(
             params![parent, request.project_id.as_str(), request.thread_id, goal, kind, request.input_revision],
         ).map_err(storage_error)?;
         let step = format!("step-{}", request.task_id);
+        let mut step_target=target.clone();
+        step_target.as_object_mut().ok_or(RepositoryError::TaskBindingInvalid)?.remove("messageDispatch");
         db.execute(
             "INSERT INTO story_work_steps_v1(id, work_task_id, ordinal, operation, target_json, input_revision, status) VALUES (?1, ?2, 1, ?3, ?4, ?5, 'queued')",
-            params![step, parent, request.operation, request.target_json, request.input_revision],
+            params![step, parent, request.operation, step_target.to_string(), request.input_revision],
         ).map_err(storage_error)?;
         step
     };
+    let work: String = db.query_row("SELECT work_task_id FROM story_work_steps_v1 WHERE id=?1", [&step_id], |r| r.get(0)).map_err(storage_error)?;
+    if target.get("interludeId").is_some() {
+        if crate::work_pause_barrier::read(db,&work)?.is_some(){return Err(RepositoryError::TaskNotWritable);}
+        crate::work_interludes::assert_schedule(db,&work,Some(&step_id))?;
+    } else { crate::work_pause_barrier::assert_can_schedule(db, &work)?; }
     let ready: bool = db.query_row(
         "SELECT EXISTS(SELECT 1 FROM story_work_steps_v1 s JOIN story_work_tasks_v1 t ON t.id = s.work_task_id WHERE s.id = ?1 AND t.project_id = ?2 AND t.status = 'running' AND s.operation = ?3 AND s.status = 'queued' AND s.input_revision = ?4 AND (s.depends_on_step_id IS NULL OR EXISTS(SELECT 1 FROM story_work_steps_v1 d WHERE d.id = s.depends_on_step_id AND d.status = 'completed')))",
         params![step_id, request.project_id.as_str(), request.operation, request.input_revision], |row| row.get(0),
@@ -141,7 +152,7 @@ pub(crate) fn attach_attempt(
                 |row| row.get(0),
             )
             .map_err(storage_error)?;
-        if !decision_target(&target) {
+        if !decision_target(&target) && target.get("interludeId").is_none() {
             crate::work_tasks::assert_inputs_current(db, &work_id)?;
         }
         crate::execution_scope_storage::assert_attempt_capacity(db, &request.project_id, &work_id)?;
@@ -165,7 +176,10 @@ pub(crate) fn attach_attempt(
         "SELECT w.id,w.kind FROM story_work_tasks_v1 w JOIN story_work_steps_v1 s ON s.work_task_id=w.id WHERE s.id=?1",
         [&step_id], |row|Ok((row.get(0)?,row.get(1)?)),
     ).map_err(storage_error)?;
-    if kind != "generation"
+    if target.get("interludeId").is_some() {
+        let deadline=crate::work_interludes::deadline(db,&request.project_id,&work_id,&request.task_id)?;
+        crate::task_provider_budget::reserve(db,&request.project_id,&work_id,&request.task_id,deadline)?;
+    } else if kind != "generation"
         && let Some(authorization) = crate::ordinary_work_budget::authorization(
             db,
             &request.project_id,
@@ -191,8 +205,8 @@ pub(crate) fn attach_attempt(
         )?;
     }
     db.execute("UPDATE story_work_tasks_v1 SET version = version + 1,thread_id=CASE WHEN thread_id='' THEN ?2 ELSE thread_id END WHERE id = (SELECT work_task_id FROM story_work_steps_v1 WHERE id = ?1)", params![step_id,request.thread_id]).map_err(storage_error)?;
-    if let Some(action) = action {
-        db.execute("UPDATE story_task_action_requests_v1 SET status = 'running', result_task_id = ?1 WHERE action_id = ?2 AND status = 'queued'", params![request.task_id, action]).map_err(storage_error)?;
+    if action.is_some() || resume_step.is_some() {
+        db.execute("UPDATE story_task_action_requests_v1 SET status = 'running', result_task_id = ?1 WHERE action_id = ?2 AND project_id=?3 AND status = 'queued'", params![request.task_id, step_id, request.project_id.as_str()]).map_err(storage_error)?;
     }
     Ok(())
 }

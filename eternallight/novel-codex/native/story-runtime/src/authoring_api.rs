@@ -6,7 +6,7 @@ use axum::{
 };
 use eternallight_engine_core::PersistentBudget;
 use novel_codex_story_authoring::{
-    AuthoringService, ReplanRun, ReplanStage, ResolveFeedback, StartRun,
+    AuthoringService, RebindRun, ReplanRun, ReplanStage, ResolveFeedback, StartRun,
 };
 use novel_codex_story_core::{ProjectId, RevisionPredecessor, SqliteStoryRepository};
 use serde::Deserialize;
@@ -91,6 +91,36 @@ pub(crate) struct ReplanRequest {
     expected_source_digest: String,
     restart_from: ReplanStage,
     instruction: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RebindRequest {
+    expected_version: i64,
+    expected_project_revision: i64,
+    expected_source_digest: String,
+    restart_from: ReplanStage,
+}
+
+pub(crate) async fn rebind(
+    State(state): State<RuntimeState>,
+    Path((project_id, run_id)): Path<(String, String)>,
+    Json(request): Json<RebindRequest>,
+) -> Response {
+    let (mut repository, project_id) = match open(&state, project_id) {
+        Ok(value) => value,
+        Err(response) => return *response,
+    };
+    match AuthoringService::new(&mut repository).rebind(RebindRun {
+        project_id: &project_id, run_id: &run_id,
+        expected_version: request.expected_version,
+        expected_project_revision: request.expected_project_revision,
+        expected_source_digest: &request.expected_source_digest,
+        restart_from: request.restart_from, now: unix_now(),
+    }) {
+        Ok(run) => Json(json!(run)).into_response(),
+        Err(source) => repository_error(source),
+    }
 }
 
 pub(crate) async fn preview_replan(

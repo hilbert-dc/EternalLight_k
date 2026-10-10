@@ -13,7 +13,7 @@ impl ReadProgress {
     pub(crate) fn observe(&self, name: &str, hash: &str, response: &mut (u16, Value)) {
         if !matches!(
             name,
-            "read_task_source" | "resolve_story_evidence" | "query_story" | "analyze_story_impact"
+            "read_task_source" | "read_source_content" | "read_work_plan" | "read_work_status" | "resolve_story_evidence" | "query_story" | "analyze_story_impact"
         ) || !response.1.is_object()
         {
             return;

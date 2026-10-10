@@ -191,7 +191,8 @@ async fn decisions_require_author_and_completed_current_assessment_without_start
     assert_eq!(
         report,
         json!({"revisionId":receipt["revisionId"],"authority":"candidateAnalysis",
-        "state":"current","assessment":flow.report(),"decisions":[decision]})
+        "state":"current","assessment":flow.report(),"decisions":[decision],
+        "issues":expected_issue_summaries(&flow.draft["revisionId"], "open", 1)})
     );
 }
 
@@ -265,12 +266,63 @@ async fn completed_assessment_only_accepts_its_current_report_revision() {
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{original}");
+    let overview = f
+        .repo()
+        .revision_outcome(&f.project(), flow.writer["id"].as_str().unwrap())
+        .unwrap()
+        .unwrap()
+        .issues;
+    assert_eq!(overview.len(), 2);
+    assert!(
+        overview
+            .iter()
+            .all(|issue| issue["observations"] == json!([]))
+    );
     let mut report = flow.report();
     report["outcomes"][0]["reason"] = json!("评估解释已经更正，当前正文仍明确藏信。");
+    for item in report["outcomes"].as_array_mut().unwrap() {
+        if item["issue"].is_null() {
+            continue;
+        }
+        let issue_id = item["issue"]["issueId"].as_str().unwrap().to_owned();
+        let observations = f.issue_observations(&task, &issue_id).await;
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0]["reportRevisionId"], original["revisionId"]);
+        assert_eq!(observations[0]["criterionId"], item["id"]);
+        item["issue"] = json!({"issueId":observations[0]["issueId"],"newIssue":null,
+            "resolutionOf":[observations[0]["observationId"]]});
+    }
     let mut submission = flow.submission(&task, report.clone(), "replacement-report");
     submission["expectedCandidateRevisionId"] = original["revisionId"].clone();
+    let before = database_snapshot(f);
+    let mut forged = submission.clone();
+    forged["idempotencyKey"] = json!("forged-observation");
+    forged["payload"]["outcomes"][1]["issue"]["resolutionOf"] = json!(["invented-observation"]);
+    let (status, error) = f.request("POST", &flow.path(), CANDIDATE, forged).await;
+    assert!(status.is_client_error(), "{error}");
+    assert_eq!(database_snapshot(f), before);
     let (status, replacement) = f.request("POST", &flow.path(), CANDIDATE, submission).await;
     assert_eq!(status, StatusCode::CREATED, "{replacement}");
+    for item in report["outcomes"].as_array().unwrap() {
+        if item["issue"].is_null() {
+            continue;
+        }
+        let observations = f
+            .issue_observations(&task, item["issue"]["issueId"].as_str().unwrap())
+            .await;
+        assert_eq!(observations.len(), 2);
+        let old = observations
+            .iter()
+            .find(|view| view["reportRevisionId"] == original["revisionId"])
+            .unwrap();
+        let current = observations
+            .iter()
+            .find(|view| view["reportRevisionId"] == replacement["revisionId"])
+            .unwrap();
+        assert_eq!(current["resolutionOf"], json!([old["observationId"]]));
+        assert_eq!(old["superseded"], true);
+        assert_eq!(old["status"], item["status"]);
+    }
     let (status, completed) = f.complete(&task).await;
     assert_eq!(status, StatusCode::OK, "{completed}");
     f.settle(&task);
@@ -287,7 +339,8 @@ async fn completed_assessment_only_accepts_its_current_report_revision() {
     assert_eq!(
         current,
         json!({"revisionId":replacement["revisionId"],"authority":"candidateAnalysis",
-        "state":"current","assessment":report,"decisions":[decision]})
+        "state":"current","assessment":report,"decisions":[decision],
+        "issues":expected_issue_summaries(&flow.draft["revisionId"], "open", 2)})
     );
 }
 
@@ -388,6 +441,7 @@ async fn stale_sources_reject_new_decisions_but_preserve_history_and_exact_repla
         let request = decision_request(&receipt, "frozen", Value::Null, "acceptRevision");
         let saved = decide(&flow, request.clone()).await;
         assert_eq!(saved.0, StatusCode::CREATED, "{:?}", saved);
+        let mut current_draft = flow.draft["revisionId"].clone();
         if source == "draft" {
             let mut next = f.original.clone();
             next["sceneGroups"][1]["body"] = json!("她将密函交给守卫。");
@@ -396,6 +450,7 @@ async fn stale_sources_reject_new_decisions_but_preserve_history_and_exact_repla
                 .checkpoint(None, &flow.draft, next, "decision-stale-draft")
                 .await;
             assert_eq!(status, StatusCode::CREATED, "{edited}");
+            current_draft = edited["revisionId"].clone();
         } else {
             remodel(&flow).await;
         }
@@ -413,7 +468,8 @@ async fn stale_sources_reject_new_decisions_but_preserve_history_and_exact_repla
         assert_eq!(
             report,
             json!({"revisionId":receipt["revisionId"],"authority":"candidateAnalysis",
-            "state":"stale","assessment":flow.report(),"decisions":[saved.1]})
+            "state":"stale","assessment":flow.report(),"decisions":[saved.1],
+            "issues":expected_issue_summaries(&current_draft, "stale", 1)})
         );
     }
 }

@@ -166,11 +166,12 @@ fn extraction_is_a_frozen_multi_candidate_output_not_an_established_commitment()
     .unwrap();
     assert_eq!(first, replay);
     let output = repo
-        .commitment_extraction(&project(), "first")
+        .commitment_extraction(&project(), "first", None)
         .unwrap()
         .unwrap();
     assert_eq!(output["payload"]["candidates"].as_array().unwrap().len(), 2);
     assert_eq!(output["authority"], "candidateProposalBatch");
+    assert_eq!(output["reportCurrent"], true);
     assert_eq!(output["sourceCurrent"], true);
     assert!(
         repo.object_heads(&project())
@@ -343,10 +344,11 @@ fn source_edit_revokes_old_execution_without_rewriting_saved_proposals() {
         Err(RepositoryError::TaskInputStale)
     );
     let report = repo
-        .commitment_extraction(&project(), "first")
+        .commitment_extraction(&project(), "first", None)
         .unwrap()
         .unwrap();
     assert_eq!(report["sourceCurrent"], false);
+    assert_eq!(report["reportCurrent"], true);
     assert_eq!(
         report["payload"]["candidates"][0]["setupEvidenceRefs"][0]["quote"],
         "白塔的灯"
@@ -376,7 +378,7 @@ fn empty_extraction_is_valid_and_restart_recovers_only_saved_output() {
     assert_eq!(completed.status, "completed");
     assert!(completed.capability_revoked_at.is_some());
     assert_eq!(
-        repo.commitment_extraction(&project(), "first")
+        repo.commitment_extraction(&project(), "first", None)
             .unwrap()
             .unwrap()["coverage"]["semanticCompleteness"],
         "unknown"
@@ -429,7 +431,7 @@ fn author_establishment_has_one_stable_identity_and_replays_the_original_receipt
         .unwrap();
     assert_eq!(read["confirmationState"], "candidate");
     assert_eq!(
-        repo.commitment_extraction(&project(), "first")
+        repo.commitment_extraction(&project(), "first", None)
             .unwrap()
             .unwrap()["established"],
         json!([{ "proposalId": "lamp", "commitmentId": saved.commitment_id }])
@@ -452,6 +454,150 @@ fn author_establishment_has_one_stable_identity_and_replays_the_original_receipt
             .count(),
         1
     );
+}
+
+#[test]
+fn exact_report_read_preserves_old_payload_and_separates_report_from_source_currency() {
+    let (mut repo, task) = setup();
+    let original = content();
+    save(
+        &mut repo,
+        "proposal",
+        "commitmentExtraction",
+        "commitment-extraction-first",
+        original.clone(),
+        None,
+        Some(&task),
+    )
+    .unwrap();
+    let established = repo
+        .establish_commitment(establishment(&repo, "choose-original"))
+        .unwrap();
+    let next_task = repo
+        .create_task(CreateTaskRequest {
+            task_id: "replacement-extraction".into(),
+            project_id: project(),
+            thread_id: "replacement-thread".into(),
+            operation: "extractCommitments".into(),
+            input_revision: repo.project_revision(&project()).unwrap(),
+            model: None,
+            target_json: task.target_json,
+            input_manifest_json: "{}".into(),
+            capability_hash: "e".repeat(64),
+            capability_expires_at: i64::MAX,
+        })
+        .unwrap();
+    let mut replacement = original.clone();
+    replacement["payload"]["candidates"][0]["summary"] = json!("重新提取后的新解释");
+    save(
+        &mut repo,
+        "replacement",
+        "commitmentExtraction",
+        "commitment-extraction-first",
+        replacement.clone(),
+        Some("proposal"),
+        Some(&next_task),
+    )
+    .unwrap();
+    let before = repo.branch_head(&project(), &branch()).unwrap();
+    let old_revision = RevisionId::parse("proposal").unwrap();
+    let old = repo
+        .commitment_extraction(&project(), "first", Some(&old_revision))
+        .unwrap()
+        .unwrap();
+    let latest = repo
+        .commitment_extraction(&project(), "first", None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(old["revisionId"], "proposal");
+    assert_eq!(old["payload"], original["payload"]);
+    assert_eq!(old["reportCurrent"], false);
+    assert_eq!(old["sourceCurrent"], true);
+    assert_eq!(old["snapshotId"], latest["snapshotId"]);
+    assert_eq!(old["projectRevision"], latest["projectRevision"]);
+    assert_eq!(
+        old["established"],
+        json!([{ "proposalId": "lamp", "commitmentId": established.commitment_id }])
+    );
+    assert_eq!(latest["revisionId"], "replacement");
+    assert_eq!(latest["payload"], replacement["payload"]);
+    assert_eq!(latest["reportCurrent"], true);
+    assert_eq!(latest["sourceCurrent"], true);
+    assert_eq!(latest["established"], json!([]));
+    assert_eq!(
+        repo.commitment_extraction(
+            &project(),
+            "first",
+            Some(&RevisionId::parse("replacement").unwrap())
+        )
+        .unwrap()
+        .unwrap(),
+        latest
+    );
+    for (chapter, revision) in [
+        ("first", "unknown-report"),
+        ("second", "proposal"),
+        ("first", "source-first"),
+    ] {
+        assert!(
+            repo.commitment_extraction(
+                &project(),
+                chapter,
+                Some(&RevisionId::parse(revision).unwrap())
+            )
+            .unwrap()
+            .is_none()
+        );
+    }
+    let foreign = ProjectId::parse("foreign-project").unwrap();
+    repo.create_project(
+        ProjectRecord {
+            project_id: foreign.clone(),
+            title: "另一部作品".into(),
+            logline: String::new(),
+            created_at: 1,
+            updated_at: 1,
+        },
+        branch(),
+        SnapshotId::parse("foreign-initial").unwrap(),
+    )
+    .unwrap();
+    assert!(
+        repo.commitment_extraction(&foreign, "first", Some(&old_revision))
+            .unwrap()
+            .is_none()
+    );
+    assert!(RevisionId::parse("").is_err());
+    assert_eq!(repo.branch_head(&project(), &branch()).unwrap(), before);
+    assert_eq!(
+        repo.establish_commitment(establishment(&repo, "obsolete-report-choice"))
+            .err(),
+        Some(RepositoryError::CandidateNotFound)
+    );
+    assert_eq!(repo.branch_head(&project(), &branch()).unwrap(), before);
+    save(
+        &mut repo,
+        "edited-source",
+        "draft",
+        "draft-first",
+        json!({"chapterNumber":1,"body":"作者删除了旧伏笔。"}),
+        Some("source-first"),
+        None,
+    )
+    .unwrap();
+    let stale = repo
+        .commitment_extraction(&project(), "first", Some(&old_revision))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stale["payload"], old["payload"]);
+    assert_eq!(stale["sourceCurrent"], false);
+    assert_eq!(stale["reportCurrent"], false);
+    let stale_latest = repo
+        .commitment_extraction(&project(), "first", None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(stale_latest["sourceCurrent"], false);
+    assert_eq!(stale_latest["reportCurrent"], true);
 }
 
 #[test]

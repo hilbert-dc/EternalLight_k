@@ -6,6 +6,8 @@ use crate::{ProjectId, RepositoryError, SqliteStoryRepository, StoredGenerationR
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::{Value, json};
 
+const DECISION_INSTRUCTION: &str = "Decide the next authorized work action from read_work_status; use actual receipts and the author goal.";
+
 fn load_state(
     db: &Connection,
     project: &ProjectId,
@@ -26,9 +28,9 @@ fn load_state(
         .map(|s| serde_json::from_str(&s).map_err(|_| RepositoryError::CorruptState))
         .transpose()
 }
-// Only an authenticated author replan can supersede the current undelivered
-// chapter's old writer. Earlier delivered chapters and ordinary dialog writes
-// still require their exact saved source.
+// A guarded checkpoint refresh can supersede the current undelivered chapter's
+// old writer. Only an author replan changes acceptance intent identity. Earlier
+// delivered chapters and ordinary dialog writes still require their exact source.
 fn current_chapter_replan(state: &Value) -> Option<(String, i64)> {
     let chapter = state["currentChapterId"].as_str()?;
     let number = state["currentChapterNumber"].as_i64()?;
@@ -39,7 +41,7 @@ fn current_chapter_replan(state: &Value) -> Option<(String, i64)> {
         && replan["restartFrom"] == "currentChapter"
         && replan["intentGeneration"] == generation
         && intent["generation"] == generation
-        && intent["effectiveFromChapter"] == number)
+        && intent["effectiveFromChapter"].as_i64().is_some_and(|from| from > 0 && from <= number))
         .then(|| (chapter.to_owned(), generation))
 }
 
@@ -48,15 +50,26 @@ pub(crate) fn replanned_current_chapter(
     project: &ProjectId,
     work: &str,
 ) -> Result<Option<(String, i64)>, RepositoryError> {
-    let Some(state) = load_state(db, project, work)? else { return Ok(None); };
-    let Some(replanned) = current_chapter_replan(&state) else { return Ok(None); };
+    let Some(state) = load_state(db, project, work)? else {
+        return Ok(None);
+    };
+    let Some(replanned) = current_chapter_replan(&state) else {
+        return Ok(None);
+    };
     crate::generation_author_source::validate_run(
-        db, project, state["id"].as_str().ok_or(RepositoryError::CorruptState)?, &state,
+        db,
+        project,
+        state["id"].as_str().ok_or(RepositoryError::CorruptState)?,
+        &state,
     )?;
     Ok(Some(replanned))
 }
 
 fn save(db: &Connection, project: &ProjectId, state: &mut Value) -> Result<(), RepositoryError> {
+    let work = format!("work-{}", state["id"].as_str().ok_or(RepositoryError::CorruptState)?);
+    if let Some(barrier) = crate::work_pause_barrier::read(db, &work)? {
+        state["status"] = json!(if barrier.remaining_attempts == 0 { "paused" } else { "running" });
+    }
     let version = state["version"]
         .as_i64()
         .ok_or(RepositoryError::CorruptState)?;
@@ -65,6 +78,10 @@ fn save(db: &Connection, project: &ProjectId, state: &mut Value) -> Result<(), R
     if count != 1 {
         return Err(RepositoryError::AuthoringRunStale);
     }
+    db.execute(
+        "UPDATE story_work_tasks_v1 SET status=?3,version=version+1 WHERE project_id=?1 AND id='work-'||?2 AND status!=?3",
+        params![project.as_str(), state["id"].as_str(), state["status"].as_str()],
+    ).map_err(storage_error)?;
     Ok(())
 }
 pub(crate) fn bind_target(
@@ -156,6 +173,8 @@ pub(crate) fn available(
     if let Some(chapter) = state["currentChapterId"].as_str() {
         let draft:Option<String>=db.query_row("SELECT COALESCE(candidate_revision_id,accepted_revision_id) FROM story_object_heads_v2 WHERE project_id=?1 AND object_id='draft-'||?2",params![project.as_str(),chapter],|r|r.get(/*idx*/0)).optional().map_err(storage_error)?.flatten();
         if let Some(revision) = draft {
+            let acceptance =
+                crate::chapter_delivery_review::current_acceptance(db, project, chapter)?;
             if let Some(feedback) =
                 crate::work_decision_delivery::scene_feedback(db, project, work, chapter)?
                 && feedback.needs_recheck()
@@ -169,7 +188,11 @@ pub(crate) fn available(
                     crate::bound_writer_plan::bound_chapter_plan_for_chapter(db, project, chapter)?;
                 available.push(action(
                     "generateChapter",
-                    writer_target(chapter, number, plan.as_ref()),
+                    {
+                        let mut target = writer_target(chapter, number, plan.as_ref());
+                        target["chapterAcceptance"] = acceptance.clone();
+                        target
+                    },
                     None,
                     Some(revision.clone()),
                     true,
@@ -182,10 +205,50 @@ pub(crate) fn available(
                     params![work, chapter, state["intentGeneration"].as_i64()], |r| r.get(0),
                 ).map_err(storage_error)?;
                 if !rewritten {
-                    let plan = crate::bound_writer_plan::bound_chapter_plan_for_chapter(db, project, chapter)?;
-                    available.push(action("generateChapter", writer_target(chapter, number, plan.as_ref()),
-                        None, Some(revision.clone()), false));
+                    let plan = crate::bound_writer_plan::bound_chapter_plan_for_chapter(
+                        db, project, chapter,
+                    )?;
+                    available.push(action(
+                        "generateChapter",
+                        writer_target(chapter, number, plan.as_ref()),
+                        None,
+                        Some(revision.clone()),
+                        false,
+                    ));
                 }
+            }
+            let acceptance =
+                crate::chapter_delivery_review::current_acceptance(db, project, chapter)?;
+            // Revision is a first-class choice after saving, without a fabricated
+            // failed task or mandatory analysis. The model selects its necessity.
+            if !available
+                .iter()
+                .any(|a| a.operation == "generateChapter" && a.target["chapterId"] == chapter)
+            {
+                let plan =
+                    crate::bound_writer_plan::bound_chapter_plan_for_chapter(db, project, chapter)?;
+                available.push(action(
+                    "generateChapter",
+                    writer_target(chapter, number, plan.as_ref()),
+                    None,
+                    Some(revision.clone()),
+                    false,
+                ));
+            }
+            for choice in available.iter_mut().filter(|a| {
+                matches!(a.operation.as_str(), "generateChapter" | "finishChapter")
+                    && a.target["chapterId"] == chapter
+            }) {
+                choice.target["chapterAcceptance"] = acceptance.clone();
+                let recovery = choice.recovery.clone();
+                *choice = action(
+                    &choice.operation,
+                    choice.target.clone(),
+                    choice.source_task.clone(),
+                    choice.source_revision.clone(),
+                    choice.required,
+                );
+                choice.recovery = recovery;
             }
             let mandatory = requirements
                 .iter()
@@ -193,7 +256,7 @@ pub(crate) fn available(
             if !mandatory {
                 available.push(action(
                     "finishChapter",
-                    json!({"chapterId":chapter,"chapterNumber":number}),
+                    json!({"chapterId":chapter,"chapterNumber":number,"chapterAcceptance":acceptance}),
                     None,
                     Some(revision),
                     true,
@@ -419,6 +482,20 @@ fn materialize_selected(
     save(db, project, state)
 }
 
+pub(crate) fn recoverable_stopped_run(db: &Connection, state: &Value) -> Result<bool, RepositoryError> {
+    if state["status"] == "blocked" && state["blockedReason"] == "recoveryStalled" {
+        let work = format!("work-{}", state["id"].as_str().ok_or(RepositoryError::CorruptState)?);
+        let fingerprint = crate::work_decision::recovery_fingerprint(db, &work)?;
+        return Ok(crate::work_decision::unchanged_failures(db, &work, &fingerprint)? < 2);
+    }
+    if state["status"] != "blocked" || !matches!(state["blockedReason"].as_str(), Some("executionBlocked" | "pendingRecovery" | "pendingUsage" | "pendingWriteAndUsage")) {
+        return Ok(false);
+    }
+    let Some(task) = state["activeTaskId"].as_str() else { return Ok(false); };
+    Ok(crate::work_decision_status::retryable(db, task)?
+        || crate::conversation_receipts::recoverable_saved_chapter(db, task)?)
+}
+
 impl SqliteStoryRepository {
     pub fn next_generation_decision(
         &mut self,
@@ -432,24 +509,39 @@ impl SqliteStoryRepository {
         let mut state =
             load_state(&tx, project, &work)?.ok_or(RepositoryError::AuthoringRunNotFound)?;
         crate::generation_author_source::validate_run(&tx, project, run, &state)?;
+        if crate::work_pause_barrier::read(&tx, &work)?.is_some() {
+            tx.commit().map_err(storage_error)?;
+            return Ok(json!({"action":null,"stopReason":"authorPauseAfterStep"}));
+        }
+        if recoverable_stopped_run(&tx, &state)? {
+            state["status"] = json!("running");
+            state["blockedReason"] = Value::Null;
+            save(&tx, project, &mut state)?;
+        }
         if state["status"] != "running" {
             tx.commit().map_err(storage_error)?;
             return Ok(json!({"action":null}));
         }
         if let Some(task) = state["activeTaskId"].as_str().map(str::to_owned) {
             let record = crate::tasks::load_task(&tx, &task)?;
-            if record.status == "failed" && crate::work_decision_status::retryable(&tx, &task)? {
+            if crate::conversation_receipts::recoverable_saved_chapter(&tx, &task)? {
+                // Restore artifact readiness, retaining execution failure and all charges.
+                // Chapter delivery still requires the agent's assessment and finishChapter.
+                tx.execute("UPDATE story_tasks_v2 SET status='completed',stage='ready_for_review',delivery_status='ready_for_review',result_summary='已核验保存的完整正文，待后续评估；原请求失败记录保留' WHERE task_id=?1 AND status='failed'", [&task]).map_err(storage_error)?;
+                crate::work_tasks::finish_attempt(&tx, &crate::tasks::load_task(&tx, &task)?)?;
+                state["activeTaskId"] = Value::Null;
+                state["lastTaskId"] = json!(task);
+                state["sourceDigest"] = json!(crate::task_input::project_source_digest(&tx, project)?);
+                state["stepToken"] = json!(uuid::Uuid::new_v4().simple().to_string());
+                save(&tx, project, &mut state)?;
+            } else if record.status == "failed" && crate::work_decision_status::retryable(&tx, &task)? {
                 state["activeTaskId"] = Value::Null;
                 state["lastTaskId"] = json!(task);
                 state["stepToken"] = json!(uuid::Uuid::new_v4().simple().to_string());
                 save(&tx, project, &mut state)?;
             } else if matches!(record.status.as_str(), "failed" | "cancelled") {
-                let unresolved:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM story_task_provider_budgets_v1 WHERE task_id=?1 AND settled=0) OR EXISTS(SELECT 1 FROM story_tool_operations_v1 WHERE task_id=?1 AND state='accepted')",[&task],|row|row.get(/*idx*/0)).map_err(storage_error)?;
-                let reason = if unresolved {
-                    "pendingRecovery"
-                } else {
-                    "executionBlocked"
-                };
+                let reason = crate::work_modeling_recovery::pending_reason(&tx, project, &work)?
+                    .unwrap_or("executionBlocked");
                 state["status"] = json!("blocked");
                 state["blockedReason"] = json!(reason);
                 save(&tx, project, &mut state)?;
@@ -502,6 +594,11 @@ impl SqliteStoryRepository {
                 )
                 .optional()
                 .map_err(storage_error)?;
+            let instruction = if operation == "advisory" {
+                DECISION_INSTRUCTION.to_owned()
+            } else {
+                instruction.filter(|text| !text.trim().is_empty()).ok_or(RepositoryError::CorruptState)?
+            };
             tx.commit().map_err(storage_error)?;
             return Ok(
                 json!({"action":{"kind":"agentTask","operation":operation,"target":target,"instruction":instruction}}),
@@ -525,7 +622,7 @@ impl SqliteStoryRepository {
             let mut target = step.target;
             target["resumeStepId"] = json!(step.id);
             Ok(
-                json!({"action":{"kind":"agentTask","operation":"advisory","target":target,"instruction":"Decide the next authorized work action from read_work_status; use actual receipts and the author goal."}}),
+                json!({"action":{"kind":"agentTask","operation":"advisory","target":target,"instruction":DECISION_INSTRUCTION}}),
             )
         } else {
             if let Some(reason) = response.stop_reason.filter(|reason| *reason != "completed") {
@@ -551,9 +648,7 @@ impl SqliteStoryRepository {
         version: i64,
         task_id: &str,
     ) -> Result<StoredGenerationRun, RepositoryError> {
-        let tx =
-            rusqlite::Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)
-                .map_err(storage_error)?;
+        let tx = crate::work_control_commands::ControlTransaction::new(&self.connection)?;
         let work = format!("work-{run}");
         let mut state =
             load_state(&tx, project, &work)?.ok_or(RepositoryError::AuthoringRunNotFound)?;
@@ -581,6 +676,21 @@ impl SqliteStoryRepository {
             state["feedbackRepairPrompt"] = Value::Null;
         }
         if completion_selected(&tx, &task)? {
+            let selected:String=tx.query_row("SELECT target_json FROM story_work_decision_actions_v1 WHERE decision_task_id=?1 AND operation='finishChapter'",[&task.task_id],|row|row.get(0)).map_err(storage_error)?;
+            let selected: Value =
+                serde_json::from_str(&selected).map_err(|_| RepositoryError::CorruptState)?;
+            let receipt = &selected["chapterReviewReceipt"];
+            crate::chapter_delivery_review::verify(
+                &tx,
+                project,
+                selected["chapterId"]
+                    .as_str()
+                    .ok_or(RepositoryError::TaskBindingInvalid)?,
+                receipt["revisionId"]
+                    .as_str()
+                    .ok_or(RepositoryError::TaskBindingInvalid)?,
+                selected.get("chapterReview"),
+            )?;
             match crate::work_decision_delivery::checkpoint(&tx, project, run, &mut state) {
                 Ok(()) => {}
                 Err(RepositoryError::InvalidContent(reason))
@@ -594,7 +704,7 @@ impl SqliteStoryRepository {
             }
         }
         save(&tx, project, &mut state)?;
-        tx.commit().map_err(storage_error)?;
+        tx.commit()?;
         self.generation_run(project, run)
     }
 }

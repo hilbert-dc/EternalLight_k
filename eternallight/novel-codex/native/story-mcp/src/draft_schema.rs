@@ -120,16 +120,9 @@ pub(super) fn runtime_payload(value: &Value) -> Result<Value, String> {
     }
     let mut canonical = value.clone();
     if let Some(groups) = value["sceneGroups"].as_array() {
-        let body = groups
-            .iter()
-            .map(|group| {
-                group["body"]
-                    .as_str()
-                    .expect("schema-validated group body")
-                    .trim()
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n---\n\n");
+        let body = crate::scene_body::canonical_scene_body(groups.iter().map(|group| {
+            group["body"].as_str().expect("schema-validated group body")
+        }));
         if body.chars().count() > 120_000 {
             return Err(feedback("payload.body", "maxLength 120000"));
         }

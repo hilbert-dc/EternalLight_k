@@ -60,7 +60,7 @@ async fn setup(path: &std::path::Path) -> (String, Value) {
         path,
         "POST",
         "/api/projects",
-        json!({"title":"追加消息来源"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"追加消息来源"}),
         AUTHOR,
     )
     .await;
@@ -150,6 +150,9 @@ async fn author_append_has_independent_durable_identity_and_delivery_replay_keep
     );
     let (status, pending) = call(&path, "POST", &uri, append(), AUTHOR).await;
     assert_eq!(status, StatusCode::OK, "{pending}");
+    assert_eq!(call(&path,"POST",&uri,append(),AUTHOR).await,(StatusCode::OK,pending.clone()));
+    let mut different=append();different["authorText"]=json!("重复身份不得改写要求");
+    assert!(!call(&path,"POST",&uri,different,AUTHOR).await.0.is_success());
     let message = pending["authorMessageId"].as_str().unwrap();
     assert!(message.starts_with("author-message-"));
     assert_ne!(message, task["inputManifest"]["authorMessageId"]);
@@ -403,7 +406,7 @@ async fn damaged_append_cannot_be_read_delivered_or_used_to_propose_actions() {
 }
 
 #[tokio::test]
-async fn paused_and_cancelled_work_preserve_messages_but_cannot_append_or_deliver_them() {
+async fn paused_and_cancelled_work_allow_receipt_replay_but_not_new_append_or_delivery() {
     for command in ["pause", "cancel"] {
         for pending in [false, true] {
             let directory = tempfile::tempdir().unwrap();
@@ -423,17 +426,17 @@ async fn paused_and_cancelled_work_preserve_messages_but_cannot_append_or_delive
                 &path,
                 "POST",
                 &format!("{work_uri}/control"),
-                json!({"command":command,"expectedVersion":work["version"]}),
+                json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":work["threadId"],"command":command,"expectedControlRevision":work["controlRevision"]}),
                 AUTHOR,
             )
             .await;
             assert_eq!(status, StatusCode::OK, "{controlled}");
-            assert!(
-                !call(&path, "POST", &uri, append(), AUTHOR)
-                    .await
-                    .0
-                    .is_success()
-            );
+            let replay=call(&path,"POST",&uri,append(),AUTHOR).await;
+            if let Some(original)=&recorded {
+                assert_eq!(replay,(StatusCode::OK,original.clone()));
+                assert!(!call(&path,"POST",&uri,json!({"expectedIntentRevision":1,"authorText":"停止后的新要求"}),AUTHOR).await.0.is_success());
+            } else { assert!(!replay.0.is_success()); }
+            assert_eq!(call(&path,"GET",&work_uri,Value::Null,AUTHOR).await.1,controlled["work"]);
             if let Some(recorded) = recorded {
                 assert!(
                     !call(

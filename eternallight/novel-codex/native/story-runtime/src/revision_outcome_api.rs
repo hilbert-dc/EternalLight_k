@@ -49,6 +49,7 @@ pub(crate) async fn get(
         "authority": "candidateAnalysis",
         "state": if outcome.current { "current" } else { "stale" },
         "assessment": outcome.content,
+        "issues":outcome.issues,
         "decisions": outcome.decisions
     }))
     .into_response()
@@ -143,7 +144,18 @@ pub(crate) async fn submit(
         Ok(value) => value,
         Err(source) => return bad_request("invalid_idempotency_key", source),
     };
-    let payload = match repository.prepare_revision_outcome_payload(&task, &request.payload) {
+    if let Err(source) = crate::recovery_binding::bind(
+        &mut repository,
+        &headers,
+        Some(&task),
+        "submit_revision_outcome",
+        Some(idempotency_key.as_str()),
+    ) {
+        return repository_error(source);
+    }
+    let payload = match repository
+        .prepare_revision_outcome_payload_with_recovery(&task, &request.payload)
+    {
         Ok(value) => value,
         Err(source) => return repository_error(source),
     };
@@ -154,15 +166,6 @@ pub(crate) async fn submit(
             "revision_outcome_too_large",
             "Revision outcome exceeds 24,000 bytes",
         );
-    }
-    if let Err(source) = crate::recovery_binding::bind(
-        &mut repository,
-        &headers,
-        Some(&task),
-        "submit_revision_outcome",
-        Some(idempotency_key.as_str()),
-    ) {
-        return repository_error(source);
     }
     let branch_id = BranchId::parse("main").expect("static branch id");
     let head = match repository.branch_head(&project_id, &branch_id) {
@@ -215,5 +218,56 @@ pub(crate) async fn submit(
         )
             .into_response(),
         Err(source) => repository_error(source),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ReadQuery {
+    thread_id: String,
+    expected_revision: i64,
+    writer_task_id: String,
+}
+pub(crate) async fn read_for_task(
+    State(state): State<RuntimeState>,
+    Path((project_id, task_id)): Path<(String, String)>,
+    Extension(actor): Extension<Actor>,
+    headers: HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<ReadQuery>,
+) -> Response {
+    let project = match ProjectId::parse(project_id) {
+        Ok(p) => p,
+        Err(e) => return bad_request("invalid_project_id", e),
+    };
+    let repo = match SqliteStoryRepository::open(&state.database_path) {
+        Ok(r) => r,
+        Err(e) => return repository_error(e),
+    };
+    let task = match candidate_task(
+        &repo,
+        actor,
+        &headers,
+        &project,
+        Some(&task_id),
+        Some(&query.thread_id),
+        Some(query.expected_revision),
+    ) {
+        Ok(Some(t)) => t,
+        Ok(None) => return bad_request("task_capability_required", "Task bound reader required"),
+        Err(e) => return *e,
+    };
+    match repo.task_revision_outcome(&task, &query.writer_task_id) {
+        Ok(Some(outcome)) => {
+            let mut context = json!({"issues":outcome.issues,"revisionId":outcome.revision_id,"authority":"candidateAnalysis","state":if outcome.current {"current"}else{"stale"},"writerTaskId":query.writer_task_id,"draftRevisionId":outcome.content["draftRevisionId"],"operationContext":{"revisionOutcomeReport":outcome.content},"coverage":{"complete":true,"missingScope":[]}});
+            if let Err(e) = repo.project_task_sources(&task, &mut context) {
+                return repository_error(e);
+            }
+            context["assessment"] = context["operationContext"]["revisionOutcomeReport"].clone();
+            context["source"] = context["taskSources"]["entries"][0].clone();
+            context.as_object_mut().unwrap().remove("operationContext");
+            Json(context).into_response()
+        }
+        Ok(None) => Json(serde_json::Value::Null).into_response(),
+        Err(e) => repository_error(e),
     }
 }

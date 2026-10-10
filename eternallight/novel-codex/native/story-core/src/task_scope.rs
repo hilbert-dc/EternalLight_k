@@ -2,8 +2,23 @@ use serde_json::Value;
 
 use crate::{RepositoryError, TaskRecord};
 
+/// Reading is independent of mutation authority. Absent an explicit reading
+/// fence, writers may inspect their current chapter and earlier chapters.
+pub fn reader_scene_limit(target: &Value) -> Result<Option<usize>, RepositoryError> {
+    let Some(scope) = target.get("readScope") else { return Ok(None); };
+    let fields = scope.as_object().ok_or(RepositoryError::TaskBindingInvalid)?;
+    match scope["type"].as_str() {
+        Some("throughChapter") if fields.len() == 1 => Ok(None),
+        Some("throughScene") if fields.len() == 2 => scope["endSceneOrder"].as_u64()
+            .filter(|n| (1..=100).contains(n)).map(|n| Some(n as usize))
+            .ok_or(RepositoryError::TaskBindingInvalid),
+        _ => Err(RepositoryError::TaskBindingInvalid),
+    }
+}
+
 /// Returns the authorized scene prefix for a Writer task, or `None` for a whole chapter.
 pub fn writer_scene_limit(target: &Value) -> Result<Option<usize>, RepositoryError> {
+    reader_scene_limit(target)?;
     let scope = &target["scope"];
     if scope.is_null() {
         return Ok(None);

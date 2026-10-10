@@ -1,3 +1,10 @@
+mod multimedia_api;
+#[path = "../../../shared/canonical-scene-body.rs"]
+mod scene_body;
+#[path = "../../../shared/draft-checkpoint-identity.rs"]
+mod draft_identity;
+mod multimedia_context_api;
+mod multimedia_operations_api;
 mod action_permission_api;
 mod authoring_api;
 mod brief_payload;
@@ -18,12 +25,14 @@ mod context_query;
 mod context_visibility;
 mod context_working_source;
 mod conversation_api;
+mod delegated_draft_api;
 mod entity_audit_api;
 mod entity_audit_worker;
 mod execution_scope_api;
 mod fact_audit_api;
 mod fact_audit_worker;
 mod generation_handoff_api;
+mod generation_model_control_api;
 mod hypothesis_api;
 mod impact_api;
 mod knowledge_audit_api;
@@ -32,9 +41,9 @@ mod modeling_api;
 mod modeling_outbox_api;
 mod planning_review_api;
 mod proposal_set_api;
+mod quality_api;
 mod query_plan_api;
 mod read_api;
-mod quality_api;
 mod reading_checkpoint_api;
 mod recovery_api;
 mod recovery_binding;
@@ -62,6 +71,9 @@ mod task_source_api;
 mod thread_author_api;
 mod work_budget_api;
 mod work_decision_api;
+mod work_execution_event_api;
+mod work_issue_api;
+mod work_interlude_api;
 mod work_task_api;
 
 pub use condition_evaluation_worker::condition_evaluation_tick;
@@ -73,3 +85,5 @@ pub use search_audit_worker::search_audit_tick;
 pub use server::RuntimeState;
 pub use server::router;
 pub use snapshot_knowledge_audit_worker::snapshot_knowledge_audit_tick;
+
+mod conversation_message_api;

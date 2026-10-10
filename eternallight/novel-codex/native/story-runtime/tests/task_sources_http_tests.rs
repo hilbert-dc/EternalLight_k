@@ -161,6 +161,25 @@ fn entry(context: &Value, path: &str) -> Value {
         .unwrap()
         .clone()
 }
+fn assert_source_recovery(rejected: &Value, task: &Value, code: &str) {
+    assert_eq!(rejected["error"]["code"], code);
+    assert!(
+        rejected["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("先调用 read_context 获取本轮来源目录")
+    );
+    assert_eq!(
+        rejected["error"]["details"],
+        json!({"taskId":task["id"],"retryable":true,"sourceIsolation":"currentTaskOnly"})
+    );
+    assert_eq!(
+        rejected["error"]["recovery"],
+        json!({"tool":"read_context","arguments":{
+        "projectId":task["projectId"],"taskId":task["id"],"threadId":task["threadId"],"expectedRevision":task["inputRevision"]
+    },"discardPreviousSourceIdAndCursor":true})
+    );
+}
 #[tokio::test]
 async fn task_sources_preserve_visible_originals_after_own_checkpoint_without_widening_pov() {
     let temp = tempfile::tempdir().unwrap();
@@ -175,7 +194,7 @@ async fn task_sources_preserve_visible_originals_after_own_checkpoint_without_wi
         "POST",
         "/api/projects",
         AUTHOR,
-        json!({"title":"按需读取"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"按需读取"}),
     )
     .await;
     let base = format!(
@@ -234,6 +253,20 @@ async fn task_sources_preserve_visible_originals_after_own_checkpoint_without_wi
     let original = read(&app, &base, &writer, &source).await;
     assert_eq!(original.as_array().unwrap().len(), 1);
     assert_eq!(original[0]["content"]["sceneGroups"][1]["body"], "锁定原文");
+    let index_uri = format!(
+        "{base}/tasks/{}/task-source-content?threadId=writer&expectedRevision={}&sourceId={}&view=index",
+        writer["id"].as_str().unwrap(),
+        writer["inputRevision"],
+        source["sourceId"].as_str().unwrap()
+    );
+    let (code, frozen_index) = call(&app, "GET", &index_uri, CANDIDATE, Value::Null).await;
+    assert_eq!(code, StatusCode::OK, "{frozen_index}");
+    assert_eq!(frozen_index["items"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        frozen_index["items"][0]["identity"]["chapterId"],
+        "chapter-1"
+    );
+    assert!(!frozen_index.to_string().contains("chapter-2"));
     let (_, first_page) = page(&app, &base, &writer, &source, &Value::Null).await;
     assert!(first_page["nextCursor"].is_string());
     let sibling = task(
@@ -245,9 +278,45 @@ async fn task_sources_preserve_visible_originals_after_own_checkpoint_without_wi
     )
     .await;
     let (status, rejected) = page(&app, &base, &sibling, &source, &first_page["nextCursor"]).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_source_recovery(&rejected, &sibling, "task_source_catalog_required");
+    for view in ["", "&view=index"] {
+        let uri = format!(
+            "{base}/tasks/{}/task-source-content?threadId=other-writer&expectedRevision={}&sourceId={}{view}",
+            sibling["id"].as_str().unwrap(),
+            sibling["inputRevision"],
+            source["sourceId"].as_str().unwrap()
+        );
+        let (status, parsed) = call(&app, "GET", &uri, CANDIDATE, Value::Null).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(parsed, rejected);
+    }
+    let sibling_context = context(&app, &base, &sibling).await;
+    let sibling_source = entry(&sibling_context, "/relevantText");
+    assert_ne!(sibling_source["sourceId"], source["sourceId"]);
+    let (status, wrong_task) = page(&app, &base, &sibling, &source, &Value::Null).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_source_recovery(&wrong_task, &sibling, "task_source_not_in_catalog");
+    let unknown = json!({"sourceId":format!("source-{}", "0".repeat(64))});
     assert_eq!(
-        (status, rejected["error"]["message"].clone()),
-        (StatusCode::BAD_REQUEST, json!("TaskOutputForbidden"))
+        page(&app, &base, &sibling, &unknown, &Value::Null).await.1,
+        wrong_task,
+        "Unknown and foreign IDs must not disclose another task's catalogue or contents"
+    );
+    let (status, wrong_cursor) = page(
+        &app,
+        &base,
+        &sibling,
+        &sibling_source,
+        &first_page["nextCursor"],
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_source_recovery(&wrong_cursor, &sibling, "task_source_cursor_invalid");
+    assert_eq!(
+        read(&app, &base, &sibling, &sibling_source).await,
+        original,
+        "Recovery requires an explicit current directory read; it never substitutes another task's source"
     );
     let mut next = original[0]["content"].clone();
     next["sceneGroups"][0]["body"] = json!("修改后原组");
@@ -256,6 +325,12 @@ async fn task_sources_preserve_visible_originals_after_own_checkpoint_without_wi
     let (status,receipt)=call(&app,"POST",&format!("{base}/drafts/checkpoints"),CANDIDATE,json!({"taskId":writer["id"],"threadId":"writer","payload":next,"expectedRevision":0,"expectedCandidateRevisionId":first["revisionId"],"idempotencyKey":"own-checkpoint"})).await;
     assert_eq!(status, StatusCode::CREATED, "{receipt}");
     assert_eq!(read(&app, &base, &writer, &source).await, original);
+    assert_eq!(
+        call(&app, "GET", &index_uri, CANDIDATE, Value::Null)
+            .await
+            .1,
+        frozen_index
+    );
     assert_eq!(
         entry(&context(&app, &base, &writer).await, "/relevantText"),
         source
@@ -281,7 +356,7 @@ async fn bound_rolling_plan_sources_keep_all_twenty_five_scene_links() {
         "POST",
         "/api/projects",
         AUTHOR,
-        json!({"title":"全部场景按需读取"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"全部场景按需读取"}),
     )
     .await;
     let base = format!(
@@ -361,4 +436,418 @@ async fn bound_rolling_plan_sources_keep_all_twenty_five_scene_links() {
         read(&app, &base, &task, &entry(&pack, "/relevantText")).await[0]["content"]["sceneGroups"],
         json!(groups)
     );
+}
+
+#[tokio::test]
+async fn parsed_source_pages_preserve_unicode_and_reject_foreign_cursors() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("parsed.sqlite3");
+    let app = router(task_fixture::state(
+        path.clone(),
+        AUTHOR.into(),
+        CANDIDATE.into(),
+    ));
+    let (_, created) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        AUTHOR,
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"解析阅读"}),
+    )
+    .await;
+    let base = format!(
+        "/api/projects/{}",
+        created["project"]["id"].as_str().unwrap()
+    );
+    let body = "原文🙂\"\\\n".repeat(700);
+    let (status,draft)=call(&app,"POST",&format!("{base}/drafts/checkpoints"),AUTHOR,json!({"expectedRevision":0,"expectedCandidateRevisionId":null,"idempotencyKey":"draft","payload":{"chapterId":"chapter-1","chapterNumber":1,"title":"原题","body":body,"completeness":"chapterComplete"}})).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let task = task(&app, &base, "advisory", "reader", json!({"type":"project"})).await;
+    let pack = context(&app, &base, &task).await;
+    let source = entry(&pack, "/relevantText");
+    let endpoint = format!(
+        "{base}/tasks/{}/task-source-content?threadId=reader&expectedRevision={}&sourceId={}",
+        task["id"].as_str().unwrap(),
+        task["inputRevision"],
+        source["sourceId"].as_str().unwrap()
+    );
+    let mut cursor = String::new();
+    let mut recovered = String::new();
+    let mut count = 0;
+    // Host event persistence may write while a tool returns source pages.
+    // Metadata-only writes preserve all frozen prose and task source versions.
+    let concurrent = std::thread::spawn(move || {
+        let db = rusqlite::Connection::open(path).unwrap();
+        db.busy_timeout(std::time::Duration::from_secs(5)).unwrap();
+        for _ in 0..200 {
+            db.execute("UPDATE story_projects_v2 SET updated_at=updated_at+1", [])
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    });
+    loop {
+        let (status, page) = call(
+            &app,
+            "GET",
+            &format!("{endpoint}{cursor}"),
+            CANDIDATE,
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert!(page.to_string().len() <= 6500);
+        assert_eq!(page["representation"], "parsedFields");
+        assert_eq!(page["contentRead"], true);
+        assert_eq!(page["returnedChapterNumbers"], json!([1]));
+        assert_eq!(page["sectionPath"], "/relevantText");
+        assert!(page["chapterNumbers"].is_array());
+        for field in page["entries"].as_array().unwrap() {
+            if field["path"].as_str().unwrap().ends_with("/content/body") {
+                recovered.push_str(
+                    field["text"]
+                        .as_str()
+                        .or_else(|| field["value"].as_str())
+                        .unwrap(),
+                );
+            }
+        }
+        count += 1;
+        if let Some(next) = page["nextCursor"].as_str() {
+            cursor = format!("&cursor={next}");
+        } else {
+            break;
+        }
+    }
+    concurrent.join().unwrap();
+    assert!(count > 1);
+    assert_eq!(recovered, body);
+    let restored = context(&app, &base, &task).await;
+    let coverage = &entry(&restored, "/relevantText")["returnedCoverage"];
+    assert_eq!(coverage["complete"], true);
+    assert_eq!(coverage["semanticUnderstanding"], false);
+    assert_eq!(coverage["authority"], "returnedParsedFieldsOnly");
+    assert_eq!(coverage["nextUnreadCursor"], Value::Null);
+    let (_, _) = call(&app, "GET", &endpoint, CANDIDATE, Value::Null).await;
+    assert_eq!(
+        entry(&context(&app, &base, &task).await, "/relevantText")["returnedCoverage"]["returnedEntries"],
+        coverage["returnedEntries"]
+    );
+    let plan_endpoint = format!("{base}/tasks/{}/work-plan", task["id"].as_str().unwrap());
+    let read_plan = format!(
+        "{plan_endpoint}?threadId=reader&expectedRevision={}",
+        task["inputRevision"]
+    );
+    let (status, initial) = call(&app, "GET", &read_plan, CANDIDATE, Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(initial["version"], 0);
+    let quote: String = body.chars().take(8).collect();
+    let update = json!({"taskId":task["id"],"threadId":"reader","expectedRevision":task["inputRevision"],"expectedPlanVersion":0,"idempotencyKey":"checked","plan":{"intentMode":"executeGoals","goals":[{"id":"read","title":"核对原文","acceptance":"完整读取相关正文","kind":"check","status":"satisfied","dependsOn":[],"readingQuestion":"原文是什么","checkScope":"本章正文","approach":"按返回游标读完","assessment":"已读全部分页并核对原文","sourceIds":[source["sourceId"]],"sourceChecks":[{"sourceId":source["sourceId"],"revisionId":draft["revisionId"],"contentHash":source["contentHash"],"evidence":{"quote":quote,"start":0,"end":quote.chars().count()}}],"evidence":[],"continuation":null}]}});
+    let (status, receipt) = call(&app, "POST", &plan_endpoint, CANDIDATE, update.clone()).await;
+    assert_eq!(status, StatusCode::OK, "{receipt}");
+    assert_eq!(receipt["version"], 1);
+    let (_, retry) = call(&app, "POST", &plan_endpoint, CANDIDATE, update.clone()).await;
+    assert_eq!(retry["version"], 1);
+    let (_, saved) = call(
+        &app,
+        "GET",
+        &format!("{read_plan}&goalId=read"),
+        CANDIDATE,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(saved["goal"]["status"], "satisfied");
+    assert_eq!(saved["goal"]["sourceIds"][0], source["sourceId"]);
+    let mut stale = update;
+    stale["idempotencyKey"] = json!("stale");
+    assert!(
+        !call(&app, "POST", &plan_endpoint, CANDIDATE, stale)
+            .await
+            .0
+            .is_success()
+    );
+
+    let (status, _) = call(
+        &app,
+        "GET",
+        &format!("{endpoint}&cursor=wrong:0"),
+        CANDIDATE,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn workspace_reads_keep_exact_scope_and_child_pages_do_not_fill_root_receipts() {
+    use tower::ServiceExt;
+    let temp = tempfile::tempdir().unwrap();
+    let db_path = temp.path().join("workspace.sqlite3");
+    let app = router(task_fixture::state(
+        db_path.clone(),
+        AUTHOR.into(),
+        CANDIDATE.into(),
+    ));
+    let (_, created) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        AUTHOR,
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"工作区读取"}),
+    )
+    .await;
+    let base = format!(
+        "/api/projects/{}",
+        created["project"]["id"].as_str().unwrap()
+    );
+    for n in 1..=3 {
+        let(status,saved)=call(&app,"POST",&format!("{base}/drafts/checkpoints"),AUTHOR,json!({"expectedRevision":0,"expectedCandidateRevisionId":null,"idempotencyKey":format!("draft-{n}"),"payload":{"chapterId":format!("chapter-{n}"),"chapterNumber":n,"title":format!("第{n}章"),"body":format!("第{n}章实际原文🙂"),"completeness":"chapterComplete"}})).await;
+        assert_eq!(status, StatusCode::CREATED, "{saved}");
+    }
+    let task = task(
+        &app,
+        &base,
+        "advisory",
+        "workspace-root",
+        json!({"type":"project"}),
+    )
+    .await;
+    let pack = context(&app, &base, &task).await;
+    let source = pack["taskWorkspace"]["sourceId"].as_str().unwrap();
+    assert_eq!(
+        entry(&pack, "/authorRequirementsSource")["sectionPath"],
+        "/authorRequirementsSource"
+    );
+    let endpoint = format!(
+        "{base}/tasks/{}/task-source-content?threadId=workspace-root&expectedRevision={}",
+        task["id"].as_str().unwrap(),
+        task["inputRevision"]
+    );
+    let (status, directory) = call(
+        &app,
+        "GET",
+        &format!("{endpoint}&sourceId={source}&view=workspace&chapterNumber=2&objectKind=draft"),
+        CANDIDATE,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{directory}");
+    assert_eq!(directory["items"].as_array().unwrap().len(), 1);
+    assert_eq!(directory["contentRead"], false);
+    assert!(!directory.to_string().contains("实际原文"));
+    let leaf = directory["items"][0]["sourceId"].as_str().unwrap();
+    let request = Request::builder()
+        .uri(format!("{endpoint}&sourceId={leaf}"))
+        .header("authorization", format!("Bearer {CANDIDATE}"))
+        .header("x-novel-task-capability", CAP)
+        .header("x-novel-tool-name", "read_source_content")
+        .header("x-novel-root-thread", "workspace-root")
+        .header("x-novel-caller-thread", "trusted-child")
+        .header("x-novel-parent-thread", "workspace-root")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let child: Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(child.to_string().contains("第2章实际原文"));
+    let db = rusqlite::Connection::open(&db_path).unwrap();
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM story_task_source_returned_v1 WHERE source_id=?1",
+            [leaf],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+    let reader: String = db
+        .query_row(
+            "SELECT reader_thread_id FROM story_task_workspace_reads_v1 WHERE source_id=?1",
+            [leaf],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(reader, "trusted-child");
+    let (status, root) = call(
+        &app,
+        "GET",
+        &format!("{endpoint}&sourceId={leaf}"),
+        CANDIDATE,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{root}");
+    assert_eq!(root["contentHash"], child["contentHash"]);
+    let count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM story_task_source_returned_v1 WHERE source_id=?1",
+            [leaf],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(
+        call(
+            &app,
+            "GET",
+            &format!("{endpoint}&sourceId={leaf}&chapterNumber=2"),
+            CANDIDATE,
+            Value::Null
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn frozen_index_locates_a_later_chapter_without_reading_prior_bodies() {
+    let temp = tempfile::tempdir().unwrap();
+    let app = router(task_fixture::state(
+        temp.path().join("index.sqlite3"),
+        AUTHOR.into(),
+        CANDIDATE.into(),
+    ));
+    let (_, project) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        AUTHOR,
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"直接定位章节"}),
+    )
+    .await;
+    let base = format!(
+        "/api/projects/{}",
+        project["project"]["id"].as_str().unwrap()
+    );
+    for n in 1..=12 {
+        let (status, saved) = call(&app, "POST", &format!("{base}/drafts/checkpoints"), AUTHOR, json!({"expectedRevision":0,"expectedCandidateRevisionId":null,"idempotencyKey":format!("draft-{n}"),"payload":{"chapterId":format!("chapter-{n}"),"chapterNumber":n,"title":format!("真实标题{n}"),"body":format!("第{n}章原文🙂\"\\\n").repeat(400),"completeness":"chapterComplete"}})).await;
+        assert_eq!(status, StatusCode::CREATED, "{saved}");
+    }
+    let current = task(
+        &app,
+        &base,
+        "advisory",
+        "index-reader",
+        json!({"type":"project"}),
+    )
+    .await;
+    let pack = context(&app, &base, &current).await;
+    let source = entry(&pack, "/relevantText");
+    let endpoint = format!(
+        "{base}/tasks/{}/task-source-content?threadId=index-reader&expectedRevision={}&sourceId={}",
+        current["id"].as_str().unwrap(),
+        current["inputRevision"],
+        source["sourceId"].as_str().unwrap()
+    );
+    let mut cursor = String::new();
+    let mut selected = Value::Null;
+    let mut identities = std::collections::BTreeSet::new();
+    let mut first_index_cursor = None;
+    loop {
+        let (status, index) = call(
+            &app,
+            "GET",
+            &format!("{endpoint}&view=index{cursor}"),
+            CANDIDATE,
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{index}");
+        assert!(index.to_string().len() <= 6500);
+        assert_eq!(index["representation"], "sourceIndex");
+        assert_eq!(index["coverage"]["contentRead"], false);
+        assert!(!index.to_string().contains("章原文"));
+        for item in index["items"].as_array().unwrap() {
+            assert!(identities.insert(item["identity"]["chapterNumber"].as_u64().unwrap()));
+            if item["identity"]["chapterNumber"] == 9 {
+                selected = item.clone();
+            }
+        }
+        if let Some(next) = index["nextCursor"].as_str() {
+            first_index_cursor.get_or_insert(next.to_owned());
+            cursor = format!("&cursor={next}");
+        } else {
+            break;
+        }
+    }
+    assert_eq!(identities.len(), 12);
+    let after_index = context(&app, &base, &current).await;
+    assert_eq!(
+        entry(&after_index, "/relevantText")["returnedCoverage"]["returnedEntries"],
+        0
+    );
+    assert_eq!(selected["identity"]["chapterId"], "chapter-9");
+    assert_eq!(selected["identity"]["title"], "真实标题9");
+    assert!(selected["entryRange"]["start"].as_u64().unwrap() > 0);
+    let body_path = format!("{}/content/body", selected["path"].as_str().unwrap());
+    let mut cursor = selected["readCursor"].as_str().unwrap().to_owned();
+    let mut recovered = String::new();
+    loop {
+        let (status, page) = call(
+            &app,
+            "GET",
+            &format!("{endpoint}&cursor={cursor}"),
+            CANDIDATE,
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["coverage"]["complete"], false);
+        for field in page["entries"].as_array().unwrap() {
+            if field["path"] == body_path {
+                recovered.push_str(
+                    field["text"]
+                        .as_str()
+                        .or_else(|| field["value"].as_str())
+                        .unwrap(),
+                );
+            }
+        }
+        if page["coverage"]["toEntry"].as_u64().unwrap()
+            >= selected["entryRange"]["end"].as_u64().unwrap()
+        {
+            break;
+        }
+        cursor = page["nextCursor"].as_str().unwrap().to_owned();
+    }
+    assert_eq!(recovered, "第9章原文🙂\"\\\n".repeat(400));
+    let restored = context(&app, &base, &current).await;
+    let coverage = &entry(&restored, "/relevantText")["returnedCoverage"];
+    assert_eq!(coverage["complete"], false);
+    assert!(coverage["entryRanges"][0]["start"].as_u64().unwrap() > 0);
+    assert!(
+        coverage["nextUnreadCursor"]
+            .as_str()
+            .unwrap()
+            .ends_with(":0")
+    );
+    for url in [
+        format!("{endpoint}&cursor={}", first_index_cursor.unwrap()),
+        format!(
+            "{endpoint}&view=index&cursor={}",
+            selected["readCursor"].as_str().unwrap()
+        ),
+    ] {
+        assert_eq!(
+            call(&app, "GET", &url, CANDIDATE, Value::Null).await.0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let other = task(
+        &app,
+        &base,
+        "advisory",
+        "foreign-reader",
+        json!({"type":"project"}),
+    )
+    .await;
+    let foreign = format!(
+        "{base}/tasks/{}/task-source-content?threadId=foreign-reader&expectedRevision={}&sourceId={}&view=index",
+        other["id"].as_str().unwrap(),
+        other["inputRevision"],
+        source["sourceId"].as_str().unwrap()
+    );
+    let (status, rejected) = call(&app, "GET", &foreign, CANDIDATE, Value::Null).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_source_recovery(&rejected, &other, "task_source_catalog_required");
 }

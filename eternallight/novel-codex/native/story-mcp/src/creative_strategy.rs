@@ -97,6 +97,8 @@ mod tests {
     #[test]
     fn production_call_checks_identity_schema_operation_and_lifecycle() {
         let client = super::super::RuntimeClient {
+        request_dispatched: Default::default(),
+            completion_receipt: Default::default(),
             argument_validation: Default::default(),
             publication_gate: Default::default(),
             read_progress: Default::default(),

@@ -5,6 +5,15 @@ use crate::work_decision_status::{ReadyAction, action, retryable};
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 
+fn optional_analysis(generation: bool, operation: &str, target: &Value) -> bool {
+    operation == "reviewQuality"
+        || (generation || target["workDecisionAction"].is_object())
+            && matches!(
+                operation,
+                "modelKnowledge" | "extractCommitments" | "assessSceneOutcome"
+            )
+}
+
 pub(crate) fn failure_target(mut target: Value) -> Result<Value, RepositoryError> {
     let object = target
         .as_object_mut()
@@ -52,25 +61,34 @@ pub(crate) fn failed_actions(
         .map_err(storage_error)?;
     for row in rows {
         let (task, operation, target) = row.map_err(storage_error)?;
+        // An explicit Author replan has replaced this failed attempt. Keep its
+        // evidence, but do not schedule the superseded failure as current work.
+        let author_replanned: bool = generation && db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM story_work_steps_v1 s JOIN story_generation_runs_v1 g ON s.work_task_id='work-'||g.run_id, json_each(g.state_json,'$.replans') r WHERE s.work_task_id=?1 AND s.current_attempt_id=?2 AND s.status='superseded' AND json_extract(r.value,'$.previousTaskId')=?2)",
+            params![work, task], |row| row.get(0),
+        ).map_err(storage_error)?;
+        if author_replanned {
+            continue;
+        }
         if operation == "reviewQuality" {
             let saved: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM story_quality_packets_v1 WHERE task_id=?1 AND report_json IS NOT NULL)", [&task], |r| r.get(0)).map_err(storage_error)?;
-            if saved { continue; }
+            if saved {
+                continue;
+            }
         }
         if !retryable(db, &task)? {
             return Err(RepositoryError::TaskNotWritable);
         }
         let mut target: Value =
             serde_json::from_str(&target).map_err(|_| RepositoryError::CorruptState)?;
+        // A verified model-selected aid remains a method, not a new author
+        // deliverable. Explicit candidates and direct tasks keep their duty.
+        let optional = optional_analysis(generation, &operation, &target);
         target = failure_target(target)?;
         let revision = target["draftRevisionId"]
             .as_str()
             .or_else(|| target["sourceRevisionId"].as_str())
             .map(str::to_owned);
-        let optional = operation == "reviewQuality" || generation
-            && matches!(
-                operation.as_str(),
-                "modelKnowledge" | "extractCommitments" | "assessSceneOutcome"
-            );
         let mut candidate = action(&operation, target, Some(task.clone()), revision, !optional);
         let original = crate::tasks::load_task(db, &task)?;
         let source: Value = serde_json::from_str(&original.input_manifest_json)
@@ -123,7 +141,7 @@ pub(crate) fn failed_actions(
             }
         }
         candidate.recovery = Some(
-            json!({"failedTaskId":task,"sameConditionFailures":same_failures,"planRequired":same_failures>=2,"exhausted":same_failures>=4,"attemptLimit":4}),
+            json!({"failedTaskId":task,"sameConditionFailures":same_failures,"planRequired":same_failures>=2 || crate::conversation_receipts::failure_code(original.error.as_deref()) == Some("provider_output_limit"),"exhausted":same_failures>=4,"attemptLimit":4}),
         );
         requirements.push(json!({"kind":if optional {"optionalAnalysis"} else {"requestedOutput"},"taskId":task,"operation":operation,"status":if optional {"failed"} else {"pending"}}));
         // A freshly derived action can have the same key; failure recovery must
@@ -135,6 +153,35 @@ pub(crate) fn failed_actions(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_methods_do_not_turn_into_required_author_deliverables_on_failure() {
+        let model_action = json!({"workDecisionAction":{"workTaskId":"work","decisionTaskId":"decision","actionKey":"key"}});
+        for operation in ["modelKnowledge", "extractCommitments", "assessSceneOutcome"] {
+            assert!(optional_analysis(false, operation, &model_action));
+            assert!(optional_analysis(true, operation, &model_action));
+        }
+        for operation in ["generateChapter", "generateBrief", "assessRevisionOutcome"] {
+            assert!(!optional_analysis(false, operation, &model_action));
+        }
+    }
+
+    #[test]
+    fn explicit_and_direct_analysis_requests_remain_required() {
+        for target in [
+            json!({}),
+            json!({"requestedActionId":"explicit","requestedByTaskId":"author"}),
+        ] {
+            for operation in ["modelKnowledge", "extractCommitments", "assessSceneOutcome"] {
+                assert!(!optional_analysis(false, operation, &target));
+            }
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -179,7 +226,7 @@ pub(crate) fn validate_plan(
     let Some(value) = value else {
         return if recovery["planRequired"] == true {
             Err(invalid(
-                "repeated failure requires failedTaskId, cause, change and verification; inspect the failure and change the approach, or report partial completion",
+                "this failure requires failedTaskId, cause, change and verification; inspect the failure and change the approach, or report partial completion",
             ))
         } else {
             Ok(())

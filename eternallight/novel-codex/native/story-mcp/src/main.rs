@@ -1,4 +1,6 @@
 mod delivery_review_schema;
+#[path = "../../../shared/canonical-scene-body.rs"]
+mod scene_body;
 use std::env;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -9,21 +11,31 @@ use std::net::TcpStream;
 use serde_json::Value;
 use serde_json::json;
 mod argument_validation;
+mod completion_receipt;
 mod creative_strategy;
+mod capability_discovery;
 mod quality_tools;
 mod brief_schema;
 mod chapter_plan_schema;
 mod draft_schema;
+mod delegated_draft_tools;
+mod draft_receipt;
 mod evidence_tool;
 mod extraction_schema;
 mod hypothesis_tool;
 mod impact_tool;
 mod knowledge_schema;
 mod operation_digest;
+mod recovery_proof;
 mod planning_schema;
 mod publication_gate;
 mod read_progress;
 mod task_source_tools;
+mod chapter_acceptance_schema;
+mod revision_outcome_schema;
+mod work_issue_schema;
+mod model_work_plan_tool;
+mod multimedia_tools;
 
 mod chapter_structure_tool;
 mod query_plan_schema;
@@ -34,6 +46,8 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
 struct RuntimeClient {
+    request_dispatched: std::cell::Cell<bool>,
+    completion_receipt: completion_receipt::CompletionReceipt,
     argument_validation: argument_validation::ArgumentValidation,
     publication_gate: publication_gate::PublicationGate,
     read_progress: read_progress::ReadProgress,
@@ -61,8 +75,10 @@ impl RuntimeClient {
             return Err("Runtime URL must use a loopback host".into());
         }
         Ok(Self {
+            request_dispatched: std::cell::Cell::new(false),
             publication_gate: publication_gate::PublicationGate::default(),
             read_progress: Default::default(),
+            completion_receipt: Default::default(),
             argument_validation: Default::default(),
             host: host.trim_matches(['[', ']']).to_owned(),
             port: port.parse().map_err(|_| "Runtime port is invalid")?,
@@ -90,15 +106,16 @@ impl RuntimeClient {
                 tool.get("name")
                     .and_then(Value::as_str)
                     .is_some_and(|name| {
-                        (name == "read_creative_strategy" && creative_strategy::allowed(&self.operation))
-                            || (name == "read_task_source"
+                        (matches!(name,"read_creative_strategy"|"discover_creative_capabilities") && creative_strategy::allowed(&self.operation))
+                            || (matches!(name,"read_task_source"|"read_source_content"|"read_work_issues")
                             && task_source_tools::purpose(&self.operation).is_ok())
                             || (self.operation == "advisory"
                                 && matches!(
                                     name,
                                     "read_work_status"
                                         | "request_work_action"
-                                        | "request_generation_handoff"
+                                        | "read_work_plan" | "update_work_plan"
+                                        | "request_generation_handoff" | "pause_generation_run" | "read_revision_outcome"
                                 ))
                             || allowed_tools(&self.operation).contains(&name)
                             || (!matches!(
@@ -108,6 +125,11 @@ impl RuntimeClient {
                     })
             })
             .map(|mut tool| {
+                if self.operation != "advisory" && tool["name"] == "complete_task" {
+                    tool["inputSchema"]["properties"].as_object_mut()
+                        .expect("tool properties").remove("deliveryReview");
+                    tool["description"] = json!("Complete this worker after its persisted output is acknowledged. Submit summary only; do not submit a Work deliveryReview or register further work. Host schedules a separate Work decision to read and assess the actual saved output.");
+                }
                 if matches!(tool["name"].as_str(), Some("query_story" | "read_context")) {
                     for field in ["plan", "queryPlan"] {
                         if let Some(slot) =
@@ -123,6 +145,7 @@ impl RuntimeClient {
     }
 
     fn call(&self, name: &str, arguments: &Value, meta: &Value) -> Result<(u16, Value), String> {
+        self.request_dispatched.set(false);
         self.argument_validation.ensure_active(name)?;
         let tool = self
             .operation_tools()
@@ -137,6 +160,9 @@ impl RuntimeClient {
             .and_then(Value::as_str)
             .unwrap_or_else(|| meta["rootThreadId"].as_str().unwrap_or_default());
         validate_execution_identity(meta, claimed_thread, name)?;
+        if let Some(receipt) = self.completion_receipt.recall(name, arguments, meta)? {
+            return Ok(receipt);
+        }
         if !self.publication_gate.allows_tool(name) {
             return Err(
                 "Knowledge publication committed; call complete_task now. Other tools are closed."
@@ -150,6 +176,16 @@ impl RuntimeClient {
         if name == "read_creative_strategy" {
             // Only public static guidance, never task data or a permission receipt.
             let result = creative_strategy::read(normalized_arguments["strategyId"].as_str().unwrap())?;
+            self.argument_validation.complete_preflight(name);
+            return Ok((200, result));
+        }
+        if name == "discover_creative_capabilities" {
+            let result = if let Some(role)=normalized_arguments["roleId"].as_str() {
+                if normalized_arguments.get("query").is_some() {return Err("roleId instructions mode does not accept a query".into())}
+                capability_discovery::read_role(role,normalized_arguments["cursor"].as_u64().unwrap_or(0) as usize)?
+            } else {capability_discovery::read(&tool_specs(), &self.exposed_tools(),
+                normalized_arguments["query"].as_str().unwrap_or_default(),
+                normalized_arguments["cursor"].as_u64().unwrap_or(0) as usize)?};
             self.argument_validation.complete_preflight(name);
             return Ok((200, result));
         }
@@ -185,8 +221,18 @@ impl RuntimeClient {
                 required_string(arguments["target"].get("chapterId"), "target.chapterId"),
                 "generateChapter requires target.chapterId of an existing chapter. For new chapters or continuous creation, call request_generation_handoff with the actual targetChapters (1-100) and author goal; never invent IDs or create placeholders.",
             )?;
+            self.argument_validation.local(name, arguments["target"].get("chapterAcceptance").filter(|v|v.is_object()).ok_or_else(||"chapterAcceptance must be recorded before writing".to_owned()), "Include target.chapterAcceptance with requirements and author-derived nullable length bounds before drafting.")?;
         }
-        let draft_payload = if name == "save_draft_checkpoint" {
+        let delegated_payload = if let Some(id) = arguments.get("delegatedCandidateId").and_then(Value::as_str).filter(|_| name == "save_draft_checkpoint") {
+            let path=format!("/api/projects/{}/tasks/{}/delegated-drafts?threadId={}&expectedRevision={expected_revision}&candidateId={}&view=payload",percent_encode(project_id),percent_encode(task_id),percent_encode(thread_id),percent_encode(id));
+            let request_hash=operation_digest::operation_digest(name,&Value::Object(arguments.clone()))?;
+            let result=self.request("GET",&path,None,meta,name,&request_hash)?;
+            if !(200..300).contains(&result.0){return Err(format!("Cannot integrate isolated candidate: {}",result.1));}
+            Some(result.1["payload"].clone())
+        } else {None};
+        let draft_payload = if let Some(payload)=delegated_payload {
+            Some(payload)
+        } else if matches!(name,"save_draft_checkpoint"|"save_delegated_draft") {
             Some(self.argument_validation.local(name, draft_schema::runtime_payload(&arguments["payload"]), "Use the full DraftPayload contract: chapterId, chapterNumber, title, completeness, and exactly one of body or sceneGroups; scene group IDs must be unique.")?)
         } else {
             None
@@ -249,10 +295,12 @@ impl RuntimeClient {
         }
 
         let (method, path, body) = match name {
-            "read_task_source"
+            "read_media_workspace" | "read_media_source" | "save_media_document" | "patch_media_document" | "request_media_generation" | "read_media_generation" | "wait_media_generation" | "cancel_media_generation" => multimedia_tools::request(name, &normalized_arguments)?,
+            "read_work_plan" | "update_work_plan" => model_work_plan_tool::request(name,&normalized_arguments)?,
+            "read_task_source" | "read_source_content" | "read_work_issues"
             | "read_work_status"
             | "request_work_action"
-            | "request_generation_handoff" => {
+            | "request_generation_handoff" | "pause_generation_run" | "read_revision_outcome" => {
                 self.argument_validation.local(name, task_source_tools::request(name, &normalized_arguments), "Copy sourceId and nextCursor from taskSources; preserve the declared Work action fields, version, digest and instruction bounds.")?
             }
             "read_commitment" | "submit_commitment_candidate" => {
@@ -286,7 +334,7 @@ impl RuntimeClient {
             "read_quality_notebook" | "read_quality_review" | "record_quality_note" | "read_quality_packet" | "submit_quality_reading" => {
                 let (action,key)=match name {"read_quality_notebook"=>("read","before"),"read_quality_review"=>("review","packetId"),"record_quality_note"=>("change","mutation"),"read_quality_packet"=>("page","page"),_=>("report","report")};
                 let mut payload=json!({"threadId":thread_id,"expectedRevision":expected_revision,"action":action});
-                payload[key]=arguments[key].clone();
+                if let Some(value)=arguments.get(key) {payload[key]=value.clone();}
                 ("POST",format!("/api/projects/{}/tasks/{}/quality",percent_encode(project_id),percent_encode(task_id)),Some(payload))
             }
             "read_context" => {
@@ -526,9 +574,9 @@ impl RuntimeClient {
                 )
             }
             "save_draft_checkpoint" => {
-                let mut body = without(arguments, &["projectId"]);
+                let mut body = without(arguments, &["projectId","delegatedCandidateId"]);
                 body["payload"] =
-                    draft_payload.ok_or_else(|| "Draft payload was not validated".to_owned())?;
+                    draft_payload.clone().ok_or_else(|| "Draft payload was not validated".to_owned())?;
                 (
                     "POST",
                     format!(
@@ -537,6 +585,11 @@ impl RuntimeClient {
                     ),
                     Some(body),
                 )
+            }
+            "save_delegated_draft"|"read_delegated_draft"|"authorize_delegated_writer" => {
+                let (method,path,mut body)=delegated_draft_tools::request(name,arguments)?;
+                if name=="save_delegated_draft" {body.as_mut().unwrap()["payload"]=draft_payload.clone().ok_or("Draft payload was not validated")?;}
+                (method,path,body)
             }
             "submit_revision_outcome" => {
                 let writer_task_id =
@@ -610,24 +663,35 @@ impl RuntimeClient {
         let hash = operation_digest::operation_digest(name, &Value::Object(arguments.clone()))?;
         self.argument_validation.complete_preflight(name);
         let mut response = self.request(method, &path, body.as_ref(), meta, name, &hash)?;
+        if name=="read_context" && (200..300).contains(&response.0) {
+            response.1["executionIdentity"]=json!({"rootThreadId":meta["rootThreadId"],"callerThreadId":meta["callerThreadId"],"parentThreadId":meta["parentThreadId"],"authority":"trustedRuntimeIdentity","instruction":"Role labels and spawn task names are not thread IDs. For isolated writing, the parent grants this exact child callerThreadId under its existing task."});
+        }
+        if name == "complete_task" {
+            self.completion_receipt.observe(&normalized_arguments, &mut response)?;
+        }
+        if name == "save_draft_checkpoint" && (200..300).contains(&response.0) {
+            response.1 = draft_receipt::saved(&response.1, &draft_payload.as_ref().map_or(Value::Null,|p|p["chapterId"].clone()))?;
+        }
         if name == "request_generation_handoff" && (200..300).contains(&response.0) {
             let proposal = &response.1["proposal"];
             if proposal["sourceTaskId"] != task_id
                 || proposal["threadId"] != thread_id
                 || proposal["projectId"] != project_id
                 || proposal["targetChapters"] != arguments["targetChapters"]
+                || proposal["resumeRun"] != arguments.get("resumeRun").cloned().unwrap_or(Value::Null)
                 || proposal["proposalId"]
                     .as_str()
                     .is_none_or(|id| id.is_empty() || id.len() > 160)
             {
                 return Err("Generation proposal receipt binding is invalid".into());
             }
-            response.1 = json!({"proposalId":proposal["proposalId"],"targetChapters":proposal["targetChapters"],"state":"proposed","approvalRequired":true});
+            response.1 = json!({"proposalId":proposal["proposalId"],"targetChapters":proposal["targetChapters"],"state":"proposed","resumeRun":proposal["resumeRun"],"approvalRequired":proposal["resumeRun"].is_null(),
+                "instruction":if proposal["resumeRun"].is_null() {"The new scope proposal is registered, not executed. Complete this task and accurately report that the author must approve its scope and allowance."} else {"The original-run handoff is durably registered, not yet executed. Update the active continuation goal with this proposalId if a work plan exists. Read read_work_status for the current version/sourceDigest, then complete_task with a fulfilled deliveryReview only if prerequisite work is actually verified. Fulfilled describes prerequisite delivery and handoff registration, not completion of the original novel. Do not wait, repeat the proposal, or promise a future decision without registering it."}});
         }
-        self.read_progress.observe(name, &hash, &mut response);
-        task_source_tools::add_read_recovery(name, &normalized_arguments, &mut response);
-        self.publication_gate
-            .observe(name, &normalized_arguments, &response);
+        if meta["callerThreadId"]==meta["rootThreadId"] && meta["parentThreadId"].as_str().is_none_or(str::is_empty) {
+            self.read_progress.observe(name, &hash, &mut response);
+            self.publication_gate.observe(name, &normalized_arguments, &response);
+        }
         Ok(response)
     }
 
@@ -640,6 +704,9 @@ impl RuntimeClient {
         tool_name: &str,
         request_hash: &str,
     ) -> Result<(u16, Value), String> {
+        // Set before any transport attempt, including read-before-integration.
+        // A later validator/receipt error can never claim no dispatch occurred.
+        self.request_dispatched.set(true);
         let body = body.map(Value::to_string).unwrap_or_default();
         let mut headers = vec![
             ("Authorization", format!("Bearer {}", self.candidate_token)),
@@ -743,15 +810,10 @@ fn handle_message(message: &Value, client: &Result<RuntimeClient, String>) -> Op
                 .as_ref()
                 .map_err(Clone::clone)
                 .and_then(|client| client.call(name, arguments, meta));
+            let proof=client.as_ref().ok().and_then(|client|client.recovery_proof(name,arguments,meta,&result));
             match result {
                 Ok((status, payload)) => {
-                    let mut result = json!({
-                        "content": [{"type": "text", "text": payload.to_string()}]
-                    });
-                    if !(200..300).contains(&status) {
-                        result["isError"] = json!(true);
-                    }
-                    Some(rpc_result(id, result))
+                    Some(rpc_result(id, tool_http_result(status, payload, proof)))
                 }
                 Err(error) => {
                     let mut result =
@@ -764,6 +826,11 @@ fn handle_message(message: &Value, client: &Result<RuntimeClient, String>) -> Op
                             result["structuredContent"] = feedback;
                         }
                     }
+                    if let Some(proof)=proof {
+                        if !result["structuredContent"].is_object(){result["structuredContent"]=json!({"error":{"message":error}});}
+                        result["structuredContent"]["recoveryOperation"]=proof;
+                        result["content"][0]["text"] = json!(result["structuredContent"].to_string());
+                    }
                     Some(rpc_result(id, result))
                 }
             }
@@ -772,9 +839,33 @@ fn handle_message(message: &Value, client: &Result<RuntimeClient, String>) -> Op
     }
 }
 
+// Core selects structuredContent when it is present. The recovery proof must
+// supplement the actual business response in that same representation, never
+// replace saved outputs or Native errors with audit metadata.
+fn tool_http_result(status: u16, payload: Value, proof: Option<Value>) -> Value {
+    let has_proof = proof.is_some();
+    let presented = match (payload, proof) {
+        (Value::Object(mut payload), Some(proof)) => {
+            payload.insert("recoveryOperation".into(), proof);
+            Value::Object(payload)
+        }
+        (payload, Some(proof)) => json!({"result": payload, "recoveryOperation": proof}),
+        (payload, None) => payload,
+    };
+    let mut result = json!({"content": [{"type": "text", "text": presented.to_string()}]});
+    if has_proof {
+        result["structuredContent"] = presented;
+    }
+    if !(200..300).contains(&status) {
+        result["isError"] = json!(true);
+    }
+    result
+}
+
 fn allowed_tools(operation: &str) -> &'static [&'static str] {
     match operation {
         "advisory" => &[
+            "read_media_workspace", "read_media_source", "save_media_document", "patch_media_document", "request_media_generation", "read_media_generation", "wait_media_generation", "cancel_media_generation",
             "read_quality_notebook",
             "read_quality_review",
             "record_quality_note",
@@ -829,6 +920,9 @@ fn allowed_tools(operation: &str) -> &'static [&'static str] {
             "complete_task",
         ],
         "generateChapter" => &[
+            "authorize_delegated_writer",
+            "save_delegated_draft",
+            "read_delegated_draft",
             "read_quality_notebook",
             "read_context",
             "search_story",
@@ -901,19 +995,19 @@ fn tool_specs() -> Vec<Value> {
         ("query_story", "Execute a finite read-only evidence plan: text, passages, entity resolution, state and relations. text matches one contiguous substring; split multi-term questions into separate text steps. passages reads source text without keyword matching: cursor null first, maxChars 80-400, limit 1-4; continue with nextCursor under the same question and step ID. If pageComplete is false, reread the original cursor with smaller limit/maxChars instead of skipping omitted text. endOfScopeFromCursor never certifies prior pages or semantic completeness. ranking is required: literal first; modelSemantic keeps question/steps/byteBudget and binds literal contentHash with judgments for every returned resultId, score 0-1000, rationale at most 256 UTF-8 bytes. Whole plan at most 9000 bytes. Judgment is advice, not fact confirmation. Runtime derives task policy: project planning/review/advisory may read project evidence; rolling plans exclude future chapters; modeling and assessment bind source chapters. Writer retains chapter/scene/POV/time restrictions; unverified POV text remains hidden. No author state perspective or later identity/confirmation in bounded scope. Resolve evidenceRef in the shared dictionary; incomplete coverage is uncertainty, not absence."),
         ("search_relations", "Read relation claims within the bound task's source policy. Writer uses prior chapters and POV restrictions; revision assessment uses its frozen chapter scope. Returns source-bound evidence, never permission to change Canon."),
         ("request_planning_review", "Use a separate planning review when useful for the author goal; ordinary questions may be answered directly. Read the frozen current outline/plan first. Register its exact artifactKind/revisionId, targetNodeId (null means whole artifact), 1-3 distinct roles structure/character/experience. Choose only necessary views; preserve every view the author explicitly requested, and request additional views later only when findings justify them. Supply bounded focus (at most 1000 Unicode characters and 4000 UTF-8 bytes). Keep the original author intent; focus is only the review question, never new authority. Reuse idempotencyKey only for the identical request, with the current expectedIntentRevision. Host executes independent seats within this conversation Work remaining allowance. Registration is not saved reports or adoption; ordinary discussion does not require this tool."),
-        ("request_candidate_task", "Request a candidate task only after an explicit author instruction. generateChapter modifies an EXISTING chapter only. For new chapters, continuation or a batch such as the first 100 chapters, use request_generation_handoff(targetChapters=the actual requested count, instruction=the author goal); never invent a chapter ID or ask the author to create placeholder chapters. Planning artifacts do not satisfy a chapter creation goal. For an explicitly requested whole-chapter rewrite, verify the existing chapter and use target.scope={type:wholeChapter}; the worker reads its frozen original through writerBaselinePassages. Never ask the author to supply technical IDs. For generateChapter local edits, read the current draft first: target includes chapterId, chapterNumber and scope={type:selectedScenes,sourceRevisionId,groupIds:[stable sceneGroups id]}, at most 16 groups. Only selected bodies may change; preserve all other groups, order and metadata. Ambiguous targets require clarification, not whole-chapter rewriting. For reviseCommitment first read_commitment, then target requires commitmentId and its current revisionId; never guess an ambiguous identity. For extractCommitments target requires chapterId, chapterNumber and current sourceRevisionId. This records work, never confirms content."),
+        ("request_candidate_task", "Request a candidate task only after an explicit author instruction. generateChapter modifies an EXISTING chapter only. For new chapters, continuation or a batch such as the first 100 chapters, use request_generation_handoff(targetChapters=the actual requested count, instruction=the author goal); never invent a chapter ID or ask the author to create placeholder chapters. Planning artifacts do not satisfy a chapter creation goal. For an explicitly requested whole-chapter rewrite, verify the existing chapter and use target.scope={type:wholeChapter}; the worker reads its frozen original through writerBaselinePassages. Never ask the author to supply technical IDs. For every generateChapter include target.chapterAcceptance {requirements:[{id:stable criterion identity,text:author-derived requirement}],length:{requirement,minCharacters,maxCharacters}} before drafting; null bounds only when no length restriction. Choose chapterAcceptance.verification={method:direct|independent,reason} based on the author request. direct permits the root to inspect actual saved prose and submit a verifyChapter report in its Work decision; independent requires assessRevisionOutcome and must be chosen when the author explicitly requests independent review. Report existence is not passing. For generateChapter local edits, read the current draft first: target includes chapterId, chapterNumber and scope={type:selectedScenes,sourceRevisionId,groupIds:[stable sceneGroups id]}, at most 16 groups. Only selected bodies may change; preserve all other groups, order and metadata. For a paragraph or text edit, include scope.bodyRanges [{groupId,start,end}] with exactly one Unicode [start,end) range per selected group, bound to the read sourceRevisionId; all text outside stays unchanged. target.readScope is separate: {type:throughChapter} permits current and earlier chapters, or {type:throughScene,endSceneOrder} enforces an explicit prefix reading fence. Narrow writing alone must not limit necessary reading. Ambiguous targets require clarification, not whole-chapter rewriting. For reviseCommitment first read_commitment, then target requires commitmentId and its current revisionId; never guess an ambiguous identity. For extractCommitments target requires chapterId, chapterNumber and current sourceRevisionId. This registers work, never saves chapter text or confirms content. After registration immediately complete_task so Host can execute it, then verify the saved result in the next Work decision. Do not wait or register the same chapter again in this turn."),
         ("save_brief", "Save only a Brief candidate: required string premise, optional string promise/stakes/endingDirection. No chapter prose or other fields. This does not save chapters or formally adopt the brief."),
         ("save_property_rules", "Save a finite propertyRules candidate for the bound root task. Structural approval belongs only to Author Review; this never confirms values or executes descriptions/exceptions."),
         ("save_outline", "Save a reviewable Outline candidate."),
         ("save_chapter_plans", "Save reviewable ChapterPlan candidates."),
-        ("save_draft_checkpoint", "Save an immutable DraftRevision checkpoint. Supply chapterId and chapterNumber from the frozen target, title and completeness. Send exactly one full-text representation: body-only OR sceneGroups-only, never both. With sceneGroups omit body; MCP derives the canonical body without changing the groups. A bound planned whole-chapter chapterComplete requires explicit sceneGroups with at least one nonempty group mapped to an exact bound sceneId; all non-null sceneIds must be legal. Body-only is allowed for other checkpoints and unbound chapters. Selected-scene revisions still submit all original and edited groups, not a partial patch. Supplied groups require stable id, body and locked, with protected metadata preserved. Mapping does not mean planned effects were realized. Copy expectedCandidateRevisionId exactly from the manifest: absent head is JSON null, never the string \"null\". A rejected call has not saved the chapter; correct its arguments without changing target or CAS."),
+        ("save_draft_checkpoint", "Save an immutable DraftRevision checkpoint. Success returns the stored chapterId, checkpointId, revisionId, version and a committed-save instruction. Complete the writer task after this receipt. Its context/source reads remain frozen pre-edit inputs, not this saved revision; a fresh Work decision reads the actual saved result. Never resave merely because frozen input still contains old text. Supply chapterId and chapterNumber from the frozen target, title and completeness. Send exactly one full-text representation: body-only OR sceneGroups-only, never both. With sceneGroups omit body; MCP derives the canonical body without changing the groups. A bound planned whole-chapter chapterComplete requires explicit sceneGroups with at least one nonempty group mapped to an exact bound sceneId; all non-null sceneIds must be legal. Body-only is allowed for other checkpoints and unbound chapters. Selected-scene revisions still submit all original and edited groups, not a partial patch. Supplied groups require stable id, body and locked, with protected metadata preserved. Mapping does not mean planned effects were realized. Copy expectedCandidateRevisionId exactly from the manifest: absent head is JSON null, never the string \"null\". Local argument validation does not write; correct arguments without changing target or CAS. An invalid saved receipt may follow a committed write; inspect the stored checkpoint before retrying."),
         ("submit_scene_assessment", "Save a source-bound candidate assessment, not Canon. Every assessments item requires sceneId, verdict, rationale, recommendation and effectAssessments; every planned effect and bound commitment must be assessed exactly once. Copy actualEventRefs only as {modelingBatchId,assertionIndex} from this scene's scenePlanDraftLinks.actualEventRefs, never infer scene boundaries or borrow another scene's event. If actualSceneGroupIds or usable events are empty, use insufficientEvidence and empty event refs for effects and commitments, preserving bound reference/state; set the scene verdict to insufficientEvidence and recommend repairDraft for missing mapping. The scene verdict must match the effects and commitments; repairDraft is advice, not permission to change prose."),
-        ("submit_revision_outcome", "Save the revisionOutcome candidate for exactly the frozen writerTaskId. Compare approved desiredOutcomes with bound original and changed new scenes. Evidence needs groupId and an exact new scene body quote; Runtime anchors unique quotes. Optional Unicode start/end must both be correct; repeated quotes require explicit anchors or a longer unique quote. Every criterion exactly once; supported/unmet require evidence. This does not change Canon."),
+        ("submit_revision_outcome", "Save the revisionOutcome candidate for exactly the frozen writerTaskId. Read frozen chapterAcceptance and all desiredOutcomes; assess each criterion independently against the current saved prose, necessary prior sources and explicit nullable originalRevisionId (null for first writing). Acceptance criteria may cite unchanged preserved scenes; original scene-scoped desiredOutcomes must cite a changed selected scene. Native checks actual length separately. supported/unmet/insufficientEvidence are judgments, report existence never means passing. Evidence needs groupId and an exact new scene body quote; Runtime anchors unique quotes. Optional Unicode start/end must both be correct; repeated quotes require explicit anchors or a longer unique quote. Every criterion exactly once; supported/unmet require evidence. Every outcome includes issue:null when supported with no problem, or issue:{issueId,newIssue,resolutionOf}. Negative or insufficient judgments require a stable issue. In one actual report, multiple criteria may explicitly share a new issueId with the identical newIssue.summary and chapter, or newIssue:null referencing that report's definition in any order; all first-definition links have empty resolutionOf. Native registers the problem once and retains each criterion's observation; conflicting definitions are rejected and text is never automatically merged. Later reports must use that existing issueId with newIssue:null. Read read_work_issues for actual existing problem observations; a supported resolution explicitly cites its old observationIds in resolutionOf. Never invent observation IDs or rotate problem IDs to evade an unresolved finding. Omitted original requirements require objects with issue,requirement,reason,authorSourceChecks quoting actual authorRequirementsSource. This does not change Canon."),
         ("submit_commitment_extraction", "Atomically replace the complete narrative commitment proposal report bound to the task source and Unicode examined ranges. Submit the whole candidates array once, at most sixteen proposals and 40 KB; this does not append individual proposals. A later correction must include every proposal to retain, using the returned revisionId for CAS. The receipt candidateCount counts only that saved revision; report the last successful receipt count, never the sum of previous saves. Proposals are not established commitments or facts; empty candidates do not certify absence."),
         ("submit_commitment_candidate", "Save a source-validated candidate revision of exactly the bound existing commitment. Keep payload.id unchanged; origin is derived by Runtime. Does not create a commitment, confirm it or change Canon. Fulfillment requires exact current body evidence."),
         ("submit_planning_review_report", "Submit an evidence-based planning review report."),
         ("publish_knowledge_batch", "Atomically publish source-anchored candidate knowledge once. Each relation requires a same-batch propositionId; character epistemic claims must reference that proposition explicitly. A committed receipt means publication is durable and immutable: immediately call complete_task, never revise or republish the batch."),
-        ("complete_task", "Complete the bound task after persisted output validation. Final Work decision with no selected next action MUST submit deliveryReview bound to current read_work_status version/sourceDigest and all current saved revision outputs. This is agent self-assessment, never literary certification. Workers and decisions dispatching another action omit deliveryReview."),
+        ("complete_task", "Complete the bound task after persisted output validation. Final Work decision with no selected next action MUST submit deliveryReview bound to current read_work_status version/sourceDigest and all current saved revision outputs. unresolved entries are {issue:{issueId,newIssue,resolutionOf},observationId,reason}, copied from actual same-Work problems; a genuinely new non-prose obstacle may register newIssue with observationId:null. Current open, stale or disputed problems cannot be hidden by an empty list or a new issue ID. issueResolutions is always present ([] when none); only an existing same-Work non-prose problem may be resolved there using newIssue:null and actual prior observationIds in resolutionOf. Prose problems require a current independent revisionOutcome and cannot be solved by final self-assessment. This is agent self-assessment, never literary certification. Workers and decisions dispatching another action omit deliveryReview."),
     ]
     .into_iter()
     .map(|(name, description)| {
@@ -927,7 +1021,8 @@ fn tool_specs() -> Vec<Value> {
             "search_relations" => &["entityId"],
             "request_planning_review" => &["artifactKind", "revisionId", "targetNodeId", "roles", "focus", "idempotencyKey", "expectedIntentRevision"],
             "request_candidate_task" => &["operation", "target", "instruction", "idempotencyKey", "expectedIntentRevision"],
-            "save_brief" | "save_outline" | "save_chapter_plans" | "save_draft_checkpoint" | "save_property_rules" => {
+            "save_draft_checkpoint" => &["expectedCandidateRevisionId", "idempotencyKey"],
+            "save_brief" | "save_outline" | "save_chapter_plans" | "save_property_rules" => {
                 &["payload", "expectedCandidateRevisionId", "idempotencyKey"]
             }
             "submit_scene_assessment" | "submit_commitment_extraction" => {
@@ -1003,6 +1098,7 @@ fn tool_specs() -> Vec<Value> {
         }
         if name == "save_draft_checkpoint" {
             properties["payload"] = draft_schema::transport_payload();
+            properties["delegatedCandidateId"] = json!({"type":"string","minLength":1,"maxLength":160,"description":"Immutable isolated child candidate in this exact task. Use instead of payload; root integrates through the same protected normal write and CAS."});
             properties["expectedCandidateRevisionId"]["description"] = json!(
                 "Copy the manifest CAS value exactly. A missing candidate is JSON null, not the string \"null\"; never invent or convert a revision ID."
             );
@@ -1019,6 +1115,9 @@ fn tool_specs() -> Vec<Value> {
         if name == "submit_commitment_extraction" {
             properties["payload"] = extraction_schema::payload();
         }
+        if name == "submit_revision_outcome" {
+            properties["payload"] = revision_outcome_schema::payload();
+        }
         if name == "publish_knowledge_batch" {
             properties["entities"] = knowledge_schema::entities();
             properties["assertions"] = knowledge_schema::assertions();
@@ -1029,6 +1128,7 @@ fn tool_specs() -> Vec<Value> {
         // Publish only parameters consumed by this handler. Shared definitions
         // are not a shared contract: unrelated enums can reject valid task kinds.
         let optional: &[&str] = match name {
+            "save_draft_checkpoint" => &["payload","delegatedCandidateId"],
             "complete_task" => &["deliveryReview"],
             "read_context" => &["budget", "byteBudget", "storyTime", "readingChapter", "sceneOrder", "povCharacterId", "queryPlan"],
             "search_story" => &["kind", "cursor", "entityName", "entityId", "limit"],
@@ -1042,6 +1142,7 @@ fn tool_specs() -> Vec<Value> {
             "type": "object", "properties": properties,
             "required": required, "additionalProperties": false
         });
+        if name=="save_draft_checkpoint" {input_schema["oneOf"]=json!([{"required":["payload"],"not":{"required":["delegatedCandidateId"]}},{"required":["delegatedCandidateId"],"not":{"required":["payload"]}}]);}
         if name == "publish_knowledge_batch" {
             input_schema["$defs"] = knowledge_schema::definitions();
         }
@@ -1049,8 +1150,12 @@ fn tool_specs() -> Vec<Value> {
     })
     .chain(std::iter::once(chapter_structure_tool::spec()))
     .chain(std::iter::once(creative_strategy::spec()))
+    .chain(std::iter::once(capability_discovery::spec()))
     .chain(quality_tools::specs())
+    .chain(delegated_draft_tools::specs())
     .chain(task_source_tools::specs())
+    .chain(model_work_plan_tool::specs())
+    .chain(multimedia_tools::specs())
     .chain(std::iter::once(evidence_tool::spec()))
     .chain(std::iter::once(hypothesis_tool::spec()))
     .chain(reading_checkpoint_tools::specs())
@@ -1094,10 +1199,10 @@ fn validate_execution_identity(
     if (caller != root || !parent.is_empty())
         && matches!(
             tool_name,
-            "read_task_source"
-                | "read_work_status"
+            "read_work_status"
                 | "request_work_action"
-                | "request_generation_handoff"
+                                        | "read_work_plan" | "update_work_plan"
+                | "request_generation_handoff" | "pause_generation_run" | "read_revision_outcome"
         )
     {
         return Err("Task sources and Work decisions belong to the bound root task".into());
@@ -1112,14 +1217,17 @@ fn validate_execution_identity(
             tool_name,
             "read_context"
                 | "read_creative_strategy"
+                | "discover_creative_capabilities"
                 | "search_story"
                 | "search_relations"
                 | "query_story"
                 | "read_commitment"
+                | "read_task_source" | "read_source_content" | "read_work_issues" | "read_delegated_draft" | "save_delegated_draft"
         )
     {
-        return Err("Subagents may only use read-only tools".into());
+        return Err("Subagents may read sources or save explicitly authorized isolated candidates; parent owns formal writes and decisions".into());
     }
+    if caller!=root && parent!=root {return Err("Only trusted direct children may access delegated task tools".into());}
     if root.is_empty() || caller.is_empty() || session != root || thread_id != root {
         return Err("trusted execution identity does not match threadId".into());
     }
@@ -1244,6 +1352,9 @@ mod publication_gate_tests;
 #[cfg(test)]
 #[path = "draft_checkpoint_tests.rs"]
 mod draft_checkpoint_tests;
+
+#[cfg(test)]
+mod tool_result_contract_tests;
 
 #[cfg(test)]
 #[path = "conversation_analysis_tests.rs"]

@@ -23,6 +23,7 @@ fn project(repository: &mut SqliteStoryRepository, name: &str) -> ProjectId {
 }
 fn create(id: &str) -> CreateConversationRequest {
     CreateConversationRequest {
+        scope_id: None,
         thread_id: id.into(),
         title: "独立对话".into(),
         forked_from_id: None,

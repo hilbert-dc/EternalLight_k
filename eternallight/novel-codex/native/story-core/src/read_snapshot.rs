@@ -4,6 +4,7 @@ impl SqliteStoryRepository {
     /// Executes related authorization and retrieval reads against one SQLite snapshot.
     /// The closure must be read-only; writes belong to explicit domain transactions.
     pub fn with_read_snapshot<T>(&self, read: impl FnOnce() -> T) -> Result<T, RepositoryError> {
+        if !self.connection.is_autocommit() { return Ok(read()); }
         let snapshot = self
             .connection
             .unchecked_transaction()

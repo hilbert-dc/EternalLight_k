@@ -89,7 +89,7 @@ async fn conversation_first_plan_saves_against_unadopted_outline_with_exact_null
         "POST",
         "/api/projects",
         Actor::Author,
-        json!({"title":"潮汐信使","logline":"来信改变港城"}),
+        json!({"medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"潮汐信使","logline":"来信改变港城"}),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");

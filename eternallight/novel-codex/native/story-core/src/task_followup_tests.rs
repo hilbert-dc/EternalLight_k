@@ -158,7 +158,7 @@ fn cancelled_writer_after_body_publication_starts_exact_source_independent_analy
     // Work cannot be cancelled merely to construct this recovery scenario.
     let (mut repo, project) = writer_source_with_completion(false);
     let old = repo.work_task_for_attempt(&project, "writer").unwrap();
-    repo.control_work_task(&project, &old.id, "cancel", old.version, /*now*/ 2)
+    repo.control_work_task(&project, &old.id, "cancel", old.control_revision, /*now*/ 2)
         .unwrap();
     publish_body(&mut repo, &project);
     let old = repo.work_task(&project, &old.id).unwrap();

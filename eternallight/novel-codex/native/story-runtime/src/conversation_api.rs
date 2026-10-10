@@ -20,6 +20,8 @@ use crate::server::{RuntimeState, bad_request, error, repository_error};
 pub(crate) struct ListQuery {
     #[serde(default)]
     archived: bool,
+    #[serde(rename="scopeId")]
+    scope_id: Option<String>,
 }
 fn open(
     state: &RuntimeState,
@@ -58,7 +60,8 @@ pub(crate) async fn list(
         Ok(value) => value,
         Err(response) => return *response,
     };
-    match repository.conversations(&project, query.archived) {
+    let result=match query.scope_id.as_deref(){Some(scope)=>repository.scoped_conversations(&project,query.archived,scope),None=>repository.conversations(&project, query.archived)};
+    match result {
         Ok(conversations) => Json(json!({"conversations": conversations})).into_response(),
         Err(source) => conversation_error(source),
     }

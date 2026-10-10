@@ -9,8 +9,10 @@ use super::{RuntimeClient, publication_gate::PublicationGate};
 fn acknowledged_publication_closes_tools_but_preserves_root_completion_and_retry() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let client = RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: listener.local_addr().unwrap().port(),
@@ -27,7 +29,7 @@ fn acknowledged_publication_closes_tools_but_preserves_root_completion_and_retry
                 json!({"batchId":"batch","publicationState":"committed","receiptRef":"runtime:knowledge:batch","nextAction":"complete_task"}),
             ),
             (503, json!({"error":"temporarily unavailable"})),
-            (200, json!({"status":"completed"})),
+            (200, json!({"id":"model","projectId":"project","threadId":"root","status":"completed","resultSummary":"已发布"})),
         ] {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = Vec::new();
@@ -118,16 +120,17 @@ fn acknowledged_publication_closes_tools_but_preserves_root_completion_and_retry
         client
             .call("complete_task", &completion, &child)
             .unwrap_err(),
-        "Subagents may only use read-only tools"
+        "Subagents may read sources or save explicitly authorized isolated candidates; parent owns formal writes and decisions"
     );
     assert_eq!(
         client.call("complete_task", &completion, &root).unwrap().0,
         503
     );
-    assert_eq!(
-        client.call("complete_task", &completion, &root).unwrap(),
-        (200, json!({"status":"completed"}))
-    );
+    let completed = client.call("complete_task", &completion, &root).unwrap();
+    assert_eq!(completed.1["status"], "completed");
+    assert_eq!(completed.1["summary"], "已发布");
+    assert_eq!(client.call("complete_task", &completion, &root).unwrap(), completed);
+    assert_eq!(client.call("read_context", &context, &root).unwrap().1["code"], "task_already_completed");
     assert_eq!(
         server.join().unwrap(),
         vec![

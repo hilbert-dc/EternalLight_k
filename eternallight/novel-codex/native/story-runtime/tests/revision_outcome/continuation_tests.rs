@@ -109,15 +109,30 @@ async fn select_action(f: &Fixture, run: &Value, operation: &str) -> Value {
         .find(|action| action["operation"] == operation)
         .unwrap_or_else(|| panic!("missing {operation}: {read}"))["actionKey"]
         .clone();
+    if f.db()
+        .query_row(
+            "SELECT COUNT(*) FROM story_model_work_plans_v1 WHERE work_task_id=?1",
+            [parent["inputManifest"]["workDecision"]["workTaskId"]
+                .as_str()
+                .unwrap()],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap()
+        == 0
+    {
+        f.save_execution_plan(&parent, "generation-plan", "按作者原范围推进章节并独立验收")
+            .await;
+    }
+    let mut choice = json!({"taskId":id,"threadId":thread,"expectedRevision":revision,"expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],"actionKey":key,"instruction":"按作者授权继续一章，保持当前预算。","idempotencyKey":format!("choose-{operation}")});
+    if matches!(operation, "generateChapter" | "writeNextChapter") {
+        choice["chapterAcceptance"] = json!({"requirements":[{"id":"whole-chapter","text":"按当前作者要求保存完整章节"}],"length":{"requirement":"作者未要求明确篇幅限制","minCharacters":null,"maxCharacters":null}});
+    }
     let (status, selected) = f
         .request(
             "POST",
             &format!("/tasks/{id}/work-decision/actions"),
             CANDIDATE,
-            json!({"taskId":id,"threadId":thread,"expectedRevision":revision,
-            "expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],
-            "actionKey":key,"instruction":"按作者授权继续一章，保持当前预算。",
-            "idempotencyKey":format!("choose-{operation}")}),
+            choice,
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{selected}");
@@ -254,7 +269,7 @@ async fn invalid_unaccepted_or_cross_project_origins_reject_without_partial_auth
         "POST",
         "/api/projects",
         AUTHOR,
-        json!({"title":"其他作品"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"其他作品"}),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{other}");
@@ -510,7 +525,7 @@ async fn ordinary_starts_with_omitted_or_null_origin_create_no_relation() {
             "POST",
             "/api/projects",
             AUTHOR,
-            json!({"title":"普通创作"}),
+            json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"普通创作"}),
         )
         .await;
         assert_eq!(status, StatusCode::CREATED, "{project}");

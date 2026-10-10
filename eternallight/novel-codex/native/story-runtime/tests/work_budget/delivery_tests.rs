@@ -20,7 +20,9 @@ async fn work_get_list_and_attempt_routes_share_the_same_committed_delivery_evid
     assert_eq!(status, StatusCode::OK);
     let mut report = json!({"evidence":[{"stepId":format!("step-{task_id}"),"attemptId":task_id,
         "kind":"completionReport","referenceId":task_id,"state":"recorded"}],
-        "pendingActionIds":[],"unsettledAttemptIds":[task_id]});
+        "pendingActionIds":[],"unsettledAttemptIds":[task_id],"deliveryReview":null,
+        "chapterAcceptanceReports":[],"issues":{"entries":[],"openCount":0,"staleCount":0,
+        "disputedCount":0,"totalCount":0,"hasMore":false}});
     assert_eq!(
         (
             pending["status"].clone(),

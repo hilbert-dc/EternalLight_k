@@ -1,5 +1,6 @@
 use crate::{
-    BranchId, ModelingOutboxQuery, ProjectId, ProjectRecord, SnapshotId, SqliteStoryRepository,
+    BranchId, ModelingOutboxQuery, ProjectId, ProjectRecord, RepositoryError, SnapshotId,
+    SqliteStoryRepository,
 };
 use pretty_assertions::assert_eq;
 use rusqlite::params;
@@ -75,18 +76,33 @@ fn deletion_and_recreation_cannot_restore_an_old_cursor_watermark() {
         })
         .is_err()
     );
-    repo.connection
-        .execute(
+    {
+        // Current projects own edition and canon scopes. Clean their default
+        // references before deleting this fixture project; keep FK enforcement.
+        let tx = repo.connection.unchecked_transaction().unwrap();
+        tx.execute(
+            "DELETE FROM story_scope_branches_v1 WHERE project_id=?1",
+            [project.as_str()],
+        )
+        .unwrap();
+        tx.execute(
+            "DELETE FROM story_editions_v1 WHERE project_id=?1",
+            [project.as_str()],
+        )
+        .unwrap();
+        tx.execute(
             "DELETE FROM story_projects_v2 WHERE project_id=?1",
             [project.as_str()],
         )
         .unwrap();
-    assert!(
+        tx.commit().unwrap();
+    }
+    assert!(matches!(
         repo.modeling_outbox_page(ModelingOutboxQuery {
             project_id: &project,
             cursor: None,
             limit: 1,
-        })
-        .is_err()
-    );
+        }),
+        Err(RepositoryError::ProjectNotFound)
+    ));
 }

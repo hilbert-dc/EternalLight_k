@@ -109,7 +109,14 @@ fn task_bound_draft_output_and_completion_are_one_authority_chain() {
     assert_eq!(completed.capability_revoked_at, Some(10));
     assert_eq!(
         repository
-            .complete_task(&project_id, "task-1", "thread-1", "duplicate".into(), None, 20)
+            .complete_task(
+                &project_id,
+                "task-1",
+                "thread-1",
+                "duplicate".into(),
+                None,
+                20
+            )
             .unwrap(),
         completed
     );
@@ -210,7 +217,7 @@ fn blocked_task_reports_the_same_resume_barrier_as_the_domain_control() {
     assert_eq!(task.status, "blocked");
     assert_eq!(task.resume_block_reason.as_deref(), Some("partialOutput"));
     assert!(matches!(
-        repository.control_work_task(&project_id, &task.id, "resume", task.version, 11),
+        repository.control_work_task(&project_id, &task.id, "resume", task.control_revision, 11),
         Err(RepositoryError::TaskInputStale)
     ));
     repository
@@ -244,7 +251,7 @@ fn blocked_task_reports_the_same_resume_barrier_as_the_domain_control() {
         .unwrap();
     assert_eq!(stale.resume_block_reason.as_deref(), Some("inputChanged"));
     assert!(matches!(
-        repository.control_work_task(&project_id, &stale.id, "resume", stale.version, 13),
+        repository.control_work_task(&project_id, &stale.id, "resume", stale.control_revision, 13),
         Err(RepositoryError::TaskInputStale)
     ));
 }
@@ -421,7 +428,8 @@ fn cancelling_a_claimed_candidate_closes_its_action_request() {
             &project_id,
             "task-source",
             "thread-candidate",
-            "done".into(), None,
+            "done".into(),
+            None,
             2,
         )
         .unwrap();
@@ -496,7 +504,7 @@ fn older_paused_task_remains_visible_after_many_completed_tasks() {
     create_advice(&mut repository, "task-old");
     let old = repository.work_task(&project_id, "work-task-old").unwrap();
     repository
-        .control_work_task(&project_id, &old.id, "pause", old.version, 5)
+        .control_work_task(&project_id, &old.id, "pause", old.control_revision, 5)
         .unwrap();
     for index in 0..31 {
         let task_id = format!("task-new-{index}");
@@ -506,7 +514,8 @@ fn older_paused_task_remains_visible_after_many_completed_tasks() {
                 &project_id,
                 &task_id,
                 &format!("thread-{task_id}"),
-                "done".into(), None,
+                "done".into(),
+                None,
                 10,
             )
             .unwrap();
@@ -542,7 +551,7 @@ fn older_paused_task_remains_visible_after_many_completed_tasks() {
             &project_id,
             "work-task-after-page",
             "cancel",
-            refreshed.tasks[0].version,
+            refreshed.tasks[0].control_revision,
             20,
         )
         .unwrap();
@@ -636,7 +645,8 @@ fn recovered_attempt_with_persisted_complete_output_is_not_replayed() {
                 &project_id,
                 "task-receipt",
                 "thread-receipt",
-                "duplicate".into(), None,
+                "duplicate".into(),
+                None,
                 26
             )
             .unwrap(),
@@ -704,7 +714,8 @@ fn recovered_candidate_attempt_finishes_its_claimed_action() {
             &project_id,
             "task-source",
             "thread-action",
-            "讨论完毕".into(), None,
+            "讨论完毕".into(),
+            None,
             10,
         )
         .unwrap();
@@ -748,13 +759,41 @@ fn recovered_candidate_attempt_finishes_its_claimed_action() {
         .remove(0);
     assert_eq!(action.status, "completed");
     assert_eq!(action.result_task_id.as_deref(), Some("task-candidate"));
+    let work = repository
+        .work_task_for_attempt(&project_id, "task-candidate")
+        .unwrap();
     assert_eq!(
         repository
-            .work_task_for_attempt(&project_id, "task-candidate")
+            .task(&project_id, "task-candidate")
+            .unwrap()
             .unwrap()
             .status,
         "completed"
     );
+    assert_eq!(work.status, "running");
+    assert_eq!(work.delivery_status, "partial");
+    assert!(work.delivery_report.delivery_review.is_none());
+    assert_eq!(work.thread_id, "thread-action");
+    assert_eq!(
+        repository
+            .work_task_for_attempt(&project_id, "task-source")
+            .unwrap()
+            .id,
+        work.id
+    );
+    assert_eq!(work.steps.len(), 2);
+    assert!(work.steps.iter().all(|step| step.status == "completed"));
+    assert_eq!(
+        work.delivery_report
+            .evidence
+            .iter()
+            .find(|item| item.kind == "brief")
+            .unwrap()
+            .reference_id
+            .as_deref(),
+        Some("revision-action")
+    );
+    assert_eq!(repository.tasks(&project_id).unwrap().len(), 2);
     assert_eq!(
         repository
             .finish_task_action(
@@ -860,7 +899,14 @@ fn task_transitions_preserve_terminal_evidence_and_require_validated_completion(
             Err(RepositoryError::TaskNotWritable)
         ));
         assert!(matches!(
-            repository.complete_task(&project_id, &task_id, "thread-state", "done".into(), None, 10),
+            repository.complete_task(
+                &project_id,
+                &task_id,
+                "thread-state",
+                "done".into(),
+                None,
+                10
+            ),
             Err(RepositoryError::TaskOutputMissing)
         ));
         for status in ["running", "waiting", "running"] {
@@ -897,7 +943,14 @@ fn task_transitions_preserve_terminal_evidence_and_require_validated_completion(
             ));
         }
         assert!(matches!(
-            repository.complete_task(&project_id, &task_id, "thread-state", "done".into(), None, 20),
+            repository.complete_task(
+                &project_id,
+                &task_id,
+                "thread-state",
+                "done".into(),
+                None,
+                20
+            ),
             Err(RepositoryError::TaskNotWritable)
         ));
         assert_eq!(
@@ -967,7 +1020,8 @@ fn a_claimed_conversation_step_survives_interruption_without_duplicate_execution
             &project_id,
             "task-advice",
             "thread-workflow",
-            "done".into(), None,
+            "done".into(),
+            None,
             10,
         )
         .unwrap();
@@ -1020,7 +1074,7 @@ fn a_claimed_conversation_step_survives_interruption_without_duplicate_execution
     assert_eq!(interrupted.steps[1].status, "blocked");
     assert!(interrupted.steps[1].attempts[0].completed_at.is_some());
     repository
-        .control_work_task(&project_id, &claimed.id, "resume", interrupted.version, 21)
+        .control_work_task(&project_id, &claimed.id, "resume", interrupted.control_revision, 21)
         .unwrap();
     repository
         .create_task(request("task-retry", "generateBrief", target))
@@ -1036,7 +1090,7 @@ fn a_claimed_conversation_step_survives_interruption_without_duplicate_execution
     );
     assert_eq!(retried.steps[1].attempts[1].attempt_number, 2);
     repository
-        .control_work_task(&project_id, &claimed.id, "cancel", retried.version, 30)
+        .control_work_task(&project_id, &claimed.id, "cancel", retried.control_revision, 30)
         .unwrap();
     assert_eq!(
         repository
@@ -1091,19 +1145,19 @@ fn task_control_returns_its_committed_snapshot_and_rejects_stale_cross_connectio
     let mut second = SqliteStoryRepository::open(&path).unwrap();
     let before = second.work_task(&project_id, "work-task-control").unwrap();
     let paused = first
-        .control_work_task(&project_id, &before.id, "pause", before.version, 10)
+        .control_work_task(&project_id, &before.id, "pause", before.control_revision, 10)
         .unwrap();
     assert_eq!(paused.status, "paused");
     assert_eq!(paused, second.work_task(&project_id, &before.id).unwrap());
     assert!(matches!(
-        second.control_work_task(&project_id, &before.id, "cancel", before.version, 11),
+        second.control_work_task(&project_id, &before.id, "cancel", before.control_revision, 11),
         Err(RepositoryError::WorkTaskStale)
     ));
     let page = second.work_tasks_page(&project_id, None).unwrap();
     assert_eq!(page.active_count, 1);
     assert_eq!(page.tasks, vec![paused.clone()]);
     let cancelled = second
-        .control_work_task(&project_id, &before.id, "cancel", paused.version, 12)
+        .control_work_task(&project_id, &before.id, "cancel", paused.control_revision, 12)
         .unwrap();
     assert_eq!(cancelled.status, "cancelled");
     assert_eq!(cancelled, first.work_task(&project_id, &before.id).unwrap());

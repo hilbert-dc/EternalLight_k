@@ -66,15 +66,29 @@ pub(crate) async fn charge_usage(
             "engine budget database is not configured",
         );
     };
-    let receipt =
-        match eternallight_engine_core::PersistentBudget::receipt(budget_path, &request.task_id) {
-            Ok(receipt) => receipt,
-            Err(error) => return bad_request("engine_budget_receipt_unavailable", error),
-        };
     let mut repo = match SqliteStoryRepository::open(&state.database_path) {
         Ok(repo) => repo,
         Err(error) => return repository_error(error),
     };
+    let receipt =
+        match eternallight_engine_core::PersistentBudget::receipt(budget_path, &request.task_id) {
+            Ok(receipt) => receipt,
+            // Exact absence is distinct from a corrupt, active or unreadable
+            // ledger. Terminal Native evidence additionally fences any turn/write.
+            Err(error) if error == "persistent budget run not found" => {
+                match repo.unstarted_work_usage_receipt(&project, &work_id, &request.task_id) {
+                    Ok(receipt) => receipt,
+                    Err(error) => return repository_error(error),
+                }
+            },
+            Err(_) if std::fs::metadata(budget_path).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound) => {
+                match repo.undispatched_message_usage_receipt(&project, &work_id, &request.task_id) {
+                    Ok(receipt) => receipt,
+                    Err(error) => return repository_error(error),
+                }
+            },
+            Err(error) => return bad_request("engine_budget_receipt_unavailable", error),
+        };
     match repo.charge_work_provider_usage(&project, &work_id, &request.task_id, &receipt) {
         Ok(budget) => Json(budget).into_response(),
         Err(error) => repository_error(error),

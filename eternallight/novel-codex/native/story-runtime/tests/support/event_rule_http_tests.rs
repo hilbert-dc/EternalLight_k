@@ -24,7 +24,7 @@ async fn adopted_rules_scan_unselected_counterclaims_and_preserve_historical_aut
         &path,
         "POST",
         "/api/projects",
-        json!({"title":"条件反证"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"条件反证"}),
         Role::Author,
     )
     .await;

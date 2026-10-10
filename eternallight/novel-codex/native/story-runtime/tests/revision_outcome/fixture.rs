@@ -20,6 +20,21 @@ const CAPABILITY: &str = "outcome-capability-123456789012345678";
 pub(super) const INTENT: &str = "把烧信改为藏信；说明她尚未坦白。保留开场、守卫和结尾。";
 pub(super) const NEW_BODY: &str = "🌙她将密函藏进衣襟。她没有向守卫坦白。";
 
+pub(super) fn expected_issue_summaries(
+    current_draft: &Value,
+    status: &str,
+    observation_count: usize,
+) -> Value {
+    json!([
+        {"issueId":"confession-missing","summary":"林夕仍未向守卫坦白密函的存在",
+         "status":status,"chapterId":"chapter-one","currentDraftRevisionId":current_draft,
+         "observations":[],"observationCount":observation_count,"hasMoreObservations":true},
+        {"issueId":"guard-motive-missing","summary":"守卫沉默的动机缺少新稿证据",
+         "status":status,"chapterId":"chapter-one","currentDraftRevisionId":current_draft,
+         "observations":[],"observationCount":observation_count,"hasMoreObservations":true}
+    ])
+}
+
 pub(super) struct Fixture {
     pub directory: tempfile::TempDir,
     pub app: Router,
@@ -42,6 +57,12 @@ impl Fixture {
         Self::with_letter("她烧掉密函。").await
     }
     pub async fn with_letter(letter: &str) -> Self {
+        Self::with_book(letter, 1).await
+    }
+    pub async fn with_long_book(chapters: i64) -> Self {
+        Self::with_book("她烧掉密函。", chapters).await
+    }
+    async fn with_book(letter: &str, number: i64) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let app = router(task_fixture::state(
             directory.path().join("outcomes.sqlite3"),
@@ -53,7 +74,7 @@ impl Fixture {
             "POST",
             "/api/projects",
             AUTHOR,
-            json!({"title":"改稿证据"}),
+            json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"改稿证据"}),
         )
         .await;
         assert_eq!(status, StatusCode::CREATED, "{created}");
@@ -61,7 +82,36 @@ impl Fixture {
             "/api/projects/{}",
             created["project"]["id"].as_str().unwrap()
         );
-        let mut payload = json!({"chapterId":"chapter-one","chapterNumber":1,"title":"密函",
+        if number > 1 {
+            // Immutable domain seeds before any author task; real HTTP reads below.
+            let mut db =
+                rusqlite::Connection::open(directory.path().join("outcomes.sqlite3")).unwrap();
+            let tx = db.transaction().unwrap();
+            let project = created["project"]["id"].as_str().unwrap();
+            for n in 1..number {
+                let chapter = format!("prior-{n}");
+                let object = format!("draft-{chapter}");
+                let revision = format!("prior-revision-{n}");
+                let body = if n == 7 {
+                    format!("远章独有的实际证据。{}", "前文章节内容。".repeat(1000))
+                } else {
+                    "前文章节内容。".repeat(1000)
+                };
+                tx.execute(
+                    "INSERT INTO story_chapters_v2 VALUES(?1,?2,?3,?4,'candidate','')",
+                    rusqlite::params![chapter, project, n, format!("第{n}章")],
+                )
+                .unwrap();
+                tx.execute("INSERT INTO story_revisions_v2 VALUES(?1,?2,?3,'draft',NULL,'seed-digest',?4)",rusqlite::params![revision,project,object,json!({"chapterId":chapter,"chapterNumber":n,"title":format!("第{n}章"),"body":body,"completeness":"chapterComplete","sceneGroups":[{"id":"prior-scene","body":body}]}).to_string()]).unwrap();
+                tx.execute(
+                    "INSERT INTO story_object_heads_v2 VALUES(?1,?2,'draft',?3,NULL,0)",
+                    rusqlite::params![project, object, revision],
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+        }
+        let mut payload = json!({"chapterId":"chapter-one","chapterNumber":number,"title":"密函",
             "sceneGroups":[
                 {"id":"opening","sceneId":null,"body":"林夕走进港口。","locked":false},
                 {"id":"letter","sceneId":null,"body":letter,"locked":false},
@@ -87,7 +137,13 @@ impl Fixture {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{workspace}");
-        let mut original = workspace["chapters"][0]["candidate"].clone();
+        let mut original = workspace["chapters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|chapter| chapter["id"] == "chapter-one")
+            .unwrap()["candidate"]
+            .clone();
         assert_eq!(original["id"], checkpoint["revisionId"]);
         original["revisionId"] = checkpoint["revisionId"].clone();
         original["title"] = payload["title"].clone();
@@ -106,18 +162,23 @@ impl Fixture {
                     "expectedSourceDigest":workspace["sourceDigest"],
                     "maxRequests":16,"maxTokens":200_000,"deadlineAt":now+900}})).await;
         assert_eq!(status, StatusCode::CREATED, "{discussion}");
-        let target = json!({"type":"chapter","chapterId":"chapter-one","chapterNumber":1,
-            "readingChapter":1,"sceneOrder":1,
+        let target = json!({"type":"chapter","chapterId":"chapter-one","chapterNumber":number,
+            "readingChapter":number,"sceneOrder":1,
+            "chapterAcceptance":{"requirements":[{"id":"whole-chapter","text":"保留开场、守卫和结尾"}],"length":{"requirement":"作者未要求调整章节篇幅","minCharacters":null,"maxCharacters":null}},
             "scope":{"type":"selectedScenes","sourceRevisionId":original["revisionId"],
                 "groupIds":["letter","witness"]},"desiredOutcomes":desired_outcomes()});
-        Self {
+        let fixture = Self {
             directory,
             app,
             root,
             original,
             target,
             discussion,
-        }
+        };
+        fixture
+            .save_execution_plan(&fixture.discussion, "author-revision-plan", INTENT)
+            .await;
+        fixture
     }
 
     pub fn path(&self) -> std::path::PathBuf {
@@ -147,6 +208,27 @@ impl Fixture {
             body,
         )
         .await
+    }
+    pub async fn save_execution_plan(&self, task: &Value, key: &str, acceptance: &str) {
+        let (status, saved) = self
+            .request(
+                "POST",
+                &format!("/tasks/{}/work-plan", task["id"].as_str().unwrap()),
+                CANDIDATE,
+                json!({"taskId":task["id"],"threadId":task["threadId"],
+                    "expectedRevision":task["inputRevision"],"expectedPlanVersion":0,
+                    "idempotencyKey":key,"plan":{"intentMode":"executeGoals","goals":[{
+                        "id":"revision-goal","title":"完成作者批准的选定场景修订及评估",
+                        "acceptance":acceptance,"kind":"deliverable","status":"inProgress",
+                        "dependsOn":[],"readingQuestion":"核对原稿与选定场景实际改动",
+                        "checkScope":"作者批准的修订来源与同章场景","approach":"修订后评估真实成果",
+                        "assessment":"","evidence":[],"sourceIds":[],"sourceChecks":[],
+                        "continuation":null}]}}),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{saved}");
+        assert_eq!(saved["activeGoalId"], "revision-goal");
+        assert_eq!(saved["grantsExecution"], false);
     }
     pub fn actions_path(&self) -> String {
         format!("/tasks/{}/actions", self.discussion["id"].as_str().unwrap())
@@ -194,6 +276,7 @@ impl Fixture {
             // Mandatory work remains incomplete: do not fabricate a review to
             // bypass the expected TaskOutputMissing rejection in negative tests.
             if first["deliveryReviewRequired"] == true {
+                self.read_author_requirements(task).await;
                 let mut page = first.clone();
                 let mut evidence = Vec::new();
                 loop {
@@ -223,7 +306,7 @@ impl Fixture {
                     assert_eq!(next["sourceDigest"], first["sourceDigest"]);
                     page = next;
                 }
-                body["deliveryReview"] = json!({"expectedWorkVersion":first["version"],"expectedSourceDigest":first["sourceDigest"],"goalStatus":"fulfilled","goalAssessment":"已核对本次授权改稿和实际保存成果","checkedScope":"本Work已保存回执，不宣称额外文学质量检查","unresolved":[],"authorDecisions":[],"evidence":evidence});
+                body["deliveryReview"] = json!({"expectedWorkVersion":first["version"],"expectedSourceDigest":first["sourceDigest"],"goalStatus":"fulfilled","goalAssessment":"已核对本次授权改稿和实际保存成果","checkedScope":"本Work已保存回执，不宣称额外文学质量检查","unresolved":[],"issueResolutions":[],"authorDecisions":[],"evidence":evidence});
             }
         }
         self.request(
@@ -233,6 +316,71 @@ impl Fixture {
             body,
         )
         .await
+    }
+    pub async fn read_author_requirements(&self, task: &Value) {
+        let (status, context) = self
+            .request(
+                "GET",
+                &format!(
+                    "/context?taskId={}&threadId={}&projectRevision={}&purpose={}",
+                    task["id"].as_str().unwrap(),
+                    task["threadId"].as_str().unwrap(),
+                    task["inputRevision"],
+                    task["purpose"].as_str().unwrap()
+                ),
+                CANDIDATE,
+                Value::Null,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{context}");
+        let source = context["taskSources"]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["sectionPath"] == "/authorRequirementsSource")
+            .unwrap();
+        let mut cursor = None;
+        loop {
+            let (status,page)=self.request("GET",&format!("/tasks/{}/task-source-content?threadId={}&expectedRevision={}&sourceId={}{}",task["id"].as_str().unwrap(),task["threadId"].as_str().unwrap(),task["inputRevision"],source["sourceId"].as_str().unwrap(),cursor.as_ref().map(|c:&String|format!("&cursor={}",c.replace(':',"%3A"))).unwrap_or_default()),CANDIDATE,Value::Null).await;
+            assert_eq!(status, StatusCode::OK, "{page}");
+            assert_eq!(page["contentHash"], source["contentHash"]);
+            assert_eq!(page["contentRead"], true);
+            cursor = page["nextCursor"].as_str().map(str::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+        }
+    }
+    pub async fn issue_observations(&self, task: &Value, issue_id: &str) -> Vec<Value> {
+        let mut cursor = 0;
+        let mut observations = Vec::new();
+        loop {
+            let (status, page) = self
+                .request(
+                    "GET",
+                    &format!(
+                        "/tasks/{}/work-issues?threadId={}&expectedRevision={}&issueId={issue_id}&cursor={cursor}&limit=16",
+                        task["id"].as_str().unwrap(),
+                        task["threadId"].as_str().unwrap(),
+                        task["inputRevision"]
+                    ),
+                    CANDIDATE,
+                    Value::Null,
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK, "{page}");
+            assert_eq!(page["issueId"], issue_id);
+            observations.extend(page["entries"].as_array().unwrap().iter().cloned());
+            if page["nextCursor"].is_null() {
+                assert_eq!(
+                    observations.len() as u64,
+                    page["totalCount"].as_u64().unwrap()
+                );
+                break;
+            }
+            cursor = page["nextCursor"].as_u64().unwrap();
+        }
+        observations
     }
     pub fn settle(&self, task: &Value) {
         settle_fixture::settle(
@@ -305,7 +453,7 @@ impl Fixture {
         request["inputRevision"] = queued["inputRevision"].clone();
         let (code, parent) = self.request("POST", "/tasks", AUTHOR, request).await;
         assert_eq!(code, StatusCode::CREATED, "{parent}");
-        let (code, status) = self
+        let (code, mut status) = self
             .request(
                 "GET",
                 &format!(
@@ -319,6 +467,31 @@ impl Fixture {
             )
             .await;
         assert_eq!(code, StatusCode::OK, "{status}");
+        let mut cursor = status["pagination"]["nextCursor"].clone();
+        while let Some(next) = cursor.as_str() {
+            let (code, page) = self
+                .request(
+                    "GET",
+                    &format!(
+                        "/tasks/{}/work-decision?threadId={}&expectedRevision={}&cursor={next}",
+                        parent["id"].as_str().unwrap(),
+                        parent["threadId"].as_str().unwrap(),
+                        parent["inputRevision"]
+                    ),
+                    CANDIDATE,
+                    Value::Null,
+                )
+                .await;
+            assert_eq!(code, StatusCode::OK, "{page}");
+            assert_eq!(page["version"], status["version"]);
+            for field in ["requirements", "readyActions"] {
+                status[field]
+                    .as_array_mut()
+                    .unwrap()
+                    .extend(page[field].as_array().unwrap().iter().cloned());
+            }
+            cursor = page["pagination"]["nextCursor"].clone();
+        }
         (parent, status)
     }
     pub async fn choose(&self, source: &Value, operation: &str) -> Value {
@@ -461,7 +634,7 @@ pub(super) async fn call(
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     (
         status,
-        serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes))),
+        task_fixture::work_control_response(uri, status, serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)))),
     )
 }
 
@@ -472,7 +645,7 @@ pub(super) async fn read_context_source(
     pack: &Value,
     path: &str,
 ) -> Value {
-    assert_eq!(pack["taskSources"]["readTool"], "read_task_source");
+    assert_eq!(pack["taskSources"]["readTool"], "read_source_content");
     assert_eq!(pack["taskSources"]["textDelivered"], false);
     let entry = pack["taskSources"]["entries"]
         .as_array()

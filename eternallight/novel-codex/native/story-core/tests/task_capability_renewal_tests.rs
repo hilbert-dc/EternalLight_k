@@ -181,7 +181,7 @@ fn paused_work_cannot_extend_a_live_task_capability() {
         .work_task(&original.project_id, &work_id)
         .unwrap();
     repository
-        .control_work_task(&original.project_id, &work_id, "pause", work.version, 1400)
+        .control_work_task(&original.project_id, &work_id, "pause", work.control_revision, 1400)
         .unwrap();
     let before = repository
         .task(&original.project_id, &original.task_id)

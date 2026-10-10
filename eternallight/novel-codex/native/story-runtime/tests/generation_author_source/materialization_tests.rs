@@ -200,7 +200,7 @@ async fn read_context_source(
     pack: &Value,
     section: &str,
 ) -> Value {
-    assert_eq!(pack["taskSources"]["readTool"], "read_task_source");
+    assert_eq!(pack["taskSources"]["readTool"], "read_source_content");
     assert_eq!(pack["taskSources"]["textDelivered"], false);
     let entry = pack["taskSources"]["entries"]
         .as_array()
@@ -264,7 +264,7 @@ async fn scene_context_source(padding: &str, operations: &[&str]) {
     let (_directory, path, base, plan, run) = materialized().await;
     let chapter = run["currentChapterId"].as_str().unwrap();
     // Internal whitespace tests byte accounting without expanding the unrelated text consumers' token budget.
-    let repetitions = if padding.is_empty() { 100 } else { 350 };
+    let repetitions = if padding.is_empty() { 100 } else { 1000 };
     let first = format!("{}{padding}end", "林夕拾起密函。🌊".repeat(repetitions));
     let body = format!("{first}\n\n---\n\n她听见远处的钟声。");
     let groups = json!([
@@ -353,9 +353,15 @@ async fn scene_context_source(padding: &str, operations: &[&str]) {
             let item=json!({"type":"function_call_output","call_id":"x".repeat(/*n*/160),"output":result.to_string()});
             assert!(eternallight_engine_core::dispatch("tokens.count",json!(item.to_string())).unwrap().as_u64().unwrap()<=9000);
             if !padding.is_empty() {
-                assert!(body.len()>14000);
-                let (status,reference_pack)=call(&path,"GET",&uri.replace("byteBudget=60000","byteBudget=14000"),Value::Null,CANDIDATE).await;
+                let context_byte_budget = 24000;
+                assert!(body.len()>context_byte_budget);
+                let (status,reference_pack)=call(&path,"GET",&uri.replace("byteBudget=60000",&format!("byteBudget={context_byte_budget}")),Value::Null,CANDIDATE).await;
                 assert_eq!(status,StatusCode::OK,"long source reference: {reference_pack}");
+                assert!(reference_pack.to_string().len()<=context_byte_budget);
+                assert!(reference_pack["budgetsUsed"]["byteSize"].as_u64().unwrap()<=context_byte_budget as u64);
+                let reference_result=json!({"content":[{"type":"text","text":reference_pack.to_string()}]});
+                let reference_item=json!({"type":"function_call_output","call_id":"x".repeat(160),"output":reference_result.to_string()});
+                assert!(eternallight_engine_core::dispatch("tokens.count",json!(reference_item.to_string())).unwrap().as_u64().unwrap()<=9000);
             }
             let (status,small)=call(&path,"GET",&uri.replace("byteBudget=60000","byteBudget=4096"),Value::Null,CANDIDATE).await;
             assert_eq!((status,small["error"]["code"].clone()),(StatusCode::UNPROCESSABLE_ENTITY,json!("context_budget_exceeded")));

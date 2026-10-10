@@ -13,7 +13,7 @@ async fn event_evolution_separates_world_claims_confirmation_history_and_effects
         &path,
         "POST",
         "/api/projects",
-        json!({"title":"交信演进"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"交信演进"}),
         Role::Author,
     )
     .await;

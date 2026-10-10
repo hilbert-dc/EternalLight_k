@@ -89,7 +89,7 @@ async fn whole_writer_pages_frozen_baseline_without_pov_world_access_or_latest_s
         "POST",
         "/api/projects",
         AUTHOR,
-        json!({"title":"冻结原稿"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"冻结原稿"}),
     )
     .await;
     let base = format!(
@@ -109,14 +109,13 @@ async fn whole_writer_pages_frozen_baseline_without_pov_world_access_or_latest_s
     );
     let (status, context) = call(&app, "GET", &context_uri, CANDIDATE, Value::Null).await;
     assert_eq!(status, StatusCode::OK, "{context}");
-    assert_eq!(
-        context["operationContext"]["requiredSourceReads"]["sourceRevisionId"],
-        saved["revisionId"]
-    );
-    assert_eq!(
-        context["operationContext"]["requiredSourceReads"]["plan"]["steps"][0]["operation"]["type"],
-        "writerBaselinePassages"
-    );
+    let frozen = read_section(&app, &base, &task, &context, "/relevantText").await;
+    assert_eq!(frozen.as_array().unwrap().len(), 1);
+    assert_eq!(frozen[0]["sourceRevisionId"], saved["revisionId"]);
+    assert_eq!(frozen[0]["content"]["sceneGroups"], payload["sceneGroups"]);
+    assert_eq!(frozen[0]["content"]["sceneGroups"][0]["body"], body);
+    assert_eq!(frozen[0]["authority"], "frozenWriterInput");
+    assert_model_item_bound(&context);
     assert!(!context.to_string().contains(body.as_str()));
     let (_, ordinary) = query(&app, &base, &task, "passages", Value::Null).await;
     assert_eq!(ordinary["steps"][0]["results"], json!([]));
@@ -161,10 +160,9 @@ async fn whole_writer_pages_frozen_baseline_without_pov_world_access_or_latest_s
     }
     assert!(covered.iter().all(|read| *read));
     let (_, after) = call(&app, "GET", &context_uri, CANDIDATE, Value::Null).await;
-    assert_eq!(
-        after["operationContext"]["requiredSourceReads"]["sourceRevisionId"],
-        saved["revisionId"]
-    );
+    let after_source = read_section(&app, &base, &task, &after, "/relevantText").await;
+    assert_eq!(after_source, frozen);
+    assert_eq!(after_source[0]["sourceRevisionId"], saved["revisionId"]);
     let foreign = writer(&app, &base, json!({"type":"wholeChapter"}), "other-writer").await;
     assert_eq!(
         query(
@@ -207,7 +205,7 @@ async fn baseline_source_is_frozen_author_selection_and_empty_first_write_is_not
         "POST",
         "/api/projects",
         AUTHOR,
-        json!({"title":"原稿来源"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"原稿来源"}),
     )
     .await;
     let base = format!(
@@ -308,4 +306,169 @@ async fn baseline_source_is_frozen_author_selection_and_empty_first_write_is_not
         .unwrap()];
     assert_eq!(evidence["sourceRevisionId"], newer["revisionId"]);
     assert_eq!(evidence["quote"], "较新候选");
+}
+
+fn assert_model_item_bound(value: &Value) {
+    let result = json!({"content":[{"type":"text","text":value.to_string()}]});
+    let item = json!({"type":"function_call_output","call_id":"x".repeat(160),"output":result.to_string()});
+    let tokens = eternallight_engine_core::dispatch("tokens.count", json!(item.to_string()))
+        .unwrap()
+        .as_u64()
+        .unwrap();
+    assert!(tokens <= 9000, "actual model item has {tokens} tokens");
+}
+
+async fn read_section(
+    app: &Router,
+    root: &str,
+    task: &Value,
+    context: &Value,
+    section: &str,
+) -> Value {
+    let entry = context["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["sectionPath"] == section)
+        .unwrap_or_else(|| panic!("missing current source {section}: {context}"));
+    assert_eq!(
+        context.pointer(section).unwrap()["sourceId"],
+        entry["sourceId"]
+    );
+    read_content(
+        app,
+        root,
+        task,
+        entry["sourceId"].as_str().unwrap(),
+        entry["contentHash"].as_str(),
+    )
+    .await
+}
+
+// Rebuild only the actually returned parsed fields; no database/author read can
+// stand in for the task's complete source transport and character coverage.
+async fn read_content(
+    app: &Router,
+    root: &str,
+    task: &Value,
+    source: &str,
+    expected_hash: Option<&str>,
+) -> Value {
+    let endpoint = format!(
+        "{root}/tasks/{}/task-source-content?threadId={}&expectedRevision={}&sourceId={source}",
+        task["id"].as_str().unwrap(),
+        task["threadId"].as_str().unwrap(),
+        task["inputRevision"]
+    );
+    let mut cursor = String::new();
+    let mut content_hash = expected_hash.map(str::to_owned);
+    let mut returned = Value::Null;
+    let mut chunks = std::collections::BTreeMap::<String, (usize, usize, String)>::new();
+    let mut from = 0usize;
+    let mut total = None;
+    loop {
+        let (status, page) = call(
+            app,
+            "GET",
+            &format!("{endpoint}{cursor}"),
+            CANDIDATE,
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], source);
+        assert_eq!(page["representation"], "parsedFields");
+        assert_eq!(page["contentRead"], true);
+        assert!(page.to_string().len() <= 6500);
+        assert_model_item_bound(&page);
+        let hash = page["contentHash"].as_str().unwrap();
+        assert_eq!(
+            content_hash.get_or_insert_with(|| hash.to_owned()).as_str(),
+            hash
+        );
+        assert_eq!(page["coverage"]["fromEntry"], from);
+        let entries = page["entries"].as_array().unwrap();
+        assert!(!entries.is_empty());
+        from += entries.len();
+        assert_eq!(page["coverage"]["toEntry"], from);
+        let count = page["coverage"]["totalEntries"].as_u64().unwrap() as usize;
+        assert_eq!(*total.get_or_insert(count), count);
+        assert!(from <= count);
+        for entry in entries {
+            let pointer = entry["path"].as_str().unwrap();
+            if let Some(text) = entry["text"].as_str() {
+                let range = &entry["characterRange"];
+                let start = range["start"].as_u64().unwrap() as usize;
+                let end = range["end"].as_u64().unwrap() as usize;
+                let full = range["total"].as_u64().unwrap() as usize;
+                let chunk = chunks
+                    .entry(pointer.to_owned())
+                    .or_insert((0, full, String::new()));
+                assert_eq!((start, full), (chunk.0, chunk.1));
+                assert_eq!(end, start + text.chars().count());
+                assert!(end <= full);
+                chunk.0 = end;
+                chunk.2.push_str(text);
+            } else {
+                assert!(entry.get("value").is_some(), "{entry}");
+                set_field(&mut returned, pointer, entry["value"].clone());
+            }
+        }
+        if let Some(next) = page["nextCursor"].as_str() {
+            assert!(from < count);
+            let next = format!("&cursor={next}");
+            assert_ne!(next, cursor);
+            cursor = next;
+        } else {
+            assert_eq!(from, count);
+            break;
+        }
+    }
+    for (pointer, (end, total, text)) in chunks {
+        assert_eq!(end, total);
+        set_field(&mut returned, &pointer, json!(text));
+    }
+    assert_eq!(
+        format!("{:x}", Sha256::digest(returned.to_string().as_bytes())),
+        content_hash.unwrap()
+    );
+    returned
+}
+
+fn set_field(value: &mut Value, pointer: &str, field: Value) {
+    let parts: Vec<String> = pointer.strip_prefix('/').map_or_else(Vec::new, |pointer| {
+        pointer
+            .split('/')
+            .map(|part| part.replace("~1", "/").replace("~0", "~"))
+            .collect()
+    });
+    fn put(value: &mut Value, parts: &[String], field: Value) {
+        let Some((part, rest)) = parts.split_first() else {
+            *value = field;
+            return;
+        };
+        if value.is_null() {
+            *value = if part.parse::<usize>().is_ok() {
+                json!([])
+            } else {
+                json!({})
+            };
+        }
+        match value {
+            Value::Array(items) => {
+                let index = part.parse::<usize>().unwrap();
+                if items.len() <= index {
+                    items.resize(index + 1, Value::Null);
+                }
+                put(&mut items[index], rest, field);
+            }
+            Value::Object(object) => put(
+                object.entry(part.clone()).or_insert(Value::Null),
+                rest,
+                field,
+            ),
+            _ => panic!("non-container returned source at {parts:?}"),
+        }
+    }
+    put(value, &parts, field);
 }

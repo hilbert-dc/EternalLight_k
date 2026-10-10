@@ -341,7 +341,7 @@ fn revising_a_confirmed_commitment_preserves_acceptance_and_cancel_revokes_furth
         )
     );
     let work = repo.work_task_for_attempt(&project(), "revise").unwrap();
-    repo.control_work_task(&project(), &work.id, "cancel", work.version, /*now*/ 5)
+    repo.control_work_task(&project(), &work.id, "cancel", work.control_revision, /*now*/ 5)
         .unwrap();
     assert_eq!(
         repo.task_commitment("revise", "lamp"),

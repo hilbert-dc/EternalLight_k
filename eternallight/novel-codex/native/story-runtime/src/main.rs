@@ -15,6 +15,8 @@ use novel_codex_story_runtime::router;
 struct Credentials {
     candidate_token: String,
     author_token: String,
+    media_host_url: Option<String>,
+    media_host_token: Option<String>,
 }
 
 struct Arguments {
@@ -57,12 +59,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let snapshot_knowledge_audit_database = arguments.db.clone();
     let fact_audit_database = arguments.db.clone();
     let condition_database = arguments.db.clone();
-    let state = RuntimeState::new(
+    let mut state = RuntimeState::new(
         arguments.db,
         credentials.author_token,
         credentials.candidate_token,
     )
     .with_engine_budget_database(arguments.engine_budget_db);
+    match (credentials.media_host_url,credentials.media_host_token) {
+        (Some(url),Some(token))=>state=state.with_media_host_callback(url,token)?,
+        (None,None)=>{},
+        _=>return Err("media Host URL and token must be provided together".into()),
+    }
     let listener = tokio::net::TcpListener::bind((arguments.host, arguments.port)).await?;
     std::thread::Builder::new()
         .name("story-search-audit".into())

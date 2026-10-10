@@ -123,7 +123,7 @@ fn candidate_attempts_reconstruct_author_history_after_reopen_and_ignore_client_
     }
     fail(&mut repo, &child);
     let work = repo.work_task_for_attempt(&project(), "child").unwrap();
-    repo.control_work_task(&project(), &work.id, "resume", work.version, /*now*/ 6)
+    repo.control_work_task(&project(), &work.id, "resume", work.control_revision, /*now*/ 6)
         .unwrap();
     let mut retry = request("retry", "generateBrief", target);
     retry.input_manifest_json = json!({"authorIntent":"篡改为重写结局"}).to_string();
@@ -170,7 +170,7 @@ fn advisory_retry_inherits_delivered_instructions_but_pending_delivery_blocks_re
         fail(&mut repo, &source);
         let work = repo.work_task_for_attempt(&project(), "source").unwrap();
         let resumed =
-            repo.control_work_task(&project(), &work.id, "resume", work.version, /*now*/ 6);
+            repo.control_work_task(&project(), &work.id, "resume", work.control_revision, /*now*/ 6);
         let retry = request(
             "retry",
             "advisory",
@@ -243,4 +243,72 @@ fn cumulative_author_budget_is_checked_before_pending_intent_or_step_mutation() 
         before
     );
     assert_eq!(repo.task_intents(&project(), "source").unwrap(), history);
+}
+
+
+#[test]
+fn append_replay_keeps_the_original_source_without_reopening_paused_work() {
+    let dir=tempfile::tempdir().unwrap();let path=dir.path().join("intent-replay.sqlite");
+    let mut repo=SqliteStoryRepository::open(&path).unwrap();setup(&mut repo);
+    let original=repo.task_intents(&project(),"source").unwrap()[0].clone();
+    let work=repo.work_task_for_attempt(&project(),"source").unwrap();
+    assert_eq!(repo.append_task_intent(&project(),"source",0,&original.author_text,99).unwrap(),original);
+    assert_eq!(repo.work_task_for_attempt(&project(),"source").unwrap(),work);
+    assert!(repo.append_task_intent(&project(),"source",0,"不同原文",99).is_err());
+    repo.deliver_task_intent(&project(),"source",1,3).unwrap();
+    let next=repo.append_task_intent(&project(),"source",1,"维持人物名字",4).unwrap();
+    assert_eq!(repo.append_task_intent(&project(),"source",0,&original.author_text,100).unwrap().status,"delivered");
+    let paused=repo.control_work_task(&project(),&work.id,"pause",work.control_revision,5).unwrap();
+    drop(repo);let mut repo=SqliteStoryRepository::open(&path).unwrap();
+    assert_eq!(repo.append_task_intent(&project(),"source",1,&next.author_text,101).unwrap(),next);
+    assert_eq!(repo.work_task_for_attempt(&project(),"source").unwrap(),paused);
+    assert_eq!(repo.task_intents(&project(),"source").unwrap().len(),2);
+    assert!(repo.append_task_intent(&project(),"source",2,"暂停后不得追加",102).is_err());
+}
+
+
+#[test]
+fn proven_unsent_intent_pauses_and_resumes_in_original_work_after_reopen() {
+    let dir=tempfile::tempdir().unwrap();let path=dir.path().join("unsent.sqlite");
+    let mut repo=SqliteStoryRepository::open(&path).unwrap();setup(&mut repo);
+    let work=repo.work_task_for_attempt(&project(),"source").unwrap();
+    let receipt=repo.retain_unsent_task_intent(&project(),"source",1,3).unwrap();
+    assert_eq!(receipt.status,"notSent");assert_eq!(receipt.delivered_at,None);
+    let held=repo.work_task_for_attempt(&project(),"source").unwrap();
+    assert_eq!(held.status,"paused");assert_eq!(held.id,work.id);
+    assert_eq!(repo.retain_unsent_task_intent(&project(),"source",1,4).unwrap(),receipt);
+    assert_eq!(repo.work_task_for_attempt(&project(),"source").unwrap().control_revision,held.control_revision);
+    assert!(repo.deliver_task_intent(&project(),"source",1,4).is_err());
+    drop(repo);let mut repo=SqliteStoryRepository::open(&path).unwrap();
+    let resumed=repo.control_work_task(&project(),&held.id,"resume",held.control_revision,5).unwrap();
+    let step=resumed.steps.iter().find(|s|s.status=="queued").unwrap();
+    let mut next=request("continued","advisory",json!({"type":"project","resumeStepId":step.id}));
+    next.thread_id="thread-source".into();
+    let task=repo.create_task(next).unwrap();
+    let manifest:Value=serde_json::from_str(&task.input_manifest_json).unwrap();
+    assert_eq!(manifest["authorIntent"],"客户端旧指令\n\n作者追加要求：\n只改人物动机，保留结局");
+    assert_eq!(manifest["authorIntentBinding"]["sourceTaskId"],"source");
+    assert_eq!(repo.work_task_for_attempt(&project(),"continued").unwrap().id,work.id);
+    assert_eq!(repo.task_intents(&project(),"source").unwrap()[0],receipt);
+}
+
+#[test]
+fn delivered_intent_cannot_be_reclassified_as_unsent() {
+    let mut repo=SqliteStoryRepository::in_memory().unwrap();setup(&mut repo);
+    repo.deliver_task_intent(&project(),"source",1,3).unwrap();
+    assert!(repo.retain_unsent_task_intent(&project(),"source",1,4).is_err());
+    assert_eq!(repo.work_task_for_attempt(&project(),"source").unwrap().status,"running");
+}
+
+
+#[test]
+fn unsent_receipt_does_not_reopen_author_cancelled_work() {
+    let mut repo=SqliteStoryRepository::in_memory().unwrap();setup(&mut repo);
+    let work=repo.work_task_for_attempt(&project(),"source").unwrap();
+    let cancelled=repo.control_work_task(&project(),&work.id,"cancel",work.control_revision,3).unwrap();
+    let receipt=repo.retain_unsent_task_intent(&project(),"source",1,4).unwrap();
+    assert_eq!(receipt.status,"notSent");
+    let after=repo.work_task_for_attempt(&project(),"source").unwrap();
+    assert_eq!(after.status,"cancelled");assert_eq!(after.control_revision,cancelled.control_revision);
+    assert!(repo.control_work_task(&project(),&work.id,"resume",after.control_revision,5).is_err());
 }

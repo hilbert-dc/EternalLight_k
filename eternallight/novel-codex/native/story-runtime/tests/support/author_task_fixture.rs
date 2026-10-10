@@ -82,3 +82,7 @@ impl AuthorTaskFixture for Router {
             .await
     }
 }
+
+#[path = "work_control_response.rs"]
+mod control_response;
+pub use control_response::work_control_response;

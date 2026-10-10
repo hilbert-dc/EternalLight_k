@@ -21,7 +21,14 @@ impl SqliteStoryRepository {
                 .as_str()
                 .ok_or(RepositoryError::TaskBindingInvalid)?;
             let (_, writer) = crate::revision_outcome::writer(read, &task.project_id, id)?;
-            let desired = crate::revision_outcome::desired_outcomes(&writer)?;
+            let desired = crate::revision_outcome::assessment_outcomes(
+                read,
+                &task.project_id,
+                &writer,
+                target["draftRevisionId"]
+                    .as_str()
+                    .ok_or(RepositoryError::TaskBindingInvalid)?,
+            )?;
             let chapter = target["chapterId"]
                 .as_str()
                 .ok_or(RepositoryError::TaskBindingInvalid)?;
@@ -31,9 +38,12 @@ impl SqliteStoryRepository {
                 ("originalRevisionId", &mut before),
                 ("draftRevisionId", &mut after),
             ] {
-                let revision = target[field]
-                    .as_str()
-                    .ok_or(RepositoryError::TaskBindingInvalid)?;
+                let Some(revision) = target[field].as_str() else {
+                    if field == "originalRevisionId" && target[field].is_null() {
+                        continue;
+                    }
+                    return Err(RepositoryError::TaskBindingInvalid);
+                };
                 let draft = crate::revision_outcome_validation::draft(
                     read,
                     &task.project_id,
@@ -54,8 +64,13 @@ impl SqliteStoryRepository {
                     scenes.push(json!({"groupId":group["id"],"body":body,"truncated":false}));
                 }
             }
+            let number = target["chapterNumber"]
+                .as_i64()
+                .ok_or(RepositoryError::CorruptState)?;
+            let criterion_contract =
+                crate::revision_outcome_validation::criterion_contract(&target, &desired);
             Ok(
-                json!({"desiredOutcomes":desired,"beforeScenes":before,"afterScenes":after,"coverage":{"complete":true,"delivery":"taskSourcePages"}}),
+                json!({"issues":crate::work_issues::page(read,&task.project_id,&crate::work_issues::work_for(read,&task.project_id,&task.task_id)?,None,0,8,Some(chapter))?,"chapterNumber":number,"workspaceRef":{"sourceId":crate::task_workspace::directory_id(task),"view":"workspace","purposes":["currentDraft","beforeDraft","priorText","planning"],"instruction":"前文章节按具体检查问题分页定位并读取，未读内容未知。作者原话和当前稿仍是必需检查来源。"},"chapterAcceptance":writer["chapterAcceptance"],"actualLength":crate::chapter_delivery_review::length_result(&writer["chapterAcceptance"],crate::work_decision_status::chapter_character_count(crate::revision_outcome_validation::draft(read,&task.project_id,chapter,target["draftRevisionId"].as_str().ok_or(RepositoryError::TaskBindingInvalid)?)?["body"].as_str().ok_or(RepositoryError::CorruptState)?))?,"criterionContract":criterion_contract,"desiredOutcomes":desired,"beforeScenes":before,"afterScenes":after,"coverage":{"complete":false,"delivery":"taskSourcePages","optionalPriorText":"taskWorkspace"}}),
             )
         };
         if self.connection.is_autocommit() {

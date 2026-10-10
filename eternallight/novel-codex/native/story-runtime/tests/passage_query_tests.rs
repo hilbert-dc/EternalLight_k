@@ -415,7 +415,7 @@ async fn passage_scope_uses_task_position_and_never_exposes_unverified_pov_text(
     let mut repo = SqliteStoryRepository::open(&path).unwrap();
     let (project, contents) = fixture(&mut repo);
     let app = router(task_fixture::state(path, AUTHOR.into(), CANDIDATE.into()));
-    let writer = task(&app,&project,"generateChapter",json!({"chapterId":"chapter-2","chapterNumber":2,"sceneOrder":1,"scope":{"type":"throughScene","endSceneOrder":1},"storyTime":2})).await;
+    let writer = task(&app,&project,"generateChapter",json!({"chapterId":"chapter-2","chapterNumber":2,"sceneOrder":1,"scope":{"type":"throughScene","endSceneOrder":1},"readScope":{"type":"throughScene","endSceneOrder":1},"storyTime":2})).await;
     let scanned = pages(&app, &writer, request()).await;
     for report in &scanned {
         for row in report["steps"][0]["results"].as_array().unwrap() {
@@ -473,7 +473,7 @@ async fn passage_scope_uses_task_position_and_never_exposes_unverified_pov_text(
                 .all(|row| row["chapterNumber"] == 2)
         );
     }
-    let pov = task(&app,&project,"generateChapter",json!({"chapterId":"chapter-2","chapterNumber":2,"sceneOrder":1,"scope":{"type":"throughScene","endSceneOrder":1},"storyTime":2,"povCharacterId":"person-0"})).await;
+    let pov = task(&app,&project,"generateChapter",json!({"chapterId":"chapter-2","chapterNumber":2,"sceneOrder":1,"scope":{"type":"throughScene","endSceneOrder":1},"readScope":{"type":"throughScene","endSceneOrder":1},"storyTime":2,"povCharacterId":"person-0"})).await;
     let (status, hidden) = call(&app, "POST", &pov, request(), CANDIDATE).await;
     assert_eq!(status, StatusCode::OK, "{hidden}");
     assert_eq!(hidden["steps"][0]["results"], json!([]));

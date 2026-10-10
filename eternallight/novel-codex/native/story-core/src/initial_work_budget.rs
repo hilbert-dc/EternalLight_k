@@ -106,11 +106,12 @@ impl SqliteStoryRepository {
             deadline_at: initial.deadline_at,
         };
         authorization.validate_limits(now)?;
-        let snapshot: String = tx.query_row("SELECT head_snapshot_id FROM story_branches_v2 WHERE project_id=?1 AND branch_id='main'",
-            [request.project_id.as_str()],|row|row.get(0)).map_err(storage_error)?;
+        let (snapshot, source_digest) = match crate::multimedia::media_budget_source(&tx,&request.project_id,&target)? {
+            Some(source) => source,
+            None => (tx.query_row("SELECT head_snapshot_id FROM story_branches_v2 WHERE project_id=?1 AND branch_id='main'", [request.project_id.as_str()],|row|row.get::<_,String>(0)).map_err(storage_error)?, crate::task_input::project_source_digest(&tx,&request.project_id)?),
+        };
         if snapshot != initial.expected_base_snapshot_id
-            || crate::task_input::project_source_digest(&tx, &request.project_id)?
-                != initial.expected_source_digest
+            || source_digest != initial.expected_source_digest
         {
             return Err(RepositoryError::TaskInputStale);
         }
@@ -136,8 +137,8 @@ impl SqliteStoryRepository {
             ],
         )
         .map_err(storage_error)?;
-        tx.execute("INSERT INTO story_work_budget_authorizations_v1(work_task_id,authorization_json,after_attempt_sequence,initial_request_digest,granted_at) VALUES (?1,?2,0,?3,?4)",
-            params![work_id,serde_json::to_string(&authorization).map_err(|_|RepositoryError::CorruptState)?,fingerprint,now]).map_err(storage_error)?;
+        tx.execute("INSERT INTO story_work_budget_authorizations_v1(work_task_id,authorization_json,after_attempt_sequence,initial_request_digest,initial_authorization_id,granted_at) VALUES (?1,?2,0,?3,?4,?5)",
+            params![work_id,serde_json::to_string(&authorization).map_err(|_|RepositoryError::CorruptState)?,fingerprint,initial.authorization_id,now]).map_err(storage_error)?;
         crate::task_provider_budget::reserve(
             &tx,
             &request.project_id,

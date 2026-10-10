@@ -16,6 +16,7 @@ pub(crate) struct Request {
     thread_id: String,
     expected_revision: i64,
     target_chapters: i64,
+    resume_run: Option<serde_json::Value>,
     instruction: String,
     expected_intent_revision: i64,
     idempotency_key: String,
@@ -81,6 +82,7 @@ pub(crate) async fn propose(
         &task,
         &GenerationHandoffRequest {
             target_chapters: request.target_chapters,
+            resume_run: request.resume_run,
             instruction: request.instruction,
             expected_intent_revision: request.expected_intent_revision,
             idempotency_key: request.idempotency_key,
@@ -106,5 +108,87 @@ pub(crate) async fn read(
     match repository.generation_handoff(&project, &task) {
         Ok(proposal) => Json(json!({"proposal":proposal})).into_response(),
         Err(source) => repository_error(source),
+    }
+}
+
+pub(crate) async fn from_work(
+    State(state): State<RuntimeState>,
+    Path((project, work)): Path<(String, String)>,
+) -> Response {
+    let project = match ProjectId::parse(project) {
+        Ok(id) => id,
+        Err(source) => return bad_request("invalid_project_id", source),
+    };
+    let repository = match SqliteStoryRepository::open(&state.database_path) {
+        Ok(repo) => repo,
+        Err(source) => return repository_error(source),
+    };
+    match repository.work_generation_handoff(&project, &work) {
+        Ok(handoff) => Json(json!({"handoff":handoff})).into_response(),
+        Err(source) => repository_error(source),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ExecuteRequest {
+    proposal_id: String,
+}
+
+fn execution_error(source: novel_codex_story_core::RepositoryError) -> Response {
+    use novel_codex_story_core::RepositoryError as E;
+    let (code, message) = match &source {
+        E::AuthoringRunStale | E::WorkTaskStale => (
+            "generation_handoff_run_changed",
+            "原任务状态或可用额度已变化，需要重新决定接续。",
+        ),
+        E::TaskInputStale | E::StaleProjectRevision { .. } => (
+            "generation_handoff_source_changed",
+            "前置资料已变化，需要重新核对后再接续。",
+        ),
+        E::TaskBindingInvalid | E::TaskOutputForbidden => (
+            "generation_handoff_binding_invalid",
+            "交接身份已失效，需要重新读取原任务。",
+        ),
+        E::TaskNotWritable | E::TaskOutputMissing => (
+            "generation_handoff_unsettled_results",
+            "原任务仍有待核对的保存或结算结果，请先处理后再接续。",
+        ),
+        E::InvalidContent(_) => (
+            "generation_handoff_prerequisites_incomplete",
+            "前置任务与执行条件尚未满足，请查看未完成事项。",
+        ),
+        _ => return repository_error(source),
+    };
+    (StatusCode::CONFLICT,Json(json!({"error":{"code":code,"message":message,"details":{"diagnostic":source.to_string()},"recovery":null}}))).into_response()
+}
+
+/// This route exists only on the trusted author Host router. Candidate tools
+/// can propose a continuation, but cannot execute or grant themselves one.
+pub(crate) async fn execute(
+    State(state): State<RuntimeState>,
+    Path((project, source)): Path<(String, String)>,
+    Json(request): Json<ExecuteRequest>,
+) -> Response {
+    let project = match ProjectId::parse(project) {
+        Ok(id) => id,
+        Err(source) => return bad_request("invalid_project_id", source),
+    };
+    let mut repository = match SqliteStoryRepository::open(&state.database_path) {
+        Ok(repo) => repo,
+        Err(source) => return execution_error(source),
+    };
+    let admission = match repository.generation_handoff_execution(&project, &source) {
+        Ok(value) => value,
+        Err(source) => return execution_error(source),
+    };
+    if admission["proposal"]["proposalId"] != request.proposal_id {
+        return execution_error(novel_codex_story_core::RepositoryError::TaskBindingInvalid);
+    }
+    match novel_codex_story_authoring::AuthoringService::new(&mut repository)
+        .execute_generation_handoff(&project, &source, crate::server::unix_now())
+    {
+        Ok(value) => Json(value).into_response(),
+        Err(source) => execution_error(source),
     }
 }

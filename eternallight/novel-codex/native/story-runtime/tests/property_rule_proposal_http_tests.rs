@@ -80,7 +80,7 @@ async fn dialogue_rules_keep_frozen_baseline_candidate_origin_and_author_approva
         "POST",
         "/api/projects",
         AUTHOR,
-        Some(json!({"title":"灯城规则"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"灯城规则"})),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");

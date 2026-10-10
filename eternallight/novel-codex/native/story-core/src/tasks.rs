@@ -49,6 +49,12 @@ pub struct TaskRecord {
     pub capability_revoked_at: Option<i64>,
 }
 
+impl TaskRecord {
+    pub fn was_author_paused(&self) -> bool {
+        self.status == "cancelled" && self.error.as_deref() == Some("author_paused")
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TaskUpdate {
     pub status: String,
@@ -229,6 +235,33 @@ impl SqliteStoryRepository {
         delivery_review: Option<serde_json::Value>,
         now: i64,
     ) -> Result<TaskRecord, RepositoryError> {
+        let task = load_task(&self.connection, task_id)?;
+        let outcome = self.complete_task_transaction(
+            project_id,
+            task_id,
+            thread_id,
+            summary,
+            delivery_review,
+            now,
+        );
+        crate::recovery_operations::settle_prewrite_rejection(
+            self,
+            &task,
+            "complete_task",
+            &outcome,
+        )?;
+        outcome
+    }
+
+    fn complete_task_transaction(
+        &mut self,
+        project_id: &ProjectId,
+        task_id: &str,
+        thread_id: &str,
+        summary: String,
+        delivery_review: Option<serde_json::Value>,
+        now: i64,
+    ) -> Result<TaskRecord, RepositoryError> {
         let transaction = self
             .connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -263,6 +296,7 @@ impl SqliteStoryRepository {
             "advisory" | "assessChapterStructure"
         ) {
             crate::task_intents::assert_no_pending_intent(&transaction, task_id)?;
+            crate::multimedia::assert_no_pending_operations(&transaction, task_id)?;
         }
         crate::work_decision_status::complete(&transaction, &task, delivery_review.as_ref())?;
         crate::quality_notebook::complete_reader(&transaction, &task)?;
@@ -428,7 +462,11 @@ pub(crate) fn create_task_record(
         ));
     }
     // Retry diagnostics are derived from this step's persisted failure only.
-    manifest.as_object_mut().unwrap().remove("previousToolValidation");
+    crate::multimedia::validate_task_target(connection, request, &target)?;
+    manifest
+        .as_object_mut()
+        .unwrap()
+        .remove("previousToolValidation");
     // Reject ambiguous lineage before looking up or freezing any author source.
     crate::task_attempts::validate_origin(&target)?;
     if request.operation == "assessChapterStructure" {
@@ -518,6 +556,7 @@ pub(crate) fn create_task_record(
             params![request.task_id, request.project_id.as_str(), request.thread_id, request.operation, task_kind, purpose, required_output_kind, request.target_json, manifest.to_string(), request.input_revision, request.model, request.capability_hash, request.capability_expires_at],
         )
         .map_err(storage_error)?;
+    crate::conversation_messages::bind_submission(connection, request, &target)?;
     crate::task_input::capture_task_inputs(connection, &request.task_id, &request.project_id)?;
     crate::quality_notebook::bind_reader(connection, request)?;
     crate::task_attempts::attach_attempt(connection, request)?;
@@ -577,7 +616,15 @@ pub(crate) fn validate_task_write(
         return Err(RepositoryError::TaskBindingInvalid);
     }
     if &expected != expected_candidate_revision_id {
-        return Err(RepositoryError::TaskInputStale);
+        return Err(RepositoryError::PayloadValidation {
+            code: "candidate_expectation_mismatch",
+            instance_path: "/expectedCandidateRevisionId".into(),
+            details: serde_json::json!({
+                "outputObjectId": target_object_id.as_str(),
+                "expectedCandidateRevisionId": expected.as_ref().map(RevisionId::as_str),
+                "instruction": "Copy expectedCandidateRevisionId exactly for this outputObjectId from the frozen manifest or this task's last successful save receipt. Preserve its JSON type; do not use input source revision IDs. A corrected submission needs a new call identity."
+            }),
+        });
     }
     Ok(())
 }
@@ -602,6 +649,10 @@ pub(crate) fn record_task_output(
             params![binding.task_id, ordinal, binding.output_kind, revision_id.as_str(), working_base_revision_id.map(RevisionId::as_str), binding.completeness],
         )
         .map_err(storage_error)?;
+    if binding.output_kind == "revisionOutcome" {
+        let task = load_task(connection, &binding.task_id)?;
+        crate::work_issues::record_report(connection, &task, revision_id.as_str())?;
+    }
     let mut reference = serde_json::json!({
         "kind": binding.output_kind,
         "revisionId": revision_id.as_str(),
@@ -672,7 +723,18 @@ pub(crate) fn validate_active_task(
     if fenced {
         return Err(RepositoryError::TaskNotWritable);
     }
+    let target: serde_json::Value = serde_json::from_str(&task.target_json).map_err(|_|RepositoryError::CorruptState)?;
+    if target["type"] == "edition" {
+        if project_revision != task.input_revision { return Err(RepositoryError::TaskBindingInvalid); }
+        return crate::task_input::assert_task_inputs_current(connection, task);
+    }
     let current = current_revision(connection, project_id)?;
+    if task.operation == "assessRevisionOutcome" {
+        if project_revision != task.input_revision {
+            return Err(RepositoryError::TaskBindingInvalid);
+        }
+        return crate::task_input::assert_task_inputs_current(connection, task);
+    }
     if current != project_revision || task.input_revision != current {
         return Err(RepositoryError::StaleProjectRevision {
             expected: task.input_revision,

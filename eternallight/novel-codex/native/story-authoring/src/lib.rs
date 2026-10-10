@@ -9,12 +9,13 @@ use uuid::Uuid;
 mod feedback;
 mod model_budget;
 mod replan;
+mod handoff;
 
 pub use feedback::ResolveFeedback;
 pub use novel_codex_story_core::{
     CreativeIntentRevision, CreativeIntentSource, GenerationFeedbackDecision as FeedbackDecision,
 };
-pub use replan::{ReplanPreview, ReplanRecord, ReplanRun, ReplanStage};
+pub use replan::{RebindRun, ReplanPreview, ReplanRecord, ReplanRun, ReplanStage};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -261,23 +262,44 @@ impl<'a> AuthoringService<'a> {
                         .repository
                         .task(project_id, &task_id)?
                         .ok_or(RepositoryError::TaskNotFound)?;
-                    if !matches!(
-                        task.status.as_str(),
-                        "queued" | "running" | "waiting" | "completed"
-                    ) {
-                        return Err(RepositoryError::AuthoringRunStale);
-                    }
-                    self.repository.assert_task_inputs_current(&task)?;
-                    if task.status == "completed" {
-                        self.repository.advance_generation_decision(
-                            project_id,
-                            run_id,
-                            run.version,
-                            &task.task_id,
-                        )?;
-                        run = self.get(project_id, run_id)?;
-                    } else {
+                    if task.was_author_paused() {
+                        if !run.provider_budget.has_charge(&task_id) {
+                            return Err(RepositoryError::TaskNotWritable);
+                        }
+                        self.repository.assert_task_inputs_current(&task)?;
+                        run.active_task_id = None;
+                        run.step_token = Uuid::new_v4().simple().to_string();
                         run.source_digest = source_digest(self.repository, project_id)?;
+                    } else if task.status == "failed" && self.repository.can_resume_failed_after_step(project_id, run_id, &task_id)? {
+                        if !run.provider_budget.has_charge(&task_id) || run.provider_budget.exhausted()
+                            || run.retry_attempts >= run.max_retry_attempts
+                            || run.max_task_attempts.is_some_and(|limit| run.used_task_attempts >= limit) {
+                            return Err(RepositoryError::TaskNotWritable);
+                        }
+                        self.repository.assert_task_inputs_current(&task)?;
+                        run.retry_attempts += 1;
+                        run.active_task_id = None;
+                        run.step_token = Uuid::new_v4().simple().to_string();
+                        run.source_digest = source_digest(self.repository, project_id)?;
+                    } else {
+                        if !matches!(
+                            task.status.as_str(),
+                            "queued" | "running" | "waiting" | "completed"
+                        ) {
+                            return Err(RepositoryError::AuthoringRunStale);
+                        }
+                        self.repository.assert_task_inputs_current(&task)?;
+                        if task.status == "completed" {
+                            self.repository.advance_generation_decision(
+                                project_id,
+                                run_id,
+                                run.version,
+                                &task.task_id,
+                            )?;
+                            run = self.get(project_id, run_id)?;
+                        } else {
+                            run.source_digest = source_digest(self.repository, project_id)?;
+                        }
                     }
                 } else if source_digest(self.repository, project_id)? != run.source_digest {
                     return Err(RepositoryError::AuthoringRunStale);
@@ -301,7 +323,13 @@ impl<'a> AuthoringService<'a> {
             )?;
             return Ok(run);
         }
-        self.save(project_id, run)
+        let version = run.version;
+        run.version += 1;
+        self.repository.update_generation_run_for_author_control(
+            project_id, run_id, version,
+            &serde_json::to_string(&run).map_err(|_| RepositoryError::CorruptState)?,
+        )?;
+        Ok(run)
     }
 
     pub fn list(&self, project_id: &ProjectId) -> Result<Vec<GenerationRun>, RepositoryError> {

@@ -5,7 +5,10 @@ use axum::{
 };
 use eternallight_engine_core::PersistentBudget;
 use http_body_util::BodyExt;
-use novel_codex_story_core::{ProjectId, RepositoryError, SqliteStoryRepository};
+use novel_codex_story_core::{
+    CreativeIntentRevision, ProjectId, RepositoryError, SqliteStoryRepository,
+    generation_author_intent,
+};
 use novel_codex_story_runtime::router;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -15,11 +18,8 @@ const AUTHOR: &str = "authoring-author-token-1234567890123456";
 const CANDIDATE: &str = "authoring-candidate-token-1234567890123";
 const CAPABILITY: &str = "authoring-task-secret-12345678901234567890";
 
-#[path = "support/authoring_commitments.rs"]
-mod commitments;
-
-#[path = "support/generation_delivery.rs"]
-mod delivery;
+#[path = "support/authoring_selected_chapters.rs"]
+mod selected_chapters;
 
 async fn call(
     path: &std::path::Path,
@@ -52,6 +52,21 @@ async fn call(
     );
     if candidate {
         request = request.header("x-novel-task-capability", CAPABILITY);
+        if method == "GET" && uri.contains("/task-source?") {
+            let thread = uri
+                .split('?')
+                .nth(1)
+                .unwrap()
+                .split('&')
+                .find_map(|field| field.strip_prefix("threadId="))
+                .unwrap();
+            request = request
+                .header("x-novel-root-thread", thread)
+                .header("x-novel-caller-thread", thread)
+                .header("x-novel-tool-name", "read_task_source")
+                .header("x-novel-turn", "authoring-fixture-source-turn")
+                .header("x-novel-tool-call", "authoring-fixture-source-call");
+        }
     }
     let body = if let Some(payload) = payload {
         request = request.header("content-type", "application/json");
@@ -67,15 +82,32 @@ async fn call(
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     (
         status,
-        serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes))),
+        task_fixture::work_control_response(uri, status, serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)))),
     )
 }
 
 async fn charge_budget(path: &std::path::Path, run_uri: &str, task_id: &str) -> Value {
+    // Trusted fixture accounting reads only the immutable Native grant, like
+    // settle_task_fixture. The live Host endpoint correctly closes at terminal.
+    let db = rusqlite::Connection::open(path).unwrap();
+    let stored: String = db
+        .query_row(
+            "SELECT grant_json FROM story_task_provider_budgets_v1 WHERE task_id=?1",
+            [task_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let grant: Value = serde_json::from_str(&stored).unwrap();
+    assert_eq!(grant["taskId"], task_id);
+    assert_eq!(grant["budgetId"], format!("budget-{task_id}"));
+    assert_eq!(
+        grant["workTaskId"],
+        format!("work-{}", run_uri.rsplit('/').next().unwrap())
+    );
     let mut budget = PersistentBudget::new(
         &path.with_extension("budget.sqlite3"),
         task_id,
-        json!({"options":{"id":format!("budget-{task_id}")},"now":0}),
+        json!({"options":{"id":grant["budgetId"],"maxRequests":grant["maxRequests"],"maxTokens":grant["maxTokens"]},"now":0}),
     )
     .unwrap();
     budget.complete("terminal").unwrap();
@@ -91,6 +123,205 @@ async fn charge_budget(path: &std::path::Path, run_uri: &str, task_id: &str) -> 
     run
 }
 
+async fn read_section(
+    path: &std::path::Path,
+    root: &str,
+    task: &Value,
+    context: &Value,
+    section: &str,
+) -> Value {
+    let source = context["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|source| source["sectionPath"] == section)
+        .unwrap_or_else(|| panic!("missing {section}: {context}"));
+    assert_eq!(
+        context.pointer(section).unwrap()["sourceId"],
+        source["sourceId"]
+    );
+    let endpoint = format!(
+        "{root}/tasks/{}/task-source?threadId={}&expectedRevision={}&sourceId={}",
+        task["id"].as_str().unwrap(),
+        task["threadId"].as_str().unwrap(),
+        task["inputRevision"],
+        source["sourceId"].as_str().unwrap()
+    );
+    let mut suffix = String::new();
+    let mut text = String::new();
+    loop {
+        let (status, page) = call(path, "GET", &format!("{endpoint}{suffix}"), None, true).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], source["sourceId"]);
+        assert_eq!(page["contentHash"], source["contentHash"]);
+        assert_eq!(page["byteRange"]["start"], text.len());
+        assert!(page.to_string().len() <= 6500);
+        assert_model_item_bound(&page);
+        let part = page["payloadPart"].as_str().unwrap();
+        assert!(part.len() <= 2000);
+        text.push_str(part);
+        assert_eq!(page["byteRange"]["end"], text.len());
+        assert_eq!(page["byteRange"]["total"], source["payloadBytes"]);
+        if let Some(cursor) = page["nextCursor"].as_str() {
+            let next = format!("&cursor={}", cursor.replace(':', "%3A"));
+            assert_ne!(next, suffix);
+            suffix = next;
+        } else {
+            assert_eq!(page["endOfInputFromCursor"], true);
+            assert_eq!(source["payloadBytes"], text.len());
+            break;
+        }
+    }
+    assert_eq!(
+        source["contentHash"],
+        format!("{:x}", Sha256::digest(text.as_bytes()))
+    );
+    serde_json::from_str(&text).unwrap()
+}
+
+fn contains_text(value: &Value, expected: &str) -> bool {
+    match value {
+        Value::String(text) => text == expected,
+        Value::Array(items) => items.iter().any(|item| contains_text(item, expected)),
+        Value::Object(fields) => fields.values().any(|item| contains_text(item, expected)),
+        _ => false,
+    }
+}
+
+fn assert_model_item_bound(value: &Value) {
+    let item = json!({"type":"function_call_output","call_id":"x".repeat(160),
+        "output":json!({"content":[{"type":"text","text":value.to_string()}]}).to_string()});
+    let tokens = eternallight_engine_core::dispatch("tokens.count", json!(item.to_string()))
+        .unwrap()
+        .as_u64()
+        .unwrap();
+    assert!(tokens <= 9000, "model item uses {tokens} tokens");
+}
+
+// Only the controlled test model picks the requested capability. Production
+// supplies the actual action identity, scope, sources and original allowance.
+async fn model_action(path: &std::path::Path, run_uri: &str, operation: &str) -> Value {
+    let root = run_uri.split("/generation-runs/").next().unwrap();
+    let (status, next) = call(path, "POST", &format!("{run_uri}/next"), None, false).await;
+    assert_eq!(status, StatusCode::OK, "{next}");
+    assert_eq!(next["action"]["operation"], "advisory", "{next}");
+    let (_, workspace) = call(
+        path,
+        "GET",
+        &format!("{root}/creative-workspace"),
+        None,
+        false,
+    )
+    .await;
+    let intent = next["run"]["intentRevisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["instruction"].as_str().unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (status,parent)=call(path,"POST",&format!("{root}/tasks"),Some(json!({
+        "operation":"advisory","inputRevision":workspace["revision"],"threadId":"model-coordinator",
+        "target":next["action"]["target"],"authorIntent":intent,
+        "capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":next["run"]["deadlineAt"]})),false).await;
+    assert_eq!(status, StatusCode::CREATED, "{parent}");
+    let id = parent["id"].as_str().unwrap();
+    let (status,context)=call(path,"GET",&format!("{root}/context?taskId={id}&threadId=model-coordinator&projectRevision={}&purpose=planner&byteBudget=60000",parent["inputRevision"]),None,true).await;
+    assert_eq!(status, StatusCode::OK, "{context}");
+    assert_model_item_bound(&context);
+    let requirements =
+        read_section(path, root, &parent, &context, "/authorRequirementsSource").await;
+    let history: Vec<CreativeIntentRevision> =
+        serde_json::from_value(next["run"]["intentRevisions"].clone()).unwrap();
+    let chapter = next["run"]["currentChapterNumber"]
+        .as_i64()
+        .unwrap_or(next["run"]["completedChapters"].as_i64().unwrap() + 1);
+    let rendered = generation_author_intent(&history, chapter).unwrap();
+    assert_eq!(requirements["authority"], "frozenAuthorIntent");
+    assert_eq!(requirements["authorText"], rendered);
+    assert_eq!(
+        parent["inputManifest"]["authorIntent"],
+        requirements["authorText"]
+    );
+    let db = rusqlite::Connection::open(path).unwrap();
+    for original in &history {
+        if let novel_codex_story_core::CreativeIntentSource::AuthorMessage {
+            author_message_id,
+            ..
+        } = &original.source
+        {
+            let original_text: String = db.query_row("SELECT author_text FROM story_author_messages_v1 WHERE message_id=?1 AND generation_run_id=?2", rusqlite::params![author_message_id,next["run"]["id"].as_str().unwrap()], |row| row.get(0)).unwrap();
+            assert_eq!(original_text, original.instruction);
+        }
+    }
+    let uri = format!(
+        "{root}/tasks/{id}/work-decision?threadId=model-coordinator&expectedRevision={}",
+        parent["inputRevision"]
+    );
+    let (status, mut decision) = call(path, "GET", &uri, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{decision}");
+    let mut cursor = decision["pagination"]["nextCursor"].clone();
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(c) = cursor.as_str() {
+        assert!(seen.insert(c.to_owned()));
+        let (status, page) = call(
+            path,
+            "GET",
+            &format!("{uri}&cursor={}", c.replace(':', "%3A")),
+            None,
+            true,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        for field in ["version", "sourceDigest", "workTaskId", "threadId"] {
+            assert_eq!(page[field], decision[field]);
+        }
+        decision["readyActions"]
+            .as_array_mut()
+            .unwrap()
+            .extend(page["readyActions"].as_array().unwrap().iter().cloned());
+        cursor = page["pagination"]["nextCursor"].clone();
+    }
+    assert_eq!(
+        decision["readyActions"].as_array().unwrap().len() as u64,
+        decision["coverage"]["availableActions"].as_u64().unwrap()
+    );
+    let choice = decision["readyActions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["operation"] == operation)
+        .unwrap_or_else(|| panic!("missing {operation}: {decision}"));
+    let (status,selected)=call(path,"POST",&format!("{root}/tasks/{id}/work-decision/actions"),Some(json!({
+        "taskId":id,"threadId":"model-coordinator","expectedRevision":parent["inputRevision"],
+        "expectedWorkVersion":decision["version"],"expectedSourceDigest":decision["sourceDigest"],
+        "actionKey":choice["actionKey"],"instruction":"按实际作者要求处理当前作品","idempotencyKey":format!("choose-{operation}")})),true).await;
+    assert_eq!(status, StatusCode::OK, "{selected}");
+    let (status, completed) = call(
+        path,
+        "POST",
+        &format!("{root}/tasks/{id}/complete"),
+        Some(json!({"threadId":"model-coordinator","summary":"已登记原作者范围内的真实行动"})),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{completed}");
+    let charged = charge_budget(path, run_uri, id).await;
+    let (status, advanced) = call(
+        path,
+        "POST",
+        &format!("{run_uri}/advance-task"),
+        Some(json!({"expectedVersion":charged["version"],"taskId":id})),
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{advanced}");
+    let (status, action) = call(path, "POST", &format!("{run_uri}/next"), None, false).await;
+    assert_eq!(status, StatusCode::OK, "{action}");
+    assert_eq!(action["action"]["operation"], operation);
+    action
+}
+
 #[tokio::test]
 async fn generation_start_rejects_stale_candidate_sources_even_when_formal_revision_is_unchanged() {
     let directory = tempfile::tempdir().unwrap();
@@ -99,7 +330,7 @@ async fn generation_start_rejects_stale_candidate_sources_even_when_formal_revis
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"候选改稿防旧许可"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"候选改稿防旧许可"})),
         false,
     )
     .await;
@@ -166,7 +397,7 @@ async fn existing_candidate_plan_requires_intent_reconciliation_before_first_cha
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"已有近章规划的港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"已有近章规划的港城"})),
         false,
     )
     .await;
@@ -198,7 +429,7 @@ async fn existing_candidate_plan_requires_intent_reconciliation_before_first_cha
     assert_eq!(status, StatusCode::OK, "{position}");
     assert_eq!(
         position,
-        json!({"completedChapters":0,"firstStage":"rollingPlan"})
+        json!({"completedChapters":0,"firstStage":"coordinate"})
     );
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -218,15 +449,17 @@ async fn existing_candidate_plan_requires_intent_reconciliation_before_first_cha
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{run}");
-    assert_eq!(run["stage"], "rollingPlan");
+    assert_eq!(run["stage"], "coordinate");
     let run_uri = format!("{runs_uri}/{}", run["id"].as_str().unwrap());
-    let (status, next) = call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
+    let run_uri = format!("{runs_uri}/{}", run["id"].as_str().unwrap());
+    let next = model_action(&path, &run_uri, "generatePlan").await;
+    let status = StatusCode::OK;
     assert_eq!(status, StatusCode::OK, "{next}");
     assert_eq!(next["action"]["operation"], "generatePlan");
     assert_eq!(next["action"]["target"]["planFromChapter"], 1);
     assert_eq!(
-        next["action"]["authorIntent"],
-        "[要求版本 0] 改为海上逃亡，旧白塔规划不能直接照搬"
+        next["run"]["intentRevisions"][0]["instruction"],
+        "改为海上逃亡，旧白塔规划不能直接照搬"
     );
     let (status, workspace) = call(
         &path,
@@ -273,14 +506,9 @@ async fn existing_candidate_plan_requires_intent_reconciliation_before_first_cha
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{context}");
-    assert_eq!(
-        context["plannedEffects"][0]["value"]["sourceRevisionId"],
-        plan["revisionId"]
-    );
-    assert_eq!(
-        context["plannedEffects"][0]["value"]["chapters"][0]["goal"],
-        "追查白塔记录"
-    );
+    let planned = read_section(&path, &base, &task, &context, "/plannedEffects").await;
+    assert_eq!(planned[0]["value"]["sourceRevisionId"], plan["revisionId"]);
+    assert_eq!(planned[0]["value"]["chapters"][0]["goal"], "追查白塔记录");
 }
 
 #[tokio::test]
@@ -291,7 +519,7 @@ async fn existing_chapter_continues_without_forcing_brief_or_full_outline() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"已有正文的港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"已有正文的港城"})),
         false,
     )
     .await;
@@ -379,16 +607,11 @@ async fn existing_chapter_continues_without_forcing_brief_or_full_outline() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{run}");
-    assert_eq!(run["stage"], "rollingPlan");
+    assert_eq!(run["stage"], "coordinate");
     assert_eq!(run["startChapterNumber"], 2);
-    let (status, next) = call(
-        &path,
-        "POST",
-        &format!("{runs_uri}/{}/next", run["id"].as_str().unwrap()),
-        None,
-        false,
-    )
-    .await;
+    let run_uri = format!("{runs_uri}/{}", run["id"].as_str().unwrap());
+    let next = model_action(&path, &run_uri, "generatePlan").await;
+    let status = StatusCode::OK;
     assert_eq!(status, StatusCode::OK, "{next}");
     assert_eq!(next["action"]["operation"], "generatePlan");
     assert_eq!(next["action"]["target"]["planFromChapter"], 2);
@@ -402,7 +625,7 @@ async fn existing_outline_can_begin_rolling_plan_without_a_brief() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"已有大纲的港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"已有大纲的港城"})),
         false,
     )
     .await;
@@ -439,29 +662,24 @@ async fn existing_outline_can_begin_rolling_plan_without_a_brief() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{run}");
-    assert_eq!(run["stage"], "rollingPlan");
-    let (status, next) = call(
-        &path,
-        "POST",
-        &format!("{runs_uri}/{}/next", run["id"].as_str().unwrap()),
-        None,
-        false,
-    )
-    .await;
+    assert_eq!(run["stage"], "coordinate");
+    let run_uri = format!("{runs_uri}/{}", run["id"].as_str().unwrap());
+    let next = model_action(&path, &run_uri, "generatePlan").await;
+    let status = StatusCode::OK;
     assert_eq!(status, StatusCode::OK, "{next}");
     assert_eq!(next["action"]["operation"], "generatePlan");
     assert_eq!(next["action"]["target"]["planFromChapter"], 1);
 }
 
 #[tokio::test]
-async fn generation_permit_includes_automatic_commitment_extraction_in_its_minimum_budget() {
+async fn generation_permit_bounds_actual_attempts_without_a_mandatory_creative_pipeline() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("commitment-budget.sqlite3");
     let (_, created) = call(
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"承诺预算"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"承诺预算"})),
         /*candidate*/ false,
     )
     .await;
@@ -471,7 +689,7 @@ async fn generation_permit_includes_automatic_commitment_extraction_in_its_minim
         .unwrap()
         .as_secs() as i64;
     let uri = format!("/api/projects/{project}/generation-runs");
-    let mut permit = json!({"expectedProjectRevision":0,"authorIntent":"写前三章并处理叙事承诺提案","targetChapters":3,"maxTaskAttempts":16,"maxProviderRequests":256,"maxProviderTokens":4000000,"deadlineAt":now+600});
+    let mut permit = json!({"expectedProjectRevision":0,"authorIntent":"写前三章并处理叙事承诺提案","targetChapters":3,"maxTaskAttempts":0,"maxProviderRequests":256,"maxProviderTokens":4000000,"deadlineAt":now+600});
     let (status, rejected) = call(
         &path,
         "POST",
@@ -486,22 +704,23 @@ async fn generation_permit_includes_automatic_commitment_extraction_in_its_minim
     )
     .await;
     assert_eq!(list["runs"], json!([]));
-    permit["maxTaskAttempts"] = json!(17);
+    permit["maxTaskAttempts"] = json!(16);
     let (status, run) = call(&path, "POST", &uri, Some(permit), /*candidate*/ false).await;
     assert_eq!(status, StatusCode::CREATED, "{run}");
     assert_eq!(run["usedTaskAttempts"], 0);
-    assert_eq!(run["maxTaskAttempts"], 17);
+    assert_eq!(run["maxTaskAttempts"], 16);
+    assert_eq!(run["stage"], "coordinate");
 }
 
 #[tokio::test]
-async fn generation_blocks_when_formal_chapter_directory_changes_without_new_object_head() {
+async fn generation_rejects_changed_chapter_directory_without_mutating_the_run() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("generation-directory.sqlite3");
     let (_, created) = call(
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "港城"})),
         false,
     )
     .await;
@@ -534,15 +753,20 @@ async fn generation_blocks_when_formal_chapter_directory_changes_without_new_obj
     assert_eq!(status, StatusCode::OK, "{chapter}");
     let run_uri = format!("{runs_uri}/{}", run["id"].as_str().unwrap());
     let (status, next) = call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
-    assert_eq!(status, StatusCode::OK, "{next}");
-    assert_eq!(next["run"]["status"], "blocked");
-    assert_eq!(next["run"]["blockedReason"], "source_heads_changed");
-    assert!(next["action"].is_null());
+    assert_eq!(status, StatusCode::CONFLICT, "{next}");
+    assert_eq!(
+        next["error"],
+        json!({"code":"conflict","details":{},"message":"AuthoringRunStale","recovery":null})
+    );
+    let (status, retained) = call(&path, "GET", &run_uri, None, false).await;
+    assert_eq!(status, StatusCode::OK, "{retained}");
+    assert_eq!(retained, run);
+    assert_eq!(retained["usedTaskAttempts"], 0);
     let (status, cancelled) = call(
         &path,
         "POST",
         &format!("{run_uri}/control"),
-        Some(json!({"expectedVersion": next["run"]["version"], "command": "cancel"})),
+        Some(json!({"expectedVersion": retained["version"], "command": "cancel"})),
         false,
     )
     .await;
@@ -585,7 +809,7 @@ async fn generation_run_binds_a_codex_task_and_recovers_after_output_before_adva
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "Harbor"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Harbor"})),
         false,
     )
     .await;
@@ -607,7 +831,7 @@ async fn generation_run_binds_a_codex_task_and_recovers_after_output_before_adva
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{run}");
-    assert_eq!(run["stage"], "brief");
+    assert_eq!(run["stage"], "coordinate");
     let (status, listed) = call(&path, "GET", &runs_uri, None, false).await;
     assert_eq!(status, StatusCode::OK, "{listed}");
     assert_eq!(listed["runs"].as_array().unwrap().len(), 1);
@@ -627,10 +851,14 @@ async fn generation_run_binds_a_codex_task_and_recovers_after_output_before_adva
     let run_uri = format!("{runs_uri}/{}", run["id"].as_str().unwrap());
     let (status, _) = call(&path, "GET", &run_uri, None, true).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    let (status, action) = call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
+    let action = model_action(&path, &run_uri, "generateBrief").await;
+    let status = StatusCode::OK;
     assert_eq!(status, StatusCode::OK, "{action}");
     assert_eq!(action["action"]["operation"], "generateBrief");
-    assert_eq!(action["action"]["target"]["runVersion"], 0);
+    assert_eq!(
+        action["action"]["target"]["runVersion"],
+        action["run"]["version"]
+    );
 
     let (status, task) = call(
         &path,
@@ -654,14 +882,17 @@ async fn generation_run_binds_a_codex_task_and_recovers_after_output_before_adva
     let (status, atomically_claimed) = call(&path, "GET", &run_uri, None, false).await;
     assert_eq!(status, StatusCode::OK, "{atomically_claimed}");
     assert_eq!(atomically_claimed["activeTaskId"], task_id);
-    assert_eq!(atomically_claimed["version"], 1);
-    assert_eq!(atomically_claimed["usedTaskAttempts"], 1);
+    assert_eq!(
+        atomically_claimed["version"],
+        action["run"]["version"].as_i64().unwrap() + 1
+    );
+    assert_eq!(atomically_claimed["usedTaskAttempts"], 2);
     let (status, _) = call(
         &path,
         "POST",
         &format!("{run_uri}/advance-task"),
         Some(json!({
-            "expectedVersion": 1, "taskId": task_id
+            "expectedVersion": atomically_claimed["version"], "taskId": task_id
         })),
         false,
     )
@@ -672,7 +903,7 @@ async fn generation_run_binds_a_codex_task_and_recovers_after_output_before_adva
         "POST",
         &format!("{run_uri}/future-intents"),
         Some(json!({
-            "expectedVersion": 1, "instruction": "中途更改正在生成的章节"
+            "expectedVersion": atomically_claimed["version"], "instruction": "中途更改正在生成的章节"
         })),
         false,
     )
@@ -732,14 +963,14 @@ async fn generation_run_binds_a_codex_task_and_recovers_after_output_before_adva
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{advanced}");
-    assert_eq!(advanced["stage"], "outline");
-    assert_eq!(advanced["usedTaskAttempts"], 1);
+    assert_eq!(advanced["stage"], "coordinate");
+    assert_eq!(advanced["usedTaskAttempts"], 2);
     let (status, _) = call(
         &path,
         "POST",
         &format!("{run_uri}/advance-task"),
         Some(json!({
-            "expectedVersion": 1, "taskId": task_id
+            "expectedVersion": atomically_claimed["version"], "taskId": task_id
         })),
         false,
     )
@@ -747,7 +978,7 @@ async fn generation_run_binds_a_codex_task_and_recovers_after_output_before_adva
     assert_eq!(status, StatusCode::CONFLICT);
     let (status, next) = call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
     assert_eq!(status, StatusCode::OK, "{next}");
-    assert_eq!(next["action"]["operation"], "generateOutline");
+    assert_eq!(next["action"]["operation"], "advisory");
     let (status, changed) = call(
         &path,
         "POST",
@@ -770,7 +1001,7 @@ async fn generation_run_binds_a_codex_task_and_recovers_after_output_before_adva
         next["action"]["target"]["stepToken"]
     );
     assert!(
-        revised_action["action"]["authorIntent"]
+        revised_action["run"]["intentRevisions"][1]["instruction"]
             .as_str()
             .unwrap()
             .contains("林夕的选择")
@@ -780,7 +1011,7 @@ async fn generation_run_binds_a_codex_task_and_recovers_after_output_before_adva
         "POST",
         &format!("/api/projects/{project_id}/tasks"),
         Some(json!({
-            "operation": "generateOutline", "inputRevision": 0,
+            "operation": "advisory", "inputRevision": 0,
             "threadId": "outdated-outline-thread", "target": next["action"]["target"],
             "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
             "capabilityExpiresAt": now + 600, "authorIntent": "写一部关于记忆的小说"
@@ -800,7 +1031,7 @@ async fn cancelling_a_generation_revokes_its_active_task_atomically() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "Harbor"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Harbor"})),
         false,
     )
     .await;
@@ -830,7 +1061,7 @@ async fn cancelling_a_generation_revokes_its_active_task_atomically() {
         "POST",
         &format!("/api/projects/{project_id}/tasks"),
         Some(json!({
-            "operation": "generateBrief", "inputRevision": 0,
+            "operation": "advisory", "inputRevision": 0,
             "threadId": "cancel-brief-thread", "target": action["action"]["target"],
             "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
             "capabilityExpiresAt": now + 600, "authorIntent": "写一部关于记忆的小说"
@@ -900,7 +1131,7 @@ async fn paused_generation_reconciles_its_own_completed_output_on_resume() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "Harbor"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Harbor"})),
         false,
     )
     .await;
@@ -923,7 +1154,7 @@ async fn paused_generation_reconciles_its_own_completed_output_on_resume() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{run}");
     let run_uri = format!("{runs_uri}/{}", run["id"].as_str().unwrap());
-    let (_, action) = call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
+    let action = model_action(&path, &run_uri, "generateBrief").await;
     let (status, task) = call(
         &path,
         "POST",
@@ -965,7 +1196,7 @@ async fn paused_generation_reconciles_its_own_completed_output_on_resume() {
         &path,
         "POST",
         &format!("{run_uri}/control"),
-        Some(json!({"expectedVersion": 1, "command": "pause"})),
+        Some(json!({"expectedVersion": action["run"]["version"].as_i64().unwrap()+1, "command": "pause"})),
         false,
     )
     .await;
@@ -981,23 +1212,24 @@ async fn paused_generation_reconciles_its_own_completed_output_on_resume() {
     .await;
     assert_eq!(status, StatusCode::OK, "{resumed}");
     assert_eq!(resumed["status"], "running");
-    assert_eq!(resumed["stage"], "outline");
+    assert_eq!(resumed["stage"], "coordinate");
     assert_eq!(resumed["activeTaskId"], Value::Null);
-    assert_eq!(resumed["usedTaskAttempts"], 1);
+    assert_eq!(resumed["usedTaskAttempts"], 2);
     let (status, next) = call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
     assert_eq!(status, StatusCode::OK, "{next}");
-    assert_eq!(next["action"]["operation"], "generateOutline");
+    assert_eq!(next["action"]["operation"], "advisory");
+    assert_eq!(next["run"]["providerBudget"], resumed["providerBudget"]);
 }
 
 #[tokio::test]
-async fn failed_agent_task_blocks_run_instead_of_waiting_forever() {
+async fn blocked_original_coordinator_can_retry_without_reopening_or_refunding_its_attempt() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("failed-authoring.sqlite3");
     let (_, created) = call(
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "Harbor"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Harbor"})),
         false,
     )
     .await;
@@ -1025,7 +1257,7 @@ async fn failed_agent_task_blocks_run_instead_of_waiting_forever() {
         "POST",
         &format!("/api/projects/{project_id}/tasks"),
         Some(json!({
-            "operation": "generateBrief", "inputRevision": 0,
+            "operation": "advisory", "inputRevision": 0,
             "threadId": "failed-brief-thread", "target": next["action"]["target"],
             "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
             "capabilityExpiresAt": now + 600, "authorIntent": "写一部关于记忆的小说"
@@ -1050,7 +1282,7 @@ async fn failed_agent_task_blocks_run_instead_of_waiting_forever() {
     let (status, blocked) = call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
     assert_eq!(status, StatusCode::OK, "{blocked}");
     assert_eq!(blocked["run"]["status"], "blocked");
-    assert_eq!(blocked["run"]["blockedReason"], "agent_task_failed");
+    assert_eq!(blocked["run"]["blockedReason"], "executionBlocked");
     assert_eq!(blocked["run"]["usedTaskAttempts"], 1);
     assert!(blocked["action"].is_null());
     let (status, duplicate) = call(
@@ -1080,7 +1312,7 @@ async fn failed_agent_task_blocks_run_instead_of_waiting_forever() {
     assert_eq!(retried["retryAttempts"], 1);
     assert_eq!(retried["usedTaskAttempts"], 1);
     let (_, retry_action) = call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
-    assert_eq!(retry_action["action"]["operation"], "generateBrief");
+    assert_eq!(retry_action["action"]["operation"], "advisory");
     assert_ne!(
         retry_action["action"]["target"]["stepToken"],
         next["action"]["target"]["stepToken"]
@@ -1090,8 +1322,8 @@ async fn failed_agent_task_blocks_run_instead_of_waiting_forever() {
         "POST",
         &format!("/api/projects/{project_id}/tasks"),
         Some(json!({
-            "operation": "generateBrief", "inputRevision": 0,
-            "threadId": "retried-brief-thread", "target": retry_action["action"]["target"],
+            "operation": "advisory", "inputRevision": 0,
+            "threadId": "failed-brief-thread", "target": retry_action["action"]["target"],
             "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
             "capabilityExpiresAt": now + 600, "authorIntent": "写一部关于记忆的小说"
         })),
@@ -1153,13 +1385,22 @@ async fn feedback_without_author_note_is_a_decision_not_an_invented_message() {
 }
 
 async fn three_chapters_with_feedback(repair_instruction: &str) {
+    selected_chapters::three_chapters_with_feedback(repair_instruction).await;
+}
+
+#[path = "support/author_task_fixture.rs"]
+mod task_fixture;
+use task_fixture::AuthorTaskFixture;
+
+#[tokio::test]
+async fn generation_work_control_revision_survives_progress_and_direct_run_controls() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("three-chapters.sqlite3");
+    let path = directory.path().join("cancel-generation.sqlite3");
     let (_, created) = call(
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Harbor"})),
         false,
     )
     .await;
@@ -1174,1381 +1415,115 @@ async fn three_chapters_with_feedback(repair_instruction: &str) {
         "POST",
         &runs_uri,
         Some(json!({
-            "expectedProjectRevision": 0, "authorIntent": "记忆逐渐消失的港城",
-            "targetChapters": 3, "maxTaskAttempts": 24,"maxProviderRequests":64,"maxProviderTokens":4000000, "deadlineAt": now + 600
+            "expectedProjectRevision": 0, "authorIntent": "写一部关于记忆的小说",
+            "targetChapters": 1, "maxTaskAttempts": 7,"maxProviderRequests":256,"maxProviderTokens":4000000, "deadlineAt": now + 600
         })),
         false,
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{run}");
     let run_uri = format!("{runs_uri}/{}", run["id"].as_str().unwrap());
-    let mut draft_revisions = std::collections::HashMap::new();
-    let mut assessment_revisions = std::collections::HashMap::new();
-    let mut plan_revision: Option<String> = None;
-    let mut operations = Vec::new();
-    let mut repaired_first_chapter = false;
-    let mut failed_feedback_repair_once = false;
 
-    for step in 0..40 {
-        let (status, next) = call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
-        assert_eq!(status, StatusCode::OK, "{next}");
-        if next["run"]["status"] == "completed" {
-            break;
-        }
-        let action = &next["action"];
-        let version = next["run"]["version"].as_i64().unwrap();
-        match action["kind"].as_str().unwrap() {
-            "materializeChapter" | "checkKnowledge" => {
-                let endpoint = if action["kind"] == "materializeChapter" {
-                    "materialize"
-                } else {
-                    "check"
-                };
-                let (status, result) = call(
-                    &path,
-                    "POST",
-                    &format!("{run_uri}/{endpoint}"),
-                    Some(json!({"expectedVersion": version})),
-                    false,
-                )
-                .await;
-                assert_eq!(status, StatusCode::OK, "{result}");
-                if endpoint == "check" {
-                    assert_eq!(result["status"], "blocked", "{result}");
-                    assert_eq!(result["blockedReason"], "scene_feedback_needs_author");
-                    let chapter_id = next["run"]["currentChapterId"].as_str().unwrap();
-                    let (status, assessment) = call(
-                        &path,
-                        "GET",
-                        &format!(
-                            "/api/projects/{project_id}/chapters/{chapter_id}/scene-assessments"
-                        ),
-                        None,
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{assessment}");
-                    let (status, rejected) = call(
-                        &path,
-                        "POST",
-                        &format!("{run_uri}/resolve-feedback"),
-                        Some(json!({"expectedVersion": result["version"],
-                            "assessmentRevisionId": "old-assessment", "choice":"continue", "instruction":""})),
-                        false,
-                    ).await;
-                    assert_eq!(status, StatusCode::CONFLICT, "{rejected}");
-                    let repair_first =
-                        !repaired_first_chapter && next["run"]["currentChapterNumber"] == 1;
-                    if next["run"]["currentChapterNumber"] == 3 {
-                        let (status, budget_rejected) = call(
-                            &path,
-                            "POST",
-                            &format!("{run_uri}/resolve-feedback"),
-                            Some(json!({"expectedVersion": result["version"],
-                                "assessmentRevisionId": assessment["revisionId"],
-                                "choice":"repairDraft", "instruction":""})),
-                            false,
-                        )
-                        .await;
-                        assert_eq!(status, StatusCode::BAD_REQUEST, "{budget_rejected}");
-                    }
-                    let choice = if repair_first {
-                        "repairDraft"
-                    } else {
-                        "continue"
-                    };
-                    let db = rusqlite::Connection::open(&path).unwrap();
-                    let message_count: i64 = db
-                        .query_row("SELECT COUNT(*) FROM story_author_messages_v1", [], |row| {
-                            row.get(0)
-                        })
-                        .unwrap();
-                    if repair_first {
-                        let decision_request = json!({"expectedVersion":result["version"],
-                            "assessmentRevisionId":assessment["revisionId"],"choice":choice,"instruction":repair_instruction});
-                        assert_eq!(
-                            call(
-                                &path,
-                                "POST",
-                                &format!("{run_uri}/resolve-feedback"),
-                                Some(decision_request.clone()),
-                                /*candidate*/ true
-                            )
-                            .await
-                            .0,
-                            StatusCode::UNAUTHORIZED
-                        );
-                        let mut injected = decision_request.clone();
-                        injected["decisionId"] = json!("forged-decision");
-                        assert_eq!(
-                            call(
-                                &path,
-                                "POST",
-                                &format!("{run_uri}/resolve-feedback"),
-                                Some(injected),
-                                /*candidate*/ false
-                            )
-                            .await
-                            .0,
-                            StatusCode::UNPROCESSABLE_ENTITY
-                        );
-                        for table in [
-                            "story_author_messages_v1",
-                            "story_generation_runs_v1",
-                            "story_work_tasks_v1",
-                        ] {
-                            if table == "story_author_messages_v1" && repair_instruction.is_empty()
-                            {
-                                continue;
-                            }
-                            let operation = if table == "story_author_messages_v1" {
-                                "INSERT"
-                            } else {
-                                "UPDATE"
-                            };
-                            let work_before: (i64,String) = db.query_row("SELECT version,(SELECT ledger_json FROM story_work_budgets_v1 WHERE work_task_id=w.id) FROM story_work_tasks_v1 w WHERE id=?1",[format!("work-{}",run["id"].as_str().unwrap())],|row|Ok((row.get(0)?,row.get(1)?))).unwrap();
-                            db.execute_batch(&format!("CREATE TRIGGER reject_feedback BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT,'feedback failure'); END;")).unwrap();
-                            let (status, rejected) = call(
-                                &path,
-                                "POST",
-                                &format!("{run_uri}/resolve-feedback"),
-                                Some(decision_request.clone()),
-                                /*candidate*/ false,
-                            )
-                            .await;
-                            assert!(!status.is_success(), "{table}: {rejected}");
-                            assert_eq!(
-                                call(
-                                    &path, "GET", &run_uri, /*payload*/ None,
-                                    /*candidate*/ false
-                                )
-                                .await,
-                                (StatusCode::OK, result.clone())
-                            );
-                            let work_after: (i64,String) = db.query_row("SELECT version,(SELECT ledger_json FROM story_work_budgets_v1 WHERE work_task_id=w.id) FROM story_work_tasks_v1 w WHERE id=?1",[format!("work-{}",run["id"].as_str().unwrap())],|row|Ok((row.get(0)?,row.get(1)?))).unwrap();
-                            assert_eq!(work_after, work_before);
-                            assert_eq!(
-                                db.query_row(
-                                    "SELECT COUNT(*) FROM story_author_messages_v1",
-                                    [],
-                                    |row| row.get::<_, i64>(0)
-                                )
-                                .unwrap(),
-                                message_count
-                            );
-                            db.execute_batch("DROP TRIGGER reject_feedback;").unwrap();
-                        }
-                    }
-                    let (status, accepted) = call(
-                        &path,
-                        "POST",
-                        &format!("{run_uri}/resolve-feedback"),
-                        Some(json!({"expectedVersion": result["version"],
-                            "assessmentRevisionId": assessment["revisionId"], "choice":choice,
-                            "instruction":if repair_first { repair_instruction } else { "" }})),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{accepted}");
-                    assert_eq!(
-                        accepted["feedbackDecisions"]
-                            .as_array()
-                            .unwrap()
-                            .last()
-                            .unwrap()["choice"],
-                        choice
-                    );
-                    if repair_first {
-                        assert_eq!(accepted["stage"], "draft");
-                        assert_eq!(accepted["feedbackRepairCount"], 1);
-                        let decision = accepted["feedbackDecisions"]
-                            .as_array()
-                            .unwrap()
-                            .last()
-                            .unwrap();
-                        let intent = accepted["intentRevisions"]
-                            .as_array()
-                            .unwrap()
-                            .last()
-                            .unwrap();
-                        assert_eq!(
-                            intent["source"],
-                            json!({"type":"feedbackDecision","decisionId":decision["id"]})
-                        );
-                        assert_eq!(intent["instruction"], repair_instruction);
-                        assert_eq!(decision["instruction"], repair_instruction);
-                        assert_eq!(decision["chapterNumber"], 1);
-                        assert_eq!(accepted["providerBudget"], result["providerBudget"]);
-                        if repair_instruction.is_empty() {
-                            assert_eq!(decision["authorMessageId"], Value::Null);
-                        } else {
-                            let raw: (String, i64, i64) = db.query_row("SELECT author_text,intent_revision,created_at FROM story_author_messages_v1 WHERE message_id=?1",
-                                [decision["authorMessageId"].as_str().unwrap()], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
-                            assert_eq!(
-                                raw,
-                                (
-                                    repair_instruction.into(),
-                                    intent["generation"].as_i64().unwrap(),
-                                    decision["decidedAt"].as_i64().unwrap()
-                                )
-                            );
-                        }
-                        assert_eq!(
-                            db.query_row(
-                                "SELECT COUNT(*) FROM story_author_messages_v1",
-                                [],
-                                |row| row.get::<_, i64>(0)
-                            )
-                            .unwrap(),
-                            message_count + i64::from(!repair_instruction.is_empty())
-                        );
-                        let mut repo = SqliteStoryRepository::open(&path).unwrap();
-                        let project = ProjectId::parse(project_id).unwrap();
-                        let saved = repo
-                            .generation_run(&project, accepted["id"].as_str().unwrap())
-                            .unwrap();
-                        let mut forged: Value = serde_json::from_str(&saved.state_json).unwrap();
-                        forged["version"] = json!(saved.version + 1);
-                        forged["feedbackDecisions"][0]["instruction"] = json!("模型改写作者决定");
-                        assert!(
-                            repo.update_generation_run(
-                                &project,
-                                &saved.run_id,
-                                saved.version,
-                                &forged.to_string()
-                            )
-                            .is_err()
-                        );
-                        assert_eq!(repo.generation_run(&project, &saved.run_id).unwrap(), saved);
-                        let (status, repair_next) =
-                            call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
-                        assert_eq!(status, StatusCode::OK, "{repair_next}");
-                        assert_eq!(repair_next["action"]["operation"], "generateChapter");
-                        let author_intent = repair_next["action"]["authorIntent"].as_str().unwrap();
-                        assert!(author_intent.contains("按本章场景评估修订工作稿"));
-                        if !repair_instruction.is_empty() {
-                            assert!(author_intent.contains(repair_instruction));
-                        }
-                        assert_eq!(
-                            repair_next["action"]["candidateInstruction"],
-                            accepted["feedbackRepairPrompt"]
-                        );
-                        repaired_first_chapter = true;
-                        continue;
-                    }
-                    assert_eq!(
-                        db.query_row("SELECT COUNT(*) FROM story_author_messages_v1", [], |row| {
-                            row.get::<_, i64>(0)
-                        })
-                        .unwrap(),
-                        message_count
-                    );
-                    delivery::before_commit(&path, project_id, &accepted);
-                    let (status, checked) = call(
-                        &path,
-                        "POST",
-                        &format!("{run_uri}/check"),
-                        Some(json!({"expectedVersion": accepted["version"]})),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{checked}");
-                    assert_ne!(checked["status"], "blocked", "{checked}");
-                    delivery::after_commit(&path, project_id, &accepted, &checked);
-                    continue;
-                }
-                assert_ne!(result["status"], "blocked", "{result}");
-            }
-            "agentTask" => {
-                let operation = action["operation"].as_str().unwrap();
-                operations.push(operation.to_owned());
-                if operation == "generatePlan" {
-                    assert_eq!(
-                        action["target"]["planFromChapter"],
-                        next["run"]["completedChapters"].as_i64().unwrap() + 1
-                    );
-                    if action["target"]["planFromChapter"] == 2 {
-                        assert!(
-                            !action["authorIntent"]
-                                .as_str()
-                                .unwrap()
-                                .contains("作者决定版本")
-                        );
-                        assert!(
-                            action["authorIntent"]
-                                .as_str()
-                                .unwrap()
-                                .contains("第二章转向调查白塔")
-                        );
-                    }
-                }
-                if operation == "generateChapter"
-                    && action["target"]["chapterNumber"].as_i64() == Some(2)
-                {
-                    assert!(
-                        action["authorIntent"]
-                            .as_str()
-                            .unwrap()
-                            .contains("第二章转向调查白塔")
-                    );
-                }
-                let (_, workspace) = call(
-                    &path,
-                    "GET",
-                    &format!("/api/projects/{project_id}/creative-workspace"),
-                    None,
-                    false,
-                )
-                .await;
-                let revision = workspace["revision"].as_i64().unwrap();
-                let mut target = action["target"].clone();
-                let chapter_id = target["chapterId"].as_str().map(str::to_owned);
-                let chapter_number = target["chapterNumber"].as_i64();
-                let first_chapter_draft = operation == "generateChapter"
-                    && chapter_number == Some(1)
-                    && draft_revisions.is_empty();
-                let second_chapter_first_draft = operation == "generateChapter"
-                    && chapter_number == Some(2)
-                    && chapter_id
-                        .as_ref()
-                        .is_some_and(|id| !draft_revisions.contains_key(id));
-                let feedback_repair_first_draft = operation == "generateChapter"
-                    && chapter_number == Some(1)
-                    && next["run"]["feedbackRepairCount"] == 1
-                    && !failed_feedback_repair_once;
-                if operation == "generateChapter"
-                    && chapter_number == Some(2)
-                    && !second_chapter_first_draft
-                {
-                    assert!(
-                        action["authorIntent"]
-                            .as_str()
-                            .unwrap()
-                            .contains("第二章先找到航海日志")
-                    );
-                }
-                if operation == "generateChapter"
-                    && chapter_number == Some(1)
-                    && chapter_id
-                        .as_ref()
-                        .is_some_and(|id| draft_revisions.contains_key(id))
-                {
-                    assert!(
-                        action["authorIntent"]
-                            .as_str()
-                            .unwrap()
-                            .contains("第一章补写白塔证据")
-                    );
-                }
-                let batch_id = if operation == "modelKnowledge" {
-                    let chapter_id = chapter_id.as_deref().unwrap();
-                    let (status, batch) = call(
-                        &path,
-                        "POST",
-                        &format!("/api/projects/{project_id}/modeling-batches"),
-                        Some(json!({
-                            "objectId": format!("draft-{chapter_id}"),
-                            "sourceRevisionId": draft_revisions[chapter_id],
-                            "expectedRevision": revision, "extractorVersion": "test-v1"
-                        })),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::CREATED, "{batch}");
-                    let id = batch["id"].as_str().unwrap().to_owned();
-                    target["batchId"] = json!(id);
-                    Some(id)
-                } else {
-                    None
-                };
-                let thread_id = format!("generation-step-{step}");
-                if operation == "extractCommitments" {
-                    let mut wrong_target = target.clone();
-                    wrong_target["chapterNumber"] = json!(chapter_number.unwrap() + 1);
-                    let (status,rejected)=call(&path,"POST",&format!("/api/projects/{project_id}/tasks"),Some(json!({
-                        "operation":operation,"inputRevision":revision,"threadId":"wrong-chapter",
-                        "target":wrong_target,"capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),
-                        "capabilityExpiresAt":now+600,"authorIntent":"检验错误章节领取"
-                    })),/*candidate*/ false).await;
-                    assert_eq!(status, StatusCode::CONFLICT, "{rejected}");
-                    let (_, unchanged) = call(
-                        &path, "GET", &run_uri, /*payload*/ None, /*candidate*/ false,
-                    )
-                    .await;
-                    assert_eq!(
-                        unchanged["usedTaskAttempts"],
-                        next["run"]["usedTaskAttempts"]
-                    );
-                    assert!(unchanged["activeTaskId"].is_null());
-                }
-                let (status, task) = call(&path, "POST", &format!("/api/projects/{project_id}/tasks"), Some(json!({
-                    "operation": operation, "inputRevision": revision, "threadId": thread_id,
-                    "target": target, "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
-                    "capabilityExpiresAt": now + 600, "authorIntent": "记忆逐渐消失的港城"
-                })), false).await;
-                assert_eq!(
-                    status,
-                    StatusCode::CREATED,
-                    "step {step} {operation}: {task}; run={}; target={target}",
-                    next["run"]
-                );
-                let task_id = task["id"].as_str().unwrap();
-                assert_eq!(
-                    task["inputManifest"]["authorIntent"],
-                    action["authorIntent"]
-                );
-                assert_eq!(
-                    task["inputManifest"]["candidateInstruction"],
-                    action["candidateInstruction"]
-                );
-                let (status, claimed) = call(&path, "GET", &run_uri, None, false).await;
-                assert_eq!(status, StatusCode::OK, "{operation}: {claimed}");
-                assert_eq!(claimed["version"], version + 1);
-                assert_eq!(claimed["activeTaskId"], task_id);
-                if operation == "generatePlan"
-                    && action["target"]["planFromChapter"].as_i64().unwrap() > 1
-                {
-                    let (status, context) = call(
-                        &path,
-                        "GET",
-                        &format!(
-                            "/api/projects/{project_id}/context?taskId={task_id}&threadId={thread_id}&projectRevision={revision}&purpose=planner&budget=24&byteBudget=60000"
-                        ),
-                        None,
-                        true,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{context}");
-                    let knowledge = &context["operationContext"]["workingKnowledge"];
-                    let proposals = context["candidateCommitmentProposals"].as_array().unwrap();
-                    assert_eq!(
-                        proposals.len(),
-                        action["target"]["planFromChapter"].as_u64().unwrap() as usize - 1
-                    );
-                    assert!(proposals.iter().all(|proposal| {
-                        proposal["chapterNumber"].as_i64().unwrap()
-                            < action["target"]["planFromChapter"].as_i64().unwrap()
-                            && proposal["authority"] == "candidateProposal"
-                            && proposal["sourceCurrent"] == true
-                    }));
-                    assert!(proposals.iter().any(|proposal| {
-                        draft_revisions
-                            .values()
-                            .any(|revision| proposal["sourceRevisionId"] == *revision)
-                    }));
-                    assert_eq!(knowledge["coverage"]["complete"], true, "{context}");
-                    let entries = knowledge["entries"].as_array().unwrap();
-                    assert!(
-                        !entries.is_empty(),
-                        "rolling plan lost completed chapter knowledge"
-                    );
-                    assert!(entries.iter().all(|entry| {
-                        entry["sourceChapter"].as_i64().unwrap()
-                            < action["target"]["planFromChapter"].as_i64().unwrap()
-                    }));
-                    let links = context["operationContext"]["scenePlanDraftLinks"]
-                        .as_array()
-                        .unwrap();
-                    let previous_chapter =
-                        action["target"]["planFromChapter"].as_i64().unwrap() - 1;
-                    let previous = links
-                        .iter()
-                        .find(|link| link["chapterNumber"] == previous_chapter)
-                        .expect(
-                            "rolling planner must receive the previous scene's plan/draft lineage",
-                        );
-                    assert_eq!(previous["sceneId"], format!("scene-{previous_chapter}"));
-                    assert_eq!(
-                        previous["plannedExpectedEffects"][0]["commitmentRefs"],
-                        if previous_chapter > 1 {
-                            commitments::plan_refs(&path, project_id, previous_chapter - 1)
-                        } else {
-                            json!([])
-                        }
-                    );
-                    assert_eq!(
-                        previous["plannedBeats"][0]["id"],
-                        format!("beat-{previous_chapter}")
-                    );
-                    assert_eq!(
-                        previous["actualSceneGroupIds"],
-                        json!([format!("group-{previous_chapter}")])
-                    );
-                    assert_eq!(previous["assessmentStatus"], "assessed");
-                    assert_eq!(previous["sceneOutcomeAssessment"]["verdict"], "realized");
-                    assert_eq!(
-                        previous["sceneOutcomeAssessment"]["authority"],
-                        "candidateAnalysis"
-                    );
-                    assert!(context["sceneOutcomeRefs"].as_array().is_some_and(|refs| {
-                        refs.iter().any(|reference| {
-                            reference["sceneId"] == format!("scene-{previous_chapter}")
-                                && reference["verdict"] == "realized"
-                        })
-                    }));
-                    assert_eq!(previous["actualEventRefs"][0]["predicate"], "sawLight");
-                    assert_eq!(
-                        previous["actualEventRefs"][0]["confirmationState"],
-                        "candidate"
-                    );
-                    assert!(previous["actualEventRefs"][0]["modelingBatchId"].is_string());
-                    assert_eq!(previous["actualEventRefs"][0]["assertionIndex"], 0);
-                    let other_scene = links
-                        .iter()
-                        .find(|link| {
-                            link["chapterNumber"] == previous_chapter
-                                && link["sceneId"] == format!("scene-{previous_chapter}-other")
-                        })
-                        .expect("second scene must remain separately linked");
-                    assert_eq!(
-                        other_scene["actualSceneGroupIds"],
-                        json!([format!("group-{previous_chapter}-other")])
-                    );
-                    assert_eq!(other_scene["actualEventRefs"], json!([]));
-                    assert_eq!(other_scene["assessmentStatus"], "assessed");
-                    assert_eq!(
-                        other_scene["sceneOutcomeAssessment"]["verdict"],
-                        "insufficientEvidence"
-                    );
-                    assert!(
-                        links
-                            .iter()
-                            .all(|link| link["chapterNumber"].as_i64().unwrap()
-                                < action["target"]["planFromChapter"].as_i64().unwrap())
-                    );
-                }
-                let mut advance_version = claimed["version"].as_i64().unwrap();
-                if first_chapter_draft {
-                    let (status, current) = call(
-                        &path,
-                        "POST",
-                        &format!("{run_uri}/current-chapter-revision"),
-                        Some(json!({
-                            "expectedVersion": advance_version, "instruction": "第一章补写白塔证据"
-                        })),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{current}");
-                    assert_eq!(current["pendingCurrentIntentGeneration"], 1);
-                    assert_eq!(current["intentRevisions"][1]["effectiveFromChapter"], 1);
-                    assert_eq!(current["activeTaskId"], task_id);
-                    advance_version = current["version"].as_i64().unwrap();
-                    let (status, duplicate) = call(
-                        &path,
-                        "POST",
-                        &format!("{run_uri}/current-chapter-revision"),
-                        Some(json!({
-                            "expectedVersion": advance_version, "instruction": "重复改写当前章"
-                        })),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::CONFLICT, "{duplicate}");
-                    let (status, adjusted) = call(
-                        &path,
-                        "POST",
-                        &format!("{run_uri}/future-intents"),
-                        Some(json!({
-                            "expectedVersion": advance_version, "instruction": "第二章转向调查白塔"
-                        })),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{adjusted}");
-                    assert_eq!(adjusted["intentRevisions"][2]["effectiveFromChapter"], 2);
-                    assert_eq!(adjusted["activeTaskId"], task_id);
-                    assert_eq!(adjusted["stepToken"], claimed["stepToken"]);
-                    assert_eq!(adjusted["authorMessageId"], claimed["authorMessageId"]);
-                    assert_ne!(
-                        adjusted["intentRevisions"][2]["source"]["authorMessageId"],
-                        claimed["authorMessageId"]
-                    );
-                    assert_eq!(adjusted["providerBudget"], claimed["providerBudget"]);
-                    let (status, frozen_task) = call(
-                        &path,
-                        "GET",
-                        &format!("/api/projects/{project_id}/tasks/{task_id}"),
-                        /*payload*/ None,
-                        /*candidate*/ false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{frozen_task}");
-                    assert_eq!(frozen_task["inputManifest"], task["inputManifest"]);
-                    advance_version = adjusted["version"].as_i64().unwrap();
-                    let (status, paused) = call(
-                        &path,
-                        "POST",
-                        &format!("{run_uri}/control"),
-                        Some(json!({
-                            "expectedVersion": advance_version, "command": "pause"
-                        })),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{paused}");
-                    assert_eq!(paused["status"], "paused");
-                    let (status, resumed) = call(
-                        &path,
-                        "POST",
-                        &format!("{run_uri}/control"),
-                        Some(json!({
-                            "expectedVersion": paused["version"], "command": "resume"
-                        })),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{resumed}");
-                    assert_eq!(resumed["intentRevisions"][2]["effectiveFromChapter"], 2);
-                    advance_version = resumed["version"].as_i64().unwrap();
-                }
-                if second_chapter_first_draft {
-                    let (status, adjusted) = call(
-                        &path,
-                        "POST",
-                        &format!("{run_uri}/current-chapter-revision"),
-                        Some(json!({
-                            "expectedVersion": advance_version, "instruction": "第二章先找到航海日志"
-                        })),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{adjusted}");
-                    assert_eq!(
-                        adjusted["pendingCurrentIntentGeneration"], 4,
-                        "{adjusted}; operations={operations:?}"
-                    );
-                    advance_version = adjusted["version"].as_i64().unwrap();
-                }
+    let work_uri = format!("/api/projects/{project_id}/work-tasks/work-{}", run["id"].as_str().unwrap());
+    let (_, before) = call(&path, "GET", &work_uri, None, false).await;
+    assert_eq!(before["controlRevision"], 0);
+    let (status, _) = call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, progressed) = call(&path, "GET", &work_uri, None, false).await;
+    assert_eq!(progressed["controlRevision"], before["controlRevision"]);
+    let (status, _) = call(&path, "POST", &format!("{work_uri}/control"),
+        Some(json!({"command":"pause","expectedVersion":progressed["version"]})), false).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let pause_id = uuid::Uuid::new_v4().to_string();
+    let pause_command = json!({"commandId":pause_id,"threadId":before["threadId"],"command":"pause","expectedControlRevision":before["controlRevision"]});
+    let (status, paused) = call(&path, "POST", &format!("{work_uri}/control"),
+        Some(pause_command.clone()), false).await;
+    assert_eq!(status, StatusCode::OK, "{paused}");
+    assert_eq!(paused["controlRevision"], 1);
+    let (status, _) = call(&path, "POST", &format!("{work_uri}/control"),
+        Some(json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":"","command":"cancel","expectedControlRevision":0})), false).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (_, paused_run) = call(&path, "GET", &run_uri, None, false).await;
+    let (status, resumed) = call(&path, "POST", &format!("{run_uri}/control"),
+        Some(json!({"command":"resume","expectedVersion":paused_run["version"]})), false).await;
+    assert_eq!(status, StatusCode::OK, "{resumed}");
+    let (_, current) = call(&path, "GET", &work_uri, None, false).await;
+    assert_eq!(current["controlRevision"], 2);
+    let (status, receipt) = call(&path, "GET", &format!("{work_uri}/control-commands/{pause_id}"), None, false).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(receipt["receipt"]["status"], "applied");
+    assert_eq!(receipt["receipt"]["appliedControlRevision"], 1);
+    let (status, _) = call(&path, "GET", &format!("{work_uri}/control-commands/{pause_id}"), None, true).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, replay) = call(&path, "POST", &format!("{work_uri}/control"), Some(pause_command.clone()), false).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(replay["controlRevision"], 2);
+    assert_eq!(replay["status"], "running");
+    let mut changed = pause_command;
+    changed["command"] = json!("cancel");
+    let (status, _) = call(&path, "POST", &format!("{work_uri}/control"), Some(changed), false).await;
+    assert!(!status.is_success());
 
-                if operation == "extractCommitments" {
-                    if commitments::submit(commitments::Step {
-                        path: &path,
-                        project_id,
-                        run_uri: &run_uri,
-                        task_id,
-                        thread_id: &thread_id,
-                        target: &target,
-                        revision,
-                        version: advance_version,
-                        recovery: if chapter_number == Some(1)
-                            && next["run"]["feedbackRepairCount"] == 0
-                        {
-                            commitments::Recovery::ResumeAfterOutput
-                        } else {
-                            commitments::Recovery::Normal
-                        },
-                    })
-                    .await
-                    {
-                        continue;
-                    }
-                } else if operation == "assessSceneOutcome" {
-                    let chapter_id = chapter_id.as_deref().unwrap();
-                    let number = action["target"]["chapterNumber"].as_i64().unwrap();
-                    let plan = json!({"question":"场景是否落实灯光事件", "byteBudget":9000, "ranking":{"type":"literal"}, "steps":[
-                        {"id":"text", "operation":{"type":"text", "query":"看见灯光", "limit":1}},
-                        {"id":"name", "operation":{"type":"resolveEntity", "name":"林夕"}},
-                        {"id":"state", "operation":{"type":"state", "entityId":"linxi", "predicate":"sawLight", "perspective":"world"}},
-                        {"id":"graph", "operation":{"type":"relations", "entityId":"linxi", "direction":"outgoing", "maxHops":1, "limit":1}}
-                    ]});
-                    let encoded: String = plan
-                        .to_string()
-                        .as_bytes()
-                        .iter()
-                        .map(|byte| format!("%{byte:02X}"))
-                        .collect();
-                    let (status, context) = call(
-                        &path,
-                        "GET",
-                        &format!("/api/projects/{project_id}/context?taskId={task_id}&threadId={thread_id}&projectRevision={revision}&purpose=critic&budget=24&byteBudget=60000&queryPlan={encoded}"),
-                        None,
-                        true,
-                    ).await;
-                    assert_eq!(status, StatusCode::OK, "{context}");
-                    assert_eq!(context["queryScope"]["scope"], "sceneAssessment");
-                    let linked = context["operationContext"]["scenePlanDraftLinks"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .find(|link| link["sceneId"] == format!("scene-{number}"))
-                        .unwrap();
-                    assert_eq!(
-                        linked["plannedExpectedEffects"][0]["commitmentRefs"],
-                        if number > 1 {
-                            commitments::plan_refs(&path, project_id, number - 1)
-                        } else {
-                            json!([])
-                        }
-                    );
-                    assert_eq!(context["queryReport"]["policy"], context["queryScope"]);
-                    let commitment_assessments: Vec<Value> = context["operationContext"]["boundCommitmentInputs"]["entries"]
-                        .as_array().unwrap().iter().map(|input| {
-                            assert_eq!(input["referenceState"], "current");
-                            assert!(!input["fulfillmentCriteria"].as_str().unwrap().is_empty());
-                            json!({"reference":input["reference"],"referenceState":input["referenceState"],
-                                "outcome":"advanced","rationale":"灯光事件推进了原规划绑定的承诺，但没有证明完全兑现",
-                                "actualEventRefs":[{"modelingBatchId":action["target"]["knowledgeBatchId"],"assertionIndex":0}]})
-                        }).collect();
-                    assert_eq!(
-                        context["queryReport"]["steps"][0]["results"][0]["sourceRevisionId"],
-                        action["target"]["draftRevisionId"]
-                    );
-                    assert!(
-                        context["queryReport"]["steps"][2]["results"]
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .all(|entry| entry["sourceChapter"].as_i64().unwrap() <= number)
-                    );
-                    assert!(
-                        context["operationContext"]["scenePlanDraftLinks"]
-                            .as_array()
-                            .is_some_and(|links| links
-                                .iter()
-                                .any(|link| link["sceneId"] == format!("scene-{number}")))
-                    );
-                    let payload = json!({
-                        "chapterId": chapter_id,
-                        "planRevisionId": action["target"]["planRevisionId"],
-                        "draftRevisionId": action["target"]["draftRevisionId"],
-                        "knowledgeBatchId": action["target"]["knowledgeBatchId"],
-                        "inputSnapshotId": action["target"]["inputSnapshotId"],
-                        "intentGeneration": action["target"]["intentGeneration"],
-                        "assessments": [
-                            {"sceneId":format!("scene-{number}"),"verdict":"realized",
-                             "rationale":"正文中出现灯光事件","recommendation":"continue",
-                             "effectAssessments":[{"effectId":format!("effect-{number}"),"verdict":"realized",
-                               "rationale":"灯光事件见于正文","actualEventRefs":[{"modelingBatchId":action["target"]["knowledgeBatchId"],"assertionIndex":0}],"commitmentAssessments":commitment_assessments}]},
-                            {"sceneId":format!("scene-{number}-other"),"verdict":"insufficientEvidence",
-                             "rationale":"本场没有可核验的事件","recommendation":"askAuthor",
-                             "effectAssessments":[{"effectId":format!("effect-{number}-other"),"verdict":"insufficientEvidence",
-                               "rationale":"缺少可定位的事件","actualEventRefs":[],"commitmentAssessments":[]}]}
-                        ]
-                    });
-                    let (status, saved) = call(&path, "POST",
-                        &format!("/api/projects/{project_id}/chapters/{chapter_id}/scene-assessments"),
-                        Some(json!({"taskId":task_id,"threadId":thread_id,"expectedRevision":revision,
-                            "expectedCandidateRevisionId":assessment_revisions.get(chapter_id),"idempotencyKey":format!("assessment-{step}"),
-                            "payload":payload})), true).await;
-                    assert_eq!(status, StatusCode::CREATED, "{saved}");
-                    assessment_revisions.insert(
-                        chapter_id.to_owned(),
-                        saved["revisionId"].as_str().unwrap().to_owned(),
-                    );
-                    let (status, read) = call(
-                        &path,
-                        "GET",
-                        &format!(
-                            "/api/projects/{project_id}/chapters/{chapter_id}/scene-assessments"
-                        ),
-                        None,
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{read}");
-                    assert_eq!(read["state"], "current");
-                    assert_eq!(read["authority"], "candidateAnalysis");
-                } else if let Some(batch_id) = batch_id {
-                    let number = next["run"]["currentChapterNumber"].as_i64().unwrap();
-                    let (status, published) = call(&path, "POST", &format!("/api/projects/{project_id}/modeling-batches/{batch_id}/publish"), Some(json!({
-                        "taskId": task_id, "threadId": thread_id, "expectedRevision": revision,
-                        "entities": [{"id":"linxi","kind":"character","displayName":"林夕","aliases":[],
-                            "evidence":{"quote":"林夕","start":0,"end":2}},
-                            {"id":format!("saw-light-{number}"),"kind":"event","displayName":"看见灯光","aliases":[],"evidence":{"quote":"看见灯光","start":2,"end":6}}],
-                        "assertions": [{"kind":"event","subjectId":format!("saw-light-{number}"),"predicate":"sawLight",
-                            "value":{"participants":[{"role":"actor","entityId":"linxi"}],"preconditions":[],"effects":[],"untilExclusive":null},"storyTime":number,"evidence":{"quote":"看见灯光","start":2,"end":6}}]
-                    })), true).await;
-                    assert_eq!(status, StatusCode::OK, "{published}");
-                } else {
-                    let (kind, payload) = match operation {
-                        "generateBrief" => ("brief", json!({"premise":"港城正在失去记忆"})),
-                        "generateOutline" => (
-                            "outline",
-                            json!({"nodes":[{"id":"book-1","kind":"book","position":0,"title":"港城的记忆","purpose":"记录遗忘","summary":"三章序幕"}]}),
-                        ),
-                        "generatePlan" => {
-                            let start = action["target"]["planFromChapter"].as_i64().unwrap();
-                            let refs = if start > 1 {
-                                commitments::plan_refs(&path, project_id, start - 1)
-                            } else {
-                                json!([])
-                            };
-                            (
-                                "plan",
-                                json!({"chapters": (start..=3).map(|number| json!({
-                                "chapterPlanId": format!("plan-{number}"),
-                                "chapterNumber": number,
-                                "goal": format!("第 {number} 章根据已写正文继续"),
-                                "scenes": [
-                                    {"id":format!("scene-{number}"), "goal":"发现白塔线索", "beats":[{"id":format!("beat-{number}"),"description":"灯光引发疑问"}],
-                                     "expectedEffects":[{"id":format!("effect-{number}"),"dimension":"knowledge","description":"林夕看见白塔灯光","commitmentRefs":refs}]},
-                                    {"id":format!("scene-{number}-other"), "goal":"留下未解问题", "beats":[],
-                                     "expectedEffects":[{"id":format!("effect-{number}-other"),"dimension":"narrative","description":"张衡离开而未解释动机","commitmentRefs":[]} ]}
-                                ]
-                            })).collect::<Vec<_>>()}),
-                            )
-                        }
-                        "generateChapter" => {
-                            let number = chapter_number.unwrap();
-                            (
-                                "draft",
-                                json!({"chapterId":chapter_id,"chapterNumber":number,
-                                "title":format!("第 {number} 章"),"body":"林夕看见灯光。\n\n---\n\n张衡离开。",
-                                "sceneGroups":[
-                                    {"id":format!("group-{number}"), "sceneId":format!("scene-{number}"), "body":"林夕看见灯光。", "locked":false},
-                                    {"id":format!("group-{number}-other"), "sceneId":format!("scene-{number}-other"), "body":"张衡离开。", "locked":false}
-                                ]}),
-                            )
-                        }
-                        _ => panic!("unexpected operation {operation}"),
-                    };
-                    let uri = if kind == "draft" {
-                        format!("/api/projects/{project_id}/drafts/checkpoints")
-                    } else {
-                        format!("/api/projects/{project_id}/artifacts/{kind}")
-                    };
-                    let expected_candidate = if kind == "plan" {
-                        plan_revision.as_ref()
-                    } else {
-                        chapter_id.as_ref().and_then(|id| draft_revisions.get(id))
-                    };
-                    if kind == "plan" && plan_revision.is_none() {
-                        let mut incomplete = payload.clone();
-                        incomplete["chapters"][0]["scenes"][0]["expectedEffects"] = json!([]);
-                        let (status, rejected) = call(
-                            &path,
-                            "POST",
-                            &uri,
-                            Some(json!({
-                                "payload":incomplete,"expectedRevision":revision,
-                                "expectedCandidateRevisionId":null,
-                                "idempotencyKey":format!("invalid-plan-effect-{step}"),
-                                "taskId":task_id,"threadId":thread_id
-                            })),
-                            true,
-                        )
-                        .await;
-                        assert_eq!(status, StatusCode::BAD_REQUEST, "{rejected}");
-                    }
-                    let (status, saved) = call(&path, "POST", &uri, Some(json!({
-                        "payload":payload,"expectedRevision":revision,"expectedCandidateRevisionId":expected_candidate,
-                        "idempotencyKey":format!("generation-{step}"),"taskId":task_id,"threadId":thread_id
-                    })), true).await;
-                    assert_eq!(status, StatusCode::CREATED, "{operation}: {saved}");
-                    if kind == "draft" {
-                        let (_, current_workspace) = call(
-                            &path,
-                            "GET",
-                            &format!("/api/projects/{project_id}/creative-workspace"),
-                            None,
-                            false,
-                        )
-                        .await;
-                        let draft_chapter_id = chapter_id.as_deref().unwrap();
-                        let binding = current_workspace["chapterPlanBindings"]
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .find(|binding| binding["chapter_id"] == draft_chapter_id)
-                            .expect("generated chapter must bind its plan");
-                        assert_eq!(
-                            binding["plan_revision_id"],
-                            plan_revision.as_deref().unwrap()
-                        );
-                        let chapter = current_workspace["chapters"]
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .find(|chapter| chapter["id"] == draft_chapter_id)
-                            .unwrap();
-                        assert_eq!(
-                            chapter["candidate"]["sourcePlanRefs"]["planRevisionId"],
-                            plan_revision.as_deref().unwrap()
-                        );
-                        assert_eq!(
-                            chapter["candidate"]["sourcePlanRefs"]["chapterPlanId"],
-                            binding["chapter_plan_id"]
-                        );
-                        assert_eq!(chapter["candidate"]["sourcePlanRefs"]["localOnly"], false);
-                        draft_revisions.insert(
-                            chapter_id.unwrap(),
-                            saved["revisionId"].as_str().unwrap().to_owned(),
-                        );
-                    } else if kind == "plan" {
-                        plan_revision = Some(saved["revisionId"].as_str().unwrap().to_owned());
-                    }
-                }
-                if second_chapter_first_draft || feedback_repair_first_draft {
-                    let (status, failed) = call(
-                        &path,
-                        "PATCH",
-                        &format!("/api/projects/{project_id}/tasks/{task_id}"),
-                        Some(json!({
-                            "threadId": thread_id, "status": "failed", "error": "interrupted after checkpoint"
-                        })),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{failed}");
-                    charge_budget(&path, &run_uri, task_id).await;
-                    let (status, blocked) =
-                        call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
-                    assert_eq!(status, StatusCode::OK, "{blocked}");
-                    assert_eq!(
-                        blocked["run"]["blockedReason"],
-                        "agent_task_failed_after_output"
-                    );
-                    let (status, retried) = call(
-                        &path,
-                        "POST",
-                        &format!("{run_uri}/retry-failed-task"),
-                        Some(json!({"expectedVersion": blocked["run"]["version"]})),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{retried}");
-                    assert_eq!(retried["stage"], "draft");
-                    assert!(retried["pendingCurrentIntentGeneration"].is_null());
-                    if feedback_repair_first_draft {
-                        failed_feedback_repair_once = true;
-                        assert_eq!(
-                            retried["feedbackRepairPrompt"],
-                            next["run"]["feedbackRepairPrompt"]
-                        );
-                    } else {
-                        assert_eq!(retried["usedTaskAttempts"], 15);
-                    }
-                    continue;
-                }
-                let final_assessment =
-                    operation == "assessSceneOutcome" && action["target"]["chapterNumber"] == 3;
-                if final_assessment {
-                    delivery::exhaust_final_assessment_allowance(&path, project_id, task_id).await;
-                }
-                let (status, completed) = call(
-                    &path,
-                    "POST",
-                    &format!("/api/projects/{project_id}/tasks/{task_id}/complete"),
-                    Some(json!({
-                        "threadId":thread_id,"summary":"candidate saved"
-                    })),
-                    true,
-                )
-                .await;
-                assert_eq!(status, StatusCode::OK, "{operation}: {completed}");
-                let charged = if final_assessment {
-                    let (status, charged) = call(
-                        &path,
-                        "POST",
-                        &format!("{run_uri}/provider-usage"),
-                        Some(json!({"taskId":task_id})),
-                        /*candidate*/ false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{charged}");
-                    charged
-                } else {
-                    charge_budget(&path, &run_uri, task_id).await
-                };
-                advance_version = charged["version"].as_i64().unwrap();
-                let (status, advanced) = call(
-                    &path,
-                    "POST",
-                    &format!("{run_uri}/advance-task"),
-                    Some(json!({
-                        "expectedVersion":advance_version,"taskId":task_id
-                    })),
-                    false,
-                )
-                .await;
-                assert_eq!(status, StatusCode::OK, "{operation}: {advanced}");
-                if first_chapter_draft {
-                    assert_eq!(advanced["stage"], "draft");
-                    assert!(advanced["pendingCurrentIntentGeneration"].is_null());
-                }
-            }
-            other => panic!("unexpected action {other}: {next}"),
-        }
-    }
-    let (_, finished) = call(&path, "GET", &run_uri, None, false).await;
-    assert_eq!(finished["status"], "completed", "{finished}");
-    assert_eq!(finished["completedChapters"], 3);
-    assert_eq!(finished["usedTaskAttempts"], 24);
-    assert_eq!(
-        finished["providerBudget"]["usedRequests"],
-        finished["providerBudget"]["maxRequests"]
-    );
-    assert_eq!(
-        operations,
-        [
-            "generateBrief",
-            "generateOutline",
-            "generatePlan",
-            "generateChapter",
-            "generateChapter",
-            "modelKnowledge",
-            "extractCommitments",
-            "assessSceneOutcome",
-            "generateChapter",
-            "generateChapter",
-            "modelKnowledge",
-            "extractCommitments",
-            "assessSceneOutcome",
-            "generatePlan",
-            "generateChapter",
-            "generateChapter",
-            "modelKnowledge",
-            "extractCommitments",
-            "assessSceneOutcome",
-            "generatePlan",
-            "generateChapter",
-            "modelKnowledge",
-            "extractCommitments",
-            "assessSceneOutcome"
-        ]
-    );
-    assert_eq!(draft_revisions.len(), 3);
+    let (status, scheduled) = call(&path, "POST", &format!("{work_uri}/control"),
+        Some(json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":current["threadId"],"command":"pauseAfterStep","expectedControlRevision":current["controlRevision"]})), false).await;
+    assert_eq!(status, StatusCode::OK, "{scheduled}");
+    assert_eq!(scheduled["status"], "paused");
+    assert_eq!(scheduled["pauseAfterStep"]["remainingAttempts"], 0);
+    let (_, drained_run) = call(&path, "GET", &run_uri, None, false).await;
+    assert_eq!(drained_run["status"], "paused");
+    let (status, next) = call(&path, "POST", &format!("{run_uri}/next"), None, false).await;
+    assert_eq!(status, StatusCode::OK, "{next}");
+    assert!(next["action"].is_null());
+    let (status, resumed_after_drain) = call(&path, "POST", &format!("{run_uri}/control"),
+        Some(json!({"command":"resume","expectedVersion":drained_run["version"]})), false).await;
+    assert_eq!(status, StatusCode::OK, "{resumed_after_drain}");
+    let (_, current) = call(&path, "GET", &work_uri, None, false).await;
+    assert_eq!(current["status"], "running");
+    assert!(current["pauseAfterStep"].is_null());
 
-    let (_, workspace) = call(
-        &path,
-        "GET",
-        &format!("/api/projects/{project_id}/creative-workspace"),
-        None,
-        false,
-    )
-    .await;
-    let (status, continuation) = call(
-        &path,
-        "POST",
-        &runs_uri,
-        Some(json!({
-            "expectedProjectRevision": workspace["revision"],
-            "authorIntent": "第四章让林夕追查白塔记录",
-            "targetChapters": 1, "maxTaskAttempts": 7,"maxProviderRequests":256,"maxProviderTokens":4000000, "deadlineAt": now + 600
-        })),
-        false,
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED, "{continuation}");
-    assert_eq!(continuation["stage"], "rollingPlan");
-    assert_eq!(continuation["startChapterNumber"], 4);
-    assert_eq!(continuation["completedChapters"], 3);
-    assert_eq!(continuation["targetChapters"], 4);
-    assert_eq!(
-        continuation["intentRevisions"][0]["effectiveFromChapter"],
-        4
-    );
-    let continuation_uri = format!("{runs_uri}/{}", continuation["id"].as_str().unwrap());
-    let mut fourth_draft = None;
-    let mut continuation_operations = Vec::new();
-    let mut commitment_feedback_required = false;
-    for step in 0..10 {
-        let (status, next) = call(
-            &path,
-            "POST",
-            &format!("{continuation_uri}/next"),
-            None,
-            false,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{next}");
-        if next["run"]["status"] == "completed" {
-            break;
-        }
-        let action = &next["action"];
-        let version = next["run"]["version"].as_i64().unwrap();
-        match action["kind"].as_str().unwrap() {
-            "materializeChapter" | "checkKnowledge" => {
-                let endpoint = if action["kind"] == "materializeChapter" {
-                    "materialize"
-                } else {
-                    "check"
-                };
-                let (status, result) = call(
-                    &path,
-                    "POST",
-                    &format!("{continuation_uri}/{endpoint}"),
-                    Some(json!({"expectedVersion": version})),
-                    false,
-                )
-                .await;
-                assert_eq!(status, StatusCode::OK, "{result}");
-                if endpoint == "check" && result["status"] == "blocked" {
-                    assert_eq!(result["blockedReason"], "scene_feedback_needs_author");
-                    let chapter_id = next["run"]["currentChapterId"].as_str().unwrap();
-                    let (status, assessment) = call(
-                        &path,
-                        "GET",
-                        &format!(
-                            "/api/projects/{project_id}/chapters/{chapter_id}/scene-assessments"
-                        ),
-                        None,
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{assessment}");
-                    assert_eq!(
-                        assessment["assessment"]["assessments"][0]["effectAssessments"][0]["verdict"],
-                        "realized"
-                    );
-                    assert_eq!(
-                        assessment["assessment"]["assessments"][0]["verdict"],
-                        "deviated"
-                    );
-                    let (status, accepted) = call(&path, "POST", &format!("{continuation_uri}/resolve-feedback"),
-                        Some(json!({"expectedVersion":result["version"],"assessmentRevisionId":assessment["revisionId"],
-                            "choice":"continue","instruction":""})), false).await;
-                    assert_eq!(status, StatusCode::OK, "{accepted}");
-                    assert_eq!(
-                        accepted["feedbackDecisions"]
-                            .as_array()
-                            .unwrap()
-                            .last()
-                            .unwrap()["choice"],
-                        "continue"
-                    );
-                    commitment_feedback_required = true;
-                }
-            }
-            "agentTask" => {
-                let operation = action["operation"].as_str().unwrap();
-                continuation_operations.push(operation.to_owned());
-                let (_, workspace) = call(
-                    &path,
-                    "GET",
-                    &format!("/api/projects/{project_id}/creative-workspace"),
-                    None,
-                    false,
-                )
-                .await;
-                let revision = workspace["revision"].as_i64().unwrap();
-                let mut target = action["target"].clone();
-                let chapter_id = target["chapterId"].as_str().map(str::to_owned);
-                let batch_id = if operation == "modelKnowledge" {
-                    let (status, batch) = call(
-                        &path,
-                        "POST",
-                        &format!("/api/projects/{project_id}/modeling-batches"),
-                        Some(json!({
-                            "objectId": format!("draft-{}", chapter_id.as_deref().unwrap()),
-                            "sourceRevisionId": fourth_draft.as_deref().unwrap(),
-                            "expectedRevision": revision, "extractorVersion": "test-v1"
-                        })),
-                        false,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::CREATED, "{batch}");
-                    let id = batch["id"].as_str().unwrap().to_owned();
-                    target["batchId"] = json!(id);
-                    Some(id)
-                } else {
-                    None
-                };
-                let thread_id = format!("continuation-step-{step}");
-                let (status, task) = call(
-                    &path,
-                    "POST",
-                    &format!("/api/projects/{project_id}/tasks"),
-                    Some(json!({
-                        "operation": operation, "inputRevision": revision,
-                        "threadId": thread_id, "target": target,
-                        "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
-                        "capabilityExpiresAt": now + 600,
-                        "authorIntent": "第四章让林夕追查白塔记录"
-                    })),
-                    false,
-                )
-                .await;
-                assert_eq!(status, StatusCode::CREATED, "{operation}: {task}");
-                let task_id = task["id"].as_str().unwrap();
-                if operation == "generatePlan" {
-                    assert_eq!(target["planFromChapter"], 4);
-                    let (status, context) = call(
-                        &path,
-                        "GET",
-                        &format!("/api/projects/{project_id}/context?taskId={task_id}&threadId={thread_id}&projectRevision={revision}&purpose=planner&budget=24&byteBudget=60000"),
-                        None,
-                        true,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{context}");
-                    let proposals = context["candidateCommitmentProposals"].as_array().unwrap();
-                    assert_eq!(proposals.len(), 3);
-                    assert_eq!(proposals[0]["chapterNumber"], 3);
-                    assert!(proposals.iter().all(|proposal| proposal["authority"]
-                        == "candidateProposal"
-                        && proposal["sourceCurrent"] == true
-                        && proposal["established"] == false
-                        && proposal["confirmationState"] == "unconfirmed"));
-                    assert_eq!(context["relevantCommitments"], json!([]));
-                    assert_eq!(
-                        context["operationContext"]["workingKnowledge"]["coverage"]["complete"],
-                        true
-                    );
-                    assert_eq!(
-                        context["operationContext"]["workingKnowledge"]["entries"]
-                            .as_array()
-                            .unwrap()
-                            .len(),
-                        3
-                    );
-                }
-                if operation == "extractCommitments" {
-                    assert!(
-                        !commitments::submit(commitments::Step {
-                            path: &path,
-                            project_id,
-                            run_uri: &continuation_uri,
-                            task_id,
-                            thread_id: &thread_id,
-                            target: &target,
-                            revision,
-                            version: version + 1,
-                            recovery: commitments::Recovery::Normal,
-                        })
-                        .await
-                    );
-                } else if operation == "assessSceneOutcome" {
-                    let chapter_id = chapter_id.as_deref().unwrap();
-                    let (status, context) = call(&path, "GET",
-                        &format!("/api/projects/{project_id}/context?taskId={task_id}&threadId={thread_id}&projectRevision={revision}&purpose=critic&budget=24&byteBudget=60000"), None, true).await;
-                    assert_eq!(status, StatusCode::OK, "{context}");
-                    let inputs = context["operationContext"]["boundCommitmentInputs"]["entries"]
-                        .as_array()
-                        .unwrap();
-                    assert!(!inputs.is_empty());
-                    let commitment_assessments: Vec<Value> = inputs.iter().map(|input| json!({
-                        "reference":input["reference"],"referenceState":input["referenceState"],
-                        "outcome":"contradicted","rationale":"事件实现了场景效果，但与承诺的原兑现标准矛盾",
-                        "actualEventRefs":[{"modelingBatchId":target["knowledgeBatchId"],"assertionIndex":0}]
-                    })).collect();
-                    let (status, saved) = call(
-                        &path,
-                        "POST",
-                        &format!("/api/projects/{project_id}/chapters/{chapter_id}/scene-assessments"),
-                        Some(json!({
-                            "taskId":task_id,"threadId":thread_id,"expectedRevision":revision,
-                            "expectedCandidateRevisionId":null,"idempotencyKey":format!("continuation-assessment-{step}"),
-                            "payload":{
-                                "chapterId":chapter_id,
-                                "planRevisionId":target["planRevisionId"],
-                                "draftRevisionId":target["draftRevisionId"],
-                                "knowledgeBatchId":target["knowledgeBatchId"],
-                                "inputSnapshotId":target["inputSnapshotId"],
-                                "intentGeneration":target["intentGeneration"],
-                                "assessments":[{"sceneId":"scene-4","verdict":"deviated",
-                                    "rationale":"灯光事件与绑定承诺矛盾","recommendation":"askAuthor",
-                                    "effectAssessments":[{"effectId":"effect-4","verdict":"realized",
-                                        "rationale":"灯光事件见于正文","actualEventRefs":[{"modelingBatchId":target["knowledgeBatchId"],"assertionIndex":0}],"commitmentAssessments":commitment_assessments}]}]
-                            }
-                        })),
-                        true,
-                    ).await;
-                    assert_eq!(status, StatusCode::CREATED, "{saved}");
-                } else if let Some(batch_id) = batch_id {
-                    let (status, published) = call(
-                        &path,
-                        "POST",
-                        &format!("/api/projects/{project_id}/modeling-batches/{batch_id}/publish"),
-                        Some(json!({
-                            "taskId": task_id, "threadId": thread_id, "expectedRevision": revision,
-                            "entities": [{"id":"linxi","kind":"character","displayName":"林夕","aliases":[],
-                                "evidence":{"quote":"林夕","start":0,"end":2}},
-                                {"id":"saw-light","kind":"event","displayName":"看见灯光","aliases":[],"evidence":{"quote":"看见灯光","start":2,"end":6}}],
-                            "assertions": [{"kind":"event","subjectId":"saw-light","predicate":"sawLight",
-                                "value":{"participants":[{"role":"actor","entityId":"linxi"}],"preconditions":[],"effects":[],"untilExclusive":null},"storyTime":4,"evidence":{"quote":"看见灯光","start":2,"end":6}}]
-                        })),
-                        true,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::OK, "{published}");
-                } else {
-                    let (kind, payload, previous) = if operation == "generatePlan" {
-                        (
-                            "plan",
-                            json!({"chapters":[{"chapterPlanId":"plan-4","chapterNumber":4,"goal":"追查白塔记录","scenes":[{"id":"scene-4","goal":"看见灯光","beats":[],"expectedEffects":[{"id":"effect-4","dimension":"knowledge","description":"林夕看见白塔灯光","commitmentRefs":commitments::plan_refs(&path,project_id,3)}]}]}]}),
-                            plan_revision.as_deref(),
-                        )
-                    } else {
-                        assert_eq!(operation, "generateChapter");
-                        assert_eq!(target["chapterNumber"], 4);
-                        (
-                            "draft",
-                            json!({"chapterId":chapter_id,"chapterNumber":4,"title":"第四章","body":"林夕看见灯光。\u{0}😀","sceneGroups":[{"id":"group-4","sceneId":"scene-4","body":"林夕看见灯光。\u{0}😀","locked":false}]}),
-                            None,
-                        )
-                    };
-                    let uri = if kind == "draft" {
-                        format!("/api/projects/{project_id}/drafts/checkpoints")
-                    } else {
-                        format!("/api/projects/{project_id}/artifacts/{kind}")
-                    };
-                    let (status, saved) = call(
-                        &path,
-                        "POST",
-                        &uri,
-                        Some(json!({
-                            "payload": payload, "expectedRevision": revision,
-                            "expectedCandidateRevisionId": previous,
-                            "idempotencyKey": format!("continuation-{step}"),
-                            "taskId": task_id, "threadId": thread_id
-                        })),
-                        true,
-                    )
-                    .await;
-                    assert_eq!(status, StatusCode::CREATED, "{operation}: {saved}");
-                    if kind == "draft" {
-                        fourth_draft = Some(saved["revisionId"].as_str().unwrap().to_owned());
-                    }
-                }
-                let (status, completed) = call(
-                    &path,
-                    "POST",
-                    &format!("/api/projects/{project_id}/tasks/{task_id}/complete"),
-                    Some(json!({"threadId": thread_id, "summary": "candidate saved"})),
-                    true,
-                )
-                .await;
-                assert_eq!(status, StatusCode::OK, "{completed}");
-                let charged = charge_budget(&path, &continuation_uri, task_id).await;
-                let (status, advanced) = call(
-                    &path,
-                    "POST",
-                    &format!("{continuation_uri}/advance-task"),
-                    Some(json!({"expectedVersion": charged["version"], "taskId": task_id})),
-                    false,
-                )
-                .await;
-                assert_eq!(status, StatusCode::OK, "{advanced}");
-            }
-            other => panic!("unexpected continuation action {other}: {next}"),
-        }
-    }
-    let (_, completed) = call(&path, "GET", &continuation_uri, None, false).await;
-    assert_eq!(completed["status"], "completed", "{completed}");
-    assert_eq!(completed["completedChapters"], 4);
-    assert!(commitment_feedback_required);
-    let repository = SqliteStoryRepository::open(&path).unwrap();
-    assert!(
-        repository
-            .object_heads(&ProjectId::parse(project_id).unwrap())
-            .unwrap()
-            .iter()
-            .all(|head| head.object_kind != "commitment")
-    );
-    assert_eq!(
-        continuation_operations,
-        [
-            "generatePlan",
-            "generateChapter",
-            "modelKnowledge",
-            "extractCommitments",
-            "assessSceneOutcome"
-        ]
-    );
-    assert!(fourth_draft.is_some());
+    let (status, cancelled) = call(&path, "POST", &format!("{work_uri}/control"),
+        Some(json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":current["threadId"],"command":"cancel","expectedControlRevision":current["controlRevision"]})), false).await;
+    assert_eq!(status, StatusCode::OK, "{cancelled}");
+    assert_eq!(cancelled["controlRevision"], 5);
+    assert_eq!(cancelled["status"], "cancelled");
 }
-#[path = "support/author_task_fixture.rs"]
-mod task_fixture;
-use task_fixture::AuthorTaskFixture;
+
+#[tokio::test]
+async fn generation_pause_after_step_preserves_failure_and_usage_until_explicit_resume() {
+    let directory = tempfile::tempdir().unwrap(); let path = directory.path().join("drain.sqlite3");
+    let (_, created) = call(&path,"POST","/api/projects",Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"Drain"})),false).await;
+    let project = created["project"]["id"].as_str().unwrap();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let runs_uri = format!("/api/projects/{project}/generation-runs");
+    let (status, run) = call(&path,"POST",&runs_uri,Some(json!({"expectedProjectRevision":0,"authorIntent":"写一部关于记忆的小说","targetChapters":1,"maxTaskAttempts":7,"maxProviderRequests":256,"maxProviderTokens":4000000,"deadlineAt":now+600})),false).await;
+    assert_eq!(status,StatusCode::CREATED,"{run}");
+    let run_uri = format!("{runs_uri}/{}",run["id"].as_str().unwrap());
+    let (_, next) = call(&path,"POST",&format!("{run_uri}/next"),None,false).await;
+    let (status, task) = call(&path,"POST",&format!("/api/projects/{project}/tasks"),Some(json!({"operation":"advisory","inputRevision":0,"threadId":"drain-thread","target":next["action"]["target"],"capabilityHash":format!("{:x}",Sha256::digest(CAPABILITY.as_bytes())),"capabilityExpiresAt":now+600,"authorIntent":"写一部关于记忆的小说"})),false).await;
+    assert_eq!(status,StatusCode::CREATED,"{task}");
+    let task_id = task["id"].as_str().unwrap();
+    let work_uri = format!("/api/projects/{project}/work-tasks/work-{}",run["id"].as_str().unwrap());
+    let (_, before) = call(&path,"GET",&work_uri,None,false).await;
+    let (status, pending) = call(&path,"POST",&format!("{work_uri}/control"),Some(json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":before["threadId"],"command":"pauseAfterStep","expectedControlRevision":before["controlRevision"]})),false).await;
+    assert_eq!(status,StatusCode::OK,"{pending}"); assert_eq!(pending["status"],"running"); assert_eq!(pending["pauseAfterStep"]["remainingAttempts"],1);
+    let (_, gated) = call(&path,"POST",&format!("{run_uri}/next"),None,false).await;
+    assert!(gated["action"].is_null()); assert_eq!(gated["run"]["activeTaskId"],task_id);
+    let (status, failed) = call(&path,"PATCH",&format!("/api/projects/{project}/tasks/{task_id}"),Some(json!({"threadId":"drain-thread","status":"failed","error":"model disconnected"})),false).await;
+    assert_eq!(status,StatusCode::OK,"{failed}");
+    let (_, paused) = call(&path,"GET",&work_uri,None,false).await;
+    assert_eq!(paused["status"],"paused"); assert_eq!(paused["pauseAfterStep"]["remainingAttempts"],0);
+    let (_, paused_run) = call(&path,"GET",&run_uri,None,false).await;
+    assert_eq!(paused_run["status"],"paused"); assert_eq!(paused_run["activeTaskId"],task_id);
+    let (status, _) = call(&path,"POST",&format!("{run_uri}/control"),Some(json!({"command":"resume","expectedVersion":paused_run["version"]})),false).await;
+    assert!(!status.is_success(),"Unsettled attempt must not resume");
+    charge_budget(&path,&run_uri,task_id).await;
+    let (_, charged) = call(&path,"GET",&run_uri,None,false).await;
+    assert_eq!(charged["status"],"paused");
+    let (status, resumed) = call(&path,"POST",&format!("{run_uri}/control"),Some(json!({"command":"resume","expectedVersion":charged["version"]})),false).await;
+    assert_eq!(status,StatusCode::OK,"{resumed}"); assert_eq!(resumed["status"],"running");
+    assert_eq!(resumed["providerBudget"],charged["providerBudget"]); assert_eq!(resumed["usedTaskAttempts"],1); assert_eq!(resumed["retryAttempts"],1);
+    let (_, current) = call(&path,"GET",&work_uri,None,false).await;
+    assert!(current["pauseAfterStep"].is_null());
+    let (_, old) = call(&path,"GET",&format!("/api/projects/{project}/tasks/{task_id}"),None,false).await;
+    assert_eq!(old["status"],"failed"); assert_eq!(old["error"],"model disconnected");
+}

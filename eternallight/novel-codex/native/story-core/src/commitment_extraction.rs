@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use crate::{
     CommitmentStatus, CommitmentWindow, NarrativeCommitment, ObjectId, ProjectId, RepositoryError,
-    SqliteStoryRepository, TaskRecord,
+    RevisionId, SqliteStoryRepository, TaskRecord,
 };
 
 #[derive(Deserialize, Serialize)]
@@ -233,15 +233,27 @@ impl SqliteStoryRepository {
         &self,
         project: &ProjectId,
         chapter: &str,
+        report_revision: Option<&RevisionId>,
     ) -> Result<Option<Value>, RepositoryError> {
         self.with_read_snapshot(|| {
-            let selected: Option<(String,String,String)> = self.connection.query_row(
-                "SELECT r.revision_id,r.content_json,b.head_snapshot_id FROM story_branches_v2 b JOIN story_snapshot_members_v2 m ON m.snapshot_id=b.head_snapshot_id
-                 JOIN story_revisions_v2 r ON r.revision_id=m.revision_id AND r.project_id=b.project_id
-                 WHERE b.project_id=?1 AND b.branch_id='main' AND m.object_id='commitment-extraction-' || ?2 AND r.object_kind='commitmentExtraction'",
-                params![project.as_str(),chapter], |row|Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
+            let head: Option<(String,Option<String>)> = self.connection.query_row(
+                "SELECT b.head_snapshot_id,m.revision_id FROM story_branches_v2 b LEFT JOIN story_snapshot_members_v2 m
+                 ON m.snapshot_id=b.head_snapshot_id AND m.object_id='commitment-extraction-' || ?2
+                 WHERE b.project_id=?1 AND b.branch_id='main'",
+                params![project.as_str(),chapter], |row|Ok((row.get(0)?,row.get(1)?)),
             ).optional().map_err(storage)?;
-            let Some((revision,content,snapshot)) = selected else {return Ok(None)};
+            let Some((snapshot,current_revision)) = head else {return Ok(None)};
+            let revision = report_revision.map(RevisionId::as_str).or(current_revision.as_deref());
+            let Some(revision) = revision else {return Ok(None)};
+            // A requested revision is immutable display evidence. Missing or
+            // foreign revisions never fall through to the current selection.
+            let content: Option<String> = self.connection.query_row(
+                "SELECT content_json FROM story_revisions_v2 WHERE project_id=?1 AND revision_id=?2
+                 AND object_id='commitment-extraction-' || ?3 AND object_kind='commitmentExtraction'",
+                params![project.as_str(),revision,chapter], |row|row.get(0),
+            ).optional().map_err(storage)?;
+            let Some(content) = content else {return Ok(None)};
+            let report_current = current_revision.as_deref() == Some(revision);
             let report = parse_report(&self.connection,project,&content)?;
             let current: bool = self.connection.query_row(
                 "SELECT EXISTS(SELECT 1 FROM story_branches_v2 b JOIN story_snapshot_members_v2 m ON m.snapshot_id=b.head_snapshot_id WHERE b.project_id=?1 AND b.branch_id='main' AND m.object_id='draft-' || ?2 AND m.revision_id=?3)",
@@ -250,7 +262,7 @@ impl SqliteStoryRepository {
             let mut established = Vec::new();
             for candidate in &report.candidates {
                 let id = crate::commitment_establishment::identity(project, &crate::CommitmentExtractionOrigin {
-                    chapter_id:chapter.into(), report_revision_id:revision.clone(), proposal_id:candidate.id.clone(),
+                    chapter_id:chapter.into(), report_revision_id:revision.into(), proposal_id:candidate.id.clone(),
                 });
                 let present: bool = self.connection.query_row(
                     "SELECT EXISTS(SELECT 1 FROM story_snapshot_members_v2 m JOIN story_revisions_v2 r ON r.revision_id=m.revision_id AND r.object_id=m.object_id WHERE m.snapshot_id=?1 AND r.project_id=?2 AND r.object_id='commitment-' || ?3 AND r.object_kind='commitment')",
@@ -258,7 +270,7 @@ impl SqliteStoryRepository {
                 ).map_err(storage)?;
                 if present { established.push(json!({"proposalId":candidate.id,"commitmentId":id})); }
             }
-            Ok(Some(json!({"revisionId":revision,"snapshotId":snapshot,"projectRevision":self.project_revision(project)?,"established":established,"authority":"candidateProposalBatch","sourceCurrent":current,
+            Ok(Some(json!({"revisionId":revision,"snapshotId":snapshot,"projectRevision":self.project_revision(project)?,"established":established,"authority":"candidateProposalBatch","reportCurrent":report_current,"sourceCurrent":current,
                 "payload":report,"coverage":{"semanticCompleteness":"unknown","modelReportedRanges":true,
                     "literaryFulfillmentVerified":false,"globalCompletenessClaimed":false}})))
         })?

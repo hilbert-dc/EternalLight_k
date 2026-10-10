@@ -14,6 +14,10 @@ impl AuthoringService<'_> {
     ) -> Result<GenerationRun, RepositoryError> {
         for _ in 0..3 {
             let mut run = self.get(project_id, run_id)?;
+            if run.provider_budget.has_charge(task_id) {
+                self.repository.reconcile_charged_provider_usage(project_id, &format!("work-{run_id}"), task_id, receipt)?;
+                return self.get(project_id, run_id);
+            }
             if !run.provider_budget.has_charge(task_id) {
                 if run.active_task_id.as_deref() != Some(task_id) {
                     return Err(RepositoryError::TaskBindingInvalid);
@@ -30,7 +34,8 @@ impl AuthoringService<'_> {
                 UsageChargeOutcome::AlreadyCharged => return Ok(run),
                 UsageChargeOutcome::Applied => match self.save(project_id, run) {
                     Err(RepositoryError::AuthoringRunStale) => continue,
-                    result => return result,
+                    Ok(_) => return self.get(project_id, run_id),
+                    Err(error) => return Err(error),
                 },
             }
         }

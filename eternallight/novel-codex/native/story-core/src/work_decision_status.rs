@@ -13,6 +13,7 @@ pub(crate) struct ReadyAction {
     pub source_revision: Option<String>,
     pub required: bool,
     pub recovery: Option<Value>,
+    pub author_action_id: Option<String>,
 }
 
 pub(crate) fn action(
@@ -34,15 +35,15 @@ pub(crate) fn action(
         source_revision: revision,
         required,
         recovery: None,
+        author_action_id: None,
     }
 }
 
 pub(crate) fn retryable(db: &Connection, task: &str) -> Result<bool, RepositoryError> {
     let record = crate::tasks::load_task(db, task)?;
-    Ok(crate::conversation_receipts::known_zero_failure(db, task)?
+    Ok(crate::conversation_receipts::settled_failure_without_writes(db, task)?
         && crate::conversation_receipts::failure_code(record.error.as_deref()).is_some())
 }
-
 
 pub(crate) fn actions(
     db: &Connection,
@@ -69,25 +70,55 @@ pub(crate) fn actions(
          JOIN story_work_attempts_v1 p ON p.attempt_id=a.source_task_id
          JOIN story_work_steps_v1 s ON s.id=p.step_id
          WHERE s.work_task_id=?1 AND a.project_id=?2 AND a.status IN ('proposed','queued')
-           AND (a.result_task_id IS NULL OR NOT EXISTS(SELECT 1 FROM story_tasks_v2 t WHERE t.task_id=a.result_task_id AND t.status IN ('completed','failed','cancelled')))
+           AND NOT EXISTS(SELECT 1 FROM story_work_steps_v1 child JOIN story_tasks_v2 t ON t.task_id=child.current_attempt_id
+               WHERE child.id=a.action_id AND child.work_task_id=s.work_task_id AND t.project_id=a.project_id
+                 AND t.status IN ('completed','failed','cancelled'))
          ORDER BY a.action_id",
     ).map_err(storage_error)?;
-    for row in pending.query_map(params![work, project.as_str()], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    }).map_err(storage_error)? {
+    for row in pending
+        .query_map(params![work, project.as_str()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(storage_error)?
+    {
         let (id, operation) = row.map_err(storage_error)?;
         requirements.push(json!({"kind":"requestedOutput","actionId":id,"operation":operation,"status":"pending"}));
     }
     let mut available = Vec::new();
+    for approved in crate::task_actions::pending_planning_actions(db, project, work)? {
+        let mut candidate = action(
+            &approved.operation,
+            approved.target,
+            Some(approved.source_task_id),
+            None,
+            true,
+        );
+        candidate.key = format!("planning-{}", approved.id);
+        candidate.author_action_id = Some(approved.id);
+        available.push(candidate);
+    }
     let replanned = crate::work_decision_generation::replanned_current_chapter(db, project, work)?;
     for row in rows {
         let (writer, encoded, revision, chapter, number) = row.map_err(storage_error)?;
         let target: Value =
             serde_json::from_str(&encoded).map_err(|_| RepositoryError::CorruptState)?;
+        if let Some(run) = target["runId"]
+            .as_str()
+            .filter(|run| work == format!("work-{run}"))
+        {
+            let delivered:Option<i64>=db.query_row("SELECT json_extract(state_json,'$.completedChapters') FROM story_generation_runs_v1 WHERE project_id=?1 AND run_id=?2",params![project.as_str(),run],|row|row.get(0)).optional().map_err(storage_error)?;
+            if delivered.is_some_and(|through| number <= through) {
+                continue;
+            }
+        }
         if replanned.as_ref().is_some_and(|(current, generation)| {
             current == &chapter
-                && target["runId"].as_str().is_some_and(|run| work == format!("work-{run}"))
-                && target["intentGeneration"].as_i64().is_some_and(|old| old < *generation)
+                && target["runId"]
+                    .as_str()
+                    .is_some_and(|run| work == format!("work-{run}"))
+                && target["intentGeneration"]
+                    .as_i64()
+                    .is_some_and(|old| old < *generation)
         }) {
             continue;
         }
@@ -96,7 +127,7 @@ pub(crate) fn actions(
             return Err(RepositoryError::TaskInputStale);
         }
         let batch:Option<String>=db.query_row("SELECT b.batch_id FROM story_knowledge_heads_v2 h JOIN story_modeling_batches_v2 b ON b.project_id=h.project_id AND b.batch_id=h.batch_id AND b.object_id=h.object_id WHERE h.project_id=?1 AND h.object_id='draft-'||?2 AND b.source_revision_id=?3 AND b.status='ready'",params![project.as_str(),chapter,revision],|r|r.get(/*idx*/0)).optional().map_err(storage_error)?;
-        let needs_outcome = !crate::revision_outcome::desired_outcomes(&target)?.is_empty();
+        let needs_outcome = target["chapterAcceptance"].is_object();
         // Semantic extraction is an agent-selected aid. Author-requested outcome
         // checks can compare exact before/after prose without a knowledge pipeline.
         if batch.is_none() {
@@ -106,20 +137,28 @@ pub(crate) fn actions(
         if !extraction {
             available.push(action("extractCommitments",json!({"type":"commitmentExtraction","chapterId":chapter,"chapterNumber":number,"sourceRevisionId":revision}),Some(writer.clone()),Some(revision.clone()),false));
         }
-        let original = &target["scope"]["sourceRevisionId"];
+        let writer_task = crate::tasks::load_task(db, &writer)?;
+        let original = crate::revision_outcome::original_revision(db, &writer_task, &target)?;
         if needs_outcome {
-            let outcome:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_object_heads_v2 h JOIN story_revisions_v2 r ON r.revision_id=h.candidate_revision_id AND r.project_id=h.project_id JOIN story_task_outputs_v2 o ON o.revision_id=r.revision_id JOIN story_tasks_v2 t ON t.task_id=o.task_id AND t.status='completed' WHERE h.project_id=?1 AND h.object_id='revision-outcome-'||?2 AND json_extract(r.content_json,'$.draftRevisionId')=?3 AND (json_extract(r.content_json,'$.knowledgeBatchId') IS NULL OR json_extract(r.content_json,'$.knowledgeBatchId')=?4))",params![project.as_str(),writer,revision,batch],|r|r.get(/*idx*/0)).map_err(storage_error)?;
-            requirements.push(json!({"kind":"revisionOutcome","chapterId":chapter,"sourceRevisionId":revision,"status":if outcome{"satisfied"}else{"pending"}}));
-            if !outcome {
+            let assessment =
+                crate::revision_outcome::assessment_state(db, project, &writer, &revision)?;
+            let passed = assessment["verdict"] == "passed";
+            requirements.push(json!({"kind":"revisionOutcome","chapterId":chapter,"sourceRevisionId":revision,"status":if passed{"satisfied"}else{"pending"},"assessment":assessment}));
+            if !passed {
                 available.push(action("assessRevisionOutcome",json!({"writerTaskId":writer,"chapterId":chapter,"chapterNumber":number,"originalRevisionId":original,"draftRevisionId":revision,"knowledgeBatchId":batch}),Some(writer.clone()),Some(revision.clone()),true));
+                if crate::direct_verification::enabled(&target) {
+                    available.push(action("verifyChapter",json!({"writerTaskId":writer,"chapterId":chapter,"chapterNumber":number,"originalRevisionId":original,"draftRevisionId":revision,"knowledgeBatchId":batch,"chapterAcceptance":target["chapterAcceptance"]}),Some(writer.clone()),Some(revision.clone()),false));
+                    if let Some(independent)=available.iter_mut().rev().find(|a|a.operation=="assessRevisionOutcome") { independent.required=false; }
+                }
             }
         }
         if let Some(batch) = batch {
             let plan:Option<String>=db.query_row("SELECT plan_revision_id FROM story_chapter_plan_bindings_v2 WHERE project_id=?1 AND chapter_id=?2",params![project.as_str(),chapter],|r|r.get(/*idx*/0)).optional().map_err(storage_error)?;
             if let Some(plan) = plan {
                 let current:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_object_heads_v2 h JOIN story_revisions_v2 r ON r.revision_id=h.candidate_revision_id AND r.project_id=h.project_id JOIN story_task_outputs_v2 o ON o.revision_id=r.revision_id JOIN story_tasks_v2 t ON t.task_id=o.task_id AND t.status='completed' WHERE h.project_id=?1 AND h.object_id='scene-assessment-'||?2 AND json_extract(r.content_json,'$.draftRevisionId')=?3 AND json_extract(r.content_json,'$.planRevisionId')=?4 AND json_extract(r.content_json,'$.knowledgeBatchId')=?5)",params![project.as_str(),chapter,revision,plan,batch],|r|r.get(/*idx*/0)).map_err(storage_error)?;
-                let current = current && crate::work_decision_delivery::scene_feedback(db, project, work, &chapter)?
-                    .is_none_or(|feedback| feedback.current);
+                let current = current
+                    && crate::work_decision_delivery::scene_feedback(db, project, work, &chapter)?
+                        .is_none_or(|feedback| feedback.current);
                 if !current {
                     let snapshot:String=db.query_row("SELECT head_snapshot_id FROM story_branches_v2 WHERE project_id=?1 AND branch_id='main'",[project.as_str()],|r|r.get(/*idx*/0)).map_err(storage_error)?;
                     available.push(action("assessSceneOutcome",json!({"type":"sceneAssessment","chapterId":chapter,"chapterNumber":number,"planRevisionId":plan,"draftRevisionId":revision,"knowledgeBatchId":batch,"inputSnapshotId":snapshot,"intentGeneration":0}),Some(writer),Some(revision),false));
@@ -142,7 +181,11 @@ pub(crate) fn actions(
     let mut ready = Vec::new();
     for candidate in available {
         let selected:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_decision_actions_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE a.work_task_id=?1 AND a.action_key=?2 AND s.status IN ('queued','running','completed'))",params![work,candidate.key],|r|r.get(/*idx*/0)).map_err(storage_error)?;
-        if !selected || candidate.operation == "finishChapter" {
+        let active:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_work_decision_actions_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE a.work_task_id=?1 AND a.action_key=?2 AND s.status IN ('queued','running'))",params![work,candidate.key],|r|r.get(0)).map_err(storage_error)?;
+        if !selected
+            || candidate.operation == "finishChapter"
+            || (!active && candidate.operation == "assessRevisionOutcome")
+        {
             ready.push(candidate)
         }
     }
@@ -184,13 +227,23 @@ pub(crate) fn status_page(
         version,
         &page_digest,
     )?;
-    let (requirements, actions) = actions(db, project, work)?;
+    let (requirements, mut actions) = actions(db, project, work)?;
+    // Match request_work_action admission: once this decision selected completion,
+    // it must submit its final review, not select the same action after compaction.
+    let completion_registration: Option<Value> = db.query_row(
+        "SELECT action_key,source_revision_id FROM story_work_decision_actions_v1 WHERE work_task_id=?1 AND decision_task_id=?2 AND operation='finishChapter'",
+        params![work, decision_task],
+        |row| Ok(json!({"operation":"finishChapter","actionKey":row.get::<_,String>(0)?,"sourceRevisionId":row.get::<_,Option<String>>(1)?,"status":"registered","nextRequiredOperation":"complete_task"})),
+    ).optional().map_err(storage_error)?;
+    if completion_registration.is_some() {
+        actions.clear();
+    }
     let receipt_total: i64 = db.query_row("SELECT COUNT(*) FROM story_work_steps_v1 WHERE work_task_id=?1 AND current_attempt_id IS NOT NULL AND operation!='advisory'", [work], |row| row.get(0)).map_err(storage_error)?;
     let pages = requirements
         .len()
-        .div_ceil(6)
-        .max(actions.len().div_ceil(6))
-        .max((receipt_total as usize).div_ceil(3))
+        .div_ceil(1)
+        .max(actions.len().div_ceil(2))
+        .max((receipt_total as usize).div_ceil(2))
         .max(1);
     if page >= pages {
         return Err(page_error());
@@ -209,18 +262,102 @@ pub(crate) fn status_page(
         .iter()
         .filter(|r| r["status"] == "pending")
         .count();
-    let can_report_partial = kind != "generation" && pending > 0
-        && requirements.iter().any(|r| r["status"] == "pending" && r["kind"] == "requestedOutput")
-        && requirements.iter().filter(|r| r["status"] == "pending").all(|r| r["kind"] == "requestedOutput" || r["kind"] == "revisionOutcome");
+    let work_plan = crate::model_work_plan::summary(db, work)?;
+    let planned_pending = work_plan["pendingGoals"].as_u64().unwrap_or(0) > 0;
+    let issue_pending = crate::work_issues::has_unresolved(db, project, work, None)?;
+    let can_report_partial = ((kind != "generation" && planned_pending && pending == 0)
+        || kind != "generation"
+            && pending > 0
+            && requirements
+                .iter()
+                .any(|r| r["status"] == "pending" && r["kind"] == "requestedOutput")
+            && requirements
+                .iter()
+                .filter(|r| r["status"] == "pending")
+                .all(|r| r["kind"] == "requestedOutput" || r["kind"] == "revisionOutcome"))
+        && work_plan["canReportPartialGoals"] == true
+        || (kind != "generation" && issue_pending);
     let total_requirements = requirements.len();
     let mut requirements = requirements;
     requirements.sort_by_key(|r| (r["status"] != "pending", r.to_string()));
-    let requirements: Vec<_> = requirements.into_iter().skip(page * 6).take(6).collect();
+    let requirements: Vec<_> = requirements.into_iter().skip(page).take(1).collect();
+    let chapter_acceptance = actions
+        .iter()
+        .find_map(|a| a.target.get("chapterAcceptance"))
+        .cloned()
+        .or_else(|| {
+            requirements
+                .iter()
+                .find_map(|r| r["assessment"].get("chapterAcceptance").cloned())
+        });
+    // Status is a bounded decision summary. Standards occur once; the formal
+    // report source delivers reasons and quotations through parsed pages.
+    let requirements: Vec<_> = requirements
+        .into_iter()
+        .map(|mut requirement| {
+            if let Some(assessment) = requirement.get_mut("assessment") {
+                if let Some(fields) = assessment.as_object_mut() {
+                    fields.remove("chapterAcceptance");
+                    // Reasons remain in the paginated report. The decision page
+                    // needs the omission count and verdict, not a second prose copy.
+                    fields.remove("uncoveredRequirements");
+                    if fields.get("uncoveredRequirementCount").and_then(Value::as_u64) == Some(0) {
+                        fields.remove("uncoveredRequirementCount");
+                    }
+                }
+            if let Some(checks) = assessment["checks"].as_array() {
+                let counts = json!({"total":checks.len(),"supported":checks.iter().filter(|c|c["status"]=="supported").count(),"unmet":checks.iter().filter(|c|c["status"]=="unmet").count(),"insufficientEvidence":checks.iter().filter(|c|c["status"]=="insufficientEvidence").count()});
+                if let Some(fields) = assessment.as_object_mut() { fields.remove("checks"); }
+                assessment["checkCounts"] = counts;
+            }
+            if let Some(length) = assessment["length"].as_object_mut() {
+                length.remove("requirement");
+                length.remove("countUnit");
+                length.remove("minCharacters");
+                length.remove("maxCharacters");
+                }
+            }
+            requirement
+        })
+        .collect();
     let total_actions = actions.len();
-    let ready:Vec<Value>=actions.iter().skip(page * 6).take(6).map(|a|json!({"actionKey":a.key,"operation":a.operation,"chapterId":a.target["chapterId"],"qualityPacketId":a.target["qualityPacketId"],"sourceRevisionId":a.source_revision,"required":a.required,"recovery":a.recovery})).collect();
-    Ok(
-        json!({"workTaskId":work,"threadId":thread,"version":version,"sourceDigest":source_digest,"requirements":requirements,"readyActions":ready,"finalDeliveryReviewRequired":crate::work_decision_generation::final_delivery_pending(db,project,work)?,"canReportPartial":can_report_partial,"canFinish":pending==0 && (kind!="generation" || crate::work_decision_generation::goal_complete(db,project,work)?),"coverage":{"complete":total_requirements==requirements.len() && total_actions==ready.len(),"pendingRequirements":pending,"totalRequirements":total_requirements,"returnedRequirements":requirements.len(),"requirementsOffset":(page*6).min(total_requirements),"requirementsComplete":total_requirements==requirements.len(),"availableActions":total_actions,"returnedActions":ready.len(),"actionsOffset":(page*6).min(total_actions),"actionsComplete":total_actions==ready.len()},"pagination":{"page":page,"nextCursor":next,"hasMore":next.is_some()},"receipts":receipts(db,work,page*3)?,"completionAuthority":"persistedEvidenceNotLiteraryCertification"}),
-    )
+    let ready: Vec<Value> = actions
+        .iter()
+        .skip(page * 2)
+        .take(2)
+        .map(|a| {
+            let mut result =
+                json!({"actionKey":a.key,"operation":a.operation,"required":a.required});
+            for field in ["chapterId", "chapterNumber", "qualityPacketId"] {
+                if let Some(value) = a.target.get(field).filter(|v| !v.is_null()) {
+                    result[field] = value.clone();
+                }
+            }
+            if let Some(revision) = &a.source_revision {
+                result["sourceRevisionId"] = json!(revision);
+            }
+            if a.author_action_id.is_some() {
+                result["sourceTaskId"] = json!(a.source_task);
+                result["authorization"] = json!("existingAuthorPlanningTarget");
+            }
+            if a.operation == "finishChapter" {
+                result["chapterReviewRequired"] = json!(true);
+            }
+            if a.operation == "verifyChapter" {
+                result["writerTaskId"] = a.target["writerTaskId"].clone();
+                result["verificationMethod"] = json!("direct");
+                result["chapterReviewRequired"] = json!(true);
+            }
+            if let Some(recovery) = &a.recovery {
+                result["recovery"] = recovery.clone();
+            }
+            result
+        })
+        .collect();
+    let mut result =
+        json!({"issues":crate::work_issues::summary(db,project,work)?,"workTaskId":work,"threadId":thread,"version":version,"sourceDigest":source_digest,"requirements":requirements,"readyActions":ready,"chapterAcceptance":chapter_acceptance,"authorRequirementsSource":{"tool":"read_context","sectionPath":"/authorRequirementsSource"},"finalDeliveryReviewRequired":crate::work_decision_generation::final_delivery_pending(db,project,work)?,"canReportPartial":can_report_partial,"canFinish":!issue_pending && pending==0 && (kind!="generation" || crate::work_decision_generation::goal_complete(db,project,work)?),"coverage":{"complete":total_requirements==requirements.len() && total_actions==ready.len(),"pendingRequirements":pending,"totalRequirements":total_requirements,"requirementsOffset":page.min(total_requirements),"requirementsComplete":total_requirements==requirements.len(),"availableActions":total_actions,"actionsOffset":(page*2).min(total_actions),"actionsComplete":total_actions==ready.len()},"pagination":{"page":page,"nextCursor":next,"hasMore":next.is_some()},"receipts":receipts(db,work,page*2)?});
+    result["completionRegistration"] = completion_registration.unwrap_or(Value::Null);
+    Ok(result)
 }
 
 // Nonterminal task progress need not advance the Work version. Bind receipts
@@ -310,6 +447,23 @@ pub(crate) fn complete(
     review: Option<&Value>,
 ) -> Result<(), RepositoryError> {
     let Some(bound) = crate::work_decision::binding(db, task)? else {
+        if root_review_required(db, task)? {
+            let work = crate::model_work_plan::work_for(db, task)?;
+            let status = status(db, &task.project_id, &work)?;
+            if status["canFinish"] != true
+                && (status["canReportPartial"] != true
+                    || review.is_none_or(|r| r["goalStatus"] != "partial"))
+            {
+                return Err(RepositoryError::TaskOutputMissing);
+            }
+            crate::work_delivery_review::save(db, task, &work, &status, review)?;
+            db.execute(
+                "UPDATE story_work_decisions_v1 SET finished=1 WHERE work_task_id=?1",
+                [work],
+            )
+            .map_err(storage_error)?;
+            return Ok(());
+        }
         if review.is_some() {
             return Err(RepositoryError::InvalidContent(
                 "deliveryReview belongs only to final Work decisions".into(),
@@ -341,7 +495,8 @@ pub(crate) fn complete(
     }
     let status = status(db, &task.project_id, work)?;
     if status["canFinish"] != true {
-        if status["canReportPartial"] != true || review.is_none_or(|r| r["goalStatus"] != "partial") {
+        if status["canReportPartial"] != true || review.is_none_or(|r| r["goalStatus"] != "partial")
+        {
             return Err(RepositoryError::TaskOutputMissing);
         }
     }
@@ -354,8 +509,60 @@ pub(crate) fn complete(
     Ok(())
 }
 
+pub(crate) fn resume_selected(db: &Connection, task: &str) -> Result<bool, RepositoryError> {
+    db.query_row("SELECT EXISTS(SELECT 1 FROM story_generation_handoffs_v1 WHERE source_task_id=?1 AND json_type(content_json,'$.resumeRun')='object')",[task],|r|r.get(0)).map_err(storage_error)
+}
+
+pub(crate) fn root_review_required(
+    db: &Connection,
+    task: &crate::TaskRecord,
+) -> Result<bool, RepositoryError> {
+    // A temporary question completes its own read-only answer. It cannot settle
+    // or inherit the original Work's delivery-review obligation.
+    if crate::work_interludes::is_attempt(db, &task.task_id)? {
+        return Ok(false);
+    }
+    if resume_selected(db, &task.task_id)? {
+        return Ok(true);
+    }
+    if task.operation != "advisory" {
+        return Ok(false);
+    }
+    if crate::work_decision::binding(db, task)?.is_some() {
+        return Ok(false);
+    }
+    let selected:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM story_task_action_requests_v1 WHERE source_task_id=?1) OR EXISTS(SELECT 1 FROM story_planning_review_runs_v2 WHERE source_task_id=?1)",[&task.task_id],|r|r.get(0)).map_err(storage_error)?;
+    if selected {
+        return Ok(false);
+    }
+    // A resumed read-only discussion can have a new task thread without
+    // acquiring the original root's method or final-delivery authority.
+    // Checking whether a delivery obligation exists uses its actual current
+    // Work membership; completing a real obligation still checks work_for.
+    let work: String = db
+        .query_row(
+            "SELECT w.id FROM story_work_attempts_v1 a
+         JOIN story_work_steps_v1 s ON s.id=a.step_id AND s.current_attempt_id=a.attempt_id
+         JOIN story_work_tasks_v1 w ON w.id=s.work_task_id
+         WHERE a.attempt_id=?1 AND w.project_id=?2",
+            params![task.task_id, task.project_id.as_str()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?
+        .ok_or(RepositoryError::TaskBindingInvalid)?;
+    // A descriptive method edit cannot close a previously registered author
+    // delivery obligation. Only the actual delivery review settles this ledger.
+    db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM story_work_decisions_v1 WHERE work_task_id=?1 AND finished=0)",
+        [&work],
+        |row| row.get(0),
+    )
+    .map_err(storage_error)
+}
+
 fn receipts(db: &Connection, work: &str, offset: usize) -> Result<Value, RepositoryError> {
-    let mut statement=db.prepare("SELECT t.task_id,t.operation,t.status,t.error,s.id FROM story_work_steps_v1 s JOIN story_tasks_v2 t ON t.task_id=s.current_attempt_id WHERE s.work_task_id=?1 AND t.operation!='advisory' ORDER BY s.ordinal DESC,s.id DESC LIMIT 3 OFFSET ?2").map_err(storage_error)?;
+    let mut statement=db.prepare("SELECT t.task_id,t.operation,t.status,t.error,s.id FROM story_work_steps_v1 s JOIN story_tasks_v2 t ON t.task_id=s.current_attempt_id WHERE s.work_task_id=?1 AND t.operation!='advisory' ORDER BY s.ordinal DESC,s.id DESC LIMIT 2 OFFSET ?2").map_err(storage_error)?;
     let rows = statement
         .query_map(params![work, offset as i64], |r| {
             Ok((
@@ -381,6 +588,8 @@ fn receipts(db: &Connection, work: &str, offset: usize) -> Result<Value, Reposit
                 let content: Value =
                     serde_json::from_str(&content).map_err(|_| RepositoryError::CorruptState)?;
                 output["chapterId"] = content["chapterId"].clone();
+                output["chapterNumber"] = content["chapterNumber"].clone();
+                output["title"] = content["title"].clone();
                 if let Some(body) = content["body"].as_str() {
                     output["characterCount"] = json!(chapter_character_count(body));
                     output["countUnit"] = json!(
@@ -401,17 +610,19 @@ fn receipts(db: &Connection, work: &str, offset: usize) -> Result<Value, Reposit
                 refs.push(json!({"kind":"knowledgeBatch","batchId":batch}));
             }
         }
-        items.push(json!({"taskId":task,"stepId":step,"operation":operation,"status":status,"outputs":refs,"failureCode":crate::conversation_receipts::failure_code(error.as_deref()),"toolValidation":crate::conversation_receipts::tool_diagnostic(error.as_deref())}));
+        let failures = crate::work_budget_storage::load(db, &crate::tasks::load_task(db, &task)?.project_id, work)?.charges.into_iter()
+            .find(|charge|charge.task_id == task).and_then(|charge|charge.failure_observations);
+        items.push(json!({"failureObservations":failures,"taskId":task,"stepId":step,"operation":operation,"status":status,"outputs":refs,"failureCode":crate::conversation_receipts::failure_code(error.as_deref()),"toolValidation":crate::conversation_receipts::tool_diagnostic(error.as_deref())}));
     }
     let total:i64=db.query_row("SELECT COUNT(*) FROM story_work_steps_v1 WHERE work_task_id=?1 AND current_attempt_id IS NOT NULL AND operation!='advisory'",[work],|r|r.get(/*idx*/0)).map_err(storage_error)?;
     Ok(
-        json!({"items":items,"coverage":{"complete":total as usize==items.len(),"total":total,"returned":items.len(),"offset":offset.min(total as usize)},"authority":"persistedTaskReceipts"}),
+        json!({"items":items,"coverage":{"complete":total as usize==items.len(),"total":total,"returned":items.len(),"offset":offset.min(total as usize)}}),
     )
 }
 
 // Match the editor's Array.from(body.replace(/\s/g, "")).length, including
 // ECMAScript's BOM whitespace and excluding Unicode NEXT LINE (U+0085).
-fn chapter_character_count(body: &str) -> usize {
+pub(crate) fn chapter_character_count(body: &str) -> usize {
     body.chars()
         .filter(|c| {
             !matches!(*c,
@@ -502,6 +713,14 @@ mod pagination_tests {
             }
             repo.connection.execute("UPDATE story_work_steps_v1 SET work_task_id=?1,ordinal=?2 WHERE current_attempt_id=?3", params![work, index, task_id]).unwrap();
         }
+        let budget: crate::ProviderBudget = serde_json::from_value(json!({
+            "maxRequests": null, "maxTokens": null, "usedRequests": 0,
+            "usedTokens": 0, "unknownTokens": 0, "overrun": false, "charges": []
+        })).unwrap();
+        repo.connection.execute(
+            "INSERT INTO story_work_budgets_v1(work_task_id,ledger_json) VALUES (?1,?2)",
+            params![work, serde_json::to_string(&budget).unwrap()],
+        ).unwrap();
         let mut cursor = None;
         let mut seen = std::collections::BTreeSet::new();
         let mut pages = 0;
@@ -515,9 +734,9 @@ mod pagination_tests {
             )
             .unwrap();
             assert_eq!(status["receipts"]["coverage"]["total"], 7);
-            assert_eq!(status["receipts"]["coverage"]["offset"], pages * 3);
+            assert_eq!(status["receipts"]["coverage"]["offset"], pages * 2);
             let items = status["receipts"]["items"].as_array().unwrap();
-            assert!(items.len() <= 3);
+            assert!(items.len() <= 2);
             for item in items {
                 assert!(seen.insert(item["taskId"].as_str().unwrap().to_owned()));
             }
@@ -529,7 +748,7 @@ mod pagination_tests {
                 break;
             }
         }
-        assert_eq!(pages, 3);
+        assert_eq!(pages, 4);
         assert_eq!(seen.len(), 7);
         let first = status_page(&repo.connection, &project, &work, "decision", None).unwrap();
         let next = first["pagination"]["nextCursor"].as_str().unwrap();

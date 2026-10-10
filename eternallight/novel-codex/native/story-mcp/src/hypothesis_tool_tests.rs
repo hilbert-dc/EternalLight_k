@@ -9,8 +9,10 @@ fn advisory_hypothesis_calls_forward_only_current_scoped_actions_and_exact_token
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let make_client = || RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: listener.local_addr().unwrap().port(),

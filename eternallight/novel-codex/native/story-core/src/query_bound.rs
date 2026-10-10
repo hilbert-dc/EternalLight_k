@@ -64,7 +64,7 @@ impl BoundedQueryScope {
             None | Some(Value::Null) => None,
             Some(value) => Some(value.as_i64().ok_or(RepositoryError::TaskBindingInvalid)?),
         };
-        let end_scene = crate::writer_scene_limit(&target)?;
+        let end_scene = crate::task_scope::reader_scene_limit(&target)?;
         Ok(Self {
             chapter,
             end_scene,

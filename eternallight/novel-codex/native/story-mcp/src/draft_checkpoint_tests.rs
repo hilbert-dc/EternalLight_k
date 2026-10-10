@@ -8,8 +8,10 @@ use super::{RuntimeClient, handle_message};
 
 fn client(listener: &TcpListener) -> RuntimeClient {
     RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: listener.local_addr().unwrap().port(),
@@ -36,8 +38,10 @@ fn rpc_call(client: &RuntimeClient, args: &Value) -> Value {
         &json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
         "name":"save_draft_checkpoint","arguments":args,"_meta":root()}}),
         &Ok(RuntimeClient {
+        request_dispatched: Default::default(),
             publication_gate: super::publication_gate::PublicationGate::default(),
             read_progress: Default::default(),
+            completion_receipt: Default::default(),
             argument_validation: Default::default(),
             host: client.host.clone(),
             port: client.port,
@@ -75,6 +79,23 @@ fn read_request(stream: &mut TcpStream) -> (String, Value) {
             }
         }
     }
+}
+
+fn saved_receipt() -> Value {
+    json!({"chapterId":"chapter-one","checkpointId":"checkpoint-stored",
+        "revisionId":"draft-stored","version":1})
+}
+
+fn saved_dto(body: &Value) -> Value {
+    let mut result = saved_receipt();
+    result["body"] = body["payload"]["body"].clone();
+    result["sceneGroups"] = body["payload"]["sceneGroups"].clone();
+    result
+}
+
+fn respond(stream: &mut TcpStream, status: &str, body: &Value) {
+    let body = body.to_string();
+    write!(stream, "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
 }
 
 #[test]
@@ -165,18 +186,20 @@ fn malformed_draft_payloads_never_dispatch_and_the_same_task_can_save_after_corr
     }
     listener.set_nonblocking(false).unwrap();
     let server = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
+        let (mut stream, _) = super::recovery_proof::accept_business_request(&listener);
         let request = read_request(&mut stream);
-        stream
-            .write_all(b"HTTP/1.1 201 Created\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
-            .unwrap();
+        respond(&mut stream, "201 Created", &saved_dto(&request.1));
         request
     });
-    assert_eq!(
-        rpc_call(&client, &arguments()),
-        json!({"jsonrpc":"2.0","id":1,
-        "result":{"content":[{"type":"text","text":"{}"}]}})
-    );
+    let reply = rpc_call(&client, &arguments());
+    assert_eq!(reply["id"],1);
+    let receipt: Value = serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    for field in ["chapterId","checkpointId","revisionId","version"] {
+        assert_eq!(receipt[field],saved_receipt()[field]);
+    }
+    assert_eq!(receipt["saved"],true);
+    assert_eq!(receipt["nextAction"],"complete_task");
+    assert!(receipt["instruction"].as_str().unwrap().contains("pre-edit draft"));
     let (headers, body) = server.join().unwrap();
     assert!(headers.starts_with("POST /api/projects/project/drafts/checkpoints HTTP/1.1"));
     assert!(
@@ -223,36 +246,36 @@ fn valid_checkpoints_preserve_optional_groups_metadata_empty_text_and_exact_cas(
     cases.push(literal_null);
     let count = cases.len();
     let rejected = json!({"error":{"code":"conflict","message":"TaskInputStale"}});
-    let response_body = rejected.to_string();
+    let rejection = rejected.clone();
     let server = std::thread::spawn(move || {
         let mut requests = Vec::new();
         for index in 0..count {
-            let (mut stream, _) = listener.accept().unwrap();
+            let (mut stream, _) = super::recovery_proof::accept_business_request(&listener);
             requests.push(read_request(&mut stream).1);
-            let (status, body) = if index == count - 1 {
-                ("409 Conflict", response_body.as_str())
+            if index == count - 1 {
+                respond(&mut stream, "409 Conflict", &rejection);
             } else {
-                ("201 Created", "{}")
-            };
-            write!(
-                stream,
-                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            )
-            .unwrap();
+                respond(&mut stream, "201 Created", &saved_dto(requests.last().unwrap()));
+            }
         }
         requests
     });
     for (index, args) in cases.iter().enumerate() {
-        let expected = if index == count - 1 {
-            (409, rejected.clone())
+        let (status, receipt) = client.call("save_draft_checkpoint", args, &root()).unwrap();
+        if index == count - 1 {
+            assert_eq!((status, receipt), (409, rejected.clone()));
         } else {
-            (201, json!({}))
-        };
-        assert_eq!(
-            client.call("save_draft_checkpoint", args, &root()),
-            Ok(expected)
-        );
+            assert_eq!(status, 201);
+            for field in ["chapterId", "checkpointId", "revisionId", "version"] {
+                assert_eq!(receipt[field], saved_receipt()[field]);
+            }
+            assert_eq!(receipt["saved"], true);
+            assert_eq!(receipt["nextAction"], "complete_task");
+            assert!(receipt["instruction"].as_str().unwrap().contains("pre-edit draft"));
+            assert!(receipt.get("body").is_none());
+            assert!(receipt.get("sceneGroups").is_none());
+            assert!(receipt.to_string().len() < 1000);
+        }
     }
     let expected = cases
         .into_iter()
@@ -271,4 +294,64 @@ fn valid_checkpoints_preserve_optional_groups_metadata_empty_text_and_exact_cas(
         })
         .collect::<Vec<_>>();
     assert_eq!(server.join().unwrap(), expected);
+}
+
+#[test]
+fn long_saved_prose_returns_a_bounded_receipt_without_changing_the_write() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let client = client(&listener);
+    let mut args = arguments();
+    args["payload"]["body"] = json!("沈照将灯芯藏进旧木箱，姐姐的名字仍在铜牌上。".repeat(250));
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = super::recovery_proof::accept_business_request(&listener);
+        let (_, request) = read_request(&mut stream);
+        let mut dto = saved_dto(&request);
+        dto["sceneGroups"] = json!([{"id":"opening","body":dto["body"],"locked":false}]);
+        assert!(dto.to_string().len() > 28000);
+        respond(&mut stream, "201 Created", &dto);
+        request
+    });
+    let (status, receipt) = client.call("save_draft_checkpoint", &args, &root()).unwrap();
+    assert_eq!(status, 201);
+    for field in ["chapterId", "checkpointId", "revisionId", "version"] {
+        assert_eq!(receipt[field], saved_receipt()[field]);
+    }
+    assert_eq!(receipt["saved"], true);
+    assert_eq!(receipt["nextAction"], "complete_task");
+    assert!(receipt["instruction"].as_str().unwrap().contains("frozen input"));
+    assert!(receipt.to_string().len() < 1000);
+    let mut expected = args;
+    expected.as_object_mut().unwrap().remove("projectId");
+    assert_eq!(server.join().unwrap(), expected);
+}
+
+#[test]
+fn invalid_success_receipt_binding_never_claims_a_saved_result() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let client = client(&listener);
+    let mut cases = vec![];
+    let mut wrong = saved_receipt();
+    wrong["chapterId"] = json!("another-chapter");
+    cases.push(wrong);
+    for field in ["chapterId", "checkpointId", "revisionId", "version"] {
+        let mut missing = saved_receipt();
+        missing.as_object_mut().unwrap().remove(field);
+        cases.push(missing);
+    }
+    let mut invalid = saved_receipt();
+    invalid["version"] = json!("1");
+    cases.push(invalid);
+    let count = cases.len();
+    let server = std::thread::spawn(move || {
+        for dto in cases {
+            let (mut stream, _) = super::recovery_proof::accept_business_request(&listener);
+            read_request(&mut stream);
+            respond(&mut stream, "201 Created", &dto);
+        }
+    });
+    for _ in 0..count {
+        assert!(client.call("save_draft_checkpoint", &arguments(), &root()).unwrap_err()
+            .contains("inspect the stored checkpoint before retrying"));
+    }
+    server.join().unwrap();
 }

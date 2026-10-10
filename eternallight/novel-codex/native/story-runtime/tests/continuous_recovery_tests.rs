@@ -12,7 +12,7 @@ use support::{AUTHOR, BODY, CANDIDATE, CAPABILITY, Runtime, draft};
 async fn author_resume_after_published_model_failure_survives_runtime_restart() {
     let mut runtime = Runtime::new().await;
     let project = runtime
-        .post("/api/projects", json!({"title":"恢复已保存的知识"}))
+        .post("/api/projects", json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"恢复已保存的知识"}))
         .await;
     let root = format!(
         "/api/projects/{}",
@@ -103,8 +103,8 @@ async fn author_resume_after_published_model_failure_survives_runtime_restart() 
     let restored = runtime
         .post(
             &format!("{work_uri}/control"),
-            json!({
-                "command":"recoverSavedResult","expectedVersion":blocked["version"]
+            json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":blocked["threadId"],
+                "command":"recoverSavedResult","expectedControlRevision":blocked["controlRevision"]
             }),
         )
         .await;
@@ -143,7 +143,7 @@ async fn author_resume_after_published_model_failure_survives_runtime_restart() 
                 "POST",
                 &format!("{work_uri}/control"),
                 AUTHOR,
-                Some(json!({"command":"resume","expectedVersion":blocked["version"]}))
+                Some(json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":blocked["threadId"],"command":"resume","expectedControlRevision":blocked["controlRevision"]}))
             )
             .await
             .0,
@@ -294,7 +294,10 @@ async fn paused_author_edit_replan_reopen_continue_and_cancel_preserve_lineage()
     source_after.as_object_mut().unwrap().remove("tasks");
     assert_eq!(source_after, source_before);
     let tasks = resumed_workspace["tasks"].as_array().unwrap();
-    assert_eq!(tasks.len(), workspace["tasks"].as_array().unwrap().len() + 2);
+    assert_eq!(
+        tasks.len(),
+        workspace["tasks"].as_array().unwrap().len() + 2
+    );
     assert!(tasks.iter().any(|task| task["id"] == writer["id"]));
     let mut request = json!({"payload":draft(writer["target"]["chapterId"].clone(),"林夕藏好密函，循灯光走向白塔。"),
         "expectedRevision":workspace["revision"],"expectedCandidateRevisionId":edited["revisionId"],"idempotencyKey":"old-writer-rejected",
@@ -433,23 +436,53 @@ async fn replan_after_author_edit_delivers_only_the_new_draft_receipt() {
     // without creating a task or mutating the run, then recover after restoration.
     let db = rusqlite::Connection::open(&runtime.path).unwrap();
     let run_id = replanned["id"].as_str().unwrap();
-    let original: String = db.query_row("SELECT state_json FROM story_generation_runs_v1 WHERE run_id=?1",
-        [run_id], |r| r.get(0)).unwrap();
-    let task_count: i64 = db.query_row("SELECT COUNT(*) FROM story_tasks_v2", [], |r| r.get(0)).unwrap();
-    for (field, value) in [("currentChapterId", json!("another-chapter")),
-        ("currentChapterNumber", json!(2)), ("intentGeneration", json!(2))] {
+    let original: String = db
+        .query_row(
+            "SELECT state_json FROM story_generation_runs_v1 WHERE run_id=?1",
+            [run_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let task_count: i64 = db
+        .query_row("SELECT COUNT(*) FROM story_tasks_v2", [], |r| r.get(0))
+        .unwrap();
+    for (field, value) in [
+        ("currentChapterId", json!("another-chapter")),
+        ("currentChapterNumber", json!(2)),
+        ("intentGeneration", json!(2)),
+    ] {
         let mut corrupt: Value = serde_json::from_str(&original).unwrap();
         corrupt[field] = value;
         let encoded = corrupt.to_string();
-        db.execute("UPDATE story_generation_runs_v1 SET state_json=?1 WHERE run_id=?2",
-            rusqlite::params![encoded, run_id]).unwrap();
-        let (status, response) = runtime.call("POST", &format!("{uri}/next"), AUTHOR, Some(json!({}))).await;
+        db.execute(
+            "UPDATE story_generation_runs_v1 SET state_json=?1 WHERE run_id=?2",
+            rusqlite::params![encoded, run_id],
+        )
+        .unwrap();
+        let (status, response) = runtime
+            .call("POST", &format!("{uri}/next"), AUTHOR, Some(json!({})))
+            .await;
         assert!(status.is_client_error(), "{field}: {response}");
-        assert_eq!(db.query_row("SELECT state_json FROM story_generation_runs_v1 WHERE run_id=?1",
-            [run_id], |r| r.get::<_, String>(0)).unwrap(), encoded);
-        assert_eq!(db.query_row("SELECT COUNT(*) FROM story_tasks_v2", [], |r| r.get::<_, i64>(0)).unwrap(), task_count);
-        db.execute("UPDATE story_generation_runs_v1 SET state_json=?1 WHERE run_id=?2",
-            rusqlite::params![original, run_id]).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT state_json FROM story_generation_runs_v1 WHERE run_id=?1",
+                [run_id],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            encoded
+        );
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM story_tasks_v2", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            task_count
+        );
+        db.execute(
+            "UPDATE story_generation_runs_v1 SET state_json=?1 WHERE run_id=?2",
+            rusqlite::params![original, run_id],
+        )
+        .unwrap();
     }
     drop(db);
     let writer = runtime.writer(&root, &uri, "replanned-writer").await;
@@ -473,9 +506,9 @@ async fn replan_after_author_edit_delivers_only_the_new_draft_receipt() {
     assert_eq!(completed["completedChapters"], 1);
     assert_eq!(completed["intentGeneration"], 1);
     assert_eq!(completed["deadlineAt"], paused["deadlineAt"]);
-    assert_eq!(completed["usedTaskAttempts"], 5);
-    assert_eq!(completed["providerBudget"]["usedRequests"], 5);
-    assert_eq!(completed["providerBudget"]["usedTokens"], 35);
+    assert_eq!(completed["usedTaskAttempts"], 7);
+    assert_eq!(completed["providerBudget"]["usedRequests"], 7);
+    assert_eq!(completed["providerBudget"]["usedTokens"], 49);
     assert_eq!(
         completed["chapterDeliveries"][0]["draftRevisionId"],
         saved["revisionId"]
@@ -510,4 +543,574 @@ fn allowance(run: &Value) -> Value {
     .into_iter()
     .map(|key| (key.to_owned(), run[key].clone()))
     .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn author_continuation_recovers_complete_saved_writer_without_rewriting_or_new_allowance() {
+    let mut runtime = Runtime::new().await;
+    let (root, uri) = runtime.start().await;
+    let writer = runtime.writer(&root, &uri, "saved-writer").await;
+    let saved = runtime
+        .save_writer(&root, &writer, BODY, "saved-before-failure")
+        .await;
+    let task_uri = format!("{root}/tasks/{}", writer["id"].as_str().unwrap());
+    let grant = runtime.get(&format!("{task_uri}/provider-budget")).await;
+    runtime
+        .ok(
+            "PATCH",
+            &task_uri,
+            AUTHOR,
+            Some(json!({"threadId":writer["threadId"],
+        "status":"failed","error":"context_item_limit"})),
+        )
+        .await;
+    let settled = runtime.settle(&uri, &writer, &grant).await;
+    let stopped = runtime.post(&format!("{uri}/next"), json!({})).await;
+    assert_eq!(stopped["run"]["status"], "blocked");
+    let work_uri = format!("{root}/work-tasks/work-{}", settled["id"].as_str().unwrap());
+    let blocked = runtime.get(&work_uri).await;
+    assert_eq!(blocked["status"], "blocked");
+    assert_eq!(blocked["resumeMode"], "continueExecution");
+    assert_eq!(
+        runtime.get(&format!("{root}/work-tasks")).await["tasks"][0],
+        blocked
+    );
+    // A query index is not a second generation authority. Read projection must
+    // remain truthful without writing or repairing a stale index as a side effect.
+    let db = rusqlite::Connection::open(&runtime.path).unwrap();
+    db.execute(
+        "UPDATE story_work_tasks_v1 SET status='running' WHERE id=?1",
+        [blocked["id"].as_str().unwrap()],
+    )
+    .unwrap();
+    assert_eq!(runtime.get(&work_uri).await, blocked);
+    assert_eq!(
+        db.query_row(
+            "SELECT status FROM story_work_tasks_v1 WHERE id=?1",
+            [blocked["id"].as_str().unwrap()],
+            |row| row.get::<_, String>(0)
+        )
+        .unwrap(),
+        "running"
+    );
+    drop(db);
+    let workspace = runtime.get(&format!("{root}/creative-workspace")).await;
+    let run = runtime.get(&uri).await;
+    runtime.restart().await;
+    assert_eq!(runtime.get(&work_uri).await, blocked);
+    let resumed = runtime
+        .post(
+            &format!("{uri}/retry-failed-task"),
+            json!({"expectedVersion":run["version"]}),
+        )
+        .await;
+    assert_eq!(resumed["providerBudget"], run["providerBudget"]);
+    assert_eq!(resumed["usedTaskAttempts"], run["usedTaskAttempts"]);
+    assert_eq!(resumed["deadlineAt"], run["deadlineAt"]);
+    assert_eq!(resumed["targetChapters"], run["targetChapters"]);
+    let recovered = runtime.get(&task_uri).await;
+    assert_eq!(recovered["status"], "completed");
+    assert_eq!(recovered["error"], "context_item_limit");
+    let restored_workspace = runtime.get(&format!("{root}/creative-workspace")).await;
+    for field in [
+        "chapters",
+        "artifacts",
+        "headSnapshotId",
+        "revision",
+        "sourceDigest",
+    ] {
+        assert_eq!(
+            restored_workspace[field], workspace[field],
+            "saved story data changed: {field}"
+        );
+    }
+    assert!(
+        runtime
+            .call("GET", &format!("{task_uri}/provider-budget"), AUTHOR, None)
+            .await
+            .0
+            .is_client_error(),
+        "a recovered completed attempt must not obtain another execution grant"
+    );
+    let db = rusqlite::Connection::open(&runtime.path).unwrap();
+    let (stored_grant, settled): (String, bool) = db
+        .query_row(
+            "SELECT grant_json,settled FROM story_task_provider_budgets_v1 WHERE task_id=?1",
+            [writer["id"].as_str().unwrap()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&stored_grant).unwrap(), grant);
+    assert!(settled);
+    drop(db);
+    let completed = runtime.finish_chapter(&root, &uri).await;
+    assert_eq!(completed["status"], "completed");
+    assert_eq!(
+        completed["chapterDeliveries"][0]["draftRevisionId"],
+        saved["revisionId"]
+    );
+    assert_eq!(completed["usedTaskAttempts"], 5);
+    let work = runtime.get(&work_uri).await;
+    assert_eq!(
+        work["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|step| step["operation"] == "generateChapter")
+            .count(),
+        1
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn author_continuation_does_not_recover_partial_draft_as_complete() {
+    let runtime = Runtime::new().await;
+    let (root, uri) = runtime.start().await;
+    let writer = runtime.writer(&root, &uri, "partial-writer").await;
+    let mut payload = draft(writer["target"]["chapterId"].clone(), BODY);
+    payload["completeness"] = json!("partial");
+    let saved = runtime.candidate(&format!("{root}/drafts/checkpoints"), json!({
+        "payload":payload,"expectedRevision":writer["inputRevision"],
+        "expectedCandidateRevisionId":writer["inputManifest"]["expectedCandidateRevisionId"],
+        "idempotencyKey":"partial-before-failure","taskId":writer["id"],"threadId":writer["threadId"]
+    })).await;
+    let task_uri = format!("{root}/tasks/{}", writer["id"].as_str().unwrap());
+    let grant = runtime.get(&format!("{task_uri}/provider-budget")).await;
+    runtime
+        .ok(
+            "PATCH",
+            &task_uri,
+            AUTHOR,
+            Some(json!({"threadId":writer["threadId"],
+        "status":"failed","error":"context_item_limit"})),
+        )
+        .await;
+    runtime.settle(&uri, &writer, &grant).await;
+    let blocked = runtime.post(&format!("{uri}/next"), json!({})).await;
+    let resumed = runtime
+        .post(
+            &format!("{uri}/retry-failed-task"),
+            json!({"expectedVersion":blocked["run"]["version"]}),
+        )
+        .await;
+    assert_eq!(runtime.get(&task_uri).await["status"], "failed");
+    assert_eq!(resumed["completedChapters"], 0);
+    let retry = runtime.next_task(&root, &uri, "retry-partial").await;
+    assert_eq!(retry["operation"], "generateChapter");
+    assert_ne!(retry["id"], writer["id"]);
+    assert_eq!(
+        retry["inputManifest"]["expectedCandidateRevisionId"],
+        saved["revisionId"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn author_continuation_rejects_unresolved_write_even_with_a_saved_draft() {
+    let runtime = Runtime::new().await;
+    let (root, uri) = runtime.start().await;
+    let writer = runtime.writer(&root, &uri, "unresolved-writer").await;
+    runtime
+        .save_writer(&root, &writer, BODY, "saved-before-unknown-write")
+        .await;
+    let mut repository =
+        novel_codex_story_core::SqliteStoryRepository::open(&runtime.path).unwrap();
+    repository
+        .bind_recovery_operation(novel_codex_story_core::RecoveryOperationBinding {
+            project_id: novel_codex_story_core::ProjectId::parse(
+                writer["projectId"].as_str().unwrap(),
+            )
+            .unwrap(),
+            task_id: writer["id"].as_str().unwrap().into(),
+            thread_id: writer["threadId"].as_str().unwrap().into(),
+            turn_id: "interrupted-turn".into(),
+            call_id: "unknown-write".into(),
+            tool_name: "save_draft_checkpoint".into(),
+            request_hash: "0".repeat(64),
+            idempotency_ref: Some(format!("sha256:{}", "1".repeat(64))),
+            now: 1,
+        })
+        .unwrap();
+    drop(repository);
+    let task_uri = format!("{root}/tasks/{}", writer["id"].as_str().unwrap());
+    let grant = runtime.get(&format!("{task_uri}/provider-budget")).await;
+    runtime
+        .ok(
+            "PATCH",
+            &task_uri,
+            AUTHOR,
+            Some(json!({"threadId":writer["threadId"],
+        "status":"failed","error":"context_item_limit"})),
+        )
+        .await;
+    runtime.settle(&uri, &writer, &grant).await;
+    let blocked = runtime.post(&format!("{uri}/next"), json!({})).await;
+    assert_eq!(blocked["stopReason"], "pendingRecovery");
+    let before = runtime.get(&uri).await;
+    let (status, _) = runtime
+        .call(
+            "POST",
+            &format!("{uri}/retry-failed-task"),
+            AUTHOR,
+            Some(json!({"expectedVersion":before["version"]})),
+        )
+        .await;
+    assert!(status.is_client_error());
+    assert_eq!(runtime.get(&uri).await, before);
+    assert_eq!(runtime.get(&task_uri).await["status"], "failed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn author_pause_resumes_after_restart_with_original_budget_and_saved_output() {
+    for mode in ["empty", "partial", "complete"] {
+        let mut r = Runtime::new().await;
+        let (root, uri) = r.start().await;
+        let w = r.writer(&root, &uri, "author-paused").await;
+        let task_uri = format!("{root}/tasks/{}", w["id"].as_str().unwrap());
+        let grant = r.get(&format!("{task_uri}/provider-budget")).await;
+        let mut saved = Value::Null;
+        if mode != "empty" {
+            let mut payload = draft(w["target"]["chapterId"].clone(), BODY);
+            if mode == "partial" {
+                payload["completeness"] = json!("partial");
+            }
+            saved=r.candidate(&format!("{root}/drafts/checkpoints"),json!({"payload":payload,"expectedRevision":w["inputRevision"],"expectedCandidateRevisionId":w["inputManifest"]["expectedCandidateRevisionId"],"idempotencyKey":"before-author-pause","taskId":w["id"],"threadId":w["threadId"]})).await;
+        }
+        let active = r.get(&uri).await;
+        let paused = r
+            .post(
+                &format!("{uri}/control"),
+                json!({"expectedVersion":active["version"],"command":"pause"}),
+            )
+            .await;
+        let task = r.get(&task_uri).await;
+        assert_eq!(task["status"], "cancelled");
+        assert_eq!(task["error"], "author_paused");
+        let (status, _) = r
+            .call(
+                "POST",
+                &format!("{uri}/control"),
+                AUTHOR,
+                Some(json!({"expectedVersion":paused["version"],"command":"resume"})),
+            )
+            .await;
+        assert!(status.is_client_error());
+        assert_eq!(r.get(&uri).await, paused);
+        r.settle(&uri, &w, &grant).await;
+        r.restart().await;
+        let before = r.get(&uri).await;
+        let resumed = r
+            .post(
+                &format!("{uri}/control"),
+                json!({"expectedVersion":before["version"],"command":"resume"}),
+            )
+            .await;
+        assert_eq!(resumed["status"], "running");
+        for field in [
+            "retryAttempts",
+            "usedTaskAttempts",
+            "maxRetryAttempts",
+            "maxTaskAttempts",
+            "deadlineAt",
+            "targetChapters",
+            "providerBudget",
+        ] {
+            assert_eq!(resumed[field], before[field], "{mode}: {field}");
+        }
+        let db = rusqlite::Connection::open(&r.path).unwrap();
+        let (stored_grant, settled): (String, bool) = db
+            .query_row(
+                "SELECT grant_json,settled FROM story_task_provider_budgets_v1 WHERE task_id=?1",
+                [w["id"].as_str().unwrap()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&stored_grant).unwrap(), grant);
+        assert!(settled);
+        drop(db);
+        if mode == "complete" {
+            assert_eq!(r.get(&task_uri).await["status"], "completed");
+            assert_eq!(
+                r.get(&format!("{root}/creative-workspace")).await["chapters"][0]["candidate"]["id"],
+                saved["revisionId"]
+            );
+            let completed = r.finish_chapter(&root, &uri).await;
+            assert_eq!(completed["status"], "completed");
+            assert_eq!(
+                completed["usedTaskAttempts"].as_i64(),
+                Some(before["usedTaskAttempts"].as_i64().unwrap() + 3)
+            );
+        } else {
+            let retry = r.next_task(&root, &uri, "resumed-writer").await;
+            assert_eq!(retry["operation"], "generateChapter");
+            assert_eq!(retry["target"]["chapterId"], w["target"]["chapterId"]);
+            assert_ne!(retry["id"], w["id"]);
+            assert_eq!(
+                retry["inputManifest"]["expectedCandidateRevisionId"],
+                saved["revisionId"]
+            );
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pausing_a_failed_attempt_does_not_bypass_retry_policy() {
+    let r = Runtime::new().await;
+    let (root, uri) = r.start().await;
+    let w = r.writer(&root, &uri, "failed-before-pause").await;
+    let task_uri = format!("{root}/tasks/{}", w["id"].as_str().unwrap());
+    let grant = r.get(&format!("{task_uri}/provider-budget")).await;
+    r.ok(
+        "PATCH",
+        &task_uri,
+        AUTHOR,
+        Some(
+            json!({"threadId":w["threadId"],"status":"failed","error":"provider_quota_exhausted"}),
+        ),
+    )
+    .await;
+    r.settle(&uri, &w, &grant).await;
+    let blocked = r.post(&format!("{uri}/next"), json!({})).await;
+    let paused = r
+        .post(
+            &format!("{uri}/control"),
+            json!({"expectedVersion":blocked["run"]["version"],"command":"pause"}),
+        )
+        .await;
+    assert_eq!(r.get(&task_uri).await["error"], "provider_quota_exhausted");
+    let (status, _) = r
+        .call(
+            "POST",
+            &format!("{uri}/control"),
+            AUTHOR,
+            Some(json!({"expectedVersion":paused["version"],"command":"resume"})),
+        )
+        .await;
+    assert!(status.is_client_error());
+    assert_eq!(r.get(&uri).await, paused);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn author_paused_resume_rejects_unknown_write_atomically() {
+    let r = Runtime::new().await;
+    let (root, uri) = r.start().await;
+    let w = r.writer(&root, &uri, "paused-unknown").await;
+    r.save_writer(&root, &w, BODY, "saved-before-pause").await;
+    let mut repo = novel_codex_story_core::SqliteStoryRepository::open(&r.path).unwrap();
+    repo.bind_recovery_operation(novel_codex_story_core::RecoveryOperationBinding {
+        project_id: novel_codex_story_core::ProjectId::parse(w["projectId"].as_str().unwrap())
+            .unwrap(),
+        task_id: w["id"].as_str().unwrap().into(),
+        thread_id: w["threadId"].as_str().unwrap().into(),
+        turn_id: "paused-turn".into(),
+        call_id: "unknown-write".into(),
+        tool_name: "save_draft_checkpoint".into(),
+        request_hash: "0".repeat(64),
+        idempotency_ref: Some(format!("sha256:{}", "1".repeat(64))),
+        now: 1,
+    })
+    .unwrap();
+    drop(repo);
+    let grant = r
+        .get(&format!(
+            "{root}/tasks/{}/provider-budget",
+            w["id"].as_str().unwrap()
+        ))
+        .await;
+    let active = r.get(&uri).await;
+    r.post(
+        &format!("{uri}/control"),
+        json!({"expectedVersion":active["version"],"command":"pause"}),
+    )
+    .await;
+    r.settle(&uri, &w, &grant).await;
+    let before = r.get(&uri).await;
+    let (status, _) = r
+        .call(
+            "POST",
+            &format!("{uri}/control"),
+            AUTHOR,
+            Some(json!({"expectedVersion":before["version"],"command":"resume"})),
+        )
+        .await;
+    assert!(status.is_client_error());
+    assert_eq!(r.get(&uri).await, before);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unsaved_current_chapter_replan_preserves_scope_and_budget() {
+    unsaved_current_chapter_restart(true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn current_chapter_rebind_preserves_frozen_acceptance_and_author_identity() {
+    unsaved_current_chapter_restart(false).await;
+}
+
+async fn unsaved_current_chapter_restart(author_change: bool) {
+    let mut r = Runtime::new().await;
+    let (root, uri) = r.start().await;
+    let writer = r.writer(&root, &uri, "failed-empty-writer").await;
+    let task_uri = format!("{root}/tasks/{}", writer["id"].as_str().unwrap());
+    let grant = r.get(&format!("{task_uri}/provider-budget")).await;
+    r.ok(
+        "PATCH",
+        &task_uri,
+        AUTHOR,
+        Some(json!({"threadId":writer["threadId"],"status":"failed","error":"TaskNotWritable"})),
+    )
+    .await;
+    r.settle(&uri, &writer, &grant).await;
+    let stopped = r.post(&format!("{uri}/next"), json!({})).await;
+    let before = stopped["run"].clone();
+    r.restart().await;
+    let preview = r.get(&format!("{uri}/replan")).await;
+    assert_eq!(preview["availableFrom"], json!(["currentChapter"]));
+    let mut request = json!({"expectedVersion":preview["run"]["version"],"expectedProjectRevision":preview["projectRevision"],"expectedSourceDigest":preview["sourceDigest"],"restartFrom":"currentChapter","instruction":"重新起草未保存的当前章，保持原范围与预算"});
+    let route = if author_change { "replan" } else { "rebind" };
+    if !author_change {
+        request.as_object_mut().unwrap().remove("instruction");
+    }
+    request["expectedSourceDigest"] = json!("0".repeat(64));
+    assert!(
+        r.call(
+            "POST",
+            &format!("{uri}/{route}"),
+            AUTHOR,
+            Some(request.clone())
+        )
+        .await
+        .0
+        .is_client_error()
+    );
+    assert_eq!(r.get(&uri).await, before);
+    request["expectedSourceDigest"] = preview["sourceDigest"].clone();
+    let replanned = r.post(&format!("{uri}/{route}"), request).await;
+    assert_eq!(allowance(&replanned), allowance(&before));
+    if !author_change {
+        assert_eq!(replanned["intentGeneration"], before["intentGeneration"]);
+        assert_eq!(replanned["intentRevisions"], before["intentRevisions"]);
+    }
+    assert_eq!(replanned["currentChapterId"], writer["target"]["chapterId"]);
+    assert_eq!(r.get(&task_uri).await["error"], "TaskNotWritable");
+    let next = r.writer(&root, &uri, "replanned-empty-writer").await;
+    if !author_change {
+        assert_eq!(
+            next["target"]["chapterAcceptance"],
+            writer["target"]["chapterAcceptance"]
+        );
+    }
+    assert_eq!(
+        next["inputManifest"]["expectedCandidateRevisionId"],
+        Value::Null
+    );
+    assert_eq!(next["target"]["chapterId"], writer["target"]["chapterId"]);
+    let saved = r
+        .save_writer(&root, &next, BODY, "after-empty-replan")
+        .await;
+    r.complete_and_advance(&root, &uri, &next).await;
+    let done = r.finish_chapter(&root, &uri).await;
+    assert_eq!(done["status"], "completed");
+    assert_eq!(
+        done["chapterDeliveries"][0]["draftRevisionId"],
+        saved["revisionId"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn duplicate_finish_is_rejected_and_terminal_absent_actions_are_reconciled() {
+    use novel_codex_story_core::{
+        ProjectId, RecoveryOperationBinding, RepositoryError, SqliteStoryRepository,
+        WorkActionRequest,
+    };
+    let r = Runtime::new().await;
+    let (root, uri) = r.start().await;
+    let writer = r.writer(&root, &uri, "writer").await;
+    r.save_writer(&root, &writer, BODY, "body").await;
+    r.complete_and_advance(&root, &uri, &writer).await;
+    r.assess_chapter(&root, &uri, "supported").await;
+    let coordinator = r.next_task(&root, &uri, "coordinator").await;
+    let read = r.decision_status(&root, &coordinator).await;
+    let action = read["readyActions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["operation"] == "finishChapter")
+        .unwrap();
+    r.choose(&root, &coordinator, "finishChapter").await;
+    let project = ProjectId::parse(coordinator["projectId"].as_str().unwrap()).unwrap();
+    let id = coordinator["id"].as_str().unwrap();
+    let mut repo = SqliteStoryRepository::open(&r.path).unwrap();
+    let task = repo.task(&project, id).unwrap().unwrap();
+    let binding = |call: &str, tool: &str, key: Option<&str>| RecoveryOperationBinding {
+        project_id: project.clone(),
+        task_id: id.into(),
+        thread_id: task.thread_id.clone(),
+        turn_id: "turn".into(),
+        call_id: call.into(),
+        tool_name: tool.into(),
+        request_hash: "a".repeat(64),
+        idempotency_ref: key.map(|key| {
+            format!(
+                "sha256:{:x}",
+                Sha256::digest(json!(key).to_string().as_bytes())
+            )
+        }),
+        now: 1,
+    };
+    repo.bind_recovery_operation(binding(
+        "duplicate",
+        "request_work_action",
+        Some("different-key"),
+    ))
+    .unwrap();
+    let request: WorkActionRequest = serde_json::from_value(json!({"expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],"actionKey":action["actionKey"],"instruction":"重复登记完稿","idempotencyKey":"different-key"})).unwrap();
+    assert!(matches!(
+        repo.select_work_action(&task, &request),
+        Err(RepositoryError::TaskOutputForbidden)
+    ));
+    repo.bind_recovery_operation(binding(
+        "absent",
+        "request_work_action",
+        Some("uncommitted-key"),
+    ))
+    .unwrap();
+    repo.bind_recovery_operation(binding(
+        "matching",
+        "request_work_action",
+        Some("select-finishChapter"),
+    ))
+    .unwrap();
+    repo.bind_recovery_operation(binding("unkeyed", "request_work_action", None))
+        .unwrap();
+    repo.bind_recovery_operation(binding(
+        "other-tool",
+        "save_draft_checkpoint",
+        Some("uncommitted-key"),
+    ))
+    .unwrap();
+    let snapshot = repo
+        .recovery_snapshot(&project, &[id.into()], None, 0, 100, 2)
+        .unwrap();
+    let state = |snapshot: &Value, call: &str| {
+        snapshot["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["tool_call_id"] == call)
+            .unwrap()["state"]
+            .clone()
+    };
+    assert_eq!(state(&snapshot, "duplicate"), "rejected");
+    assert_eq!(state(&snapshot, "absent"), "accepted");
+    drop(repo);
+    r.complete_and_advance(&root, &uri, &coordinator).await;
+    let mut repo = SqliteStoryRepository::open(&r.path).unwrap();
+    let snapshot = repo
+        .recovery_snapshot(&project, &[id.into()], None, 0, 100, 3)
+        .unwrap();
+    assert_eq!(state(&snapshot, "absent"), "rejected");
+    for call in ["matching", "unkeyed", "other-tool"] {
+        assert_eq!(state(&snapshot, call), "accepted");
+    }
+    assert_eq!(r.get(&uri).await["completedChapters"], 1);
 }

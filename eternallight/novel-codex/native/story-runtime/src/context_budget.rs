@@ -3,8 +3,13 @@ use serde_json::{Value, json};
 /// Remove only optional material. Frozen targets, plans, facts and modeling input stay intact;
 /// the caller rejects the pack if mandatory items alone exceed its byte or model-item budget.
 pub(crate) fn fit_optional_context(pack: &mut Value, byte_limit: usize) {
-    while pack.to_string().len() + 200 > byte_limit || !crate::context_model_item_budget::fits(pack)
-    {
+    loop {
+        crate::context_pack::finalize_context_pack(pack);
+        if pack.to_string().len() + 200 <= byte_limit
+            && crate::context_model_item_budget::fits(pack)
+        {
+            break;
+        }
         if pack["candidateCommitmentProposals"]
             .as_array()
             .is_some_and(|entries| entries.len() > 1)
@@ -138,13 +143,6 @@ pub(crate) fn fit_optional_context(pack: &mut Value, byte_limit: usize) {
         }
         break;
     }
-    pack["coverage"]["scannedScope"]["draftsIncluded"] =
-        json!(pack["relevantText"].as_array().map_or(0, Vec::len));
-    pack["coverage"]["scannedScope"]["modelingSourcesIncluded"] = json!(
-        pack["operationContext"]["modeling"]
-            .as_array()
-            .map_or(0, Vec::len)
-    );
 }
 
 fn trim_proposal(pack: &mut Value) -> bool {
@@ -185,7 +183,7 @@ fn trim_commitment(pack: &mut Value) -> bool {
     true
 }
 
-fn mark_truncated(pack: &mut Value, scope: &str, reason: &str) {
+pub(crate) fn mark_truncated(pack: &mut Value, scope: &str, reason: &str) {
     pack["coverage"]["complete"] = json!(false);
     for (field, value) in [("missingScope", scope), ("truncationReasons", reason)] {
         let entries = pack["coverage"][field]

@@ -16,7 +16,7 @@ pub fn plan_refs(path: &std::path::Path, project: &str, previous: i64) -> Value 
         .unwrap()
         .chapter_id;
     let report = repository
-        .commitment_extraction(&project, &chapter)
+        .commitment_extraction(&project, &chapter, None)
         .unwrap()
         .unwrap();
     assert_eq!(report["sourceCurrent"], true);
@@ -56,7 +56,7 @@ pub async fn submit(step: Step<'_>) -> bool {
     assert!(length > 2);
     let project = ProjectId::parse(step.project_id).unwrap();
     let previous = repository
-        .commitment_extraction(&project, chapter)
+        .commitment_extraction(&project, chapter, None)
         .unwrap()
         .map(|report| report["revisionId"].clone());
     drop(repository);

@@ -54,6 +54,7 @@ use uuid::Uuid;
 pub struct RuntimeState {
     pub(crate) database_path: PathBuf,
     pub(crate) engine_budget_database: Option<PathBuf>,
+    pub(crate) media_host_callback: Option<(String, Arc<str>)>,
     author_token: Arc<str>,
     candidate_token: Arc<str>,
 }
@@ -69,22 +70,34 @@ impl RuntimeState {
         Self {
             database_path,
             engine_budget_database: None,
+            media_host_callback: None,
             author_token: author_token.into(),
             candidate_token: candidate_token.into(),
         }
+    }
+
+    pub fn with_media_host_callback(mut self, url: String, token: String) -> Result<Self, String> {
+        let parsed = reqwest::Url::parse(&url).map_err(|_| "invalid media Host URL")?;
+        if parsed.scheme() != "http"
+            || parsed.host_str() != Some("127.0.0.1")
+            || parsed.port().is_none()
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+            || parsed.path() != "/media/execute"
+            || token.len() < 24
+        {
+            return Err("invalid media Host callback".into());
+        }
+        self.media_host_callback = Some((url, token.into()));
+        Ok(self)
     }
 
     pub fn with_engine_budget_database(mut self, path: PathBuf) -> Self {
         self.engine_budget_database = Some(path);
         self
     }
-}
-
-#[derive(Deserialize)]
-struct CreateProjectRequest {
-    title: String,
-    #[serde(default)]
-    logline: String,
 }
 
 #[derive(Deserialize)]
@@ -226,11 +239,28 @@ struct ProjectResponse {
 
 pub fn router(state: RuntimeState) -> Router {
     let author = Router::new()
-        .route("/api/projects/{project_id}/conversations", get(crate::conversation_api::list).post(crate::conversation_api::create))
-        .route("/api/projects/{project_id}/conversations/{thread_id}", get(crate::conversation_api::read).patch(crate::conversation_api::update))
-        .route("/api/projects/{project_id}/quality-notebook", get(crate::quality_api::get).post(crate::quality_api::change))
-        .route("/api/projects/{project_id}/quality-packets/{packet_id}", get(crate::quality_api::packet))
-        .route("/api/projects/{project_id}/quality-packets/{packet_id}/review", get(crate::quality_api::review))
+        .route("/api/projects/{project_id}/conversations/{thread_id}/messages", get(crate::conversation_message_api::list).post(crate::conversation_message_api::submit))
+        .route("/api/projects/{project_id}/conversations/{thread_id}/messages/{message_id}", get(crate::conversation_message_api::read).post(crate::conversation_message_api::change))
+        .route(
+            "/api/projects/{project_id}/conversations",
+            get(crate::conversation_api::list).post(crate::conversation_api::create),
+        )
+        .route(
+            "/api/projects/{project_id}/conversations/{thread_id}",
+            get(crate::conversation_api::read).patch(crate::conversation_api::update),
+        )
+        .route(
+            "/api/projects/{project_id}/quality-notebook",
+            get(crate::quality_api::get).post(crate::quality_api::change),
+        )
+        .route(
+            "/api/projects/{project_id}/quality-packets/{packet_id}",
+            get(crate::quality_api::packet),
+        )
+        .route(
+            "/api/projects/{project_id}/quality-packets/{packet_id}/review",
+            get(crate::quality_api::review),
+        )
         .route(
             "/api/projects/{project_id}/revision-outcomes/{writer_task_id}",
             get(crate::revision_outcome_api::get),
@@ -252,7 +282,11 @@ pub fn router(state: RuntimeState) -> Router {
             "/api/tasks/recover-orphans",
             axum::routing::post(recover_orphaned_tasks),
         )
-        .route("/api/projects", get(list_projects).post(create_project))
+        .route(
+            "/api/projects",
+            get(list_projects).post(crate::multimedia_api::create_project),
+        )
+        .merge(crate::multimedia_api::routes())
         .route(
             "/api/projects/{project_id}/generation-runs",
             axum::routing::get(crate::authoring_api::list).post(crate::authoring_api::start),
@@ -274,6 +308,10 @@ pub fn router(state: RuntimeState) -> Router {
             get(crate::authoring_api::preview_replan).post(crate::authoring_api::replan),
         )
         .route(
+            "/api/projects/{project_id}/generation-runs/{run_id}/rebind",
+            axum::routing::post(crate::authoring_api::rebind),
+        )
+        .route(
             "/api/projects/{project_id}/generation-runs/{run_id}/resolve-feedback",
             axum::routing::post(crate::authoring_api::resolve_feedback),
         )
@@ -292,6 +330,10 @@ pub fn router(state: RuntimeState) -> Router {
         .route(
             "/api/projects/{project_id}/generation-runs/{run_id}/advance-task",
             axum::routing::post(crate::authoring_api::advance_task),
+        )
+        .route(
+            "/api/projects/{project_id}/work-tasks/{work_id}/issues",
+            get(crate::work_issue_api::read),
         )
         .route(
             "/api/projects/{project_id}/work-tasks/{work_id}/budget-authorization",
@@ -519,6 +561,34 @@ pub fn router(state: RuntimeState) -> Router {
             get(crate::work_task_api::list),
         )
         .route(
+            "/api/projects/{project_id}/work-execution-events",
+            get(crate::work_execution_event_api::list),
+        )
+        .route(
+            "/api/projects/{project_id}/work-execution-events/{id}/claim",
+            axum::routing::post(crate::work_execution_event_api::claim),
+        )
+        .route(
+            "/api/projects/{project_id}/work-execution-events/{id}/ack",
+            axum::routing::post(crate::work_execution_event_api::ack),
+        )
+        .route(
+            "/api/projects/{project_id}/work-execution-events/{id}/release",
+            axum::routing::post(crate::work_execution_event_api::release),
+        )
+        .route(
+            "/api/projects/{project_id}/work-tasks/{id}/execution-owner",
+            axum::routing::post(crate::work_execution_event_api::acquire),
+        )
+        .route(
+            "/api/projects/{project_id}/work-tasks/{id}/execution-owner/renew",
+            axum::routing::post(crate::work_execution_event_api::renew),
+        )
+        .route(
+            "/api/projects/{project_id}/work-tasks/{id}/execution-owner/release",
+            axum::routing::post(crate::work_execution_event_api::release_owner),
+        )
+        .route(
             "/api/projects/{project_id}/search-audits",
             get(crate::search_audit_api::latest).post(crate::search_audit_api::start),
         )
@@ -596,6 +666,18 @@ pub fn router(state: RuntimeState) -> Router {
             get(crate::work_task_api::get),
         )
         .route(
+            "/api/projects/{project_id}/work-tasks/{id}/control-commands/{command_id}",
+            get(crate::work_task_api::receipt),
+        )
+        .route(
+            "/api/projects/{project_id}/work-tasks/{id}/interludes",
+            axum::routing::post(crate::work_interlude_api::begin),
+        )
+        .route(
+            "/api/projects/{project_id}/work-tasks/{id}/interludes/return",
+            axum::routing::post(crate::work_interlude_api::return_to_parent),
+        )
+        .route(
             "/api/projects/{project_id}/work-tasks/{id}/control",
             axum::routing::post(crate::work_task_api::control),
         )
@@ -620,6 +702,11 @@ pub fn router(state: RuntimeState) -> Router {
             axum::routing::post(crate::recovery_api::snapshot),
         )
         .route(
+            "/api/projects/{project_id}/tasks/recovery-operations/reconcile",
+            axum::routing::post(crate::recovery_api::reconcile_operation)
+                .layer(axum::extract::DefaultBodyLimit::max(132 * 1024)),
+        )
+        .route(
             "/api/projects/{project_id}/tasks/{task_id}",
             get(get_task).patch(update_task),
         )
@@ -640,12 +727,24 @@ pub fn router(state: RuntimeState) -> Router {
             get(crate::generation_handoff_api::read),
         )
         .route(
+            "/api/projects/{project_id}/work-tasks/{work_task_id}/generation-handoff",
+            get(crate::generation_handoff_api::from_work),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/generation-handoff/execute",
+            axum::routing::post(crate::generation_handoff_api::execute),
+        )
+        .route(
             "/api/projects/{project_id}/tasks/{task_id}/intents",
             get(crate::task_intent_api::list).post(crate::task_intent_api::append),
         )
         .route(
             "/api/projects/{project_id}/tasks/{task_id}/final-reply",
             get(crate::task_final_reply_api::read).post(crate::task_final_reply_api::record),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/intents/{intent_revision}/not-sent",
+            axum::routing::post(crate::task_intent_api::retain_unsent),
         )
         .route(
             "/api/projects/{project_id}/tasks/{task_id}/intents/{intent_revision}/delivered",
@@ -666,6 +765,10 @@ pub fn router(state: RuntimeState) -> Router {
         .route(
             "/api/projects/{project_id}/tasks/{task_id}/actions/{action_id}/permission",
             get(crate::action_permission_api::read),
+        )
+        .route(
+            "/api/projects/{project_id}/work-tasks/{work_id}/execution-condition",
+            axum::routing::post(crate::work_decision_api::execution_condition),
         )
         .route(
             "/api/projects/{project_id}/work-tasks/{work_id}/decision",
@@ -693,6 +796,31 @@ pub fn router(state: RuntimeState) -> Router {
             require_author,
         ));
     let writer = Router::new()
+        .merge(crate::multimedia_api::writer_routes())
+        .route(
+            "/api/projects/{project_id}/tasks/recovery-operations",
+            get(crate::recovery_api::read_operation),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/delegated-drafts",
+            get(crate::delegated_draft_api::read).post(crate::delegated_draft_api::save),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/delegated-writer",
+            axum::routing::post(crate::delegated_draft_api::grant),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/revision-outcome",
+            get(crate::revision_outcome_api::read_for_task),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/work-issues",
+            get(crate::work_issue_api::read_for_task),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/work-plan",
+            get(crate::work_decision_api::read_plan).post(crate::work_decision_api::update_plan),
+        )
         .route(
             "/api/projects/{project_id}/tasks/{task_id}/work-decision",
             axum::routing::get(crate::work_decision_api::read),
@@ -719,10 +847,17 @@ pub fn router(state: RuntimeState) -> Router {
             axum::routing::post(crate::revision_outcome_api::submit),
         )
         .route(
+            "/api/projects/{project_id}/tasks/{task_id}/task-source-content",
+            get(crate::task_source_api::read_content),
+        )
+        .route(
             "/api/projects/{project_id}/tasks/{task_id}/task-source",
             get(crate::task_source_api::read),
         )
-        .route("/api/projects/{project_id}/tasks/{task_id}/quality", axum::routing::post(crate::quality_api::task))
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/quality",
+            axum::routing::post(crate::quality_api::task),
+        )
         .route(
             "/api/projects/{project_id}/commitments/{commitment_id}/task-input",
             get(crate::commitment_revision_api::read),
@@ -783,6 +918,10 @@ pub fn router(state: RuntimeState) -> Router {
         .route(
             "/api/projects/{project_id}/tasks/{task_id}/actions",
             axum::routing::post(crate::task_action_api::request),
+        )
+        .route(
+            "/api/projects/{project_id}/tasks/{task_id}/generation-control",
+            axum::routing::post(crate::generation_model_control_api::pause),
         )
         .route(
             "/api/projects/{project_id}/tasks/{task_id}/generation-handoff",
@@ -1033,7 +1172,7 @@ async fn read_context(
                     "Writer context position must match its frozen task target",
                 );
             }
-            match crate::context_visibility::writer_scene_limit(&target) {
+            match novel_codex_story_core::reader_scene_limit(&target) {
                 Ok(limit) => limit,
                 Err(source) => return repository_error(source),
             }
@@ -1959,7 +2098,24 @@ async fn read_context(
                 .expect("truncation reasons array")
                 .push(json!("revisionOutcomeTextBudget"));
         }
-        context["operationContext"]["revisionOutcomeInput"] = input;
+        // Critic sees frozen standards, saved current/original prose and only necessary
+        // prior prose sources. Author prose and planner material cannot grade their own draft.
+        context["activeIntentRefs"] = json!([]);
+        context["narrativeGoals"] = json!({});
+        context["queryReport"] = json!(null);
+        for field in [
+            "relevantCommitments",
+            "candidateCommitmentProposals",
+            "sceneOutcomeRefs",
+            "plannedEffects",
+            "stateFacts",
+            "evidenceRefs",
+            "relevantText",
+            "openQuestions",
+        ] {
+            context[field] = json!([]);
+        }
+        context["operationContext"] = json!({"revisionOutcomeInput":input});
     }
     if let Some(input) = revision_repair_input {
         context["operationContext"]["revisionRepairInput"] = input;
@@ -1977,22 +2133,8 @@ async fn read_context(
         return repository_error(source);
     }
     if has_mandatory_input || task.is_some() {
-        // Source-bound inputs are mandatory. Fit and hash once after inserting both.
+        // Cache full source-bound inputs first, then fit actual finalized candidates.
         crate::context_budget::fit_optional_context(&mut context, query.byte_budget);
-        loop {
-            let size = context.to_string().len();
-            if context["budgetsUsed"]["byteSize"] == json!(size) {
-                break;
-            }
-            context["budgetsUsed"]["byteSize"] = json!(size);
-        }
-        let mut content = context.clone();
-        let object = content.as_object_mut().expect("context pack object");
-        object.remove("id");
-        object.remove("contentHash");
-        let hash = format!("{:x}", Sha256::digest(content.to_string().as_bytes()));
-        context["id"] = json!(format!("context-{hash}"));
-        context["contentHash"] = json!(hash);
     }
     let final_size = context["budgetsUsed"]["byteSize"]
         .as_u64()
@@ -2333,6 +2475,11 @@ async fn create_task(
     let now = unix_now();
     if request.thread_id.trim().is_empty()
         || request.author_intent.trim().is_empty()
+            && !(request.operation == "advisory"
+                && request.target["type"] == "edition"
+                && request.target["imageAssetRevisionIds"]
+                    .as_array()
+                    .is_some_and(|ids| !ids.is_empty() && ids.len() <= 5))
         || request.author_intent.len() > 64_000
         || request.capability_hash.len() != 64
         || !request
@@ -2610,7 +2757,8 @@ async fn complete_task(
         &project_id,
         &task_id,
         &request.thread_id,
-        request.summary.chars().take(4_000).collect(), request.delivery_review,
+        request.summary.chars().take(4_000).collect(),
+        request.delivery_review,
         unix_now(),
     ) {
         Ok(task) => Json(task_json(&task)).into_response(),
@@ -2694,12 +2842,8 @@ async fn save_draft_checkpoint(
             "Scene groups are invalid",
         );
     }
-    let grouped_body = scene_groups
-        .iter()
-        .filter_map(|group| group.get("body").and_then(Value::as_str))
-        .map(str::trim)
-        .collect::<Vec<_>>()
-        .join("\n\n---\n\n");
+    let grouped_body = crate::scene_body::canonical_scene_body(scene_groups
+        .iter().filter_map(|group| group.get("body").and_then(Value::as_str)));
     if grouped_body != body.trim() {
         return error(
             StatusCode::BAD_REQUEST,
@@ -2791,7 +2935,10 @@ async fn save_draft_checkpoint(
                 Ok(bindings) => bindings,
                 Err(source) => return repository_error(source),
             };
-            if let Some(binding) = bindings.iter().find(|binding| binding.chapter_id == chapter_id) {
+            if let Some(binding) = bindings
+                .iter()
+                .find(|binding| binding.chapter_id == chapter_id)
+            {
                 if binding.chapter_number != chapter_number {
                     return repository_error(RepositoryError::TaskBindingInvalid);
                 }
@@ -2862,12 +3009,9 @@ async fn save_draft_checkpoint(
         "completeness": payload.get("completeness").cloned().unwrap_or_else(|| json!("chapterComplete")),
         "source": if actor == Actor::Author { "author" } else { "agent" }
     });
-    let request_digest = digest(&json!({
-        "kind": "draft",
-        "payload": request.payload,
-        "expectedRevision": request.expected_revision,
-        "expectedCandidateRevisionId": expected_candidate.as_ref().map(RevisionId::as_str)
-    }));
+    let request_digest = crate::draft_identity::draft_request_digest(
+        &request.payload, request.expected_revision, expected_candidate.as_ref().map(RevisionId::as_str),
+    );
     if let Err(source) = crate::recovery_binding::bind(
         &mut repository,
         &headers,
@@ -3581,6 +3725,9 @@ async fn require_writer(
         );
     };
     request.extensions_mut().insert(actor);
+    if let Err(response) = crate::multimedia_api::guard_novel_route(&state, request.uri().path()) {
+        return response;
+    }
     next.run(request).await
 }
 
@@ -3593,9 +3740,24 @@ pub(crate) fn candidate_task(
     thread_id: Option<&str>,
     expected_revision: Option<i64>,
 ) -> Result<Option<TaskRecord>, Box<Response>> {
-    let task = candidate_task_with_reader(repository, actor, headers, project_id, task_id, thread_id, expected_revision)?;
-    if task.as_ref().is_some_and(|task| task.operation == "reviewQuality") {
-        return Err(Box::new(error(StatusCode::FORBIDDEN, "reader_packet_only", "Independent readers may only read their packet, save its report and complete the task")));
+    let task = candidate_task_with_reader(
+        repository,
+        actor,
+        headers,
+        project_id,
+        task_id,
+        thread_id,
+        expected_revision,
+    )?;
+    if task
+        .as_ref()
+        .is_some_and(|task| task.operation == "reviewQuality")
+    {
+        return Err(Box::new(error(
+            StatusCode::FORBIDDEN,
+            "reader_packet_only",
+            "Independent readers may only read their packet, save its report and complete the task",
+        )));
     }
     Ok(task)
 }
@@ -3617,14 +3779,14 @@ pub(crate) fn candidate_task_with_reader(
         return Err(Box::new(error(
             StatusCode::UNAUTHORIZED,
             "task_capability_required",
-            "Candidate writes require a task binding",
+            "Candidate requests require a task binding",
         )));
     };
     let Some(thread_id) = thread_id else {
         return Err(Box::new(error(
             StatusCode::UNAUTHORIZED,
             "task_capability_required",
-            "Candidate writes require a thread binding",
+            "Candidate requests require a thread binding",
         )));
     };
     let Some(capability) = headers
@@ -3635,7 +3797,7 @@ pub(crate) fn candidate_task_with_reader(
         return Err(Box::new(error(
             StatusCode::UNAUTHORIZED,
             "task_capability_required",
-            "Candidate writes require a task capability",
+            "Candidate requests require a task capability",
         )));
     };
     let revision = match expected_revision {
@@ -3695,6 +3857,9 @@ async fn require_author(
         );
     }
     request.extensions_mut().insert(Actor::Author);
+    if let Err(response) = crate::multimedia_api::guard_novel_route(&state, request.uri().path()) {
+        return response;
+    }
     next.run(request).await
 }
 
@@ -3708,53 +3873,6 @@ async fn list_projects(State(state): State<RuntimeState>) -> Response {
             "projects": projects.into_iter().map(ProjectResponse::from).collect::<Vec<_>>()
         }))
         .into_response(),
-        Err(error) => internal_error(error),
-    }
-}
-
-async fn create_project(
-    State(state): State<RuntimeState>,
-    Json(request): Json<CreateProjectRequest>,
-) -> Response {
-    let title = request.title.trim();
-    let logline = request.logline.trim();
-    if title.is_empty() || title.chars().count() > 120 || logline.chars().count() > 500 {
-        return error(
-            StatusCode::BAD_REQUEST,
-            "invalid_project",
-            "Project title or logline is invalid",
-        );
-    }
-    let timestamp = match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration.as_secs() as i64,
-        Err(error) => return internal_error(error),
-    };
-    let suffix = Uuid::new_v4().simple().to_string();
-    let project = ProjectRecord {
-        project_id: ProjectId::parse(format!("project-{suffix}")).expect("generated project id"),
-        title: title.to_owned(),
-        logline: logline.to_owned(),
-        created_at: timestamp,
-        updated_at: timestamp,
-    };
-    let mut repository = match SqliteStoryRepository::open(&state.database_path) {
-        Ok(repository) => repository,
-        Err(error) => return internal_error(error),
-    };
-    let branch_id = BranchId::parse("main").expect("static branch id");
-    let snapshot_id =
-        SnapshotId::parse(format!("snapshot-{suffix}")).expect("generated snapshot id");
-    match repository.create_project(project, branch_id, snapshot_id) {
-        Ok(project) => (
-            StatusCode::CREATED,
-            Json(json!({
-                "project": ProjectResponse::from(project),
-                "canon": {"characters": [], "relationships": [], "events": [], "locations": [], "worldRules": [], "plotThreads": [], "notes": []},
-                "narrativeIr": {"version": "2.0", "scenes": [], "anchors": []},
-                "novelEdition": {"chapters": []}
-            })),
-        )
-            .into_response(),
         Err(error) => internal_error(error),
     }
 }
@@ -3785,6 +3903,35 @@ pub(crate) fn bad_request(code: &str, source: impl std::fmt::Display) -> Respons
 
 pub(crate) fn repository_error(source: RepositoryError) -> Response {
     match source {
+        RepositoryError::WorkBudgetExhausted => error(StatusCode::CONFLICT, "work_budget_exhausted", "本次明确设置的执行额度已用完；已保存内容仍保留。"),
+        RepositoryError::WorkUsageUnsettled => error(StatusCode::CONFLICT, "work_usage_unsettled", "原请求的费用登记尚未结束，正在等待核对。"),
+        RepositoryError::TaskBudgetAlreadySettled => error(StatusCode::CONFLICT, "task_budget_already_settled", "原尝试已结算，不能再次派发；请核对原任务的后续行动。"),
+        RepositoryError::TaskBudgetExpired => error(StatusCode::CONFLICT, "task_budget_expired", "本次明确设置的执行有效期已结束；已保存内容仍保留。"),
+        RepositoryError::WorkUsageUnknown => error(
+            StatusCode::CONFLICT,
+            "work_usage_unknown",
+            "本次模型用量仍有未核对记录，后续模型执行已停止；已保存内容可以查看。",
+        ),
+        RepositoryError::PayloadValidation {
+            code,
+            instance_path,
+            mut details,
+        } => {
+            let Some(fields) = details.as_object_mut() else {
+                return internal_error(RepositoryError::CorruptState);
+            };
+            fields.insert("reason".into(), json!(code));
+            fields.insert("instancePath".into(), json!(instance_path));
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error":{
+                    "code":"invalid_output_payload",
+                    "message":"The submitted payload does not match its frozen task contract",
+                    "details":details,"recovery":null
+                }})),
+            )
+                .into_response()
+        }
         RepositoryError::ProjectNotFound
         | RepositoryError::AuthoringRunNotFound
         | RepositoryError::BranchNotFound

@@ -18,7 +18,8 @@ const CANDIDATE: &str = "budget-candidate-token-123456789012345";
 const CAPABILITY: &str = "budget-capability-12345678901234567890";
 
 #[tokio::test]
-async fn context_budget_preserves_target_and_reports_scoped_optional_truncation() {
+async fn context_budget_preserves_target_bound_lazy_sources_and_rejects_insufficient_metadata_budget()
+ {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("上下文预算.sqlite3");
     let mut repository = SqliteStoryRepository::open(&path).unwrap();
@@ -71,18 +72,32 @@ async fn context_budget_preserves_target_and_reports_scoped_optional_truncation(
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{roomy}");
-    assert!(!roomy["relevantCommitments"].as_array().unwrap().is_empty());
+    let roomy_commitments = read_source(
+        &application,
+        &project,
+        &task,
+        &roomy,
+        "/relevantCommitments",
+    )
+    .await;
+    let selected_count = roomy_commitments.as_array().unwrap().len();
     assert!(
-        roomy["relevantCommitments"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|entry| {
-                entry["authority"] == "candidateNarrativeInterpretation"
-                    && entry["literaryFulfillmentVerified"] == false
-                    && entry.get("authorMetadata").is_none()
-            })
+        selected_count > 0 && selected_count < 10,
+        "the existing 12 KB commitment domain selection keeps a nonempty bounded subset of the 10 long fixtures"
     );
+    assert_eq!(
+        roomy["operationContext"]["commitmentCoverage"]["includedEntries"],
+        selected_count
+    );
+    assert_eq!(
+        roomy["operationContext"]["commitmentCoverage"]["truncated"],
+        true
+    );
+    assert!(roomy_commitments.as_array().unwrap().iter().all(|entry| {
+        entry["authority"] == "candidateNarrativeInterpretation"
+            && entry["literaryFulfillmentVerified"] == false
+            && entry.get("authorMetadata").is_none()
+    }));
     let (status, pack) = call(&application, candidate_request(&uri)).await;
     assert_eq!(status, StatusCode::OK, "{pack}");
     let bytes = pack.to_string().len();
@@ -92,63 +107,58 @@ async fn context_budget_preserves_target_and_reports_scoped_optional_truncation(
         task["inputManifest"]["creativeCapabilityBinding"]
     );
     assert_eq!(pack["budgetsUsed"]["byteSize"], bytes);
-    assert!(
-        pack["relevantCommitments"].as_array().unwrap().len()
-            <= roomy["relevantCommitments"].as_array().unwrap().len()
+    assert_model_item_bound(&pack);
+    assert_eq!(pack["relevantCommitments"]["textDelivered"], false);
+    let commitments =
+        read_source(&application, &project, &task, &pack, "/relevantCommitments").await;
+    assert_eq!(
+        commitments, roomy_commitments,
+        "smaller metadata packs must not silently erase immutable scoped source contents"
     );
     assert_eq!(
         pack["operationContext"]["commitmentCoverage"]["includedEntries"],
-        pack["relevantCommitments"].as_array().unwrap().len()
+        commitments.as_array().unwrap().len()
     );
     assert_eq!(
         pack["operationContext"]["commitmentCoverage"]["truncated"],
         true
     );
-    assert!(
-        pack["coverage"]["truncationReasons"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("contextCommitmentBudget"))
-    );
     assert_eq!(pack["coverage"]["complete"], false);
     assert!(
-        pack["coverage"]["truncationReasons"]
+        pack["coverage"]["missingScope"]
             .as_array()
             .unwrap()
-            .iter()
-            .any(|reason| reason
-                .as_str()
-                .is_some_and(|reason| reason.starts_with("context"))),
-        "{}",
-        pack["coverage"]
+            .contains(&json!("taskSourceContents"))
     );
     assert_eq!(
         pack["coverage"]["scannedScope"]["modelingSourcesInScope"],
         3
     );
     assert_eq!(
-        pack["coverage"]["scannedScope"]["draftsIncluded"],
-        pack["relevantText"].as_array().unwrap().len()
+        pack["coverage"]["scannedScope"]["draftsIncluded"], 0,
+        "directory references are not delivered draft contents"
     );
+    assert_eq!(pack["relevantText"]["textDelivered"], false);
+    let text = read_source(&application, &project, &task, &pack, "/relevantText").await;
     assert!(
-        pack["relevantText"]
-            .as_array()
+        text.as_array()
             .unwrap()
             .iter()
             .any(|draft| draft["sourceRevisionId"] == "revision-3")
     );
+    assert!(!text.to_string().contains("revision-4"));
+    assert!(!text.to_string().contains(&fixture::marker(4)));
+    assert!(text.to_string().contains(&fixture::marker(3)));
     assert!(!pack.to_string().contains("revision-4"));
     assert!(!pack.to_string().contains(&fixture::marker(4)));
-    let projection = &pack["operationContext"]["workingKnowledge"];
-    let item = json!({"type":"function_call_output","call_id":"budget-test","output":[
-        {"type":"input_text","text":"Tool result: novel_workspace.read_context"},
-        {"type":"input_text","text":pack.to_string()}
-    ]});
-    let tokens = eternallight_engine_core::dispatch("tokens.count", json!(item.to_string()))
-        .unwrap()
-        .as_u64()
-        .unwrap();
-    assert!(tokens <= 10_000, "actual model item has {tokens} tokens");
+    let projection = read_source(
+        &application,
+        &project,
+        &task,
+        &pack,
+        "/operationContext/workingKnowledge",
+    )
+    .await;
     assert_eq!(
         projection["propertyRulesPolicy"],
         "withheldForLimitedPerspective"
@@ -164,7 +174,7 @@ async fn context_budget_preserves_target_and_reports_scoped_optional_truncation(
     );
     let (status, too_small) = call(
         &application,
-        candidate_request(&uri.replace("20000", "8000")),
+        candidate_request(&uri.replace("20000", "4000")),
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{too_small}");
@@ -175,6 +185,69 @@ async fn context_budget_preserves_target_and_reports_scoped_optional_truncation(
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+fn assert_model_item_bound(value: &Value) {
+    let result = json!({"content":[{"type":"text","text":value.to_string()}]});
+    let item = json!({"type":"function_call_output","call_id":"x".repeat(160),"output":result.to_string()});
+    let tokens = eternallight_engine_core::dispatch("tokens.count", json!(item.to_string()))
+        .unwrap()
+        .as_u64()
+        .unwrap();
+    assert!(tokens <= 9000, "actual model item has {tokens} tokens");
+}
+async fn read_source(
+    application: &Router,
+    project: &ProjectId,
+    task: &Value,
+    pack: &Value,
+    path: &str,
+) -> Value {
+    let source = pack["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["sectionPath"] == path)
+        .unwrap();
+    assert_eq!(pack.pointer(path).unwrap()["sourceId"], source["sourceId"]);
+    assert_eq!(pack.pointer(path).unwrap()["textDelivered"], false);
+    let mut cursor = String::new();
+    let mut text = String::new();
+    loop {
+        let uri = format!(
+            "/api/projects/{project}/tasks/{}/task-source?threadId={}&expectedRevision={}&sourceId={}{cursor}",
+            task["id"].as_str().unwrap(),
+            task["threadId"].as_str().unwrap(),
+            task["inputRevision"],
+            source["sourceId"].as_str().unwrap()
+        );
+        let (status, page) = call(application, candidate_request(&uri)).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], source["sourceId"]);
+        assert_eq!(page["sectionPath"], path);
+        assert_eq!(page["contentHash"], source["contentHash"]);
+        assert_eq!(page["byteRange"]["start"], text.len());
+        assert_eq!(page["byteRange"]["total"], source["payloadBytes"]);
+        let part = page["payloadPart"].as_str().unwrap();
+        assert!(part.len() <= 2000);
+        assert!(page.to_string().len() <= 6500);
+        assert_model_item_bound(&page);
+        text.push_str(part);
+        assert_eq!(page["byteRange"]["end"], text.len());
+        if let Some(next) = page["nextCursor"].as_str() {
+            let next = format!("&cursor={next}");
+            assert_ne!(next, cursor);
+            cursor = next;
+        } else {
+            assert_eq!(page["byteRange"]["total"], text.len());
+            break;
+        }
+    }
+    assert_eq!(
+        source["contentHash"],
+        format!("{:x}", Sha256::digest(text.as_bytes()))
+    );
+    serde_json::from_str(&text).unwrap()
 }
 
 fn add_commitments(repository: &mut SqliteStoryRepository, project: &ProjectId) {

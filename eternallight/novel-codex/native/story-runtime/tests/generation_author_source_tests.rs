@@ -67,7 +67,7 @@ async fn setup(path: &std::path::Path) -> (String, Value) {
         path,
         "POST",
         "/api/projects",
-        json!({"title":"作者来源"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"作者来源"}),
         AUTHOR,
     )
     .await;
@@ -638,7 +638,20 @@ async fn prepared_action(
     assert_eq!(code, StatusCode::CREATED, "{parent}");
     let id = parent["id"].as_str().unwrap();
     let revision = parent["inputRevision"].as_i64().unwrap();
-    let (code, status) = call(
+    let (code, plan) = call(
+        path,
+        "GET",
+        &format!("{base}/tasks/{id}/work-plan?threadId={thread}&expectedRevision={revision}"),
+        Value::Null,
+        CANDIDATE,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{plan}");
+    if plan["version"] == 0 {
+        let (code, saved) = call(path,"POST",&format!("{base}/tasks/{id}/work-plan"),json!({"taskId":id,"threadId":thread,"expectedRevision":revision,"expectedPlanVersion":0,"idempotencyKey":"source-execution-plan","plan":{"intentMode":"executeGoals","goals":[{"id":"source-creation","title":"按作者批准范围完成港城故事","acceptance":"保留白塔设定，完成本次全部授权工作","kind":"deliverable","status":"inProgress","dependsOn":[],"readingQuestion":"当前保存成果与作者要求是否一致","checkScope":"本次作者批准范围","approach":"按实际状态选下一步并独立核对正文","assessment":"","sourceIds":[],"sourceChecks":[],"evidence":[],"continuation":null}]}}),CANDIDATE).await;
+        assert_eq!(code, StatusCode::OK, "{saved}");
+    }
+    let (code, mut status) = call(
         path,
         "GET",
         &format!("{base}/tasks/{id}/work-decision?threadId={thread}&expectedRevision={revision}"),
@@ -647,6 +660,18 @@ async fn prepared_action(
     )
     .await;
     assert_eq!(code, StatusCode::OK, "{status}");
+    let mut cursor = status["pagination"]["nextCursor"].clone();
+    while let Some(next) = cursor.as_str() {
+        let (code,page) = call(path,"GET",&format!("{base}/tasks/{id}/work-decision?threadId={thread}&expectedRevision={revision}&cursor={next}"),Value::Null,CANDIDATE).await;
+        assert_eq!(code, StatusCode::OK, "{page}");
+        for field in ["readyActions", "requirements"] {
+            status[field]
+                .as_array_mut()
+                .unwrap()
+                .extend(page[field].as_array().unwrap().iter().cloned());
+        }
+        cursor = page["pagination"]["nextCursor"].clone();
+    }
     let key = status["readyActions"]
         .as_array()
         .unwrap()
@@ -654,7 +679,22 @@ async fn prepared_action(
         .find(|a| a["operation"] == operation)
         .unwrap_or_else(|| panic!("{operation}: {status}"))["actionKey"]
         .clone();
-    let (code,selected)=call(path,"POST",&format!("{base}/tasks/{id}/work-decision/actions"),json!({"taskId":id,"threadId":thread,"expectedRevision":revision,"expectedWorkVersion":status["version"],"expectedSourceDigest":status["sourceDigest"],"actionKey":key,"instruction":"按原作者许可执行这项工作","idempotencyKey":format!("choose-{operation}")}),CANDIDATE).await;
+    let mut choice = json!({"taskId":id,"threadId":thread,"expectedRevision":revision,"expectedWorkVersion":status["version"],"expectedSourceDigest":status["sourceDigest"],"actionKey":key,"instruction":"按原作者许可执行这项工作","idempotencyKey":format!("choose-{operation}")});
+    if matches!(operation, "writeNextChapter" | "generateChapter") {
+        choice["chapterAcceptance"] = if status["chapterAcceptance"].is_object() {
+            status["chapterAcceptance"].clone()
+        } else {
+            json!({"requirements":[{"id":"whole-chapter","text":"按作者要求保存完整章节，保留白塔设定"}],"length":{"requirement":"作者未限定本次正文字符数","minCharacters":null,"maxCharacters":null}})
+        };
+    }
+    let (code, selected) = call(
+        path,
+        "POST",
+        &format!("{base}/tasks/{id}/work-decision/actions"),
+        choice,
+        CANDIDATE,
+    )
+    .await;
     assert_eq!(code, StatusCode::OK, "{selected}");
     let (grant_status, grant) = call(
         path,

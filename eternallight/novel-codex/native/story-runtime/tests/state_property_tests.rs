@@ -118,7 +118,7 @@ impl Fixture {
             &path,
             "POST",
             "/api/projects",
-            json!({"title":"属性状态"}),
+            json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"属性状态"}),
             Role::Author,
         )
         .await;

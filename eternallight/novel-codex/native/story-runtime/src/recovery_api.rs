@@ -1,12 +1,106 @@
 use axum::{
-    Json,
-    extract::{Path, State},
+    Extension, Json,
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use novel_codex_story_core::{ProjectId, SqliteStoryRepository};
+use novel_codex_story_core::{ProjectId, RecoveryOperationBinding, SqliteStoryRepository};
 use serde::Deserialize;
+use serde_json::json;
+use sha2::{Digest, Sha256};
 
-use crate::server::{RuntimeState, bad_request, repository_error, unix_now};
+use crate::server::{Actor, RuntimeState, bad_request, error, repository_error, unix_now};
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OperationLookup {
+    task_id: String,
+    thread_id: String,
+    turn_id: String,
+    call_id: String,
+    tool_name: String,
+    request_hash: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ReconcileRequest {
+    task_id: String,
+    thread_id: String,
+    turn_id: String,
+    call_id: String,
+    tool_name: String,
+    request_hash: String,
+    arguments: serde_json::Value,
+}
+
+/// Host/Author-only factual reconciliation, never a candidate write authority.
+pub(crate) async fn reconcile_operation(
+    State(state): State<RuntimeState>,
+    Path(project): Path<String>,
+    Json(request): Json<ReconcileRequest>,
+) -> Response {
+    let project = match ProjectId::parse(project) {
+        Ok(value) => value,
+        Err(source) => return bad_request("invalid_project_id", source),
+    };
+    let mut repo = match SqliteStoryRepository::open(&state.database_path) {
+        Ok(value) => value,
+        Err(source) => return repository_error(source),
+    };
+    let binding = RecoveryOperationBinding {
+        project_id: project, task_id: request.task_id, thread_id: request.thread_id,
+        turn_id: request.turn_id, call_id: request.call_id, tool_name: request.tool_name,
+        request_hash: request.request_hash, idempotency_ref: None, now: unix_now(),
+    };
+    match repo.reconcile_candidate_operation(&binding, &request.arguments) {
+        Ok(operation) => Json(json!({"operation":operation})).into_response(),
+        Err(source) => repository_error(source),
+    }
+}
+
+/// Read one original operation without acquiring a fence or settling anything.
+pub(crate) async fn read_operation(
+    State(state): State<RuntimeState>,
+    Path(project): Path<String>,
+    Extension(actor): Extension<Actor>,
+    headers: HeaderMap,
+    Query(request): Query<OperationLookup>,
+) -> Response {
+    let project = match ProjectId::parse(project) {
+        Ok(value) => value,
+        Err(source) => return bad_request("invalid_project_id", source),
+    };
+    let repo = match SqliteStoryRepository::open(&state.database_path) {
+        Ok(value) => value,
+        Err(source) => return repository_error(source),
+    };
+    let capability_hash = if actor == Actor::Candidate {
+        let get = |key: &str| headers.get(key).and_then(|value| value.to_str().ok());
+        if get("x-novel-root-thread") != Some(request.thread_id.as_str())
+            || get("x-novel-caller-thread") != Some(request.thread_id.as_str())
+            || get("x-novel-parent-thread").is_some_and(|v| !v.is_empty())
+            || get("x-novel-turn") != Some(request.turn_id.as_str())
+            || get("x-novel-tool-call") != Some(request.call_id.as_str())
+            || get("x-novel-tool-name") != Some(request.tool_name.as_str())
+            || get("x-novel-request-hash") != Some(request.request_hash.as_str()) {
+            return error(StatusCode::UNAUTHORIZED, "recovery_identity_invalid", "Receipt reads require the exact original root call identity");
+        }
+        let Some(capability) = get("x-novel-task-capability").filter(|v| v.len() >= 24) else {
+            return error(StatusCode::UNAUTHORIZED, "task_capability_required", "Receipt reads require their own task capability");
+        };
+        Some(format!("{:x}", Sha256::digest(capability.as_bytes())))
+    } else { None };
+    let binding = RecoveryOperationBinding {
+        project_id: project, task_id: request.task_id, thread_id: request.thread_id,
+        turn_id: request.turn_id, call_id: request.call_id, tool_name: request.tool_name,
+        request_hash: request.request_hash, idempotency_ref: None, now: unix_now(),
+    };
+    match repo.read_recovery_operation(&binding, capability_hash.as_deref()) {
+        Ok(operation) => Json(json!({"operation":operation})).into_response(),
+        Err(source) => repository_error(source),
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

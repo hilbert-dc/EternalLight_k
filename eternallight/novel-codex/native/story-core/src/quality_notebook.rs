@@ -190,6 +190,57 @@ fn note(
     ))
 }
 
+// Work membership is storage authority, never a model-supplied target or thread.
+// Methods and observations of them may be consulted across Attempts in that Work;
+// other task-local notes retain their original isolation and every scope is intact.
+const VISIBLE_NOTES: &str = r#"
+WITH visible_notes AS (
+ SELECT n.* FROM story_quality_notes_v1 n WHERE n.project_id=?1 AND (
+  ?2 IS NULL OR json_extract(n.body_json,'$.scope')='work' OR n.task_id=?2 OR (
+   ?3 IS NOT NULL AND (
+    json_extract(n.body_json,'$.kind')='method' OR (
+     json_extract(n.body_json,'$.kind')='observation' AND EXISTS (
+      SELECT 1 FROM story_quality_notes_v1 m WHERE m.project_id=n.project_id
+      AND m.id=json_extract(n.body_json,'$.relatesTo') AND json_extract(m.body_json,'$.kind')='method'
+     )
+    )
+   ) AND EXISTS (
+    SELECT 1 FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id
+    JOIN story_work_tasks_v1 w ON w.id=s.work_task_id
+    WHERE a.attempt_id=n.task_id AND w.id=?3 AND w.project_id=n.project_id
+   )
+  )
+ )
+)
+"#;
+
+fn task_work(
+    db: &Connection,
+    project: &ProjectId,
+    task: &str,
+) -> Result<Option<String>, RepositoryError> {
+    db.query_row(
+        "SELECT w.id FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id JOIN story_work_tasks_v1 w ON w.id=s.work_task_id WHERE a.attempt_id=?1 AND w.project_id=?2",
+        params![task, project.as_str()],
+        |row| row.get(0),
+    ).optional().map_err(storage)
+}
+
+fn note_visible(
+    db: &Connection,
+    project: &ProjectId,
+    task: &TaskRecord,
+    id: &str,
+) -> Result<bool, RepositoryError> {
+    let work = task_work(db, project, &task.task_id)?;
+    db.query_row(
+        &format!("{VISIBLE_NOTES} SELECT EXISTS(SELECT 1 FROM visible_notes WHERE id=?4)"),
+        params![project.as_str(), task.task_id, work, id],
+        |row| row.get(0),
+    )
+    .map_err(storage)
+}
+
 impl SqliteStoryRepository {
     pub fn quality_notebook(
         &self,
@@ -199,8 +250,16 @@ impl SqliteStoryRepository {
     ) -> Result<Value, RepositoryError> {
         if let Some(task) = task {
             if task.project_id != *project
-                || !matches!(task.operation.as_str(), "advisory" | "generateChapter" | "generateBrief" | "generateOutline" | "generatePlan")
-                || !matches!(task.status.as_str(), "queued" | "running") {
+                || !matches!(
+                    task.operation.as_str(),
+                    "advisory"
+                        | "generateChapter"
+                        | "generateBrief"
+                        | "generateOutline"
+                        | "generatePlan"
+                )
+                || !matches!(task.status.as_str(), "queued" | "running")
+            {
                 return Err(RepositoryError::TaskOutputForbidden);
             }
             self.assert_task_inputs_current(task)?;
@@ -210,12 +269,13 @@ impl SqliteStoryRepository {
    let limit=if task.is_some(){1}else{20};
    let upper=before.unwrap_or(i64::MAX);
    let bound_task=task.map(|t|t.task_id.as_str());
-   let mut cursor_query=db.prepare("SELECT ordinal FROM (SELECT ordinal FROM story_quality_notes_v1 WHERE project_id=?1 AND (?3 IS NULL OR json_extract(body_json,'$.scope')='work' OR task_id=?3) UNION ALL SELECT ordinal FROM story_quality_packets_v1 WHERE project_id=?1) WHERE ordinal<?2 ORDER BY ordinal DESC LIMIT 21").map_err(storage)?;
-   let ordinals=cursor_query.query_map(params![project.as_str(),upper,bound_task],|r|r.get::<_,i64>(0)).map_err(storage)?.collect::<Result<Vec<_>,_>>().map_err(storage)?;
+   let bound_work=bound_task.map(|id|task_work(db,project,id)).transpose()?.flatten();
+   let mut cursor_query=db.prepare(&format!("{VISIBLE_NOTES} SELECT ordinal FROM (SELECT ordinal FROM visible_notes UNION ALL SELECT ordinal FROM story_quality_packets_v1 WHERE project_id=?1) WHERE ordinal<?4 ORDER BY ordinal DESC LIMIT 21")).map_err(storage)?;
+   let ordinals=cursor_query.query_map(params![project.as_str(),bound_task,bound_work,upper],|r|r.get::<_,i64>(0)).map_err(storage)?.collect::<Result<Vec<_>,_>>().map_err(storage)?;
    let next=if ordinals.len()>limit {Some(ordinals[limit-1])} else {None};
    let lower=ordinals.get(limit-1).or(ordinals.last()).copied().unwrap_or(upper);
-   let mut query=db.prepare("SELECT id,ordinal,body_json,status,author_kind,task_id,decisions_json FROM story_quality_notes_v1 WHERE project_id=?1 AND ordinal<?2 AND ordinal>=?3 AND (?4 IS NULL OR json_extract(body_json,'$.scope')='work' OR task_id=?4) ORDER BY ordinal DESC").map_err(storage)?;
-   let rows=query.query_map(params![project.as_str(),upper,lower,bound_task],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,Option<String>>(5)?,r.get::<_,String>(6)?))).map_err(storage)?.collect::<Result<Vec<_>,_>>().map_err(storage)?;
+   let mut query=db.prepare(&format!("{VISIBLE_NOTES} SELECT id,ordinal,body_json,status,author_kind,task_id,decisions_json FROM visible_notes WHERE ordinal<?4 AND ordinal>=?5 ORDER BY ordinal DESC")).map_err(storage)?;
+   let rows=query.query_map(params![project.as_str(),bound_task,bound_work,upper,lower],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,r.get::<_,Option<String>>(5)?,r.get::<_,String>(6)?))).map_err(storage)?.collect::<Result<Vec<_>,_>>().map_err(storage)?;
    let mut notes=Vec::new();
    for (id,ordinal,raw,status,author,task_id,decisions) in rows.into_iter().take(limit) {
     let item:QualityNote=serde_json::from_str(&raw).map_err(|_|RepositoryError::CorruptState)?;
@@ -305,30 +365,39 @@ impl SqliteStoryRepository {
                 }
                 if !matches!(
                     item.kind.as_str(),
-                    "preference" | "goal" | "strength" | "observation" | "trial"
+                    "preference" | "goal" | "strength" | "observation" | "trial" | "method"
                 ) || !matches!(item.scope.as_str(), "work" | "task")
                     || !text(&item.text, 1600)
                 {
                     return Err(invalid("Invalid note kind, scope or text"));
                 }
-                if item.kind != "preference" && item.evidence.is_empty() {
+                if !matches!(item.kind.as_str(), "preference" | "method")
+                    && item.evidence.is_empty()
+                {
                     return Err(invalid("This quality note needs actual draft evidence"));
                 }
                 evidence(&tx, project, &item.evidence)?;
-                if item.kind == "trial" {
+                if matches!(item.kind.as_str(), "trial" | "method") {
                     if !item.question.as_ref().is_some_and(|v| text(v, 800))
                         || !item.body.as_ref().is_some_and(|v| text(v, 8000))
                     {
                         return Err(invalid(
-                            "Trial needs a shared question and actual bounded prose",
+                            "A trial needs its reading question and prose; a method draft needs its applicability question and bounded method text",
                         ));
                     }
                 } else if item.body.is_some() || item.question.is_some() {
-                    return Err(invalid("Only trials contain draft text and questions"));
+                    return Err(invalid(
+                        "Only trials and method drafts contain text and questions",
+                    ));
+                }
+                if item.kind == "method" && task.is_some() && item.scope != "task" {
+                    return Err(invalid(
+                        "Model-created methods remain drafts for this Native Work, stored with task scope; only the author can choose persistent work scope",
+                    ));
                 }
                 if let Some(target) = &item.relates_to {
                     let (related, status) = note(&tx, project, target)?;
-                    if !matches!(related.kind.as_str(), "goal" | "strength")
+                    if !matches!(related.kind.as_str(), "goal" | "strength" | "method")
                         || status == "withdrawn"
                         || item.kind != "observation"
                         || !matches!(
@@ -337,11 +406,20 @@ impl SqliteStoryRepository {
                         )
                     {
                         return Err(invalid(
-                            "Assessment must reference an active goal or strength and declare its verdict",
+                            "Assessment must reference an active goal, strength or method and declare its verdict",
                         ));
                     }
+                    if related.kind == "method" {
+                        if let Some(task) = task {
+                            if item.scope != "task" || !note_visible(&tx, project, task, target)? {
+                                return Err(invalid(
+                                    "Model method observations must stay task-scoped and reference a method visible through the same Native Work",
+                                ));
+                            }
+                        }
+                    }
                 } else if item.verdict.is_some() {
-                    return Err(invalid("A verdict requires a goal or strength"));
+                    return Err(invalid("A verdict requires a goal, strength or method"));
                 }
                 let count: i64 = tx
                     .query_row(

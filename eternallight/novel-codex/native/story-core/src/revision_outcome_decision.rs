@@ -79,11 +79,11 @@ pub(crate) fn report(
     writer: &str,
     revision: &str,
 ) -> Result<(Value, bool), RepositoryError> {
-    let (encoded, target): (String,String) = db.query_row(
-        "SELECT r.content_json,t.target_json FROM story_revisions_v2 r JOIN story_task_outputs_v2 o ON o.revision_id=r.revision_id AND o.output_kind='revisionOutcome'
+    let (encoded, target, assessment_task): (String,String,String) = db.query_row(
+        "SELECT r.content_json,t.target_json,t.task_id FROM story_revisions_v2 r JOIN story_task_outputs_v2 o ON o.revision_id=r.revision_id AND o.output_kind='revisionOutcome'
          JOIN story_tasks_v2 t ON t.task_id=o.task_id AND t.project_id=r.project_id AND t.operation='assessRevisionOutcome' AND t.status='completed'
          WHERE r.project_id=?1 AND r.revision_id=?2 AND r.object_id=?3 AND r.object_kind='revisionOutcome'",
-        params![project.as_str(),revision,format!("revision-outcome-{writer}")],|row|Ok((row.get(0)?,row.get(1)?)),
+        params![project.as_str(),revision,format!("revision-outcome-{writer}")],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
     ).optional().map_err(storage_error)?.ok_or(RepositoryError::TaskBindingInvalid)?;
     let target: Value = serde_json::from_str(&target).map_err(|_| RepositoryError::CorruptState)?;
     crate::revision_outcome::validate_target(db, project, &target)?;
@@ -91,7 +91,16 @@ pub(crate) fn report(
     let current_head: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM story_object_heads_v2 WHERE project_id=?1 AND object_id=?2 AND candidate_revision_id=?3)",params![project.as_str(),format!("revision-outcome-{writer}"),revision],|row|row.get(0)).map_err(storage_error)?;
     Ok((
         serde_json::from_str(&encoded).map_err(|_| RepositoryError::CorruptState)?,
-        current_head && crate::revision_outcome::inputs_current(db, project, &target)?,
+        current_head
+            && crate::revision_outcome::inputs_current(db, project, &target)?
+            && crate::revision_outcome::assessment_sources_current(
+                db,
+                project,
+                &assessment_task,
+                target["chapterNumber"]
+                    .as_i64()
+                    .ok_or(RepositoryError::CorruptState)?,
+            )?,
     ))
 }
 

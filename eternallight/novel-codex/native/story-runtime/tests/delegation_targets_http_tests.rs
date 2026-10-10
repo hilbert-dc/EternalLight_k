@@ -130,6 +130,68 @@ impl Fixture {
         self.call("GET", &format!("/context?taskId={}&threadId=delegation-root&projectRevision={}&purpose=planner&budget=1&byteBudget=60000&readingChapter={number}",
             task["id"].as_str().unwrap(), task["inputRevision"]), Actor::Candidate, /*body*/ None).await
     }
+
+    async fn read_relevant_text(&self, task: &Value, context: &Value) -> Value {
+        assert_eq!(context["relevantText"]["textDelivered"], false);
+        assert_eq!(context["coverage"]["complete"], false);
+        let source = context["taskSources"]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["sectionPath"] == "/relevantText")
+            .unwrap();
+        assert_eq!(source["sourceId"], context["relevantText"]["sourceId"]);
+        let mut cursor = Value::Null;
+        let mut text = String::new();
+        let mut pages = 0;
+        loop {
+            let suffix = cursor
+                .as_str()
+                .map(|cursor| format!("&cursor={cursor}"))
+                .unwrap_or_default();
+            let (status, page) = self
+                .call(
+                    "GET",
+                    &format!(
+                        "/tasks/{}/task-source?threadId={}&expectedRevision={}&sourceId={}{suffix}",
+                        task["id"].as_str().unwrap(),
+                        task["threadId"].as_str().unwrap(),
+                        task["inputRevision"],
+                        source["sourceId"].as_str().unwrap()
+                    ),
+                    Actor::Candidate,
+                    None,
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK, "{page}");
+            assert_eq!(page["sourceId"], source["sourceId"]);
+            assert_eq!(page["sectionPath"], "/relevantText");
+            assert_eq!(page["contentHash"], source["contentHash"]);
+            assert_eq!(page["byteRange"]["start"], text.len());
+            let part = page["payloadPart"].as_str().unwrap();
+            assert!(part.len() <= 2_000);
+            assert!(page.to_string().len() <= 6_500);
+            text.push_str(part);
+            pages += 1;
+            assert_eq!(page["byteRange"]["end"], text.len());
+            assert_eq!(page["byteRange"]["total"], source["payloadBytes"]);
+            cursor = page["nextCursor"].clone();
+            if cursor.is_null() {
+                assert_eq!(page["endOfInputFromCursor"], true);
+                assert_eq!(page["byteRange"]["total"], text.len());
+                break;
+            }
+            assert_eq!(page["endOfInputFromCursor"], false);
+        }
+        if text.len() > 2_000 {
+            assert!(pages > 1);
+        }
+        assert_eq!(
+            format!("{:x}", Sha256::digest(text.as_bytes())),
+            source["contentHash"].as_str().unwrap()
+        );
+        serde_json::from_str(&text).unwrap()
+    }
 }
 
 fn save(repo: &mut SqliteStoryRepository, chapter: &str, number: i64, body: &str, source: &str) {
@@ -175,7 +237,7 @@ fn save(repo: &mut SqliteStoryRepository, chapter: &str, number: i64, body: &str
 }
 
 #[tokio::test]
-async fn focused_target_survives_prose_truncation_and_registers_both_operations_without_story_writes()
+async fn focused_target_is_independent_of_lazy_prose_and_registers_both_operations_without_story_writes()
  {
     let fixture = Fixture::new(&[
         ("first", "前章正文。"),
@@ -193,13 +255,25 @@ async fn focused_target_survives_prose_truncation_and_registers_both_operations_
     let task = fixture.task("advisory", json!({"type":"project","conversationFocus":{"view":"chapters","chapterId":"second","chapterNumber":2}})).await;
     let (status, context) = fixture.context(&task, /*entries*/ 1).await;
     assert_eq!(status, StatusCode::OK, "{context}");
-    assert!(
-        !context["relevantText"]
-            .as_array()
-            .unwrap()
+    assert!(!context.to_string().contains("本章很长。"));
+    // Entry/transport budgets no longer discard admitted frozen source text.
+    let prose = fixture.read_relevant_text(&task, &context).await;
+    let prose = prose.as_array().unwrap();
+    assert_eq!(prose.len(), 2);
+    for (chapter, number, body) in [
+        ("first", 1, "前章正文。".to_owned()),
+        ("second", 2, "本章很长。".repeat(2_000)),
+    ] {
+        let saved = prose
             .iter()
-            .any(|item| item["objectId"] == "draft-second")
-    );
+            .find(|item| item["objectId"] == format!("draft-{chapter}"))
+            .unwrap();
+        assert_eq!(saved["sourceRevisionId"], format!("source-{chapter}"));
+        assert_eq!(
+            saved["content"],
+            json!({"chapterId":chapter,"chapterNumber":number,"title":"来信","body":body})
+        );
+    }
     assert_eq!(
         context["operationContext"]["delegationTargets"],
         json!({"authority":"sourceIdentityOnly","scope":"focused","status":"available",
@@ -258,7 +332,30 @@ async fn project_index_is_byte_bounded_and_never_implies_complete_prose_or_write
         targets["coverage"],
         json!({"total":6,"included":included,"truncated":true})
     );
-    assert_eq!(context["relevantText"].as_array().unwrap().len(), 1);
+    let prose = fixture.read_relevant_text(&task, &context).await;
+    let prose = prose.as_array().unwrap();
+    assert_eq!(prose.len(), 6);
+    for (index, (chapter, body)) in [
+        ("one", "一"),
+        ("two", "二"),
+        ("three", "三"),
+        ("four", "四"),
+        ("five", "五"),
+        ("six", "六"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let saved = prose
+            .iter()
+            .find(|item| item["objectId"] == format!("draft-{chapter}"))
+            .unwrap();
+        assert_eq!(saved["sourceRevisionId"], format!("source-{chapter}"));
+        assert_eq!(
+            saved["content"],
+            json!({"chapterId":chapter,"chapterNumber":index + 1,"title":"来信","body":body})
+        );
+    }
     let writer = fixture
         .task(
             "generateChapter",
@@ -272,6 +369,30 @@ async fn project_index_is_byte_bounded_and_never_implies_complete_prose_or_write
             .get("delegationTargets")
             .is_none()
     );
+    let writer_prose = fixture.read_relevant_text(&writer, &writer_context).await;
+    assert_eq!(writer_prose.as_array().unwrap().len(), 1);
+    assert_eq!(writer_prose[0]["objectId"], "draft-one");
+    assert_eq!(writer_prose[0]["sourceRevisionId"], "source-one");
+    assert_eq!(
+        writer_prose[0]["content"],
+        json!({"chapterId":"one","chapterNumber":1,"title":"来信","body":"一"})
+    );
+    let (status, rejected) = fixture
+        .call(
+            "GET",
+            &format!(
+                "/tasks/{}/task-source?threadId=delegation-root&expectedRevision={}&sourceId={}",
+                writer["id"].as_str().unwrap(),
+                writer["inputRevision"],
+                context["relevantText"]["sourceId"].as_str().unwrap()
+            ),
+            Actor::Candidate,
+            None,
+        )
+        .await;
+    assert!(status.is_client_error(), "{rejected}");
+    assert_eq!(rejected["error"]["code"], "task_source_not_in_catalog");
+    assert!(rejected.get("payloadPart").is_none());
     let (status, author_context) = fixture
         .call(
             "GET",
@@ -283,6 +404,27 @@ async fn project_index_is_byte_bounded_and_never_implies_complete_prose_or_write
     assert_eq!(status, StatusCode::OK, "{author_context}");
     assert!(
         author_context["operationContext"]
+            .get("delegationTargets")
+            .is_none()
+    );
+    // Unbound Author transport still respects its real one-entry selection.
+    let (status, author_one) = fixture
+        .call(
+            "GET",
+            &format!(
+                "/context?projectRevision={}&purpose=planner&budget=1&byteBudget=60000",
+                task["inputRevision"]
+            ),
+            Actor::Author,
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{author_one}");
+    assert_eq!(author_one["relevantText"].as_array().unwrap().len(), 1);
+    assert_eq!(author_one["relevantText"][0]["objectId"], "draft-one");
+    assert_eq!(author_one["coverage"]["complete"], false);
+    assert!(
+        author_one["operationContext"]
             .get("delegationTargets")
             .is_none()
     );

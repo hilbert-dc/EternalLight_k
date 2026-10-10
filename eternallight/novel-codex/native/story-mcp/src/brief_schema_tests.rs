@@ -14,8 +14,10 @@ fn arguments() -> Value {
 
 fn call(client: &RuntimeClient, args: Value) -> Value {
     let client = Ok(RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: client.host.clone(),
         port: client.port,
@@ -37,8 +39,10 @@ fn malformed_brief_contract_never_dispatches_and_correction_preserves_exact_payl
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(/*nonblocking*/ true).unwrap();
     let client = RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: listener.local_addr().unwrap().port(),
@@ -94,7 +98,7 @@ fn malformed_brief_contract_never_dispatches_and_correction_preserves_exact_payl
     let server = std::thread::spawn(move || {
         let mut requests = Vec::new();
         for index in 0..3 {
-            let (mut stream, _) = listener.accept().unwrap();
+            let (mut stream, _) = super::recovery_proof::accept_business_request(&listener);
             stream
                 .set_read_timeout(
                     /*dur*/ Some(std::time::Duration::from_secs(/*secs*/ 5)),

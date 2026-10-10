@@ -38,6 +38,19 @@ pub struct RecoveryOperationBinding {
 }
 
 impl SqliteStoryRepository {
+    /// Validate and anchor an independent report before any candidate write.
+    /// A bound, definite validation rejection closes only that tool operation;
+    /// it cannot settle provider usage or mark the task or Work complete.
+    pub fn prepare_revision_outcome_payload_with_recovery(
+        &mut self,
+        task: &crate::TaskRecord,
+        payload: &serde_json::Value,
+    ) -> Result<serde_json::Value, RepositoryError> {
+        let outcome = self.prepare_revision_outcome_payload(task, payload);
+        settle_prewrite_rejection(self, task, "submit_revision_outcome", &outcome)?;
+        outcome
+    }
+
     /// Bind an authenticated root call before dispatch. A reused identity must be identical.
     pub fn bind_recovery_operation(
         &mut self,
@@ -57,6 +70,8 @@ impl SqliteStoryRepository {
         if !matches!(
             binding.tool_name.as_str(),
             "save_brief"
+                | "authorize_delegated_writer"
+                | "save_delegated_draft"
                 | "save_property_rules"
                 | "save_outline"
                 | "save_chapter_plans"
@@ -67,7 +82,9 @@ impl SqliteStoryRepository {
                 | "submit_commitment_candidate"
                 | "request_candidate_task"
                 | "request_generation_handoff"
+                | "pause_generation_run"
                 | "request_work_action"
+                | "update_work_plan"
                 | "request_planning_review"
                 | "publish_knowledge_batch"
                 | "submit_planning_review_report"
@@ -183,12 +200,20 @@ pub(crate) fn settle_prewrite_rejection<T>(
     if !matches!(
         outcome,
         Err(RepositoryError::InvalidContent(_)
+            | RepositoryError::PayloadValidation { .. }
             | RepositoryError::IdempotencyConflict
             | RepositoryError::TaskBindingInvalid
             | RepositoryError::TaskInputStale
             | RepositoryError::TaskNotWritable
+            | RepositoryError::TaskOutputMissing
             | RepositoryError::TaskOutputForbidden
             | RepositoryError::WorkTaskStale
+            | RepositoryError::WorkUsageUnknown
+            | RepositoryError::WorkBudgetExhausted
+            | RepositoryError::WorkUsageUnsettled
+            | RepositoryError::TaskBudgetAlreadySettled
+            | RepositoryError::TaskBudgetExpired
+            | RepositoryError::AuthoringRunStale
             | RepositoryError::StaleProjectRevision { .. })
     ) {
         return Ok(());
@@ -254,18 +279,7 @@ pub(crate) fn commit_candidate(
         return Ok(());
     }
     let task = task.ok_or(RepositoryError::TaskBindingInvalid)?;
-    let tool = match kind {
-        "brief" => "save_brief",
-        "propertyRules" => "save_property_rules",
-        "outline" => "save_outline",
-        "plan" => "save_chapter_plans",
-        "draft" => "save_draft_checkpoint",
-        "sceneAssessment" => "submit_scene_assessment",
-        "revisionOutcome" => "submit_revision_outcome",
-        "commitmentExtraction" => "submit_commitment_extraction",
-        "commitment" => "submit_commitment_candidate",
-        _ => return Err(RepositoryError::TaskOutputForbidden),
-    };
+    let tool = candidate_tool(kind)?;
     let output:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM story_task_outputs_v2 WHERE task_id=?1 AND revision_id=?2)",params![task.task_id,revision],|row|row.get(0)).map_err(storage_error)?;
     if !output {
         return Err(RepositoryError::TaskOutputForbidden);
@@ -278,6 +292,21 @@ pub(crate) fn commit_candidate(
         &[tool],
         &format!("runtime:candidate:{revision}"),
     )
+}
+
+pub(crate) fn candidate_tool(kind: &str) -> Result<&'static str, RepositoryError> {
+    match kind {
+        "brief" => Ok("save_brief"),
+        "propertyRules" => Ok("save_property_rules"),
+        "outline" => Ok("save_outline"),
+        "plan" => Ok("save_chapter_plans"),
+        "draft" => Ok("save_draft_checkpoint"),
+        "sceneAssessment" => Ok("submit_scene_assessment"),
+        "revisionOutcome" => Ok("submit_revision_outcome"),
+        "commitmentExtraction" => Ok("submit_commitment_extraction"),
+        "commitment" => Ok("submit_commitment_candidate"),
+        _ => Err(RepositoryError::TaskOutputForbidden),
+    }
 }
 
 fn operation_id(binding: &RecoveryOperationBinding) -> String {
@@ -302,4 +331,41 @@ fn valid_digest(value: &str) -> bool {
 }
 fn storage_error(error: rusqlite::Error) -> RepositoryError {
     RepositoryError::Storage(error.to_string())
+}
+
+#[cfg(test)]
+mod report_prewrite_rejection_tests {
+    use super::*;
+    use crate::{BranchId, CreateTaskRequest, ProjectRecord, SnapshotId};
+
+    #[test]
+    fn only_definite_payload_rejection_settles_and_unknown_or_success_remains_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut repo = SqliteStoryRepository::open(dir.path().join("prewrite.sqlite3")).unwrap();
+        let project = ProjectId::parse("prewrite-proof").unwrap();
+        repo.create_project(ProjectRecord {project_id:project.clone(),title:"回执".into(),logline:String::new(),created_at:1,updated_at:1},
+            BranchId::parse("main").unwrap(), SnapshotId::parse("initial").unwrap()).unwrap();
+        let task = repo.create_task(CreateTaskRequest {task_id:"task".into(),project_id:project.clone(),thread_id:"root".into(),
+            operation:"generateBrief".into(),input_revision:0,model:None,target_json:"{}".into(),input_manifest_json:"{}".into(),
+            capability_hash:"a".repeat(64),capability_expires_at:9999999999}).unwrap();
+        let cases: Vec<(&str, Result<serde_json::Value, RepositoryError>, &str)> = vec![
+            ("payload", Err(RepositoryError::PayloadValidation {code:"criterion_set_mismatch",instance_path:"/outcomes".into(),
+                details:json!({"expectedCriterionIds":["actual-criterion"]})}), "rejected"),
+            ("storage", Err(RepositoryError::Storage("synthetic persistence uncertainty".into())), "accepted"),
+            ("corrupt", Err(RepositoryError::CorruptState), "accepted"),
+            ("success", Ok(json!({"validated":true})), "accepted"),
+        ];
+        for (call, outcome, expected) in cases {
+            let binding = RecoveryOperationBinding {project_id:project.clone(),task_id:task.task_id.clone(),thread_id:task.thread_id.clone(),
+                turn_id:"turn".into(),call_id:call.into(),tool_name:"save_brief".into(),request_hash:"b".repeat(64),idempotency_ref:None,now:10};
+            repo.bind_recovery_operation(binding.clone()).unwrap();
+            settle_prewrite_rejection(&mut repo, &task, "save_brief", &outcome).unwrap();
+            let proof = repo.read_recovery_operation(&binding, None).unwrap().unwrap();
+            assert_eq!(proof["state"],expected);
+            assert!(proof["receipt_ref"].is_null());
+            assert_eq!(repo.task(&project,&task.task_id).unwrap().unwrap(),task);
+            assert_eq!(repo.connection.query_row("SELECT COUNT(*) FROM story_revisions_v2",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+            assert_eq!(repo.connection.query_row("SELECT COUNT(*) FROM story_task_outputs_v2",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+        }
+    }
 }

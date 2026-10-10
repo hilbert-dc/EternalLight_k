@@ -87,6 +87,7 @@ pub(crate) fn append_seats(
     request: &CreatePlanningReview<'_>,
     input_revision: i64,
 ) -> Result<(), RepositoryError> {
+    crate::work_pause_barrier::assert_can_schedule(db, work_id)?;
     let offset: i64 = db
         .query_row(
             "SELECT COALESCE(MAX(ordinal),0) FROM story_work_steps_v1 WHERE work_task_id=?1",
@@ -114,6 +115,7 @@ pub(crate) fn append_seats(
 pub(crate) enum ReviewEnd {
     Cancelled,
     Finished,
+    RecoverSaved,
 }
 
 pub(crate) fn close(
@@ -153,6 +155,23 @@ pub(crate) fn close(
             }
             // Unperformed seats are explicitly superseded, never marked successfully checked.
             ("superseded", "completed")
+        }
+        ReviewEnd::RecoverSaved => {
+            let ready: bool = db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM story_work_tasks_v1 w WHERE w.id=?1 AND w.project_id=?2
+                 AND w.status IN ('paused','blocked')
+                 AND EXISTS(SELECT 1 FROM story_work_steps_v1 s WHERE s.work_task_id=w.id)
+                 AND NOT EXISTS(SELECT 1 FROM story_work_steps_v1 s WHERE s.work_task_id=w.id AND s.status!='completed'))
+                 AND NOT EXISTS(SELECT 1 FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id
+                   JOIN story_tasks_v2 t ON t.task_id=a.attempt_id WHERE s.work_task_id=?1 AND t.status IN ('queued','running','waiting'))",
+                params![work_id,project_id.as_str()], |row|row.get(0),
+            ).map_err(storage_error)?;
+            if !ready || crate::work_modeling_recovery::pending_results(db, project_id, &work_id)? {
+                return Err(RepositoryError::TaskNotWritable);
+            }
+            // The explicit author recovery already proved every saved report.
+            // It never supersedes an unperformed seat or resumes a conversation.
+            ("completed", "completed")
         }
     };
     db.execute("UPDATE story_work_steps_v1 SET status=?3 WHERE work_task_id=?1 AND operation='reviewPlanningSeat'

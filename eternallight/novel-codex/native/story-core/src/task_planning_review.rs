@@ -56,6 +56,9 @@ impl SqliteStoryRepository {
         {
             return Err(RepositoryError::TaskOutputForbidden);
         }
+        let has_resume: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM story_generation_handoffs_v1 WHERE source_task_id=?1 AND json_extract(content_json,'$.resumeRun.id') IS NOT NULL)",
+            [task_id], |row| row.get(0)).map_err(storage_error)?;
+        if has_resume { return Err(RepositoryError::TaskOutputForbidden); }
         crate::task_input::assert_task_inputs_current(&tx, &task)?;
         crate::task_intents::assert_action_intent(&tx, task_id, request.expected_intent_revision)?;
         let work: String = tx.query_row("SELECT w.id FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id
@@ -85,6 +88,7 @@ impl SqliteStoryRepository {
             }
             id
         } else {
+            crate::model_work_plan::action_ready(&tx, &work)?;
             let count: i64 = tx
                 .query_row(
                     "SELECT COUNT(*) FROM story_planning_review_runs_v2 WHERE source_task_id=?1",
@@ -133,6 +137,7 @@ impl SqliteStoryRepository {
                 params![work, project.as_str()],
             )
             .map_err(storage_error)?;
+            crate::work_decision::ensure_author_delivery_pending(&tx, &task)?;
             id
         };
         let run = load_run(&tx, project, &run_id)?;

@@ -65,7 +65,7 @@ async fn epistemic_disagreement_is_source_bound_time_scoped_and_frozen_in_histor
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"认知分歧"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"认知分歧"})),
         false,
     )
     .await;
@@ -199,7 +199,7 @@ async fn relation_graph_expands_claims_by_direction_and_snapshot_without_inferen
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"Relation graph"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"Relation graph"})),
         false,
     )
     .await;
@@ -402,7 +402,7 @@ async fn relation_graph_expands_claims_by_direction_and_snapshot_without_inferen
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"Other"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"Other"})),
         false,
     )
     .await;
@@ -428,7 +428,7 @@ async fn writer_joint_search_keeps_future_knowledge_hidden_and_requires_name_dis
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"Writer knowledge"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"Writer knowledge"})),
         false,
     )
     .await;
@@ -607,7 +607,7 @@ async fn joint_query_reports_unmodeled_draft_instead_of_claiming_no_knowledge() 
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "Pending knowledge"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Pending knowledge"})),
         false,
     )
     .await;
@@ -659,7 +659,7 @@ async fn opposing_source_claims_are_explained_without_overwriting_and_stale_sour
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "Conflicts"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Conflicts"})),
         false,
     )
     .await;
@@ -849,7 +849,7 @@ async fn author_identity_decisions_reproject_conflicts_and_undo_without_rewritin
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "Identity decisions"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Identity decisions"})),
         false,
     )
     .await;
@@ -1405,7 +1405,7 @@ async fn author_identity_decisions_reproject_conflicts_and_undo_without_rewritin
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "Unrelated"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Unrelated"})),
         false,
     )
     .await;
@@ -1508,7 +1508,7 @@ async fn world_evolution_orders_backstory_before_later_chapters_and_pages_by_wor
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "Backstory"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Backstory"})),
         false,
     )
     .await;

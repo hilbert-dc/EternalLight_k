@@ -53,7 +53,7 @@ async fn setup(path: &std::path::Path) -> (String, Value, Value) {
         path,
         "POST",
         "/api/projects",
-        json!({"title":"有限范围"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"有限范围"}),
         AUTHOR,
     )
     .await;
@@ -300,7 +300,7 @@ async fn finite_scope_queues_covered_actions_once_without_enlarging_budget_or_au
                 .unwrap();
         let mut repo = novel_codex_story_core::SqliteStoryRepository::open(&path).unwrap();
         let work = repo.work_task_for_attempt(&project, child_id).unwrap();
-        repo.control_work_task(&project, &work.id, "resume", work.version, 2)
+        repo.control_work_task(&project, &work.id, "resume", work.control_revision, 2)
             .unwrap();
         let (status, rejected) = call(&path, "POST", &format!("{base}/tasks"), claim, AUTHOR).await;
         assert!(!status.is_success(), "{rejected}");
@@ -413,7 +413,7 @@ async fn finite_scope_cannot_cross_project_or_reactivate_paused_or_cancelled_wor
             &path,
             "POST",
             "/api/projects",
-            json!({"title":"另一个作品"}),
+            json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"另一个作品"}),
             AUTHOR,
         )
         .await;
@@ -444,7 +444,7 @@ async fn finite_scope_cannot_cross_project_or_reactivate_paused_or_cancelled_wor
         let mut repo = novel_codex_story_core::SqliteStoryRepository::open(&path).unwrap();
         let work = repo.work_task_for_attempt(&project, source).unwrap();
         let stopped = repo
-            .control_work_task(&project, &work.id, command, work.version, 2)
+            .control_work_task(&project, &work.id, command, work.control_revision, 2)
             .unwrap();
         let confirm = json!({"request":request,"previewDigest":preview["previewDigest"]});
         assert!(

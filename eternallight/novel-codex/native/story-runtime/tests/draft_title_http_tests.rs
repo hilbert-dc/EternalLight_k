@@ -47,7 +47,7 @@ async fn formal_candidate_and_working_titles_follow_their_own_persisted_revision
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "标题归属"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "标题归属"})),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
@@ -128,7 +128,7 @@ async fn draft_projection_rejects_invalid_current_revision_title_instead_of_inve
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "标题完整性"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "标题完整性"})),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");

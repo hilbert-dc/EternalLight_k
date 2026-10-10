@@ -57,7 +57,7 @@ async fn project(app: &Router) -> String {
         "POST",
         "/api/projects",
         Actor::Author,
-        json!({"title":"目录验收","logline":"独立分卷"}),
+        json!({"medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"目录验收","logline":"独立分卷"}),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{value}");

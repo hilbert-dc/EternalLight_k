@@ -38,6 +38,9 @@ pub(crate) fn hydrate(
     }
     state["providerBudget"] = serde_json::to_value(load(db, project, &format!("work-{run_id}"))?)
         .map_err(|_| RepositoryError::CorruptState)?;
+    if state["status"] == "blocked" && matches!(state["blockedReason"].as_str(), Some("pendingRecovery" | "pendingUsage" | "pendingWriteAndUsage")) {
+        state["blockedReason"] = crate::work_modeling_recovery::pending_reason(db, project, &format!("work-{run_id}"))?.unwrap_or("executionBlocked").into();
+    }
     Ok(state.to_string())
 }
 

@@ -206,7 +206,11 @@ async fn exact_unicode_evidence_handles_duplicate_text_without_repair_or_write()
     assert!(
         SqliteStoryRepository::open(&path)
             .unwrap()
-            .commitment_extraction(&ProjectId::parse("evidence-project").unwrap(), "chapter-1")
+            .commitment_extraction(
+                &ProjectId::parse("evidence-project").unwrap(),
+                "chapter-1",
+                None
+            )
             .unwrap()
             .is_none()
     );

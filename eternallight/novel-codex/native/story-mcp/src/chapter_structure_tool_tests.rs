@@ -8,8 +8,10 @@ fn assessment_exposes_only_reads_and_forwards_exact_source_role_without_caller_s
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let mut client = RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: listener.local_addr().unwrap().port(),

@@ -1,4 +1,20 @@
+mod multimedia;
+#[path = "../../../shared/canonical-scene-body.rs"]
+mod scene_body;
+mod multimedia_types;
+mod multimedia_paging;
+pub use multimedia_paging::MediaWorkspacePageRequest;
+mod multimedia_validation;
+pub use multimedia_types::*;
+mod model_work_plan;
+pub use model_work_plan::{
+    GoalContinuation, GoalEvidence, ModelGoal, ModelWorkPlan, ModelWorkPlanInput,
+    UpdateModelWorkPlan,
+};
 mod acceptance_shared;
+mod delegated_candidates;
+mod task_workspace;
+pub use delegated_candidates::{DelegatedDraftCaller, DelegatedDraftWrite};
 
 /// Maximum chapter count in one explicit author grant; execution remains incremental.
 pub const MAX_GENERATION_CHAPTERS: i64 = 100;
@@ -9,16 +25,24 @@ mod execution_scope_storage;
 mod generation_author_source;
 mod generation_execution_scope;
 mod generation_handoff;
+mod generation_model_control;
+pub use generation_model_control::ModelRunPauseRequest;
+mod generation_handoff_execution;
 mod generation_intent;
+mod work_action_proposal;
 mod work_decision;
 mod work_decision_actions;
-mod work_action_proposal;
-pub use work_action_proposal::{WorkActionProposal, ProposalTarget};
+pub use work_action_proposal::{ProposalTarget, WorkActionProposal};
 mod work_decision_delivery;
 mod work_decision_generation;
-mod work_decision_status;
 mod work_decision_recovery;
+mod work_decision_status;
 mod work_delivery_review;
+mod work_execution_events;
+#[cfg(test)]
+mod work_execution_events_tests;
+pub use work_execution_events::{WorkExecutionAckRequest, WorkExecutionClaimRequest, WorkExecutionLeaseRequest, WorkExecutionOwnerRequest, WorkExecutionReleaseRequest};
+mod work_issues;
 pub use generation_handoff::GenerationHandoffRequest;
 pub use work_decision::{WorkDecisionContinuation, WorkDecisionRequest};
 pub use work_decision_actions::WorkActionRequest;
@@ -80,7 +104,10 @@ mod condition_evaluation_jobs;
 mod context_sources;
 mod creative_methods;
 mod quality_notebook;
-pub use quality_notebook::{QualityAction, QualityEvidence, QualityMutation, QualityNote, QualityPacketSource};
+pub use quality_notebook::{
+    QualityAction, QualityEvidence, QualityMutation, QualityNote, QualityPacketSource,
+};
+mod chapter_delivery_review;
 mod dependency_rules;
 mod entity_audit_jobs;
 mod entity_identity;
@@ -146,6 +173,8 @@ mod query_scope;
 mod query_semantic;
 mod read_snapshot;
 mod reading_checkpoint;
+mod recovery_operation_read;
+mod recovery_operation_reconcile;
 mod recovery_operations;
 mod recovery_snapshot;
 mod relation_audit_jobs;
@@ -157,6 +186,7 @@ mod repository;
 mod revision_continuation;
 mod revision_delta;
 mod revision_outcome;
+mod direct_verification;
 mod revision_outcome_context;
 mod revision_outcome_decision;
 mod revision_outcome_validation;
@@ -171,9 +201,12 @@ mod snapshot_knowledge;
 mod snapshot_knowledge_audit_jobs;
 mod snapshot_knowledge_integrity;
 mod snapshot_state;
+mod source_check_evidence;
 mod source_evidence;
+pub use source_check_evidence::SourceCheck;
 mod source_payload_audit_schema;
 mod sqlite_repository;
+mod current_schema;
 mod state_properties;
 mod state_selector;
 mod state_sources;
@@ -201,6 +234,7 @@ mod task_hypothesis;
 mod task_impact;
 mod task_input;
 mod task_intents;
+mod task_intent_messages;
 mod task_knowledge_search;
 mod task_scope;
 mod task_sources;
@@ -295,6 +329,7 @@ pub use task_followup::TaskFollowup;
 pub use task_intents::TaskIntentRecord;
 pub use task_knowledge_search::WriterKnowledgeScope;
 pub use task_scope::writer_scene_limit;
+pub use task_scope::reader_scene_limit;
 pub use tasks::CreateTaskRequest;
 pub use tasks::TaskRecord;
 pub use tasks::TaskUpdate;
@@ -308,3 +343,15 @@ pub use workflow::ReviewRecord;
 pub use workflow::UndoAcceptanceRequest;
 pub use workspace_selection::ContinuationIntent;
 pub use workspace_selection::WorkingBaseline;
+
+pub use multimedia::{PrepareMediaOperation, MediaOperationSeal, MediaOperationOutputs, MediaTranscriptInput, CanonEntry, CanonCategory, CanonDocument, CanonWorkspace, SaveCanonDocument};
+
+mod work_control_commands;
+mod work_interludes;
+pub use work_interludes::{BeginWorkInterlude, ReturnWorkInterlude, WorkInterlude};
+mod work_pause_barrier;
+pub use work_pause_barrier::WorkPauseAfterStep;
+pub use work_control_commands::{WorkControlCommand, WorkControlReceipt, WorkControlOutcome};
+
+mod conversation_messages;
+pub use conversation_messages::{ConversationMessageInput, MessageTrigger, SubmitConversationMessage, ChangeConversationMessage};

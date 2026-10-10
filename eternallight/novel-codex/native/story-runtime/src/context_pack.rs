@@ -208,7 +208,6 @@ pub(crate) fn build_context_pack(input: ContextPackInput) -> Value {
     if let Some(targets) = input.delegation_targets {
         pack["operationContext"]["delegationTargets"] = targets;
     }
-    let mut scene_links_truncated = false;
     if let Some(baseline) = input.artifacts.get("propertyRules") {
         pack["operationContext"]["propertyRulesBase"] = baseline.clone();
     }
@@ -229,9 +228,11 @@ pub(crate) fn build_context_pack(input: ContextPackInput) -> Value {
                 }))
                 .collect::<Vec<_>>()
         );
+        finalize_context_pack(&mut pack);
         if input.task_id.is_some()
-            || pack.to_string().len() + 200 <= input.byte_limit
             || pack["operationContext"]["boundCommitmentInputs"]["scope"] == "frozenPlanReferences"
+            || (pack.to_string().len() + 200 <= input.byte_limit
+                && crate::context_model_item_budget::fits(&pack))
         {
             break;
         }
@@ -241,23 +242,29 @@ pub(crate) fn build_context_pack(input: ContextPackInput) -> Value {
         if links.pop().is_none() {
             break;
         }
-        scene_links_truncated = true;
-    }
-    if scene_links_truncated {
-        pack["coverage"]["complete"] = json!(false);
-        pack["coverage"]["missingScope"]
-            .as_array_mut()
-            .expect("missing scope array")
-            .push(json!("scenePlanDraftLinks"));
-        pack["coverage"]["truncationReasons"]
-            .as_array_mut()
-            .expect("truncation reasons array")
-            .push(json!("sceneLinkBudget"));
+        crate::context_budget::mark_truncated(&mut pack, "scenePlanDraftLinks", "sceneLinkBudget");
     }
     // Bound tasks cache complete visible sections before applying transport budgets.
     if input.task_id.is_none() {
         crate::context_budget::fit_optional_context(&mut pack, input.byte_limit);
     }
+    pack
+}
+
+/// Finalize derived transport metadata before measuring the actual model item.
+/// Complete bound sections are stamped here and cached before transport fitting.
+pub(crate) fn finalize_context_pack(pack: &mut Value) {
+    pack["coverage"]["scannedScope"]["draftsIncluded"] =
+        json!(pack["relevantText"].as_array().map_or(0, Vec::len));
+    pack["coverage"]["scannedScope"]["modelingSourcesIncluded"] = json!(
+        pack["operationContext"]["modeling"]
+            .as_array()
+            .map_or(0, Vec::len)
+    );
+    // Both final identities have a fixed-width SHA256 representation. Placeholders
+    // determine byteSize only; token budgets are checked after real identities exist.
+    pack["id"] = json!(format!("context-{}", "0".repeat(64)));
+    pack["contentHash"] = json!("0".repeat(64));
     loop {
         let size = pack.to_string().len();
         if pack["budgetsUsed"]["byteSize"] == json!(size) {
@@ -277,9 +284,12 @@ pub(crate) fn build_context_pack(input: ContextPackInput) -> Value {
     let hash = digest(&content);
     pack["id"] = json!(format!("context-{hash}"));
     pack["contentHash"] = json!(hash);
-    pack
 }
 
 fn digest(value: &Value) -> String {
     format!("{:x}", Sha256::digest(value.to_string().as_bytes()))
 }
+
+#[cfg(test)]
+#[path = "context_pack_finalization_tests.rs"]
+mod finalization_tests;

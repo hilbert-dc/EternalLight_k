@@ -9,6 +9,8 @@ mod decision_tests;
 mod fixture;
 #[path = "revision_outcome/flow.rs"]
 mod flow;
+#[path = "revision_outcome/recovery_source_tests.rs"]
+mod recovery_source_tests;
 #[path = "revision_outcome/repair_tests.rs"]
 mod repair_tests;
 #[path = "support/settle_task_fixture.rs"]

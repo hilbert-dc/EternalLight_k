@@ -125,6 +125,7 @@ impl Flow {
             .create_task("assessRevisionOutcome", self.assessment_target().await)
             .await;
         assert_eq!(status, StatusCode::CREATED, "{task}");
+        self.fixture.read_author_requirements(&task).await;
         task
     }
     pub fn path(&self) -> String {
@@ -133,10 +134,11 @@ impl Flow {
     pub fn report(&self) -> Value {
         json!({"writerTaskId":self.writer["id"],"chapterId":"chapter-one",
         "originalRevisionId":self.fixture.original["revisionId"],"draftRevisionId":self.draft["revisionId"],
-        "knowledgeBatchId":self.batch["id"],"outcomes":[
-            {"id":"hide-letter","status":"supported","reason":"改稿明确藏信。","evidence":[evidence("letter",NEW_BODY,"她将密函藏进衣襟。") ]},
-            {"id":"confess","status":"unmet","reason":"改稿明确没有坦白。","evidence":[evidence("letter",NEW_BODY,"她没有向守卫坦白。") ]},
-            {"id":"guard-motive","status":"insufficientEvidence","reason":"守卫场景未改，动机没有新证据。","evidence":[]}
+        "knowledgeBatchId":self.batch["id"],"uncoveredRequirements":[],"outcomes":[
+            {"id":"hide-letter","status":"supported","reason":"改稿明确藏信。","issue":null,"evidence":[evidence("letter",NEW_BODY,"她将密函藏进衣襟。") ]},
+            {"id":"confess","status":"unmet","reason":"改稿明确没有坦白。","issue":{"issueId":"confession-missing","newIssue":{"summary":"林夕仍未向守卫坦白密函的存在"},"resolutionOf":[]},"evidence":[evidence("letter",NEW_BODY,"她没有向守卫坦白。") ]},
+            {"id":"guard-motive","status":"insufficientEvidence","reason":"守卫场景未改，动机没有新证据。","issue":{"issueId":"guard-motive-missing","newIssue":{"summary":"守卫沉默的动机缺少新稿证据"},"resolutionOf":[]},"evidence":[]},
+            {"id":"whole-chapter","status":"supported","reason":"开场、守卫和结尾保留。","issue":null,"evidence":[evidence("opening","林夕走进港口。","林夕走进港口。")]}
         ]})
     }
     pub fn submission(&self, task: &Value, report: Value, key: &str) -> Value {

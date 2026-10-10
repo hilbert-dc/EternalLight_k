@@ -9,6 +9,7 @@ use crate::{ProjectId, RepositoryError, SqliteStoryRepository};
 pub struct ConversationRecord {
     pub id: String,
     pub project_id: String,
+    pub scope_id: Option<String>,
     pub title: String,
     pub is_pinned: bool,
     pub is_archived: bool,
@@ -23,6 +24,7 @@ pub struct ConversationRecord {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateConversationRequest {
+    pub scope_id: Option<String>,
     pub thread_id: String,
     pub title: String,
     pub forked_from_id: Option<String>,
@@ -74,7 +76,7 @@ fn load(
     if !valid_id(id) {
         return Err(invalid("Conversation thread ID is invalid"));
     }
-    db.query_row("SELECT thread_id,project_id,title,is_pinned,is_archived,created_at,updated_at,forked_from_id,last_turn_id,version FROM story_conversations_v1 WHERE project_id=?1 AND thread_id=?2",
+    db.query_row("SELECT thread_id,project_id,title,is_pinned,is_archived,created_at,updated_at,forked_from_id,last_turn_id,version,scope_id FROM story_conversations_v1 WHERE project_id=?1 AND thread_id=?2",
         params![project.as_str(), id], record_from_row).optional().map_err(storage)?.ok_or(RepositoryError::ConversationNotFound)
 }
 fn record_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationRecord> {
@@ -89,6 +91,7 @@ fn record_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationReco
         forked_from_id: row.get(7)?,
         last_turn_id: row.get(8)?,
         version: row.get(9)?,
+        scope_id: row.get(10)?,
     })
 }
 
@@ -99,12 +102,18 @@ impl SqliteStoryRepository {
         archived: bool,
     ) -> Result<Vec<ConversationRecord>, RepositoryError> {
         require_project(&self.connection, project)?;
-        let mut statement = self.connection.prepare("SELECT thread_id,project_id,title,is_pinned,is_archived,created_at,updated_at,forked_from_id,last_turn_id,version FROM story_conversations_v1 WHERE project_id=?1 AND is_archived=?2 ORDER BY is_pinned DESC,updated_at DESC,thread_id").map_err(storage)?;
+        let mut statement = self.connection.prepare("SELECT thread_id,project_id,title,is_pinned,is_archived,created_at,updated_at,forked_from_id,last_turn_id,version,scope_id FROM story_conversations_v1 WHERE project_id=?1 AND is_archived=?2 ORDER BY is_pinned DESC,updated_at DESC,thread_id").map_err(storage)?;
         statement
             .query_map(params![project.as_str(), archived], record_from_row)
             .map_err(storage)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(storage)
+    }
+
+    pub fn scoped_conversations(&self, project: &ProjectId, archived: bool, scope_id: &str) -> Result<Vec<ConversationRecord>, RepositoryError> {
+        let valid: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM story_creative_scopes_v1 WHERE project_id=?1 AND scope_id=?2)",params![project.as_str(),scope_id],|row|row.get(0)).map_err(storage)?;
+        if !valid { return Err(RepositoryError::CrossProjectReference); }
+        Ok(self.conversations(project,archived)?.into_iter().filter(|c|c.scope_id.as_deref()==Some(scope_id)).collect())
     }
 
     pub fn conversation(
@@ -145,6 +154,10 @@ impl SqliteStoryRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage)?;
         require_project(&transaction, project)?;
+        if let Some(scope)=request.scope_id.as_deref(){
+            let valid:bool=transaction.query_row("SELECT EXISTS(SELECT 1 FROM story_creative_scopes_v1 WHERE project_id=?1 AND scope_id=?2)",params![project.as_str(),scope],|row|row.get(0)).map_err(storage)?;
+            if !valid{return Err(RepositoryError::CrossProjectReference);}
+        }
         let existing: Option<(String, String)> = transaction.query_row(
             "SELECT project_id,registration_json FROM story_conversations_v1 WHERE thread_id=?1",
             [&request.thread_id], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(storage)?;
@@ -160,10 +173,11 @@ impl SqliteStoryRepository {
             return Ok(record);
         }
         if let Some(source) = &request.forked_from_id {
-            load(&transaction, project, source)?;
+            let source=load(&transaction, project, source)?;
+            if source.scope_id!=request.scope_id{return Err(RepositoryError::CrossProjectReference);}
         }
-        transaction.execute("INSERT INTO story_conversations_v1(thread_id,project_id,title,created_at,updated_at,forked_from_id,last_turn_id,registration_json) VALUES(?1,?2,?3,?4,?4,?5,?6,?7)",
-            params![request.thread_id, project.as_str(), request.title, now, request.forked_from_id, request.last_turn_id, registration]).map_err(storage)?;
+        transaction.execute("INSERT INTO story_conversations_v1(thread_id,project_id,title,created_at,updated_at,forked_from_id,last_turn_id,registration_json,scope_id) VALUES(?1,?2,?3,?4,?4,?5,?6,?7,?8)",
+            params![request.thread_id, project.as_str(), request.title, now, request.forked_from_id, request.last_turn_id, registration,request.scope_id]).map_err(storage)?;
         let record = load(&transaction, project, &request.thread_id)?;
         transaction.commit().map_err(storage)?;
         Ok(record)
@@ -201,6 +215,10 @@ impl SqliteStoryRepository {
                 expected: request.expected_version,
                 actual: current.version,
             });
+        }
+        if request.is_archived == Some(true) {
+            let active:bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM story_work_tasks_v1 WHERE project_id=?1 AND thread_id=?2 AND status='running') OR EXISTS(SELECT 1 FROM story_conversation_messages_v1 WHERE project_id=?1 AND thread_id=?2 AND status IN ('queued','claimed','sending'))",params![project.as_str(),thread_id],|row|row.get(0)).map_err(storage)?;
+            if active { return Err(invalid("Stop active work and resolve queued messages before archiving")); }
         }
         transaction.execute("UPDATE story_conversations_v1 SET title=?3,is_pinned=?4,is_archived=?5,updated_at=?6,version=version+1 WHERE project_id=?1 AND thread_id=?2 AND version=?7",
             params![project.as_str(), thread_id, request.title.unwrap_or(current.title),

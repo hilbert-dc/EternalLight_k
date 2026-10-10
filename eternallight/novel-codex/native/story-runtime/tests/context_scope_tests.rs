@@ -21,7 +21,7 @@ async fn writer_relation_tool_is_bound_to_the_active_chapter_task() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"港城"})),
         false,
     )
     .await;
@@ -111,7 +111,7 @@ async fn author_controls_the_persisted_user_task_across_an_attempt() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "任务控制"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "任务控制"})),
         false,
     )
     .await;
@@ -153,11 +153,15 @@ async fn author_controls_the_persisted_user_task_across_an_attempt() {
     assert_eq!(work["steps"][0]["attempts"][0]["turnId"], "turn-control");
     let work_id = work["id"].as_str().unwrap();
     let control_path = format!("/api/projects/{project_id}/work-tasks/{work_id}/control");
+    // An executor receives its grant while the attempt is active, before pause.
+    let (status, grant) = call(&path, "GET",
+        &format!("/api/projects/{project_id}/tasks/{attempt_id}/provider-budget"), None, false).await;
+    assert_eq!(status, StatusCode::OK, "{grant}");
     let (status, paused) = call(
         &path,
         "POST",
         &control_path,
-        Some(json!({"command":"pause","expectedVersion":work["version"]})),
+        Some(json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":work["threadId"],"command":"pause","expectedControlRevision":work["controlRevision"]})),
         false,
     )
     .await;
@@ -181,12 +185,16 @@ async fn author_controls_the_persisted_user_task_across_an_attempt() {
     let attempt_path = format!("/api/projects/{project_id}/tasks/{attempt_id}");
     let (status, unchanged_attempt) = call(&path, "GET", &attempt_path, None, false).await;
     assert_eq!(status, StatusCode::OK, "{unchanged_attempt}");
-    assert_eq!(unchanged_attempt, bound);
+    let mut paused_attempt = bound.clone();
+    paused_attempt["status"] = json!("cancelled");
+    paused_attempt["stage"] = json!("cancelled");
+    paused_attempt["error"] = json!("author_paused");
+    assert_eq!(unchanged_attempt, paused_attempt);
     let (status, stale) = call(
         &path,
         "POST",
         &control_path,
-        Some(json!({"command":"resume","expectedVersion":work["version"]})),
+        Some(json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":work["threadId"],"command":"resume","expectedControlRevision":work["controlRevision"]})),
         false,
     )
     .await;
@@ -195,7 +203,7 @@ async fn author_controls_the_persisted_user_task_across_an_attempt() {
         &path,
         "POST",
         &control_path,
-        Some(json!({"command":"resume","expectedVersion":paused["version"]})),
+        Some(json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":paused["threadId"],"command":"resume","expectedControlRevision":paused["controlRevision"]})),
         true,
     )
     .await;
@@ -204,28 +212,48 @@ async fn author_controls_the_persisted_user_task_across_an_attempt() {
     let (status, persisted) = call(&path, "GET", &work_path, None, false).await;
     assert_eq!(status, StatusCode::OK, "{persisted}");
     assert_eq!(persisted, paused);
+    // Pausing does not settle a real executor grant, even with zero requests.
+    assert_eq!(paused["resumeBlockReason"], "pendingUsage");
+    let (status, unsettled) = call(&path, "POST", &control_path,
+        Some(json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":paused["threadId"],"command":"resume","expectedControlRevision":paused["controlRevision"]})), false).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{unsettled}");
+    let mut engine = eternallight_engine_core::PersistentBudget::new(
+        &path.with_extension("engine.sqlite3"), attempt_id,
+        json!({"options":{"id":grant["budgetId"],"maxRequests":grant["maxRequests"],"maxTokens":grant["maxTokens"],"startedAt":1000},"now":1000})).unwrap();
+    // The Host observes execution termination before settling its receipt.
+    let (status, stopped) = call(&path, "PATCH", &attempt_path,
+        Some(json!({"threadId":"thread-control","status":"failed","error":"execution_interrupted"})), false).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{stopped}");
+    engine.complete("terminal").unwrap();
+    let (status, settled) = call(&path, "POST",
+        &format!("/api/projects/{project_id}/work-tasks/{work_id}/provider-usage"),
+        Some(json!({"taskId":attempt_id})), false).await;
+    assert_eq!(status, StatusCode::OK, "{settled}");
+    let (status, paused) = call(&path, "GET", &work_path, None, false).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(paused["resumeBlockReason"].is_null(), "{paused}");
     let (status, resumed) = call(
         &path,
         "POST",
         &control_path,
-        Some(json!({"command":"resume","expectedVersion":paused["version"]})),
+        Some(json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":paused["threadId"],"command":"resume","expectedControlRevision":paused["controlRevision"]})),
         false,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{resumed}");
     assert_eq!(resumed["status"], "running");
-    assert_eq!(resumed["steps"], paused["steps"]);
-    let (status, completed) = call(&path, "POST", &completion_path, Some(completion), true).await;
-    assert_eq!(status, StatusCode::OK, "{completed}");
-    assert_eq!(completed["status"], "completed");
+    assert_eq!(resumed["steps"][0]["status"], "queued");
+    assert!(resumed["steps"][0]["currentAttemptId"].is_null());
+    assert_eq!(resumed["steps"][0]["attempts"][0]["id"], attempt_id);
+    // Resume queues fresh execution; it must not resurrect the stopped capability.
+    let (status, rejected) = call(&path, "POST", &completion_path, Some(completion), true).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{rejected}");
     let (status, persisted_attempt) = call(&path, "GET", &attempt_path, None, false).await;
     assert_eq!(status, StatusCode::OK, "{persisted_attempt}");
-    assert_eq!(persisted_attempt, completed);
+    assert_eq!(persisted_attempt, paused_attempt);
     let (status, finished) = call(&path, "GET", &work_path, None, false).await;
     assert_eq!(status, StatusCode::OK, "{finished}");
-    assert_eq!(finished["status"], "completed");
-    assert_eq!(finished["steps"][0]["status"], "completed");
-    assert_eq!(finished["steps"][0]["currentAttemptId"], attempt_id);
+    assert_eq!(finished, resumed);
     assert_eq!(
         finished["steps"][0]["attempts"].as_array().unwrap().len(),
         1
@@ -234,7 +262,7 @@ async fn author_controls_the_persisted_user_task_across_an_attempt() {
         &path,
         "POST",
         &control_path,
-        Some(json!({"command":"pause","expectedVersion":resumed["version"]})),
+        Some(json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":paused["threadId"],"command":"pause","expectedControlRevision":paused["controlRevision"]})),
         false,
     )
     .await;
@@ -252,7 +280,7 @@ async fn completed_chapter_task_exposes_its_pending_knowledge_step() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "港城"})),
         false,
     )
     .await;
@@ -317,7 +345,7 @@ async fn scene_scoped_writer_reads_and_changes_only_the_visible_prefix() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "港城"})),
         false,
     )
     .await;
@@ -357,7 +385,7 @@ async fn scene_scoped_writer_reads_and_changes_only_the_visible_prefix() {
             "threadId": "scene-writer-thread",
             "target": {"type": "chapter", "chapterId": chapter_id,
                 "chapterNumber": 1, "readingChapter": 1, "sceneOrder": 1,
-                "scope": {"type": "throughScene", "endSceneOrder": 1}},
+                "scope": {"type": "throughScene", "endSceneOrder": 1}, "readScope": {"type": "throughScene", "endSceneOrder": 1}},
             "capabilityHash": format!("{:x}", Sha256::digest(CAPABILITY.as_bytes())),
             "capabilityExpiresAt": expires, "authorIntent": "修改第一场景"
         })),
@@ -371,18 +399,23 @@ async fn scene_scoped_writer_reads_and_changes_only_the_visible_prefix() {
     );
     let (status, context) = call(&path, "GET", &context_uri, None, true).await;
     assert_eq!(status, StatusCode::OK, "{context}");
+    let root = format!("/api/projects/{project_id}");
+    let frozen_text = read_section(&path, &root, &task, &context, "/relevantText").await;
     assert_eq!(
-        context["relevantText"][0]["content"]["sceneGroups"][0]["body"],
+        frozen_text[0]["content"]["sceneGroups"][0]["body"],
         "林夕发现密函。"
     );
+    assert_eq!(frozen_text[0]["sourceRevisionId"], draft["revisionId"]);
     assert_eq!(
-        context["relevantText"][0]["content"]["sceneGroups"]
+        frozen_text[0]["content"]["sceneGroups"]
             .as_array()
             .unwrap()
             .len(),
         1
     );
+    assert!(!frozen_text.to_string().contains("叛徒"));
     assert!(!context.to_string().contains("叛徒"));
+    assert_model_item_bound(&context);
     let search_uri = format!(
         "/api/projects/{project_id}/tasks/{task_id}/search?threadId=scene-writer-thread&expectedRevision=0&limit=5"
     );
@@ -460,9 +493,21 @@ async fn scene_scoped_writer_reads_and_changes_only_the_visible_prefix() {
     let (status, current) = call(&path, "GET", &context_uri, None, true).await;
     assert_eq!(status, StatusCode::OK, "{current}");
     assert_eq!(
-        current["relevantText"][0]["content"]["sceneGroups"][0]["body"],
-        "林夕打开密函。"
+        current["relevantText"]["sourceId"],
+        context["relevantText"]["sourceId"]
     );
+    let current_input = read_section(&path, &root, &task, &current, "/relevantText").await;
+    assert_eq!(current_input, frozen_text);
+    let saved_source = read_saved_checkpoint(&path, &root, &task, &current, &saved, 1, true).await;
+    assert_eq!(saved_source["content"]["body"], "林夕打开密函。");
+    assert_eq!(
+        saved_source["content"]["sceneGroups"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(!saved_source.to_string().contains("叛徒"));
     assert!(!current.to_string().contains("叛徒"));
 }
 
@@ -474,7 +519,7 @@ async fn writer_search_cannot_read_future_chapters_or_planning_text() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "港城"})),
         false,
     )
     .await;
@@ -622,10 +667,13 @@ async fn writer_search_cannot_read_future_chapters_or_planning_text() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{pov_context}");
-    assert_eq!(pov_context["relevantText"].as_array().unwrap().len(), 1);
+    let root = format!("/api/projects/{project_id}");
+    let pov_text = read_section(&path, &root, &pov_task, &pov_context, "/relevantText").await;
+    assert_eq!(pov_text.as_array().unwrap().len(), 1);
+    assert_eq!(pov_text[0]["content"]["chapterNumber"], 2);
     assert_eq!(
-        pov_context["relevantText"][0]["content"]["chapterNumber"],
-        2
+        projected_scene_body(&pov_text[0]["content"]),
+        "未来章节揭示叛徒。"
     );
     assert_eq!(
         pov_context["coverage"]["scannedScope"]["chaptersInScope"],
@@ -635,10 +683,15 @@ async fn writer_search_cannot_read_future_chapters_or_planning_text() {
         pov_context["coverage"]["scannedScope"]["modelingSourcesInScope"],
         2
     );
-    assert_eq!(
-        pov_context["operationContext"]["workingKnowledge"]["perspective"],
-        "character"
-    );
+    let knowledge = read_section(
+        &path,
+        &root,
+        &pov_task,
+        &pov_context,
+        "/operationContext/workingKnowledge",
+    )
+    .await;
+    assert_eq!(knowledge["perspective"], "character");
     assert_eq!(pov_context["stateFacts"], json!([]));
     assert_eq!(pov_context["coverage"]["complete"], false);
     assert!(
@@ -666,7 +719,7 @@ async fn story_search_is_bound_to_the_live_task_and_returns_source_evidence() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "港城"})),
         false,
     )
     .await;
@@ -729,11 +782,12 @@ async fn story_search_is_bound_to_the_live_task_and_returns_source_evidence() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     let actions_uri = format!("/api/projects/{project_id}/tasks/{task_id}/actions");
+    let acceptance = chapter_acceptance(&task);
     let action_request = json!({
         "taskId": task_id, "threadId": "story-search-thread", "expectedRevision": 0, "expectedIntentRevision": 0,
         "idempotencyKey": "revise-chapter-one", "operation": "generateChapter",
         "target": {"chapterId": draft["chapterId"], "chapterNumber": 1,
-            "povCharacterId": "linxi", "storyTime": 10},
+            "povCharacterId": "linxi", "storyTime": 10, "chapterAcceptance":acceptance},
         "instruction": "让林夕主动打开密函"
     });
     let (status, action) = call(
@@ -815,7 +869,7 @@ async fn conversation_writer_actions_freeze_bound_plan_position_before_child_cla
             &path,
             "POST",
             "/api/projects",
-            Some(json!({"title":"港城"})),
+            Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"港城"})),
             false,
         )
         .await;
@@ -870,15 +924,16 @@ async fn conversation_writer_actions_freeze_bound_plan_position_before_child_cla
         } else {
             json!({"type":"wholeChapter"})
         };
+        let acceptance = chapter_acceptance(&source);
         let request = json!({"taskId":source_id,"threadId":"conversation-writer","expectedRevision":0,"expectedIntentRevision":0,
             "idempotencyKey":"modify-chapter","operation":"generateChapter",
-            "target":{"chapterId":chapter_id,"chapterNumber":2,"scope":scope},"instruction":"让林夕藏起密函"});
+            "target":{"chapterId":chapter_id,"chapterNumber":2,"scope":scope,"chapterAcceptance":acceptance},"instruction":"让林夕藏起密函"});
         let (status, action) = call(&path, "POST", &actions_uri, Some(request.clone()), true).await;
         assert_eq!(status, StatusCode::CREATED, "{action}");
         assert_eq!(
             action["target"],
             json!({"type":"chapter","chapterId":chapter_id,"chapterNumber":2,
-            "readingChapter":2,"sceneOrder":1,"scope":scope,"povCharacterId":"linxi","storyTime":10})
+            "readingChapter":2,"sceneOrder":1,"scope":scope,"povCharacterId":"linxi","storyTime":10,"chapterAcceptance":acceptance})
         );
         assert_eq!(
             call(&path, "POST", &actions_uri, Some(request.clone()), true).await,
@@ -980,24 +1035,44 @@ async fn conversation_writer_actions_freeze_bound_plan_position_before_child_cla
             context["target"]["position"],
             json!({"readingChapter":2,"sceneOrder":1,"povCharacterId":"linxi","storyTime":10})
         );
+        let planned = read_section(&path, &root, &writer, &context, "/plannedEffects").await;
+        assert_eq!(planned[0]["value"]["planRevisionId"], "conversation-plan");
+        assert_eq!(planned[0]["value"]["chapters"], plan["payload"]["chapters"]);
+        let text = read_section(&path, &root, &writer, &context, "/relevantText").await;
+        assert_eq!(text.as_array().unwrap().len(), 1);
+        assert_eq!(text[0]["content"]["chapterNumber"], 2);
+        assert_eq!(text[0]["sourceRevisionId"], current["revisionId"]);
         assert_eq!(
-            context["plannedEffects"][0]["value"]["planRevisionId"],
-            "conversation-plan"
+            projected_scene_body(&text[0]["content"]),
+            "林夕把密函藏入衣袖。"
         );
-        assert_eq!(
-            context["plannedEffects"][0]["value"]["chapters"],
-            plan["payload"]["chapters"]
-        );
-        assert_eq!(context["relevantText"].as_array().unwrap().len(), 1);
-        assert_eq!(context["relevantText"][0]["content"]["chapterNumber"], 2);
         assert!(
             context["coverage"]["missingScope"]
                 .as_array()
                 .unwrap()
                 .contains(&json!("povPriorText"))
         );
+        let (status, implicit) = call(
+            &path,
+            "GET",
+            &context_uri.replace("&povCharacterId=linxi", ""),
+            None,
+            true,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{implicit}");
+        assert_eq!(
+            implicit["target"]["position"],
+            context["target"]["position"]
+        );
+        assert_eq!(implicit["queryScope"], context["queryScope"]);
+        assert_eq!(implicit["relevantText"], context["relevantText"]);
+        assert_eq!(
+            read_section(&path, &root, &writer, &implicit, "/relevantText").await,
+            text
+        );
         for denied_uri in [
-            context_uri.replace("&povCharacterId=linxi", ""),
+            context_uri.replace("povCharacterId=linxi", "povCharacterId=other"),
             context_uri.replace("storyTime=10", "storyTime=11"),
         ] {
             let (status, denied) = call(&path, "GET", &denied_uri, None, true).await;
@@ -1015,7 +1090,7 @@ async fn author_can_decline_a_model_proposal_without_creating_candidate_work() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"拒绝建议"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"拒绝建议"})),
         false,
     )
     .await;
@@ -1102,7 +1177,7 @@ async fn candidate_action_claim_and_completion_use_the_persisted_domain_binding(
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"任务绑定"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"任务绑定"})),
         false,
     )
     .await;
@@ -1250,7 +1325,7 @@ async fn creative_methods_are_author_selected_frozen_and_included_in_context_bud
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"方法测试"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"方法测试"})),
         false,
     )
     .await;
@@ -1335,7 +1410,7 @@ async fn author_steer_revisions_fence_candidate_actions_and_completion() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"作者意图"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"作者意图"})),
         false,
     )
     .await;
@@ -1361,7 +1436,9 @@ async fn author_steer_revisions_fence_candidate_actions_and_completion() {
     assert_eq!(status, StatusCode::CREATED, "{task}");
     let task_id = task["id"].as_str().unwrap();
     let base = format!("/api/projects/{project_id}/tasks/{task_id}");
-    let context_uri = format!("/api/projects/{project_id}/context?taskId={task_id}&threadId=intent-thread&projectRevision=0&purpose=planner&budget=24&byteBudget=60000");
+    let context_uri = format!(
+        "/api/projects/{project_id}/context?taskId={task_id}&threadId=intent-thread&projectRevision=0&purpose=planner&budget=24&byteBudget=60000"
+    );
     let action = |key: &str, revision: i64| {
         json!({
             "taskId":task_id, "threadId":"intent-thread", "expectedRevision":0,
@@ -1369,12 +1446,27 @@ async fn author_steer_revisions_fence_candidate_actions_and_completion() {
             "operation":"generateBrief", "target":{"type":"artifact"}, "instruction":"拟定简报"
         })
     };
-    let (status, initial_context) = call(&path,"GET",&context_uri,None,true).await;
-    assert_eq!(status,StatusCode::OK,"{initial_context}");
-    assert_eq!(initial_context["authorIntentState"],json!({"expectedIntentRevision":0,"canRequestActions":true,"status":"current"}));
-    let (status, unissued) = call(&path,"POST",&format!("{base}/actions"),Some(action("unissued",1)),true).await;
-    assert_eq!(status,StatusCode::BAD_REQUEST,"{unissued}");
-    assert!(unissued["error"]["message"].as_str().unwrap().contains("has not been issued"));
+    let (status, initial_context) = call(&path, "GET", &context_uri, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{initial_context}");
+    assert_eq!(
+        initial_context["authorIntentState"],
+        json!({"expectedIntentRevision":0,"canRequestActions":true,"status":"current"})
+    );
+    let (status, unissued) = call(
+        &path,
+        "POST",
+        &format!("{base}/actions"),
+        Some(action("unissued", 1)),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{unissued}");
+    assert!(
+        unissued["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("has not been issued")
+    );
     let (status, original) = call(
         &path,
         "POST",
@@ -1408,9 +1500,12 @@ async fn author_steer_revisions_fence_candidate_actions_and_completion() {
     assert_eq!(status, StatusCode::OK, "{pending}");
     assert_eq!(pending["intentRevision"], 1);
     assert_eq!(pending["status"], "pending");
-    let (status, pending_context) = call(&path,"GET",&context_uri,None,true).await;
-    assert_eq!(status,StatusCode::OK,"{pending_context}");
-    assert_eq!(pending_context["authorIntentState"],json!({"expectedIntentRevision":1,"canRequestActions":false,"status":"pendingDelivery"}));
+    let (status, pending_context) = call(&path, "GET", &context_uri, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{pending_context}");
+    assert_eq!(
+        pending_context["authorIntentState"],
+        json!({"expectedIntentRevision":1,"canRequestActions":false,"status":"pendingDelivery"})
+    );
     let (status, earlier_actions) =
         call(&path, "GET", &format!("{base}/actions"), None, false).await;
     assert_eq!(status, StatusCode::OK);
@@ -1449,9 +1544,12 @@ async fn author_steer_revisions_fence_candidate_actions_and_completion() {
     .await;
     assert_eq!(status, StatusCode::OK, "{delivered}");
     assert_eq!(delivered["status"], "delivered");
-    let (status, updated_context) = call(&path,"GET",&context_uri,None,true).await;
-    assert_eq!(status,StatusCode::OK,"{updated_context}");
-    assert_eq!(updated_context["authorIntentState"],json!({"expectedIntentRevision":1,"canRequestActions":true,"status":"current"}));
+    let (status, updated_context) = call(&path, "GET", &context_uri, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{updated_context}");
+    assert_eq!(
+        updated_context["authorIntentState"],
+        json!({"expectedIntentRevision":1,"canRequestActions":true,"status":"current"})
+    );
     assert_eq!(
         call(
             &path,
@@ -1577,6 +1675,314 @@ async fn author_steer_revisions_fence_candidate_actions_and_completion() {
     );
 }
 
+fn chapter_acceptance(task: &Value) -> Value {
+    let author = task["inputManifest"]["authorIntent"].as_str().unwrap();
+    assert!(!author.is_empty());
+    json!({"requirements":[{"id":"author-goal","text":author}],
+        "length":{"requirement":"作者原话未指定篇幅；保留原写作范围","minCharacters":null,"maxCharacters":null}})
+}
+
+fn assert_model_item_bound(value: &Value) {
+    let result = json!({"content":[{"type":"text","text":value.to_string()}]});
+    let item = json!({"type":"function_call_output","call_id":"x".repeat(160),"output":result.to_string()});
+    let tokens = eternallight_engine_core::dispatch("tokens.count", json!(item.to_string()))
+        .unwrap()
+        .as_u64()
+        .unwrap();
+    assert!(tokens <= 9000, "actual model item has {tokens} tokens");
+}
+
+// The current relevantText projection contains the complete admitted scene
+// groups, without the duplicate body. Read every group already delivered by
+// the task source; never borrow an unprojected revision or alternate format.
+fn projected_scene_body(content: &Value) -> String {
+    assert!(content.get("body").is_none(), "{content}");
+    let groups = content["sceneGroups"].as_array().unwrap();
+    assert_eq!(
+        groups.len(),
+        1,
+        "these fixtures each saved one complete scene"
+    );
+    groups
+        .iter()
+        .map(|group| group["body"].as_str().unwrap().trim())
+        .collect::<Vec<_>>()
+        .join("\n\n---\n\n")
+}
+
+async fn read_section(
+    path: &std::path::Path,
+    root: &str,
+    task: &Value,
+    context: &Value,
+    section: &str,
+) -> Value {
+    let entry = context["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["sectionPath"] == section)
+        .unwrap_or_else(|| panic!("missing current source {section}: {context}"));
+    assert_eq!(
+        context.pointer(section).unwrap()["sourceId"],
+        entry["sourceId"]
+    );
+    read_content(
+        path,
+        root,
+        task,
+        entry["sourceId"].as_str().unwrap(),
+        entry["contentHash"].as_str(),
+    )
+    .await
+}
+
+async fn read_workspace_entries(
+    path: &std::path::Path,
+    root: &str,
+    task: &Value,
+    context: &Value,
+    filter: &str,
+) -> Vec<Value> {
+    let (status, current_task) = call(
+        path,
+        "GET",
+        &format!("{root}/tasks/{}", task["id"].as_str().unwrap()),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{current_task}");
+    assert_eq!(current_task["id"], task["id"]);
+    assert_eq!(current_task["threadId"], task["threadId"]);
+    assert_eq!(current_task["inputRevision"], task["inputRevision"]);
+    assert!(
+        matches!(
+            current_task["status"].as_str(),
+            Some("queued" | "running" | "waiting")
+        ),
+        "{current_task}"
+    );
+    let (status, current_work) = call(
+        path,
+        "GET",
+        &format!("{root}/tasks/{}/work-task", task["id"].as_str().unwrap()),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{current_work}");
+    assert_eq!(current_work["status"], "running", "{current_work}");
+    let source = context["taskWorkspace"]["sourceId"].as_str().unwrap();
+    let endpoint = format!(
+        "{root}/tasks/{}/task-source-content?threadId={}&expectedRevision={}&sourceId={source}&view=workspace{filter}",
+        task["id"].as_str().unwrap(),
+        task["threadId"].as_str().unwrap(),
+        task["inputRevision"]
+    );
+    let mut cursor = String::new();
+    let mut entries = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut cursors = std::collections::BTreeSet::new();
+    loop {
+        let (status, page) = call(path, "GET", &format!("{endpoint}{cursor}"), None, true).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], source);
+        assert_eq!(page["representation"], "workspaceDirectory");
+        assert_eq!(page["contentRead"], false);
+        assert!(page.to_string().len() <= 6500);
+        assert_model_item_bound(&page);
+        for entry in page["items"].as_array().unwrap() {
+            assert_eq!(entry["contentRead"], false);
+            assert_eq!(entry["contentHash"], Value::Null);
+            assert!(seen.insert(entry["sourceId"].as_str().unwrap().to_owned()));
+            entries.push(entry.clone());
+        }
+        let Some(next) = page["nextCursor"].as_str() else {
+            break;
+        };
+        assert!(cursors.insert(next.to_owned()));
+        assert!(cursors.len() < 40);
+        cursor = format!("&cursor={next}");
+    }
+    entries
+}
+
+async fn read_saved_checkpoint(
+    path: &std::path::Path,
+    root: &str,
+    task: &Value,
+    context: &Value,
+    saved: &Value,
+    ordinal: u64,
+    current: bool,
+) -> Value {
+    let entries = read_workspace_entries(
+        path,
+        root,
+        task,
+        context,
+        "&chapterNumber=1&objectKind=draft",
+    )
+    .await;
+    let entry = entries
+        .iter()
+        .find(|item| {
+            item["revisionId"] == saved["revisionId"]
+                && item["producerTaskId"] == task["id"]
+                && item["outputOrdinal"] == ordinal
+        })
+        .unwrap_or_else(|| panic!("missing genuine saved checkpoint: {entries:?}"));
+    assert_eq!(entry["purpose"], "savedCheckpoint");
+    assert_eq!(entry["authority"], "nativeSavedCheckpoint");
+    assert_eq!(entry["outputKind"], "draft");
+    assert_eq!(
+        entry["version"],
+        json!({"revisionId":saved["revisionId"],"outputOrdinal":ordinal})
+    );
+    assert_eq!(entry["isCurrentAtListing"], current);
+    assert_eq!(entry["currentMeaning"], "equalsCandidateHeadAtListing");
+    assert_eq!(
+        entry["evidenceUse"],
+        "immutableSavedVersionForReadingAndComparison;notAcceptanceOrDelivery"
+    );
+    let source = read_content(path, root, task, entry["sourceId"].as_str().unwrap(), None).await;
+    assert_eq!(source["sourceRevisionId"], saved["revisionId"]);
+    assert_eq!(
+        source["objectId"],
+        format!("draft-{}", saved["chapterId"].as_str().unwrap())
+    );
+    assert_eq!(source["producerTaskId"], task["id"]);
+    assert_eq!(source["outputOrdinal"], ordinal);
+    assert_eq!(source["purpose"], "savedCheckpoint");
+    assert_eq!(source["authority"], "nativeSavedCheckpoint");
+    assert_eq!(source["evidenceUse"], entry["evidenceUse"]);
+    assert!(source.get("isCurrentAtListing").is_none());
+    assert!(source.get("producerStatusAtListing").is_none());
+    source
+}
+
+// Rebuild only the actually returned parsed fields; no database/author read can
+// stand in for the task's complete source transport and character coverage.
+async fn read_content(
+    path: &std::path::Path,
+    root: &str,
+    task: &Value,
+    source: &str,
+    expected_hash: Option<&str>,
+) -> Value {
+    let endpoint = format!(
+        "{root}/tasks/{}/task-source-content?threadId={}&expectedRevision={}&sourceId={source}",
+        task["id"].as_str().unwrap(),
+        task["threadId"].as_str().unwrap(),
+        task["inputRevision"]
+    );
+    let mut cursor = String::new();
+    let mut content_hash = expected_hash.map(str::to_owned);
+    let mut returned = Value::Null;
+    let mut chunks = std::collections::BTreeMap::<String, (usize, usize, String)>::new();
+    let mut from = 0usize;
+    let mut total = None;
+    loop {
+        let (status, page) = call(path, "GET", &format!("{endpoint}{cursor}"), None, true).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], source);
+        assert_eq!(page["representation"], "parsedFields");
+        assert_eq!(page["contentRead"], true);
+        assert!(page.to_string().len() <= 6500);
+        assert_model_item_bound(&page);
+        let hash = page["contentHash"].as_str().unwrap();
+        assert_eq!(
+            content_hash.get_or_insert_with(|| hash.to_owned()).as_str(),
+            hash
+        );
+        assert_eq!(page["coverage"]["fromEntry"], from);
+        let entries = page["entries"].as_array().unwrap();
+        assert!(!entries.is_empty());
+        from += entries.len();
+        assert_eq!(page["coverage"]["toEntry"], from);
+        let count = page["coverage"]["totalEntries"].as_u64().unwrap() as usize;
+        assert_eq!(*total.get_or_insert(count), count);
+        assert!(from <= count);
+        for entry in entries {
+            let pointer = entry["path"].as_str().unwrap();
+            if let Some(text) = entry["text"].as_str() {
+                let range = &entry["characterRange"];
+                let start = range["start"].as_u64().unwrap() as usize;
+                let end = range["end"].as_u64().unwrap() as usize;
+                let full = range["total"].as_u64().unwrap() as usize;
+                let chunk = chunks
+                    .entry(pointer.to_owned())
+                    .or_insert((0, full, String::new()));
+                assert_eq!((start, full), (chunk.0, chunk.1));
+                assert_eq!(end, start + text.chars().count());
+                assert!(end <= full);
+                chunk.0 = end;
+                chunk.2.push_str(text);
+            } else {
+                assert!(entry.get("value").is_some(), "{entry}");
+                set_field(&mut returned, pointer, entry["value"].clone());
+            }
+        }
+        if let Some(next) = page["nextCursor"].as_str() {
+            assert!(from < count);
+            let next = format!("&cursor={next}");
+            assert_ne!(next, cursor);
+            cursor = next;
+        } else {
+            assert_eq!(from, count);
+            break;
+        }
+    }
+    for (pointer, (end, total, text)) in chunks {
+        assert_eq!(end, total);
+        set_field(&mut returned, &pointer, json!(text));
+    }
+    assert_eq!(
+        format!("{:x}", Sha256::digest(returned.to_string().as_bytes())),
+        content_hash.unwrap()
+    );
+    returned
+}
+
+fn set_field(value: &mut Value, pointer: &str, field: Value) {
+    let parts: Vec<String> = pointer.strip_prefix('/').map_or_else(Vec::new, |pointer| {
+        pointer
+            .split('/')
+            .map(|part| part.replace("~1", "/").replace("~0", "~"))
+            .collect()
+    });
+    fn put(value: &mut Value, parts: &[String], field: Value) {
+        let Some((part, rest)) = parts.split_first() else {
+            *value = field;
+            return;
+        };
+        if value.is_null() {
+            *value = if part.parse::<usize>().is_ok() {
+                json!([])
+            } else {
+                json!({})
+            };
+        }
+        match value {
+            Value::Array(items) => {
+                let index = part.parse::<usize>().unwrap();
+                if items.len() <= index {
+                    items.resize(index + 1, Value::Null);
+                }
+                put(&mut items[index], rest, field);
+            }
+            Value::Object(object) => put(
+                object.entry(part.clone()).or_insert(Value::Null),
+                rest,
+                field,
+            ),
+            _ => panic!("non-container returned source at {parts:?}"),
+        }
+    }
+    put(value, &parts, field);
+}
+
 async fn call(
     path: &std::path::Path,
     method: &str,
@@ -1597,6 +2003,30 @@ async fn call(
     );
     if writer {
         request = request.header("x-novel-task-capability", CAPABILITY);
+        if method == "GET"
+            && (uri.contains("/task-source?") || uri.contains("/task-source-content?"))
+        {
+            let thread = uri
+                .split("threadId=")
+                .nth(1)
+                .unwrap()
+                .split('&')
+                .next()
+                .unwrap();
+            request = request
+                .header(
+                    "x-novel-tool-name",
+                    if uri.contains("/task-source-content?") {
+                        "read_source_content"
+                    } else {
+                        "read_task_source"
+                    },
+                )
+                .header("x-novel-root-thread", thread)
+                .header("x-novel-caller-thread", thread)
+                .header("x-novel-turn", "context-scope-read")
+                .header("x-novel-tool-call", "context-scope-source");
+        }
     }
     let body = if let Some(payload) = payload {
         request = request.header("content-type", "application/json");
@@ -1612,12 +2042,12 @@ async fn call(
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     (
         status,
-        serde_json::from_slice(&bytes).unwrap_or_else(|_| {
+        task_fixture::work_control_response(uri, status, serde_json::from_slice(&bytes).unwrap_or_else(|_| {
             panic!(
                 "non-JSON response {status}: {}",
                 String::from_utf8_lossy(&bytes)
             )
-        }),
+        })),
     )
 }
 
@@ -1629,7 +2059,7 @@ async fn writer_context_keeps_target_chapter_after_eighty_prior_chapters() {
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title": "Long novel"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Long novel"})),
         false,
     )
     .await;
@@ -1686,23 +2116,56 @@ async fn writer_context_keeps_target_chapter_after_eighty_prior_chapters() {
     );
     let (status, context) = call(&path, "GET", &context_uri, None, true).await;
     assert_eq!(status, StatusCode::OK, "{context}");
-    let drafts = context["relevantText"].as_array().unwrap();
-    assert!(!drafts.is_empty() && drafts.len() <= 24);
+    let root = format!("/api/projects/{project_id}");
+    let relevant = read_section(&path, &root, &task, &context, "/relevantText").await;
+    let drafts = relevant.as_array().unwrap();
+    assert_eq!(drafts.len(), 80);
+    assert_eq!(drafts.first().unwrap()["content"]["chapterNumber"], 2);
     assert_eq!(drafts.last().unwrap()["content"]["chapterNumber"], 81);
     assert!(drafts.last().unwrap()["sourceRevisionId"].is_string());
-    let wrapped = json!({"type":"function_call_output","call_id":"call-81","output":[
-        {"type":"input_text","text":"Tool result: novel_workspace.read_context"},
-        {"type":"input_text","text":context.to_string()}
-    ]});
-    let tokens = eternallight_engine_core::dispatch("tokens.count", json!(wrapped.to_string()))
-        .unwrap()
-        .as_u64()
+    for entry in drafts {
+        let number = entry["content"]["chapterNumber"].as_i64().unwrap();
+        assert!((2..=81).contains(&number));
+        assert_eq!(
+            projected_scene_body(&entry["content"]),
+            format!("第{number}章正文。")
+        );
+    }
+    assert_model_item_bound(&context);
+    let directory =
+        read_workspace_entries(&path, &root, &task, &context, "&objectKind=draft").await;
+    assert_eq!(directory.len(), 81);
+    let chapter_numbers: std::collections::BTreeSet<i64> = directory
+        .iter()
+        .map(|entry| entry["chapterNumber"].as_i64().unwrap())
+        .collect();
+    assert_eq!(chapter_numbers, (1..=81).collect());
+    let current = directory
+        .iter()
+        .find(|entry| entry["chapterNumber"] == 81)
         .unwrap();
-    assert!(tokens <= 10_000, "model item has {tokens} tokens");
+    let current_text = read_content(
+        &path,
+        &root,
+        &task,
+        current["sourceId"].as_str().unwrap(),
+        None,
+    )
+    .await;
+    assert_eq!(
+        current_text["sourceRevisionId"],
+        drafts.last().unwrap()["sourceRevisionId"]
+    );
+    assert_eq!(current_text["content"]["body"], "第81章正文。");
     assert_eq!(context["coverage"]["scannedScope"]["chaptersInScope"], 81);
     assert_eq!(
         context["coverage"]["missingScope"],
-        json!(["chapterText", "knowledgeModeling", "workingKnowledge"])
+        json!([
+            "chapterText",
+            "knowledgeModeling",
+            "workingKnowledge",
+            "taskSourceContents"
+        ])
     );
     assert_eq!(context["coverage"]["complete"], false);
     assert_eq!(context["taskId"], task["id"]);
@@ -1738,22 +2201,127 @@ async fn writer_context_keeps_target_chapter_after_eighty_prior_chapters() {
             .unwrap()
             .contains(&json!("knowledgeModeling"))
     );
+    let (long_project_status, long_project) = call(
+        &path,
+        "POST",
+        "/api/projects",
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"确定超出模型条目额度的真实正文"})),
+        false,
+    )
+    .await;
+    assert_eq!(long_project_status, StatusCode::CREATED, "{long_project}");
+    let long_project_id = long_project["project"]["id"].as_str().unwrap();
+    let long_body = "霾".repeat(16000);
+    assert_eq!(long_body.len(), 48000);
+    let body_tokens = eternallight_engine_core::dispatch("tokens.count", json!(long_body))
+        .unwrap()
+        .as_u64()
+        .unwrap();
+    assert!(
+        body_tokens > 9000,
+        "required target prose alone has {body_tokens} tokens"
+    );
+    let (long_draft_status, long_draft) = call(
+        &path,
+        "POST",
+        &format!("/api/projects/{long_project_id}/drafts/checkpoints"),
+        Some(json!({"payload":{"chapterNumber":1,"title":"必需目标正文","body":long_body},
+            "expectedRevision":0,"expectedCandidateRevisionId":null,"idempotencyKey":"deterministic-model-item-overflow"})),
+        false,
+    )
+    .await;
+    assert_eq!(long_draft_status, StatusCode::CREATED, "{long_draft}");
+    assert_eq!(long_draft["body"], long_body);
+    let projected_target_bytes = json!({"objectId":format!("draft-{}",long_draft["chapterId"].as_str().unwrap()),
+        "sourceRevisionId":long_draft["revisionId"],"authority":"candidate","workingSelectionRevision":null,
+        "content":{"chapterId":long_draft["chapterId"],"chapterNumber":1,"title":"必需目标正文",
+            "completeness":"chapterComplete","sceneGroups":long_draft["sceneGroups"]}}).to_string().len();
+    assert!(
+        projected_target_bytes < 58000,
+        "target bytes={projected_target_bytes}"
+    );
+    let (oversized_status, oversized_context) = call(
+        &path,
+        "GET",
+        &format!(
+            "/api/projects/{long_project_id}/context?projectRevision=0&purpose=writer&readingChapter=1&sceneOrder=1&budget=24&byteBudget=60000"
+        ),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(
+        oversized_status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{oversized_context}"
+    );
+    assert_eq!(
+        oversized_context["error"]["code"],
+        "context_model_item_budget_exceeded"
+    );
+    assert_eq!(oversized_context.as_object().unwrap().len(), 1);
+    assert!(oversized_context.get("relevantText").is_none());
+    assert!(oversized_context.get("operationContext").is_none());
+    assert!(
+        !oversized_context.to_string().contains('霾'),
+        "the rejected model item must deliver no target prose"
+    );
     let (latest_status, latest_context) = call(
         &path,
         "GET",
         &format!(
-            "/api/projects/{project_id}/context?projectRevision=0&purpose=writer&readingChapter=101&sceneOrder=1&budget=24&byteBudget=60000"
+            "/api/projects/{project_id}/context?projectRevision=0&purpose=writer&readingChapter=101&sceneOrder=1&budget=8&byteBudget=20000"
         ),
         None,
         false,
     )
     .await;
     assert_eq!(latest_status, StatusCode::OK, "{latest_context}");
+    assert_model_item_bound(&latest_context);
+    assert_eq!(latest_context["taskId"], Value::Null);
+    assert_eq!(latest_context["purpose"], "writer");
+    assert_eq!(latest_context["target"]["position"]["readingChapter"], 101);
+    assert_eq!(latest_context["target"]["position"]["sceneOrder"], 1);
+    assert_eq!(
+        latest_context["coverage"]["requestedScope"]["entryLimit"],
+        8
+    );
+    assert_eq!(latest_context["budgetsUsed"]["byteLimit"], 20000);
+    assert_eq!(
+        latest_context["budgetsUsed"]["byteSize"],
+        latest_context.to_string().len()
+    );
+    assert!(latest_context.to_string().len() <= 20000);
+    assert_eq!(latest_context["snapshotId"], author_context["snapshotId"]);
+    assert_eq!(
+        latest_context["sourceWatermarks"],
+        author_context["sourceWatermarks"]
+    );
+    let mut latest_hashed_content = latest_context.clone();
+    latest_hashed_content.as_object_mut().unwrap().remove("id");
+    latest_hashed_content
+        .as_object_mut()
+        .unwrap()
+        .remove("contentHash");
+    let latest_hash = format!(
+        "{:x}",
+        Sha256::digest(latest_hashed_content.to_string().as_bytes())
+    );
+    assert_eq!(latest_context["contentHash"], latest_hash);
+    assert_eq!(latest_context["id"], format!("context-{latest_hash}"));
     let included_sources = latest_context["operationContext"]["modeling"]
         .as_array()
         .unwrap()
         .len();
     assert!(included_sources > 0 && included_sources <= 100);
+    assert_eq!(
+        latest_context["coverage"]["scannedScope"]["modelingSourcesIncluded"],
+        included_sources
+    );
+    assert_eq!(
+        latest_context["coverage"]["scannedScope"]["chaptersInScope"],
+        101
+    );
     assert!(
         latest_context["coverage"]["truncationReasons"]
             .as_array()

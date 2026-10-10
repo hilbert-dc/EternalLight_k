@@ -8,7 +8,7 @@ pub(super) async fn request(path: &std::path::Path) -> (String, Value) {
         path,
         "POST",
         "/api/projects",
-        json!({"title":"首轮额度"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"首轮额度"}),
         AUTHOR,
     )
     .await;
@@ -375,7 +375,12 @@ async fn raw_task_creation_cannot_allocate_unfunded_roots_or_forged_derivatives(
 async fn resumed_attempts_keep_the_original_author_and_reject_broken_lineage_before_execution() {
     use novel_codex_story_core::{ProjectId, SqliteStoryRepository, TaskUpdate};
 
-    for operation in ["advisory", "generateBrief"] {
+    for (operation, known) in [
+        ("advisory", false),
+        ("generateBrief", false),
+        ("advisory", true),
+        ("generateBrief", true),
+    ] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("resume-author.sqlite3");
         let (root, mut initial) = request(&path).await;
@@ -412,14 +417,24 @@ async fn resumed_attempts_keep_the_original_author_and_reject_broken_lineage_bef
         let engine_path = path.with_extension("engine.sqlite3");
         let mut engine = eternallight_engine_core::PersistentBudget::new(&engine_path, task_id,
             json!({"options":{"id":format!("budget-{task_id}"),"maxRequests":3,"maxTokens":700,"startedAt":1000},"now":1000})).unwrap();
-        engine
+        let reservation = engine
             .apply(
                 "budget.reserve",
                 json!({"parameters":{"maxOutputTokens":100},"now":1001}),
             )
             .unwrap();
-        drop(engine);
-        eternallight_engine_core::PersistentBudget::recover(&engine_path).unwrap();
+        if known {
+            engine
+                .apply(
+                    "budget.settle",
+                    json!({"id":reservation,"usage":{"total_tokens":100},"now":1002}),
+                )
+                .unwrap();
+            engine.complete("failed").unwrap();
+        } else {
+            drop(engine);
+            eternallight_engine_core::PersistentBudget::recover(&engine_path).unwrap();
+        }
         let work = repo.work_task_for_attempt(&project, task_id).unwrap();
         let (status, charged) = call(
             &path,
@@ -431,8 +446,26 @@ async fn resumed_attempts_keep_the_original_author_and_reject_broken_lineage_bef
         .await;
         assert_eq!(status, StatusCode::OK, "{charged}");
         let work = repo.work_task_for_attempt(&project, task_id).unwrap();
+        if !known {
+            assert_eq!(charged["unknownTokens"], 100);
+            let before = super::unknown_usage_admission::snapshot(&path);
+            let (status, rejected) = call(
+                &path,
+                "POST",
+                &format!("{root}/work-tasks/{}/control", work.id),
+                json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":work.thread_id,"command":"resume","expectedControlRevision":work.control_revision}),
+                AUTHOR,
+            )
+            .await;
+            assert_eq!(status, StatusCode::CONFLICT, "{rejected}");
+            assert_eq!(rejected["error"]["code"], "work_control_rejected");
+            assert_eq!(rejected["outcome"]["receipt"]["reason"], "WorkUsageUnknown");
+            super::unknown_usage_admission::assert_rejected_control_only(&path, &before, &rejected);
+            continue;
+        }
+        assert_eq!(charged["unknownTokens"], 0);
         let resumed = repo
-            .control_work_task(&project, &work.id, "resume", work.version, 2)
+            .control_work_task(&project, &work.id, "resume", work.control_revision, 2)
             .unwrap();
         let mut target = resumed.steps[0].target.clone();
         target["resumeStepId"] = json!(resumed.steps[0].id);

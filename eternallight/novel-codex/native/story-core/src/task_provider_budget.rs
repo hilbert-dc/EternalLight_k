@@ -27,15 +27,24 @@ pub(crate) fn reserve(
     deadline_at: Option<i64>,
 ) -> Result<(), RepositoryError> {
     let budget = crate::work_budget_storage::load(db, project, work_id)?;
-    if budget.exhausted() || budget.has_charge(task_id) {
-        return Err(RepositoryError::TaskBindingInvalid);
+    match budget.continuation_block_reason() {
+        Some(crate::provider_budget::ProviderContinuationBlock::UnknownUsage) => {
+            return Err(RepositoryError::WorkUsageUnknown);
+        }
+        Some(crate::provider_budget::ProviderContinuationBlock::BudgetExhausted) => {
+            return Err(RepositoryError::WorkBudgetExhausted);
+        }
+        None => {}
+    }
+    if budget.has_charge(task_id) {
+        return Err(RepositoryError::TaskBudgetAlreadySettled);
     }
     let unsettled: bool = db.query_row(
         "SELECT EXISTS(SELECT 1 FROM story_task_provider_budgets_v1 WHERE work_task_id=?1 AND settled=0)",
         [work_id], |row| row.get(0),
     ).map_err(storage_error)?;
     if unsettled {
-        return Err(RepositoryError::TaskBindingInvalid);
+        return Err(RepositoryError::WorkUsageUnsettled);
     }
     let grant = TaskProviderBudget {
         task_id: task_id.to_owned(),
@@ -127,7 +136,7 @@ pub(crate) fn read_budget(
             {
                 return Err(RepositoryError::CorruptState);
             }
-            if state["status"] != "running" || state["activeTaskId"] != task_id {
+            if !crate::work_interludes::is_attempt(read,task_id)? && (state["status"] != "running" || state["activeTaskId"] != task_id) {
                 return Err(RepositoryError::TaskBindingInvalid);
             }
             serde_json::from_value::<Option<i64>>(state["deadlineAt"].clone())
@@ -146,11 +155,20 @@ pub(crate) fn read_budget(
     let budget = crate::work_budget_storage::load(read, project, &work_id)?;
     let task = crate::tasks::load_task(read, task_id)?;
     crate::task_input::assert_task_inputs_current(read, &task)?;
-    if deadline.is_some_and(|deadline| now >= deadline)
-        || budget.exhausted()
-        || budget.has_charge(task_id)
-    {
-        return Err(RepositoryError::TaskBindingInvalid);
+    match budget.continuation_block_reason() {
+        Some(crate::provider_budget::ProviderContinuationBlock::UnknownUsage) => {
+            return Err(RepositoryError::WorkUsageUnknown);
+        }
+        Some(crate::provider_budget::ProviderContinuationBlock::BudgetExhausted) => {
+            return Err(RepositoryError::WorkBudgetExhausted);
+        }
+        None => {}
+    }
+    if deadline.is_some_and(|deadline| now >= deadline) {
+        return Err(RepositoryError::TaskBudgetExpired);
+    }
+    if budget.has_charge(task_id) {
+        return Err(RepositoryError::TaskBudgetAlreadySettled);
     }
     let stored: String = read.query_row(
             "SELECT grant_json FROM story_task_provider_budgets_v1 WHERE task_id=?1 AND work_task_id=?2 AND settled=0",

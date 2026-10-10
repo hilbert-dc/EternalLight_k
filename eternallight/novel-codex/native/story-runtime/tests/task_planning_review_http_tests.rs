@@ -30,6 +30,7 @@ async fn call(
                 .method(method)
                 .uri(uri)
                 .header("authorization", format!("Bearer {actor}"))
+                .header("x-novel-task-capability", CAP)
                 .header("content-type", "application/json")
                 .body(if body.is_null() {
                     Body::empty()
@@ -42,7 +43,7 @@ async fn call(
         .unwrap();
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    (status, serde_json::from_slice(&bytes).unwrap())
+    (status, task_fixture::work_control_response(uri, status, serde_json::from_slice(&bytes).unwrap()))
 }
 async fn register(app: &Router, uri: &str, body: Value, caller: &str) -> (StatusCode, Value) {
     let response = app
@@ -75,7 +76,9 @@ async fn register(app: &Router, uri: &str, body: Value, caller: &str) -> (Status
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     (status, serde_json::from_slice(&bytes).unwrap())
 }
-async fn setup_with_intent(author_intent: &str) -> (
+async fn setup_with_intent(
+    author_intent: &str,
+) -> (
     tempfile::TempDir,
     std::path::PathBuf,
     Router,
@@ -94,7 +97,7 @@ async fn setup_with_intent(author_intent: &str) -> (
         &app,
         "POST",
         "/api/projects",
-        json!({"title":"合成深审"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"合成深审"}),
         AUTHOR,
     )
     .await;
@@ -114,6 +117,7 @@ async fn setup_with_intent(author_intent: &str) -> (
     let (status,task)=call(&app,"POST",&format!("{root}/tasks"),json!({"operation":"advisory","inputRevision":0,"threadId":"planning-thread","target":{"type":"project"},
         "authorIntent":author_intent,"capabilityHash":format!("{:x}",Sha256::digest(CAP.as_bytes())),"capabilityExpiresAt":expires}),AUTHOR).await;
     assert_eq!(status, StatusCode::CREATED, "{task}");
+    save_review_plan(&app, &root, &task).await;
     let body = json!({"threadId":"planning-thread","expectedRevision":0,"expectedIntentRevision":0,"artifactKind":"outline","revisionId":outline["revisionId"],"targetNodeId":null,"roles":["structure","character"],"focus":"检查记忆动机","idempotencyKey":"review-one"});
     (
         dir,
@@ -124,7 +128,18 @@ async fn setup_with_intent(author_intent: &str) -> (
         body,
     )
 }
-async fn setup() -> (tempfile::TempDir, std::path::PathBuf, Router, String, String, Value) {
+async fn save_review_plan(app: &Router, root: &str, task: &Value) {
+    let (status,result)=call(app,"POST",&format!("{root}/tasks/{}/work-plan",task["id"].as_str().unwrap()),json!({"taskId":task["id"],"threadId":task["threadId"],"expectedRevision":task["inputRevision"],"expectedPlanVersion":0,"idempotencyKey":"review-goals","plan":{"intentMode":"executeGoals","goals":[{"id":"review","title":"按作者要求评审大纲","acceptance":"完成指定视角的评审并核对报告","kind":"deliverable","status":"inProgress","dependsOn":[],"readingQuestion":"","checkScope":"当前大纲","approach":"登记指定评审并核对报告","assessment":"","evidence":[],"sourceIds":[],"sourceChecks":[],"continuation":null}]}}),CANDIDATE).await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+}
+async fn setup() -> (
+    tempfile::TempDir,
+    std::path::PathBuf,
+    Router,
+    String,
+    String,
+    Value,
+) {
     setup_with_intent("请从结构和人物两个视角深审现有大纲，不修改规划。").await
 }
 
@@ -133,6 +148,501 @@ fn settle(path: &std::path::Path, app_task: &str) {
     let _engine=eternallight_engine_core::PersistentBudget::new(&engine_path,app_task,json!({"options":{"id":format!("budget-{app_task}"),"maxRequests":16,"maxTokens":200000,"startedAt":1000},"now":1000})).unwrap();
     drop(_engine);
     eternallight_engine_core::PersistentBudget::recover(&engine_path).unwrap();
+}
+
+fn terminal_budget(path: &std::path::Path, task: &str, status: &str) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    let encoded: String = db
+        .query_row(
+            "SELECT grant_json FROM story_task_provider_budgets_v1 WHERE task_id=?1",
+            [task],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let grant: Value = serde_json::from_str(&encoded).unwrap();
+    let mut engine = eternallight_engine_core::PersistentBudget::new(
+        &path.with_extension("engine.sqlite3"),
+        task,
+        json!({"options":{"id":grant["budgetId"],"maxRequests":grant["maxRequests"],"maxTokens":grant["maxTokens"],"startedAt":1000},"now":1000}),
+    )
+    .unwrap();
+    engine.complete(status).unwrap();
+}
+
+#[tokio::test]
+async fn output_limit_planning_seat_uses_dedicated_resume_without_bypassing_zero_write_proof() {
+    for unknown_write in [false, true] {
+        let (_dir, path, app, root, source_task, body) = setup().await;
+        let project = root.trim_start_matches("/api/projects/");
+        let (code, run) = register(
+            &app,
+            &format!("{root}/tasks/{source_task}/planning-reviews"),
+            body,
+            "planning-thread",
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{run}");
+        let run_id = run["id"].as_str().unwrap();
+        let work_uri = format!("{root}/work-tasks/{}", run["workTaskId"].as_str().unwrap());
+        let run_uri = format!("{root}/planning-reviews/{run_id}");
+        let seat_uri = format!("{run_uri}/seats/structure/tasks");
+        let (code, completed) = call(
+            &app,
+            "POST",
+            &format!("{root}/tasks/{source_task}/complete"),
+            json!({"threadId":"planning-thread","summary":"已登记指定视角深审，交给专门席位执行"}),
+            AUTHOR,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{completed}");
+        terminal_budget(&path, &source_task, "completed");
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                &format!("{work_uri}/provider-usage"),
+                json!({"taskId":source_task}),
+                AUTHOR
+            )
+            .await
+            .0,
+            StatusCode::OK
+        );
+        let expires = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 600;
+        let request = json!({"threadId":"seat-thread","capabilityHash":"a".repeat(64),"capabilityExpiresAt":expires});
+        let (code, seat) = call(&app, "POST", &seat_uri, request.clone(), AUTHOR).await;
+        assert_eq!(code, StatusCode::OK, "{seat}");
+        let failed_id = seat["id"].as_str().unwrap();
+        let frozen = call(&app, "GET", &run_uri, Value::Null, AUTHOR).await.1;
+        let (code, failed) = call(
+            &app,
+            "PATCH",
+            &format!("{root}/tasks/{failed_id}"),
+            json!({"threadId":"seat-thread","status":"failed","error":"provider_output_limit"}),
+            AUTHOR,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{failed}");
+        let before = call(&app, "GET", &work_uri, Value::Null, AUTHOR).await.1;
+        assert_eq!(before["status"], "blocked");
+        let control = json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":before["threadId"],"command":"resume","expectedControlRevision":before["controlRevision"]});
+        let (code, refused) = call(
+            &app,
+            "POST",
+            &format!("{work_uri}/control"),
+            control.clone(),
+            AUTHOR,
+        )
+        .await;
+        assert!(
+            code.is_client_error(),
+            "unsettled seat must not resume: {refused}"
+        );
+        assert_eq!(
+            call(&app, "GET", &work_uri, Value::Null, AUTHOR).await.1,
+            before
+        );
+        terminal_budget(&path, failed_id, "failed");
+        let (code, settled) = call(
+            &app,
+            "POST",
+            &format!("{work_uri}/provider-usage"),
+            json!({"taskId":failed_id}),
+            AUTHOR,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{settled}");
+        let before = call(&app, "GET", &work_uri, Value::Null, AUTHOR).await.1;
+        let control = json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":before["threadId"],"command":"resume","expectedControlRevision":before["controlRevision"]});
+        let run_before = call(&app, "GET", &run_uri, Value::Null, AUTHOR).await.1;
+        let db = rusqlite::Connection::open(&path).unwrap();
+        if unknown_write {
+            // An accepted operation with no outcome is not a proved zero-write failure.
+            db.execute("INSERT INTO story_tool_operations_v1 VALUES ('seat-unknown-write',?1,?2,'seat-thread','turn','call','save_planning_review_report','hash',NULL,'accepted',NULL,1,1)", rusqlite::params![project,failed_id]).unwrap();
+            let unknown_before = call(&app, "GET", &work_uri, Value::Null, AUTHOR).await.1;
+            assert_eq!(unknown_before["version"], before["version"]);
+            assert_eq!(unknown_before["steps"], before["steps"]);
+            assert_eq!(unknown_before["resumeBlockReason"], "pendingRecovery");
+            assert!(unknown_before["resumeMode"].is_null());
+            let (code, refused) = call(
+                &app,
+                "POST",
+                &format!("{work_uri}/control"),
+                control,
+                AUTHOR,
+            )
+            .await;
+            assert!(
+                code.is_client_error(),
+                "unknown seat write must not resume: {refused}"
+            );
+            assert_eq!(
+                call(&app, "GET", &work_uri, Value::Null, AUTHOR).await.1,
+                unknown_before
+            );
+            assert_eq!(
+                call(&app, "GET", &run_uri, Value::Null, AUTHOR).await.1,
+                run_before
+            );
+            assert!(
+                call(&app, "POST", &seat_uri, request, AUTHOR)
+                    .await
+                    .0
+                    .is_client_error()
+            );
+            assert_eq!(
+                call(&app, "GET", &work_uri, Value::Null, AUTHOR).await.1,
+                unknown_before
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT COUNT(*) FROM story_work_attempts_v1 WHERE step_id=?1",
+                    [format!("review-seat-{run_id}-structure")],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                1
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT COUNT(*) FROM story_work_budget_authorizations_v1",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                1
+            );
+            assert_eq!(
+                db.query_row("SELECT state FROM story_tool_operations_v1 WHERE operation_id='seat-unknown-write'", [], |r| r.get::<_,String>(0)).unwrap(),
+                "accepted"
+            );
+            continue;
+        }
+        let (code, resumed) = call(
+            &app,
+            "POST",
+            &format!("{work_uri}/control"),
+            control,
+            AUTHOR,
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK, "{resumed}");
+        let step_id = format!("review-seat-{run_id}-structure");
+        let step = resumed["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == step_id)
+            .unwrap();
+        assert_eq!(step["status"], "queued");
+        assert!(step["currentAttemptId"].is_null());
+        assert_eq!(step["attempts"].as_array().unwrap().len(), 1);
+        let (code, replacement) = call(&app, "POST", &seat_uri, request, AUTHOR).await;
+        assert_eq!(code, StatusCode::OK, "{replacement}");
+        assert_ne!(replacement["id"], seat["id"]);
+        assert_eq!(replacement["operation"], "reviewPlanningSeat");
+        assert_eq!(replacement["authorIntent"], seat["authorIntent"]);
+        assert_eq!(
+            replacement["inputManifest"]["target"],
+            seat["inputManifest"]["target"]
+        );
+        assert_eq!(
+            replacement["inputManifest"]["planningReviewAuthorIntentBinding"],
+            seat["inputManifest"]["planningReviewAuthorIntentBinding"]
+        );
+        let current_run = call(&app, "GET", &run_uri, Value::Null, AUTHOR).await.1;
+        for field in [
+            "revisionId",
+            "sourcePacketHash",
+            "authorIntent",
+            "checksByRole",
+        ] {
+            assert_eq!(
+                current_run[field], frozen[field],
+                "frozen {field} must survive retry"
+            );
+        }
+        let work = call(&app, "GET", &work_uri, Value::Null, AUTHOR).await.1;
+        let step = work["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == step_id)
+            .unwrap();
+        assert_eq!(step["currentAttemptId"], replacement["id"]);
+        assert_eq!(step["attempts"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            call(
+                &app,
+                "GET",
+                &format!("{root}/tasks/{failed_id}"),
+                Value::Null,
+                AUTHOR
+            )
+            .await
+            .1["status"],
+            "failed"
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM story_work_budget_authorizations_v1",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+    }
+}
+
+#[tokio::test]
+async fn planning_review_registration_does_not_grant_dispatch_authority() {
+    let (_dir, path, app, root, _planned, body) = setup().await;
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 600;
+    let (code, task) = call(&app,"POST",&format!("{root}/tasks"),json!({"operation":"advisory","inputRevision":0,"threadId":"planning-thread","target":{"type":"project"},"authorIntent":"评审当前大纲","capabilityHash":format!("{:x}",Sha256::digest(CAP.as_bytes())),"capabilityExpiresAt":expires}),AUTHOR).await;
+    assert_eq!(code, StatusCode::CREATED, "{task}");
+    let task_id = task["id"].as_str().unwrap();
+    let uri = format!("{root}/tasks/{task_id}/planning-reviews");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let counts = || -> Vec<i64> {
+        [
+            "story_tasks_v2",
+            "story_work_attempts_v1",
+            "story_task_provider_budgets_v1",
+            "story_author_messages_v1",
+            "story_work_budget_authorizations_v1",
+        ]
+        .iter()
+        .map(|table| {
+            db.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+        })
+        .collect()
+    };
+    let before_registration = counts();
+    let (code, registered) = register(&app, &uri, body.clone(), "planning-thread").await;
+    assert_eq!(code, StatusCode::OK, "{registered}");
+    assert_eq!(registered["registrationOnly"], true);
+    assert_eq!(registered["reportCount"], 0);
+    assert_eq!(registered["sourceTaskId"], task_id);
+    assert_eq!(registered["workTaskId"], format!("work-{task_id}"));
+    assert_eq!(counts(), before_registration);
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM story_planning_review_runs_v2 WHERE source_task_id=?1",
+            [task_id],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM story_model_work_plans_v1 WHERE work_task_id=?1",
+            [registered["workTaskId"].as_str().unwrap()],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+    let work_uri = format!(
+        "{root}/work-tasks/{}",
+        registered["workTaskId"].as_str().unwrap()
+    );
+    let seat_uri = format!(
+        "{root}/planning-reviews/{}/seats/structure/tasks",
+        registered["id"].as_str().unwrap()
+    );
+    let request = json!({"threadId":"seat-thread","capabilityHash":"a".repeat(64),"capabilityExpiresAt":expires});
+    for stage in [
+        "active-source-without-method",
+        "active-source-with-method",
+        "completed-source-unsettled",
+    ] {
+        if stage == "active-source-with-method" {
+            save_review_plan(&app, &root, &task).await;
+            let (code, replay) = register(&app, &uri, body.clone(), "planning-thread").await;
+            assert_eq!(code, StatusCode::OK, "{replay}");
+            assert_eq!(replay, registered);
+        } else if stage == "completed-source-unsettled" {
+            let (code, completed) = call(
+                &app,
+                "POST",
+                &format!("{root}/tasks/{task_id}/complete"),
+                json!({"threadId":"planning-thread","summary":"已登记评审席位；评审未执行"}),
+                AUTHOR,
+            )
+            .await;
+            assert_eq!(code, StatusCode::OK, "{completed}");
+            assert_eq!(completed["status"], "completed");
+        }
+        let (code, before_work) = call(&app, "GET", &work_uri, Value::Null, AUTHOR).await;
+        assert_eq!(code, StatusCode::OK, "{before_work}");
+        let before_counts = counts();
+        let before_ledger: String = db
+            .query_row(
+                "SELECT ledger_json FROM story_work_budgets_v1 WHERE work_task_id=?1",
+                [registered["workTaskId"].as_str().unwrap()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let (code, rejected) = call(&app, "POST", &seat_uri, request.clone(), AUTHOR).await;
+        assert!(code.is_client_error(), "{stage}: {rejected}");
+        assert_eq!(code, StatusCode::CONFLICT, "{stage}: {rejected}");
+        assert_eq!(rejected["error"]["code"], "work_usage_unsettled", "{stage}: {rejected}");
+        assert_eq!(counts(), before_counts, "{stage}");
+        let after_ledger: String = db
+            .query_row(
+                "SELECT ledger_json FROM story_work_budgets_v1 WHERE work_task_id=?1",
+                [registered["workTaskId"].as_str().unwrap()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(after_ledger, before_ledger, "{stage}");
+        assert_eq!(
+            call(&app, "GET", &work_uri, Value::Null, AUTHOR).await,
+            (StatusCode::OK, before_work)
+        );
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM story_planning_review_seats_v2 WHERE run_id=?1 AND task_id IS NOT NULL",[registered["id"].as_str().unwrap()],|row|row.get::<_,i64>(0)).unwrap(),0);
+    }
+    terminal_budget(&path, task_id, "completed");
+    let (code, usage) = call(
+        &app,
+        "POST",
+        &format!("{work_uri}/provider-usage"),
+        json!({"taskId":task_id}),
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{usage}");
+    let after_settlement = counts();
+    let (code, seat) = call(&app, "POST", &seat_uri, request, AUTHOR).await;
+    assert_eq!(code, StatusCode::OK, "{seat}");
+    assert_eq!(seat["operation"], "reviewPlanningSeat");
+    assert_eq!(seat["target"]["reviewRunId"], registered["id"]);
+    assert_eq!(db.query_row("SELECT s.work_task_id FROM story_work_attempts_v1 a JOIN story_work_steps_v1 s ON s.id=a.step_id WHERE a.attempt_id=?1",[seat["id"].as_str().unwrap()],|row|row.get::<_,String>(0)).unwrap(),registered["workTaskId"].as_str().unwrap());
+    let after_dispatch = counts();
+    assert_eq!(
+        after_dispatch,
+        vec![
+            after_settlement[0] + 1,
+            after_settlement[1] + 1,
+            after_settlement[2] + 1,
+            after_settlement[3],
+            after_settlement[4]
+        ]
+    );
+    let (code, after_work) = call(&app, "GET", &work_uri, Value::Null, AUTHOR).await;
+    assert_eq!(code, StatusCode::OK, "{after_work}");
+    assert_eq!(after_work["id"], registered["workTaskId"]);
+    let after_ledger: String = db
+        .query_row(
+            "SELECT ledger_json FROM story_work_budgets_v1 WHERE work_task_id=?1",
+            [registered["workTaskId"].as_str().unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&after_ledger).unwrap(), usage);
+}
+
+#[tokio::test]
+async fn admitted_planning_review_keeps_author_delivery_pending_after_all_seats_close() {
+    let (_dir, path, app, root, task, body) = setup().await;
+    let uri = format!("{root}/tasks/{task}/planning-reviews");
+    let (status, run) = register(&app, &uri, body, "planning-thread").await;
+    assert_eq!(status, StatusCode::OK, "{run}");
+    let work = run["workTaskId"].as_str().unwrap();
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let obligation: (String, i64) = db
+        .query_row(
+            "SELECT origin_task_id,finished FROM story_work_decisions_v1 WHERE work_task_id=?1",
+            [work],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(obligation, (task.clone(), 0));
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!(
+                "{root}/planning-reviews/{}/cancel",
+                run["id"].as_str().unwrap()
+            ),
+            json!({}),
+            AUTHOR
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("{root}/tasks/{task}/complete"),
+            json!({"threadId":"planning-thread","summary":"已关闭本轮深审席位，交还作者目标决策"}),
+            AUTHOR
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    settle(&path, &task);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &format!("{root}/work-tasks/{work}/provider-usage"),
+            json!({"taskId":task}),
+            AUTHOR
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (code, current) = call(
+        &app,
+        "GET",
+        &format!("{root}/tasks/{task}/work-task"),
+        Value::Null,
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{current}");
+    assert_eq!(current["status"], "running");
+    let workspace = call(
+        &app,
+        "GET",
+        &format!("{root}/creative-workspace"),
+        Value::Null,
+        AUTHOR,
+    )
+    .await
+    .1;
+    let (code,decision)=call(&app,"POST",&format!("{root}/work-tasks/{work}/decision"),json!({"expectedWorkVersion":current["version"],"expectedRevision":workspace["revision"],"expectedSourceDigest":workspace["sourceDigest"]}),AUTHOR).await;
+    assert_eq!(code, StatusCode::OK, "{decision}");
+    assert_eq!(decision["step"]["operation"], "advisory");
+    assert_eq!(decision["workTaskId"], work);
+    assert_eq!(
+        db.query_row(
+            "SELECT finished FROM story_work_decisions_v1 WHERE work_task_id=?1",
+            [work],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
 }
 
 #[tokio::test]
@@ -481,7 +991,8 @@ async fn registration_rejects_stale_intent_wrong_root_parent_stop_and_rolls_back
         &project,
         &task,
         "planning-thread",
-        "登记完成".into(), None,
+        "登记完成".into(),
+        None,
         /*now*/ 6,
     )
     .unwrap();
@@ -507,7 +1018,7 @@ async fn registration_rejects_stale_intent_wrong_root_parent_stop_and_rolls_back
         1
     );
     let work = repo.work_task_for_attempt(&project, &task).unwrap();
-    repo.control_work_task(&project, &work.id, "cancel", work.version, /*now*/ 7)
+    repo.control_work_task(&project, &work.id, "cancel", work.control_revision, /*now*/ 7)
         .unwrap();
     updated["idempotencyKey"] = json!("after-cancel");
     assert!(
@@ -529,26 +1040,68 @@ async fn registration_rejects_stale_intent_wrong_root_parent_stop_and_rolls_back
 
 #[tokio::test]
 async fn a_single_needed_view_keeps_the_original_work_and_direct_review_contract() {
-    let (_dir,path,app,root,task,mut body)=setup_with_intent("只检查人物动机，不改规划。").await;
-    let uri=format!("{root}/tasks/{task}/planning-reviews");
-    for roles in [json!([]),json!(["unknown"]),json!(["character","character"]),json!(["structure","character","experience","structure"])] {
-        let mut invalid=body.clone(); invalid["roles"]=roles;
-        assert!(!register(&app,&uri,invalid,"planning-thread").await.0.is_success());
+    let (_dir, path, app, root, task, mut body) =
+        setup_with_intent("只检查人物动机，不改规划。").await;
+    let uri = format!("{root}/tasks/{task}/planning-reviews");
+    for roles in [
+        json!([]),
+        json!(["unknown"]),
+        json!(["character", "character"]),
+        json!(["structure", "character", "experience", "structure"]),
+    ] {
+        let mut invalid = body.clone();
+        invalid["roles"] = roles;
+        assert!(
+            !register(&app, &uri, invalid, "planning-thread")
+                .await
+                .0
+                .is_success()
+        );
     }
-    body["roles"]=json!(["character"]);
-    let (code,registered)=register(&app,&uri,body.clone(),"planning-thread").await;
-    assert_eq!(code,StatusCode::OK,"{registered}");
-    assert_eq!(registered["roles"],json!(["character"]));
-    let (_,run)=call(&app,"GET",&format!("{root}/planning-reviews/{}",registered["id"].as_str().unwrap()),Value::Null,AUTHOR).await;
-    assert_eq!(run["seats"].as_array().unwrap().len(),1);
+    body["roles"] = json!(["character"]);
+    let (code, registered) = register(&app, &uri, body.clone(), "planning-thread").await;
+    assert_eq!(code, StatusCode::OK, "{registered}");
+    assert_eq!(registered["roles"], json!(["character"]));
+    let (_, run) = call(
+        &app,
+        "GET",
+        &format!(
+            "{root}/planning-reviews/{}",
+            registered["id"].as_str().unwrap()
+        ),
+        Value::Null,
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(run["seats"].as_array().unwrap().len(), 1);
     assert!(run["checksByRole"]["character"].is_array());
     assert!(run["checksByRole"].get("structure").is_none());
-    let db=rusqlite::Connection::open(&path).unwrap();
-    assert_eq!(db.query_row("SELECT COUNT(*) FROM story_work_tasks_v1",[],|r|r.get::<_,i64>(0)).unwrap(),1);
-    assert_eq!(db.query_row("SELECT COUNT(*) FROM story_work_budget_authorizations_v1",[],|r|r.get::<_,i64>(0)).unwrap(),1);
-    let request=json!({"artifactKind":"outline","revisionId":body["revisionId"],"targetNodeId":null,"authorIntent":"仅检查阅读体验","roles":["experience"]});
-    let (code,direct)=call(&app,"POST",&format!("{root}/planning-reviews"),request,AUTHOR).await;
-    assert_eq!(code,StatusCode::OK,"{direct}");
-    assert_eq!(direct["roles"],json!(["experience"]));
-    assert_eq!(direct["seats"].as_array().unwrap().len(),1);
+    let db = rusqlite::Connection::open(&path).unwrap();
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM story_work_tasks_v1", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM story_work_budget_authorizations_v1",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+    let request = json!({"artifactKind":"outline","revisionId":body["revisionId"],"targetNodeId":null,"authorIntent":"仅检查阅读体验","roles":["experience"]});
+    let (code, direct) = call(
+        &app,
+        "POST",
+        &format!("{root}/planning-reviews"),
+        request,
+        AUTHOR,
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK, "{direct}");
+    assert_eq!(direct["roles"], json!(["experience"]));
+    assert_eq!(direct["seats"].as_array().unwrap().len(), 1);
 }

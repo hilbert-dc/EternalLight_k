@@ -5,6 +5,7 @@ use axum::{
 };
 use eternallight_engine_core::PersistentBudget;
 use http_body_util::BodyExt;
+use novel_codex_story_core::{ProjectId, RecoveryOperationBinding, SqliteStoryRepository};
 use novel_codex_story_runtime::router;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -28,7 +29,7 @@ async fn generation_claim_inherits_metered_authority_without_a_default_quota() {
         &app,
         "POST",
         "/api/projects",
-        Some(json!({"title":"无额度截断的创作"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"无额度截断的创作"})),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
@@ -113,7 +114,7 @@ async fn terminal_engine_usage_is_charged_once_and_exhausted_attempt_cannot_retr
             .with_engine_budget_database(engine_db.clone()),
     );
     let (status, created) =
-        call(&app, "POST", "/api/projects", Some(json!({"title":"港城"}))).await;
+        call(&app, "POST", "/api/projects", Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"港城"}))).await;
     assert_eq!(status, StatusCode::CREATED);
     let project = created["project"]["id"].as_str().unwrap();
     let root = format!("/api/projects/{project}");
@@ -266,7 +267,7 @@ async fn terminal_engine_usage_is_charged_once_and_exhausted_attempt_cannot_retr
             json!({"id":settled,"usage":{"total_tokens":7}}),
         )
         .unwrap();
-    budget
+    let unknown_reservation = budget
         .apply(
             "budget.reserve",
             json!({"parameters":{"maxOutputTokens":8},"now":1002}),
@@ -362,19 +363,39 @@ async fn terminal_engine_usage_is_charged_once_and_exhausted_attempt_cannot_retr
         call(&app, "GET", &run_uri, None).await.1["providerBudget"],
         charged["providerBudget"]
     );
+    let before_reconciliation = call(&app, "GET", &run_uri, None).await.1;
+    PersistentBudget::reconcile_usage(&engine_db,task_id,json!({"id":unknown_reservation,"usage":{"total_tokens":3},"receiptRef":"verified-late-provider-receipt"})).unwrap();
+    let (status, reconciled) = call(&app,"POST",&charge_uri,Some(json!({"taskId":task_id}))).await;
+    assert_eq!(status,StatusCode::OK,"{reconciled}");
+    assert_eq!(reconciled["providerBudget"]["unknownTokens"],0);
+    assert_eq!(reconciled["providerBudget"]["usedTokens"],10);
+    assert_eq!(reconciled["providerBudget"]["usedRequests"],2);
+    assert_eq!(reconciled["status"],before_reconciliation["status"]);
+    assert_eq!(reconciled["activeTaskId"],before_reconciliation["activeTaskId"]);
+    let (status, replay) = call(&app,"POST",&charge_uri,Some(json!({"taskId":task_id}))).await;
+    assert_eq!(status,StatusCode::OK); assert_eq!(replay,reconciled);
 }
 
 #[tokio::test]
 async fn restart_recovers_an_active_task_and_unknown_budget_before_author_retry() {
+    restart_recovery(/*unknown_native_call*/ false).await;
+}
+
+#[tokio::test]
+async fn restart_with_a_real_unresolved_native_call_blocks_author_retry_without_refunding() {
+    restart_recovery(/*unknown_native_call*/ true).await;
+}
+
+async fn restart_recovery(unknown_native_call: bool) {
     let directory = tempfile::tempdir().unwrap();
     let story_db = directory.path().join("story.sqlite3");
     let engine_db = directory.path().join("engine-budget.sqlite3");
     let app = router(
-        task_fixture::state(story_db, AUTHOR.into(), CANDIDATE.into())
+        task_fixture::state(story_db.clone(), AUTHOR.into(), CANDIDATE.into())
             .with_engine_budget_database(engine_db.clone()),
     );
     let (status, created) =
-        call(&app, "POST", "/api/projects", Some(json!({"title":"港城"}))).await;
+        call(&app, "POST", "/api/projects", Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"港城"}))).await;
     assert_eq!(status, StatusCode::CREATED);
     let root = format!(
         "/api/projects/{}",
@@ -412,11 +433,114 @@ async fn restart_recovers_an_active_task_and_unknown_budget_before_author_retry(
     .await;
     assert_eq!(status, StatusCode::CREATED, "{task}");
     let task_id = task["id"].as_str().unwrap();
+    let project = ProjectId::parse(created["project"]["id"].as_str().unwrap()).unwrap();
+    let (status, grant) = call(
+        &app,
+        "GET",
+        &format!("{root}/tasks/{task_id}/provider-budget"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{grant}");
+    assert_eq!(grant["budgetId"], format!("budget-{task_id}"));
+    assert_eq!(grant["maxRequests"], 8);
+    assert_eq!(grant["maxTokens"], 100);
+    assert_eq!(grant["deadlineAt"], now + 600);
+    let unresolved_binding = if unknown_native_call {
+        let (status, started) = call(
+            &app,
+            "PATCH",
+            &format!("{root}/tasks/{task_id}"),
+            Some(json!({"threadId":"thread","status":"running","error":null})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{started}");
+        assert_eq!(started["status"], "running");
+        let (status, turn_bound) = call(
+            &app,
+            "POST",
+            &format!("{root}/tasks/{task_id}/turn"),
+            Some(json!({"threadId":"thread","turnId":"interrupted-provider-turn"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{turn_bound}");
+        assert_eq!(turn_bound["turnId"], "interrupted-provider-turn");
+        let mut repo = SqliteStoryRepository::open(&story_db).unwrap();
+        let record = repo.task(&project, task_id).unwrap().unwrap();
+        assert_eq!(record.status, "running");
+        assert_eq!(record.operation, "advisory");
+        assert_eq!(record.thread_id, "thread");
+        assert_eq!(record.turn_id.as_deref(), Some("interrupted-provider-turn"));
+        let mut decision = repo.task_work_decision(&record, None).unwrap();
+        let mut cursor = decision["pagination"]["nextCursor"].clone();
+        let mut seen_cursors = std::collections::BTreeSet::new();
+        while let Some(current) = cursor.as_str() {
+            assert!(seen_cursors.insert(current.to_owned()));
+            let page = repo.task_work_decision(&record, Some(current)).unwrap();
+            assert_eq!(page["version"], decision["version"]);
+            assert_eq!(page["sourceDigest"], decision["sourceDigest"]);
+            decision["readyActions"]
+                .as_array_mut()
+                .unwrap()
+                .extend(page["readyActions"].as_array().unwrap().iter().cloned());
+            cursor = page["pagination"]["nextCursor"].clone();
+        }
+        let action = decision["readyActions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|action| action["operation"] == "generateBrief")
+            .unwrap();
+        let arguments = json!({"projectId":project.as_str(),"taskId":task_id,"threadId":"thread",
+            "expectedRevision":record.input_revision,"expectedWorkVersion":decision["version"],
+            "expectedSourceDigest":decision["sourceDigest"],"actionKey":action["actionKey"],
+            "instruction":"按原作者要求整理港城构想","idempotencyKey":"interrupted-work-action"});
+        let binding = RecoveryOperationBinding {
+            project_id: project.clone(),
+            task_id: task_id.to_owned(),
+            thread_id: record.thread_id.clone(),
+            turn_id: "interrupted-provider-turn".into(),
+            call_id: "interrupted-work-action-call".into(),
+            tool_name: "request_work_action".into(),
+            request_hash: format!(
+                "{:x}",
+                Sha256::digest(
+                    json!({"tool":"request_work_action","arguments":arguments})
+                        .to_string()
+                        .as_bytes()
+                )
+            ),
+            idempotency_ref: Some(format!(
+                "sha256:{:x}",
+                Sha256::digest(b"interrupted-work-action")
+            )),
+            now,
+        };
+        // Crash after real Host admission and before dispatch/receipt. No fake
+        // INSERT or guess about whether the original call ultimately committed.
+        repo.bind_recovery_operation(binding.clone()).unwrap();
+        let operation = repo
+            .read_recovery_operation(&binding, Some(&record.capability_hash))
+            .unwrap()
+            .unwrap();
+        assert_eq!(operation["state"], "accepted");
+        assert_eq!(operation["receipt_ref"], Value::Null);
+        assert_eq!(operation["run_id"], task_id);
+        assert_eq!(operation["thread_id"], "thread");
+        assert_eq!(operation["turn_id"], binding.turn_id);
+        assert_eq!(operation["tool_call_id"], binding.call_id);
+        assert_eq!(operation["tool_name"], "request_work_action");
+        assert_eq!(operation["request_hash"], binding.request_hash);
+        assert_eq!(operation["idempotency_ref"], json!(binding.idempotency_ref));
+        Some((binding, operation))
+    } else {
+        None
+    };
     let mut budget = PersistentBudget::new(
         &engine_db,
         task_id,
         json!({"options":{
-            "id":format!("budget-{task_id}"),"maxRequests":8,"maxTokens":100,"startedAt":1000
+            "id":grant["budgetId"],"maxRequests":grant["maxRequests"],"maxTokens":grant["maxTokens"],"startedAt":1000
         },"now":1000}),
     )
     .unwrap();
@@ -460,11 +584,46 @@ async fn restart_recovers_an_active_task_and_unknown_budget_before_author_retry(
     .await;
     assert_eq!(status, StatusCode::OK, "{charged}");
     assert_eq!(charged["providerBudget"]["usedRequests"], 1);
+    assert_eq!(charged["providerBudget"]["usedTokens"], 0);
     assert_eq!(charged["providerBudget"]["unknownTokens"], 20);
     assert_eq!(
         charged["providerBudget"]["charges"][0]["status"],
         "recovered_unknown"
     );
+    let repo = SqliteStoryRepository::open(&story_db).unwrap();
+    let failed_task = repo.task(&project, task_id).unwrap().unwrap();
+    let work_before = repo.work_task_for_attempt(&project, task_id).unwrap();
+    assert_eq!(failed_task.status, "failed");
+    assert_eq!(work_before.thread_id, "thread");
+    let connection = rusqlite::Connection::open(&story_db).unwrap();
+    let counts = || {
+        connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM story_tasks_v2),(SELECT COUNT(*) FROM story_work_steps_v1),(SELECT COUNT(*) FROM story_work_attempts_v1)",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
+            )
+            .unwrap()
+    };
+    let owner_rows = || {
+        let mut statement = connection
+            .prepare("SELECT work_task_id,host_session_id,lease_id,expires_at FROM story_work_execution_owners_v1 ORDER BY work_task_id")
+            .unwrap();
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    let counts_before = counts();
+    let owners_before = owner_rows();
     let (status, retried) = call(
         &app,
         "POST",
@@ -472,16 +631,79 @@ async fn restart_recovers_an_active_task_and_unknown_budget_before_author_retry(
         Some(json!({"expectedVersion":charged["version"]})),
     )
     .await;
+    if let Some((binding, original_operation)) = unresolved_binding {
+        assert_eq!(status, StatusCode::CONFLICT, "{retried}");
+        assert_eq!(
+            retried,
+            json!({"error":{"code":"conflict","details":{},"message":"TaskNotWritable","recovery":null}})
+        );
+        let (status, stopped) =
+            call(&app, "POST", &format!("{run_uri}/next"), Some(json!({}))).await;
+        assert_eq!(status, StatusCode::OK, "{stopped}");
+        assert_eq!(stopped["run"], charged);
+        assert_eq!(stopped["run"]["status"], "blocked");
+        assert_eq!(stopped["run"]["blockedReason"], "pendingRecovery");
+        assert_eq!(stopped["action"], Value::Null);
+        assert_eq!(stopped["run"]["providerBudget"], charged["providerBudget"]);
+        assert_eq!(repo.task(&project, task_id).unwrap().unwrap(), failed_task);
+        assert_eq!(
+            repo.work_task_for_attempt(&project, task_id).unwrap(),
+            work_before
+        );
+        assert_eq!(counts(), counts_before);
+        assert_eq!(owner_rows(), owners_before);
+        assert_eq!(
+            repo.read_recovery_operation(&binding, Some(&failed_task.capability_hash))
+                .unwrap()
+                .unwrap(),
+            original_operation
+        );
+        return;
+    }
     assert_eq!(status, StatusCode::OK, "{retried}");
     assert_eq!(retried["status"], "running");
     assert_eq!(retried["providerBudget"], charged["providerBudget"]);
-    // Explicit Author recovery does not certify unknown writes or authorize an automatic replay.
+    // Only provider cost was unknown; it has been conservatively charged. The
+    // author explicitly retries a read/decision Step, with no Native write call.
     let (status, unresolved) =
         call(&app, "POST", &format!("{run_uri}/next"), Some(json!({}))).await;
     assert_eq!(status, StatusCode::OK, "{unresolved}");
+    assert_eq!(unresolved["run"]["status"], "running");
+    assert_eq!(unresolved["stopReason"], Value::Null);
+    assert_eq!(unresolved["action"]["kind"], "agentTask");
+    assert_eq!(unresolved["action"]["operation"], "advisory");
     assert_eq!(
-        json!({"status":unresolved["run"]["status"],"action":unresolved["action"],"reason":unresolved["stopReason"]}),
-        json!({"status":"blocked","action":null,"reason":"executionBlocked"})
+        unresolved["action"]["target"]["resumeStepId"],
+        next["action"]["target"]["resumeStepId"]
+    );
+    assert_eq!(
+        unresolved["action"]["target"]["workDecision"]["workTaskId"],
+        work_before.id
+    );
+    assert_eq!(unresolved["run"]["activeTaskId"], Value::Null);
+    assert_eq!(
+        unresolved["run"]["usedTaskAttempts"],
+        charged["usedTaskAttempts"]
+    );
+    assert_eq!(unresolved["run"]["retryAttempts"], 1);
+    assert_eq!(repo.task(&project, task_id).unwrap().unwrap(), failed_task);
+    assert_eq!(
+        repo.work_task_for_attempt(&project, task_id)
+            .unwrap()
+            .thread_id,
+        work_before.thread_id
+    );
+    assert_eq!(counts(), counts_before);
+    assert_eq!(owner_rows(), owners_before);
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM story_tool_operations_v1 WHERE task_id=?1",
+                [task_id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
     );
     assert_eq!(
         unresolved["run"]["providerBudget"],

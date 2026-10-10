@@ -53,7 +53,7 @@ async fn setup(path: &std::path::Path) -> (String, Value) {
         path,
         "POST",
         "/api/projects",
-        json!({"title":"来源检查"}),
+        json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"来源检查"}),
         AUTHOR,
     )
     .await;
@@ -231,7 +231,7 @@ async fn persisted_review_owner_drives_source_budget_and_close_without_cross_wor
                 &path,
                 "POST",
                 "/api/projects",
-                json!({"title":"另一作品"}),
+                json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"另一作品"}),
                 AUTHOR,
             )
             .await;
@@ -324,7 +324,7 @@ async fn persisted_review_owner_drives_source_budget_and_close_without_cross_wor
             &path,
             "POST",
             &format!("{root}/work-tasks/{other_owner}/control"),
-            json!({"expectedVersion":other_before["version"],"command":"cancel"}),
+            json!({"commandId":uuid::Uuid::new_v4().to_string(),"threadId":other_before["threadId"],"expectedControlRevision":other_before["controlRevision"],"command":"cancel"}),
             AUTHOR
         )
         .await
@@ -406,10 +406,20 @@ async fn damaged_author_root_or_frozen_seat_blocks_context_budget_report_and_com
     );
     let (status, context) = agent_context(&path, &context_uri).await;
     assert_eq!(status, StatusCode::OK, "{context}");
-    assert_eq!(
-        context["operationContext"]["planningReview"]["sourcePacket"]["authorMessageId"],
-        run["authorMessageId"]
-    );
+    assert_eq!(context["operationContext"]["planningReview"]["textDelivered"],false);
+    let source=context["operationContext"]["planningReview"]["sourceId"].as_str().unwrap();
+    let reader=SqliteStoryRepository::open(&path).unwrap();
+    let bound=reader.task(&ProjectId::parse(&project).unwrap(),task_id).unwrap().unwrap();
+    let mut cursor=None;
+    let mut text=String::new();
+    loop {
+        let page=reader.task_source_page(&bound,source,cursor.as_deref()).unwrap();
+        text.push_str(page["payloadPart"].as_str().unwrap());
+        cursor=page["nextCursor"].as_str().map(str::to_owned);
+        if cursor.is_none(){break;}
+    }
+    let packet:Value=serde_json::from_str(&text).unwrap();
+    assert_eq!(packet["sourcePacket"]["authorMessageId"],run["authorMessageId"]);
     let db = rusqlite::Connection::open(&path).unwrap();
     let (packet,hash):(String,String) = db.query_row("SELECT source_packet_json,source_packet_hash FROM story_planning_review_runs_v2 WHERE run_id=?1",[run_id],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
     let original_manifest = task["inputManifest"].to_string();

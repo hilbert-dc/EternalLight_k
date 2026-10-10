@@ -1,554 +1,638 @@
-use axum::{
-    Router,
-    body::Body,
-    http::{Request, StatusCode},
-};
-use http_body_util::BodyExt;
-use novel_codex_story_core::*;
-use novel_codex_story_runtime::{RuntimeState, router};
-use pretty_assertions::assert_eq;
+//! Real HTTP and SQLite; model decisions are scripted to test enforcement boundaries.
 use serde_json::{Value, json};
-use tower::ServiceExt;
+use sha2::Digest;
+#[path = "support/continuous_recovery.rs"]
+mod support;
+use support::{BODY, CANDIDATE, Runtime};
 
-#[path = "../../story-core/tests/support/chapter_acceptance.rs"]
-mod fixture;
-use fixture::*;
-const AUTHOR: &str = "chapter-accept-author-123456789012345678";
-const CANDIDATE: &str = "chapter-accept-candidate-123456789012345";
-
-async fn call(
-    app: &Router,
-    method: &str,
-    path: &str,
-    body: Value,
-    token: &str,
-) -> (StatusCode, Value) {
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method(method)
-                .uri(path)
-                .header("authorization", format!("Bearer {token}"))
-                .header("content-type", "application/json")
-                .body(Body::from(body.to_string()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let status = response.status();
-    (
-        status,
-        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap(),
-    )
-}
-
-#[tokio::test]
-async fn http_partial_adoption_materializes_a_plus_b_preserves_candidate_and_can_undo() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("chapter.sqlite3");
-    let mut repo = SqliteStoryRepository::open(&path).unwrap();
-    let base = chapter(
-        "正式标题",
-        vec![group("a", "正式 A"), group("b", "正式 B")],
-        json!({"planRevisionId":"base-plan"}),
-    );
-    let candidate = chapter(
-        "候选标题",
-        vec![group("a", "候选 A"), group("b", "候选 B")],
-        json!({"planRevisionId":"new-plan"}),
-    );
-    setup(&mut repo, base.clone(), candidate.clone());
-    let project_id = project();
-    let object_id = ObjectId::parse("draft-chapter-one").unwrap();
-    let source_revision = RevisionId::parse("candidate").unwrap();
-    let batch = repo
-        .begin_modeling_batch(BeginModelingBatch {
-            project_id: &project_id,
-            object_id: &object_id,
-            source_revision_id: &source_revision,
-            expected_revision: 1,
-            extractor_version: "ui-review-fixture",
-            now: 2,
-        })
-        .unwrap();
-    repo.create_task(CreateTaskRequest {
-        task_id: "model-ui-review".into(),
-        project_id: project_id.clone(),
-        thread_id: "model-ui-review".into(),
-        operation: "modelKnowledge".into(),
-        input_revision: 1,
-        model: None,
-        target_json: json!({"batchId":batch.id}).to_string(),
-        input_manifest_json: "{}".into(),
-        capability_hash: "a".repeat(64),
-        capability_expires_at: i64::MAX,
-    })
-    .unwrap();
-    repo.publish_modeling_batch(PublishModelingBatch {
-        project_id: &project_id,
-        batch_id: &batch.id,
-        task_id: "model-ui-review",
-        thread_id: "model-ui-review",
-        entities: &[],
-        assertions: &[],
-        now: 3,
-    })
-    .unwrap();
-    repo.create_review(CreateReviewRequest {
-        review_id: "review-current-ui".into(),
-        project_id,
-        object_id,
-        object_kind: "draft".into(),
-        revision_id: source_revision,
-        idempotency_key: IdempotencyKey::parse("review-current-ui").unwrap(),
-        request_digest: "current-ui".into(),
-        checks_json: "[]".into(),
-        proposals_json: "[]".into(),
-        modeling_batch_id: Some(batch.id.clone()),
-        selections_json: json!({"modelingBatchId":batch.id}).to_string(),
-    })
-    .unwrap();
-    let app = router(RuntimeState::new(path, AUTHOR.into(), CANDIDATE.into()));
-    let uri = format!(
-        "/api/projects/{}/reviews/review-current-ui/accept",
-        project()
-    );
-    let selections = json!({"sceneGroupIds":["a"],"factDecisions":{},"noConfirmedChanges":true,"factDependencyLinks":[],"directionChangeDecisions":{},"manualDirectionDecisions":{},"modelingBatchId":batch.id});
-    let request = json!({"expectedRevision":1,"idempotencyKey":"partial","selections":selections});
-    assert_eq!(
-        call(&app, "POST", &uri, request.clone(), CANDIDATE).await.0,
-        StatusCode::UNAUTHORIZED
-    );
-    let (status, receipt) = call(&app, "POST", &uri, request.clone(), AUTHOR).await;
-    assert_eq!(status, StatusCode::OK, "{receipt}");
-    assert_eq!(call(&app, "POST", &uri, request, AUTHOR).await.1, receipt);
-    assert_eq!(
-        serde_json::from_str::<Value>(
-            &repo
-                .review(&project(), "review-current-ui")
-                .unwrap()
-                .unwrap()
-                .selections_json
-        )
-        .unwrap(),
-        selections
-    );
-    let (_, workspace) = call(
-        &app,
-        "GET",
-        &format!("/api/projects/{}/creative-workspace", project()),
-        Value::Null,
-        AUTHOR,
-    )
-    .await;
-    assert_eq!(
-        workspace["chapters"][0]["accepted"]["body"],
-        "候选 A\n\n---\n\n正式 B"
-    );
-    assert_eq!(
-        workspace["chapters"][0]["accepted"]["sceneGroups"],
-        json!([candidate["sceneGroups"][0], base["sceneGroups"][1]])
-    );
-    assert_eq!(
-        workspace["chapters"][0]["accepted"]["sourcePlanRefs"],
-        base["sourcePlanRefs"]
-    );
-    assert_eq!(
-        workspace["chapters"][0]["candidate"]["body"],
-        candidate["body"]
-    );
-    assert_eq!(accepted(&repo)["title"], base["title"]);
-    let (_, diffs) = call(
-        &app,
-        "GET",
-        &format!("/api/projects/{}/chapters/chapter-one/diffs", project()),
-        Value::Null,
-        AUTHOR,
-    )
-    .await;
-    assert_eq!(
-        diffs["diffs"][0]["sceneChanges"],
-        json!([{"sceneId":"scene-b","sceneGroupId":"b","kind":"modified","fromIndex":1,"toIndex":1,"before":base["sceneGroups"][1],"after":candidate["sceneGroups"][1]}])
-    );
-    assert_eq!(
-        diffs["diffs"][0]["metadataChanges"],
-        json!([{"field":"title","before":"正式标题","after":"候选标题"},{"field":"sourcePlanRefs","before":base["sourcePlanRefs"],"after":candidate["sourcePlanRefs"]}])
-    );
-    let (status, fresh) = call(&app,"POST",&format!("/api/projects/{}/reviews",project()),json!({"artifactKind":"draft","revisionId":"candidate","proposals":[],"selections":{},"idempotencyKey":"review-remaining"}),AUTHOR).await;
-    assert_eq!(status, StatusCode::CREATED, "{fresh}");
-    assert_eq!(
-        (fresh["status"].clone(), fresh["projectRevision"].clone()),
-        (json!("ready"), json!(2))
-    );
-    assert_eq!(fresh["artifactRevisionId"], "candidate");
-    let (status, undo) = call(
-        &app,
-        "POST",
-        &format!(
-            "/api/projects/{}/commits/{}/undo",
-            project(),
-            receipt["commitId"].as_str().unwrap()
-        ),
-        json!({"expectedRevision":2,"idempotencyKey":"undo-partial"}),
-        AUTHOR,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{undo}");
-    assert_eq!(accepted(&repo), base);
-}
-
-#[tokio::test]
-async fn http_select_all_adopts_order_deletion_and_metadata_while_invalid_choices_never_write() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("whole.sqlite3");
-    let mut repo = SqliteStoryRepository::open(&path).unwrap();
-    let base = chapter(
-        "正式",
-        vec![group("a", "A"), group("b", "B"), group("c", "C")],
-        Value::Null,
-    );
-    let candidate = chapter(
-        "候选",
-        vec![group("c", "C"), group("a", "A")],
-        json!({"localOnly":true}),
-    );
-    setup(&mut repo, base.clone(), candidate.clone());
-    let app = router(RuntimeState::new(path, AUTHOR.into(), CANDIDATE.into()));
-    let uri = format!(
-        "/api/projects/{}/reviews/review-candidate/accept",
-        project()
-    );
-    for selection in [
-        Value::Null,
-        json!([]),
-        json!({"sceneGroupIds":[]}),
-        json!({"sceneGroupIds":["unknown"]}),
-        json!({"sceneGroupIds":["a","a"]}),
-    ] {
-        let (status, _) = call(
-            &app,
-            "POST",
-            &uri,
-            json!({"expectedRevision":1,"idempotencyKey":"bad","selections":selection}),
-            AUTHOR,
-        )
-        .await;
-        assert!(!status.is_success());
-        assert_eq!(accepted(&repo), base);
-        assert_eq!(repo.project_revision(&project()).unwrap(), 1);
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sourced_length_interpretation_can_be_corrected_without_certifying_existing_prose() {
+    let r = Runtime::new().await;
+    let (root, uri) = r.start().await;
+    let coordinator = r.next_task(&root, &uri, "coordinator").await;
+    let read = r.decision_status(&root, &coordinator).await;
+    let choice = read["readyActions"].as_array().unwrap().iter()
+        .find(|a| a["operation"] == "writeNextChapter").unwrap();
+    let acceptance = json!({"requirements":[{"id":"whole-chapter","text":"呈现林夕调查港城灯光"}],
+        "length":{"requirement":"模型自行估计至少20字符","minCharacters":20,"maxCharacters":null}});
+    r.candidate(&format!("{root}/tasks/{}/work-decision/actions", coordinator["id"].as_str().unwrap()),
+        json!({"taskId":coordinator["id"],"threadId":coordinator["threadId"],"expectedRevision":coordinator["inputRevision"],"expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],"actionKey":choice["actionKey"],"chapterAcceptance":acceptance,"instruction":"起草章节","idempotencyKey":"initial-interpretation"})).await;
+    r.complete_and_advance(&root, &uri, &coordinator).await;
+    let writer = r.next_task(&root, &uri, "writer").await;
+    r.save_writer(&root, &writer, BODY, "initial-prose").await;
+    r.complete_and_advance(&root, &uri, &writer).await;
+    let decision = r.next_task(&root, &uri, "coordinator").await;
+    let read = r.decision_status(&root, &decision).await;
+    assert_eq!(read["canFinish"], false);
+    let repair = read["readyActions"].as_array().unwrap().iter()
+        .find(|a| a["operation"] == "generateChapter").unwrap();
+    let author = r.read_author_requirements(&root, &decision).await;
+    let mut corrected = acceptance.clone();
+    corrected["length"] = json!({"requirement":"作者未给出这一下限，撤销模型自行添加的20字符要求","minCharacters":null,"maxCharacters":null});
+    let endpoint = format!("{root}/tasks/{}/work-decision/actions", decision["id"].as_str().unwrap());
+    let mut request = json!({"taskId":decision["id"],"threadId":decision["threadId"],"expectedRevision":decision["inputRevision"],"expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],"actionKey":repair["actionKey"],"chapterAcceptance":corrected,"instruction":"核对原作者要求后修正解释","idempotencyKey":"correct-interpretation"});
+    let (code, _) = r.call("POST", &endpoint, CANDIDATE, Some(request.clone())).await;
+    assert!(!code.is_success(), "unsourced change must remain rejected");
+    corrected["interpretationCorrection"] = json!({"reason":"先前模型自行添加字数下限，原作者要求未规定这个数值","impact":"移除推断下限，仍检查完整章节和调查目标","sourceChecks":[{"sourceId":author["sourceId"],"contentHash":author["contentHash"],"quote":"林夕调查港城灯光"}]});
+    request["chapterAcceptance"] = corrected.clone();
+    for field in ["quote", "contentHash"] {
+        let mut forged = request.clone();
+        forged["chapterAcceptance"]["interpretationCorrection"]["sourceChecks"][0][field] = json!("fabricated");
+        let (code, _) = r.call("POST", &endpoint, CANDIDATE, Some(forged)).await;
+        assert!(!code.is_success(), "forged {field} must be rejected");
     }
-    let (_, diffs) = call(
-        &app,
-        "GET",
-        &format!("/api/projects/{}/chapters/chapter-one/diffs", project()),
-        Value::Null,
-        AUTHOR,
-    )
-    .await;
-    assert_eq!(
-        diffs["diffs"][0]["sceneChanges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|change| (change["sceneId"].clone(), change["kind"].clone()))
-            .collect::<Vec<_>>(),
-        vec![
-            (json!("scene-a"), json!("moved")),
-            (json!("scene-c"), json!("moved")),
-            (json!("scene-b"), json!("deleted"))
-        ]
-    );
-    let (status,receipt)=call(&app,"POST",&uri,json!({"expectedRevision":1,"idempotencyKey":"all","selections":{"sceneGroupIds":["c","a"],"noConfirmedChanges":true}}),AUTHOR).await;
-    assert_eq!(status, StatusCode::OK, "{receipt}");
-    assert_eq!(accepted(&repo), candidate);
-    assert_eq!(repo.facts(&project()).unwrap(), Vec::<Value>::new());
-    let (_, diffs) = call(
-        &app,
-        "GET",
-        &format!("/api/projects/{}/chapters/chapter-one/diffs", project()),
-        Value::Null,
-        AUTHOR,
-    )
-    .await;
-    assert_eq!(diffs, json!({"diffs":[]}));
+    r.candidate(&endpoint, request).await;
+    assert_eq!(r.get(&uri).await["completedChapters"], 0);
+    r.complete_and_advance(&root, &uri, &decision).await;
+    let replacement = r.next_task(&root, &uri, "writer").await;
+    assert_eq!(replacement["target"]["chapterAcceptance"], corrected);
+    assert_eq!(replacement["inputManifest"]["authorIntent"], support::author_intent(&r.get(&uri).await));
+    r.save_writer(&root, &replacement, BODY, "same-prose-new-interpretation").await;
+    r.complete_and_advance(&root, &uri, &replacement).await;
+    // Numeric satisfaction is not author-goal satisfaction: the independent
+    // reader can still reject omissions from the original requirements.
+    r.assess_chapter_report(&root, &uri, "supported", "当前清单满足", &["原要求调查动机仍未呈现"]).await;
+    let decision = r.next_task(&root, &uri, "coordinator").await;
+    let read = r.decision_status(&root, &decision).await;
+    let assessment = &read["requirements"].as_array().unwrap().iter()
+        .find(|q| q["kind"] == "revisionOutcome").unwrap()["assessment"];
+    assert_eq!(assessment["length"]["satisfied"], true);
+    assert_eq!(assessment["verdict"], "notMet");
+    assert_eq!(read["canFinish"], false);
+    assert_eq!(r.get(&uri).await["completedChapters"], 0);
 }
 
-#[tokio::test]
-async fn grouped_proposal_preview_apply_and_undo_share_the_same_scene_merge() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("grouped.sqlite3");
-    let mut repo = SqliteStoryRepository::open(&path).unwrap();
-    let base = chapter(
-        "正式",
-        vec![group("a", "正式 A"), group("b", "正式 B")],
-        Value::Null,
-    );
-    let candidate = chapter(
-        "候选",
-        vec![group("a", "候选 A"), group("b", "候选 B")],
-        Value::Null,
-    );
-    setup(&mut repo, base.clone(), candidate);
-    let app = router(RuntimeState::new(path, AUTHOR.into(), CANDIDATE.into()));
-    let root = format!("/api/projects/{}", project());
-    let (status,brief)=call(&app,"POST",&format!("{root}/artifacts/brief"),json!({"payload":{"premise":"保留正文选择边界"},"expectedRevision":1,"expectedCandidateRevisionId":null,"idempotencyKey":"grouped-brief"}),AUTHOR).await;
-    assert_eq!(status, StatusCode::CREATED, "{brief}");
-    let (status,brief_review)=call(&app,"POST",&format!("{root}/reviews"),json!({"artifactKind":"brief","revisionId":brief["revisionId"],"proposals":[],"selections":{},"idempotencyKey":"grouped-brief-review"}),AUTHOR).await;
-    assert_eq!(status, StatusCode::CREATED, "{brief_review}");
-    let snapshot = repo
-        .branch_head(&project(), &branch())
-        .unwrap()
-        .unwrap()
-        .snapshot_id;
-    let (status,proposal)=call(&app,"POST",&format!("{root}/proposal-sets"),json!({"baseSnapshotId":snapshot.as_str(),"intent":"调整简报并只采用 A 场景","operations":[{"operationId":"brief","reviewId":brief_review["id"],"dependsOn":[]},{"operationId":"draft","reviewId":"review-candidate","dependsOn":[]}],"idempotencyKey":"grouped"}),AUTHOR).await;
-    assert_eq!(status, StatusCode::CREATED, "{proposal}");
-    let uri = format!("{root}/proposal-sets/{}", proposal["id"].as_str().unwrap());
-    let choices = json!({"selectedOperationIds":["brief","draft"],"selectionsByOperationId":{"brief":{},"draft":{"sceneGroupIds":["a"]}}});
-    let (status, preview) = call(
-        &app,
-        "POST",
-        &format!("{uri}/preview"),
-        choices.clone(),
-        AUTHOR,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{preview}");
-    assert_eq!(preview["selection"]["applyReady"], true);
-    assert_eq!(accepted(&repo), base);
-    let mut request = choices;
-    request["idempotencyKey"] = json!("grouped-apply");
-    let (status, receipt) = call(&app, "POST", &format!("{uri}/apply"), request, AUTHOR).await;
-    assert_eq!(status, StatusCode::OK, "{receipt}");
-    assert_eq!(accepted(&repo)["body"], "候选 A\n\n---\n\n正式 B");
-    assert_eq!(accepted(&repo)["title"], "正式");
-    let (status, undo) = call(
-        &app,
-        "POST",
-        &format!(
-            "{root}/proposal-applications/{}/undo",
-            receipt["applicationId"].as_str().unwrap()
-        ),
-        json!({"expectedProjectRevision":2,"idempotencyKey":"grouped-undo"}),
-        AUTHOR,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{undo}");
-    assert_eq!(accepted(&repo), base);
-}
-
-#[tokio::test]
-async fn partial_adoption_confirms_only_facts_with_evidence_in_selected_candidate_scenes() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("facts.sqlite3");
-    let mut repo = SqliteStoryRepository::open(&path).unwrap();
-    setup(
-        &mut repo,
-        chapter("正式", vec![group("a", "A"), group("b", "B")], Value::Null),
-        chapter(
-            "候选",
-            vec![group("a", "新 A"), group("b", "新 B")],
-            Value::Null,
-        ),
-    );
-    let app = router(RuntimeState::new(path, AUTHOR.into(), CANDIDATE.into()));
-    let root = format!("/api/projects/{}", project());
-    let (status,review)=call(&app,"POST",&format!("{root}/reviews"),json!({"artifactKind":"draft","revisionId":"candidate","proposals":[{"sceneGroupId":"a","sceneId":"scene-a","predicate":"chosen","value":true,"evidence":"新 A"},{"sceneGroupId":"b","predicate":"unchosen","value":true,"evidence":"新 B"},{"sceneGroupId":"a","predicate":"wrongEvidence","value":true,"evidence":"新 B"}],"selections":{},"idempotencyKey":"facts-review"}),AUTHOR).await;
-    assert_eq!(status, StatusCode::CREATED, "{review}");
-    let ids = review["factProposals"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn maximal_frozen_standards_and_checks_keep_decision_status_bounded() {
+    let r = Runtime::new().await;
+    let (root, uri) = r.start().await;
+    let coordinator = r.next_task(&root, &uri, "coordinator").await;
+    let read = r.decision_status(&root, &coordinator).await;
+    let choice = read["readyActions"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|fact| fact["id"].as_str().unwrap())
-        .collect::<Vec<_>>();
-    let uri = format!("{root}/reviews/{}/accept", review["id"].as_str().unwrap());
-    for id in [ids[1], ids[2]] {
-        let (status,failed)=call(&app,"POST",&uri,json!({"expectedRevision":1,"idempotencyKey":"facts-adopt","selections":{"sceneGroupIds":["a"],"factDecisions":{id:"confirmed"}}}),AUTHOR).await;
-        assert_eq!(status, StatusCode::CONFLICT, "{failed}");
-        assert_eq!(repo.project_revision(&project()).unwrap(), 1);
-        assert!(repo.facts(&project()).unwrap().is_empty());
-    }
-    let (status,adopted)=call(&app,"POST",&uri,json!({"expectedRevision":1,"idempotencyKey":"facts-adopt","selections":{"sceneGroupIds":["a"],"factDecisions":{ids[0]:"confirmed",ids[1]:"rejected",ids[2]:"rejected"}}}),AUTHOR).await;
-    assert_eq!(status, StatusCode::OK, "{adopted}");
-    assert_eq!(accepted(&repo)["body"], "新 A\n\n---\n\nB");
-    assert_eq!(
-        repo.facts(&project())
-            .unwrap()
-            .iter()
-            .map(|fact| fact["id"].clone())
-            .collect::<Vec<_>>(),
-        vec![json!(ids[0])]
-    );
-}
-
-fn publish_chapter_analysis(repo: &mut SqliteStoryRepository, label: &str) -> String {
-    let project_id = project();
-    let object_id = ObjectId::parse("draft-chapter-one").unwrap();
-    let source = RevisionId::parse("candidate").unwrap();
-    let batch = repo
-        .begin_modeling_batch(BeginModelingBatch {
-            project_id: &project_id,
-            object_id: &object_id,
-            source_revision_id: &source,
-            expected_revision: 1,
-            extractor_version: label,
-            now: 2,
-        })
+        .find(|a| a["operation"] == "writeNextChapter")
         .unwrap();
-    repo.create_task(CreateTaskRequest {
-        task_id: label.into(),
-        project_id: project_id.clone(),
-        thread_id: label.into(),
-        operation: "modelKnowledge".into(),
-        input_revision: 1,
-        model: None,
-        target_json: json!({"batchId":batch.id}).to_string(),
-        input_manifest_json: "{}".into(),
-        capability_hash: "a".repeat(64),
-        capability_expires_at: i64::MAX,
-    })
-    .unwrap();
-    let evidence = json!({"quote":"C","start":0,"end":1});
-    let entities = [
-        json!({"id":"linxi","kind":"character","displayName":"林夕","aliases":[],"evidence":evidence}),
-    ];
-    let assertions = [
-        json!({"kind":"state","subjectId":"linxi","predicate":"arrived","value":true,
-        "stateSchema":{"cardinality":"single","valueType":{"type":"boolean"}},"validFrom":1,"evidence":evidence}),
-    ];
-    repo.publish_modeling_batch(PublishModelingBatch {
-        project_id: &project_id,
-        batch_id: &batch.id,
-        task_id: label,
-        thread_id: label,
-        entities: &entities,
-        assertions: &assertions,
-        now: 3,
-    })
-    .unwrap();
-    repo.complete_task(
-        &project_id,
-        label,
-        label,
-        "analysis saved".into(), None,
-        /*now*/ 4,
-    )
-    .unwrap();
-    batch.id
+    let mut requirements: Vec<Value> = (0..12)
+        .map(|n| json!({"id":format!("criterion-{n}"),"text":format!("标准{n}：{}", "核".repeat(75))}))
+        .collect();
+    let mut acceptance = json!({"requirements":requirements,"length":{"requirement":"正文至少一个字符，按实际保存内容计量","minCharacters":1,"maxCharacters":null}});
+    while acceptance.to_string().len() + 3 <= 3500 {
+        requirements[0]["text"] = json!(format!("{}核", requirements[0]["text"].as_str().unwrap()));
+        acceptance["requirements"] = json!(requirements);
+    }
+    assert!(acceptance.to_string().len() >= 3497 && acceptance.to_string().len() <= 3500);
+    r.candidate(&format!("{root}/tasks/{}/work-decision/actions",coordinator["id"].as_str().unwrap()),json!({"taskId":coordinator["id"],"threadId":coordinator["threadId"],"expectedRevision":coordinator["inputRevision"],"expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],"actionKey":choice["actionKey"],"chapterAcceptance":acceptance,"instruction":"逐项执行冻结标准","idempotencyKey":"maximal-contract"})).await;
+    r.complete_and_advance(&root, &uri, &coordinator).await;
+    let writer = r.next_task(&root, &uri, "writer").await;
+    r.save_writer(&root, &writer, BODY, "bounded-writer").await;
+    r.complete_and_advance(&root, &uri, &writer).await;
+    let critic = r
+        .assess_chapter_reason(&root, &uri, "supported", &"理".repeat(96))
+        .await;
+    let coordinator = r.next_task(&root, &uri, "coordinator").await;
+    let read = r.decision_status(&root, &coordinator).await;
+    assert_eq!(read["chapterAcceptance"], acceptance);
+    // decision_status consumes every individually bounded page before aggregating
+    // arrays locally for assertions; an aggregate is never a tool response.
+    let assessment = &read["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["kind"] == "revisionOutcome")
+        .unwrap()["assessment"];
+    assert_eq!(assessment["verdict"], "passed");
+    assert_eq!(assessment["checkCounts"]["total"], 12);
+    assert_eq!(assessment["checkCounts"]["supported"], 12);
+    assert_eq!(
+        assessment["length"]["characterCount"],
+        BODY.chars().filter(|c| !c.is_whitespace()).count()
+    );
+    assert!(assessment.get("chapterAcceptance").is_none());
+    assert!(assessment.get("checks").is_none());
+    let report = r
+        .get(&format!(
+            "{root}/revision-outcomes/{}",
+            critic["target"]["writerTaskId"].as_str().unwrap()
+        ))
+        .await;
+    assert_eq!(
+        report["assessment"]["outcomes"][0]["reason"],
+        "理".repeat(96)
+    );
 }
 
-#[tokio::test]
-async fn publication_checks_current_analysis_atomically_and_publishes_whole_chapter_with_facts() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("publication-analysis.sqlite3");
-    let mut repo = SqliteStoryRepository::open(&path).unwrap();
-    let base = chapter(
-        "已发布标题",
-        vec![group("a", "A"), group("b", "B"), group("c", "C")],
-        Value::Null,
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn short_and_unresolved_prose_requires_repair_without_lowering_frozen_acceptance() {
+    let r = Runtime::new().await;
+    let (root, uri) = r.start().await;
+    let coordinator = r.next_task(&root, &uri, "coordinator").await;
+    let read = r.decision_status(&root, &coordinator).await;
+    let choice = read["readyActions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["operation"] == "writeNextChapter")
+        .unwrap();
+    let acceptance = json!({"requirements":[{"id":"complete-chapter","text":"保存完整章节"},{"id":"deadline","text":"保留子时期限"}],
+        "length":{"requirement":"起草前将作者篇幅要求理解为至少20个正文字符","minCharacters":20,"maxCharacters":null}});
+    let select_uri = format!(
+        "{root}/tasks/{}/work-decision/actions",
+        coordinator["id"].as_str().unwrap()
     );
-    let candidate = chapter(
-        "新标题",
-        vec![group("c", "C"), group("a", "A")],
-        json!({"localOnly":true}),
-    );
-    setup(&mut repo, base, candidate.clone());
-    let app = router(RuntimeState::new(path, AUTHOR.into(), CANDIDATE.into()));
-    let root = format!("/api/projects/{}", project());
-    let before = (
-        repo.project_revision(&project()).unwrap(),
-        repo.branch_head(&project(), &branch()).unwrap(),
-        repo.object_heads(&project()).unwrap(),
-        repo.acceptances(&project()).unwrap(),
-        repo.facts(&project()).unwrap(),
-    );
-    let mut previous_review = Value::Null;
-    let mut previous_batch = String::new();
-    for label in ["first-analysis", "second-analysis"] {
-        let batch_id = publish_chapter_analysis(&mut repo, label);
-        let previous_reviews = repo.reviews(&project()).unwrap();
-        for (index, model) in [Value::Null, json!(batch_id)].into_iter().enumerate() {
-            let (status, failure) = call(&app, "POST", &format!("{root}/reviews"), json!({"artifactKind":"draft","revisionId":"candidate","proposals":[],"modelingBatchId":model,"selections":{"modelingBatchId":if model.is_null() {batch_id.clone()} else {"forged-batch".to_owned()}},"idempotencyKey":format!("forged-{label}-{index}")}), AUTHOR).await;
-            assert_eq!(status, StatusCode::BAD_REQUEST, "{failure}");
-            assert!(
-                failure["error"]["message"]
-                    .as_str()
-                    .unwrap()
-                    .contains("分析批次与请求不一致")
-            );
-            assert_eq!(repo.reviews(&project()).unwrap(), previous_reviews);
-        }
-        let (status, review) = call(&app, "POST", &format!("{root}/reviews"), json!({"artifactKind":"draft","revisionId":"candidate","proposals":[],"modelingBatchId":batch_id,"selections":{},"idempotencyKey":label}), AUTHOR).await;
-        assert_eq!(status, StatusCode::CREATED, "{review}");
-        assert_eq!(review["factProposals"].as_array().unwrap().len(), 1);
-        let stored = repo
-            .review(&project(), review["id"].as_str().unwrap())
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            serde_json::from_str::<Value>(&stored.selections_json).unwrap(),
-            json!({"modelingBatchId":batch_id})
-        );
-        let stale_id = if previous_review.is_null() {
-            "review-candidate"
-        } else {
-            previous_review["id"].as_str().unwrap()
-        };
-        let stale_choices = if previous_review.is_null() {
-            json!({"sceneGroupIds":["c","a"],"noConfirmedChanges":true})
-        } else {
-            json!({"sceneGroupIds":["c","a"],"modelingBatchId":previous_batch,"factDecisions":{previous_review["factProposals"][0]["id"].as_str().unwrap():"rejected"}})
-        };
-        let (status, failure) = call(&app, "POST", &format!("{root}/reviews/{stale_id}/accept"), json!({"expectedRevision":1,"idempotencyKey":format!("reject-{label}"),"selections":stale_choices}), AUTHOR).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "{failure}");
-        assert!(
-            failure["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("重新准备发布检查")
-        );
-        assert_eq!(
-            (
-                repo.project_revision(&project()).unwrap(),
-                repo.branch_head(&project(), &branch()).unwrap(),
-                repo.object_heads(&project()).unwrap(),
-                repo.acceptances(&project()).unwrap(),
-                repo.facts(&project()).unwrap()
-            ),
-            before
-        );
-        let (status, failure) = call(&app, "POST", &format!("{root}/reviews/{}/accept", review["id"].as_str().unwrap()), json!({"expectedRevision":1,"idempotencyKey":format!("wrong-binding-{label}"),"selections":{"sceneGroupIds":["c","a"],"modelingBatchId":"forged-batch","noConfirmedChanges":true}}), AUTHOR).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "{failure}");
-        previous_review = review;
-        previous_batch = batch_id;
-    }
-    let review_id = previous_review["id"].as_str().unwrap();
-    let fact_id = previous_review["factProposals"][0]["id"].as_str().unwrap();
-    let (status, failure) = call(&app, "POST", &format!("{root}/reviews/{review_id}/accept"), json!({"expectedRevision":1,"idempotencyKey":"missing-scenes","selections":{"modelingBatchId":previous_batch,"factDecisions":{fact_id:"confirmed"}}}), AUTHOR).await;
-    assert_eq!(status, StatusCode::CONFLICT, "{failure}");
-    assert_eq!(repo.project_revision(&project()).unwrap(), 1);
-    assert_eq!(repo.facts(&project()).unwrap(), Vec::<Value>::new());
-    let (status, receipt) = call(&app, "POST", &format!("{root}/reviews/{review_id}/accept"), json!({"expectedRevision":1,"idempotencyKey":"whole-with-facts","selections":{"sceneGroupIds":["c","a"],"factDecisions":{fact_id:"confirmed"}}}), AUTHOR).await;
-    assert_eq!(status, StatusCode::OK, "{receipt}");
-    assert_eq!(accepted(&repo), candidate);
-    assert_eq!(
-        repo.facts(&project())
+    let mut request = json!({"taskId":coordinator["id"],"threadId":coordinator["threadId"],"expectedRevision":coordinator["inputRevision"],
+        "expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],"actionKey":choice["actionKey"],
+        "instruction":"按原要求起草，不降低标准","idempotencyKey":"first-writer"});
+    let (code, _) = r
+        .call("POST", &select_uri, CANDIDATE, Some(request.clone()))
+        .await;
+    assert!(!code.is_success());
+    request["chapterAcceptance"] = acceptance.clone();
+    r.candidate(&select_uri, request).await;
+    r.complete_and_advance(&root, &uri, &coordinator).await;
+    let writer = r.next_task(&root, &uri, "writer").await;
+    let saved = r.save_writer(&root, &writer, BODY, "short").await;
+    r.complete_and_advance(&root, &uri, &writer).await;
+    let reviewer = r.next_task(&root, &uri, "coordinator").await;
+    let read = r.decision_status(&root, &reviewer).await;
+    assert!(
+        read["readyActions"]
+            .as_array()
             .unwrap()
             .iter()
-            .map(|fact| fact["id"].clone())
-            .collect::<Vec<_>>(),
-        vec![json!(fact_id)]
+            .any(|a| a["operation"] == "generateChapter")
     );
-    assert_eq!(repo.project_revision(&project()).unwrap(), 2);
-    let handwritten = chapter(
-        "作者修改后的标题",
-        vec![group("c", "手写 C"), group("a", "A")],
-        json!({"localOnly":true}),
+    assert!(
+        !read["readyActions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["operation"] == "finishChapter")
     );
-    save(&mut repo, "handwritten", handwritten.clone());
-    review(&mut repo, "handwritten");
-    let (status, receipt) = call(&app, "POST", &format!("{root}/reviews/review-handwritten/accept"), json!({"expectedRevision":2,"idempotencyKey":"manual-after-analysis","selections":{"sceneGroupIds":["c","a"],"noConfirmedChanges":true}}), AUTHOR).await;
-    assert_eq!(status, StatusCode::OK, "{receipt}");
-    assert_eq!(accepted(&repo), handwritten);
-    assert_eq!(repo.project_revision(&project()).unwrap(), 3);
+    let finish = json!({"actionKey":"not-ready-finish"});
+    assert_eq!(read["chapterAcceptance"], acceptance);
+    let select_uri = format!(
+        "{root}/tasks/{}/work-decision/actions",
+        reviewer["id"].as_str().unwrap()
+    );
+    let mut request = json!({"taskId":reviewer["id"],"threadId":reviewer["threadId"],"expectedRevision":reviewer["inputRevision"],
+        "expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],"actionKey":finish["actionKey"],
+        "instruction":"核对当前正文","idempotencyKey":"finish"});
+    let source = r
+        .source_check(&root, &reviewer, saved["revisionId"].as_str().unwrap())
+        .await;
+    let review = json!({"sourceRevisionId":saved["revisionId"],"assessmentRevisionId":"not-yet-assessed","checks":acceptance["requirements"].as_array().unwrap().iter()
+        .map(|s|json!({"criterionId":s["id"],"issueId":null})).collect::<Vec<_>>(),"length":acceptance["length"]});
+    let mut stale = review.clone();
+    stale["sourceRevisionId"] = json!("old");
+    let mut unresolved = review.clone();
+    unresolved["checks"][0]["status"] = json!("unresolved");
+    let mut weakened = review.clone();
+    weakened["length"]["minCharacters"] = json!(1);
+    for invalid in [Value::Null, review.clone(), stale, unresolved, weakened] {
+        request["chapterReview"] = invalid;
+        let (code, _) = r
+            .call("POST", &select_uri, CANDIDATE, Some(request.clone()))
+            .await;
+        assert!(!code.is_success());
+        assert_eq!(r.get(&uri).await["completedChapters"], 0);
+    }
+    let repair = read["readyActions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["operation"] == "generateChapter")
+        .unwrap();
+    let mut repair_request = request.clone();
+    repair_request
+        .as_object_mut()
+        .unwrap()
+        .remove("chapterReview");
+    repair_request["actionKey"] = repair["actionKey"].clone();
+    repair_request["idempotencyKey"] = json!("repair");
+    repair_request["chapterAcceptance"] = acceptance.clone();
+    let mut weakened = repair_request.clone();
+    weakened["chapterAcceptance"]["length"]["minCharacters"] = json!(1);
+    let (code, _) = r.call("POST", &select_uri, CANDIDATE, Some(weakened)).await;
+    assert!(!code.is_success());
+    r.candidate(&select_uri, repair_request).await;
+    r.complete_and_advance(&root, &uri, &reviewer).await;
+    let writer = r.next_task(&root, &uri, "repair-writer").await;
+    let repaired = r
+        .save_writer(
+            &root,
+            &writer,
+            "林夕在子时前抵达码头，灯光照见收据上的罚银金额。",
+            "repair-save",
+        )
+        .await;
+    r.complete_and_advance(&root, &uri, &writer).await;
+    r.assess_chapter(&root, &uri, "supported").await;
+    let reviewer = r.next_task(&root, &uri, "coordinator").await;
+    let read = r.decision_status(&root, &reviewer).await;
+    let finish = read["readyActions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["operation"] == "finishChapter")
+        .unwrap();
+    let repaired_source = r
+        .source_check(&root, &reviewer, repaired["revisionId"].as_str().unwrap())
+        .await;
+    let mut current_review = review.clone();
+    current_review["sourceRevisionId"] = repaired["revisionId"].clone();
+    current_review["assessmentRevisionId"] = read["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["kind"] == "revisionOutcome")
+        .unwrap()["assessment"]["reportRevisionId"]
+        .clone();
+    for invalid_source in [
+        json!([]),
+        json!([source]),
+        json!([{"sourceId":repaired_source["sourceId"],"revisionId":repaired["revisionId"],"contentHash":repaired_source["contentHash"],"evidence":{"quote":"昨夜已经售出旧灯"}}]),
+        json!([{"sourceId":repaired_source["sourceId"],"revisionId":repaired["revisionId"],"contentHash":"f".repeat(64),"evidence":repaired_source["evidence"]}]),
+    ] {
+        let mut invalid = current_review.clone();
+        invalid["checks"][0]["sourceChecks"] = invalid_source;
+        let request = json!({"taskId":reviewer["id"],"threadId":reviewer["threadId"],"expectedRevision":reviewer["inputRevision"],"expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],"actionKey":finish["actionKey"],"instruction":"核对实际保存的当前稿","idempotencyKey":"unproven-review","chapterReview":invalid});
+        let (code, _) = r
+            .call(
+                "POST",
+                &format!(
+                    "{root}/tasks/{}/work-decision/actions",
+                    reviewer["id"].as_str().unwrap()
+                ),
+                CANDIDATE,
+                Some(request),
+            )
+            .await;
+        assert!(!code.is_success());
+        assert_eq!(r.get(&uri).await["completedChapters"], 0);
+    }
+    let receipt = r.choose(&root, &reviewer, "finishChapter").await;
+    assert_eq!(
+        receipt["chapterReviewReceipt"]["revisionId"],
+        repaired["revisionId"]
+    );
+    assert!(
+        receipt["chapterReviewReceipt"]["characterCount"]
+            .as_u64()
+            .unwrap()
+            >= 20
+    );
+    let same = r.choose(&root, &reviewer, "finishChapter").await;
+    assert_eq!(receipt, same);
+    let read = r.decision_status(&root, &reviewer).await;
+    let mut changed = json!({"taskId":reviewer["id"],"threadId":reviewer["threadId"],"expectedRevision":reviewer["inputRevision"],
+        "expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],"actionKey":receipt["actionKey"],
+        "instruction":"根据作者当前要求完成当前章节，不改其他章节","idempotencyKey":"select-finishChapter","chapterReview":review});
+    changed["chapterReview"]["sourceRevisionId"] = repaired["revisionId"].clone();
+    changed["chapterReview"]["checks"][0]["assessment"] = json!("不同评审");
+    let (code, _) = r
+        .call(
+            "POST",
+            &format!(
+                "{root}/tasks/{}/work-decision/actions",
+                reviewer["id"].as_str().unwrap()
+            ),
+            CANDIDATE,
+            Some(changed),
+        )
+        .await;
+    assert!(!code.is_success());
+    let completed = r.complete_and_advance(&root, &uri, &reviewer).await;
+    assert_eq!(completed["completedChapters"], 1);
+    assert_eq!(completed["status"], "completed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn negative_independent_report_blocks_delivery_and_model_pause_commits_actual_state() {
+    let r = Runtime::new().await;
+    let (root, uri) = r.start().await;
+    let (writer, _) = r
+        .saved_chapter(
+            &root,
+            &uri,
+            "林夕在子时前抵达码头，灯光照见收据上的罚银金额。",
+        )
+        .await;
+    r.assess_chapter(&root, &uri, "unmet").await;
+    let coordinator = r.next_task(&root, &uri, "repair-coordinator").await;
+    let state = r.decision_status(&root, &coordinator).await;
+    let assessment = state["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["kind"] == "revisionOutcome")
+        .unwrap();
+    assert_eq!(assessment["assessment"]["verdict"], "notMet");
+    assert_eq!(assessment["status"], "pending");
+    let report_uri = format!(
+        "{root}/tasks/{}/revision-outcome?threadId={}&expectedRevision={}&writerTaskId={}",
+        coordinator["id"].as_str().unwrap(),
+        coordinator["threadId"].as_str().unwrap(),
+        coordinator["inputRevision"],
+        writer["id"].as_str().unwrap()
+    );
+    let report = r.ok("GET", &report_uri, CANDIDATE, None).await;
+    assert_eq!(report["state"], "current");
+    assert_eq!(report["assessment"]["textDelivered"], false);
+    let source = &report["taskSources"]["entries"][0];
+    assert_eq!(
+        source["sectionPath"],
+        "/operationContext/revisionOutcomeReport"
+    );
+    let page = r
+        .ok(
+            "GET",
+            &format!(
+                "{root}/tasks/{}/task-source-content?threadId={}&expectedRevision={}&sourceId={}",
+                coordinator["id"].as_str().unwrap(),
+                coordinator["threadId"].as_str().unwrap(),
+                coordinator["inputRevision"],
+                source["sourceId"].as_str().unwrap()
+            ),
+            CANDIDATE,
+            None,
+        )
+        .await;
+    assert!(
+        page["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["path"] == "/outcomes/0/status" && e["value"] == "unmet")
+    );
+    assert!(
+        page["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["path"] == "/outcomes/0/evidence/0/quote" && e["value"].is_string())
+    );
+    assert!(
+        !state["readyActions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["operation"] == "finishChapter")
+    );
+    let workspace = r.get(&format!("{root}/creative-workspace")).await;
+    let foreign=r.post(&format!("{root}/tasks"),json!({"operation":"advisory","target":{"type":"project"},"inputRevision":workspace["revision"],"threadId":"different-work","authorIntent":"只讨论当前小说","capabilityHash":format!("{:x}",sha2::Sha256::digest(support::CAPABILITY.as_bytes())),"capabilityExpiresAt":r.get(&uri).await["deadlineAt"],"initialBudget":{"authorizationId":"foreign-read-budget","authorMessageId":"foreign-read-author","expectedBaseSnapshotId":workspace["headSnapshotId"],"expectedSourceDigest":workspace["sourceDigest"],"maxRequests":4,"maxTokens":4000,"deadlineAt":r.get(&uri).await["deadlineAt"]}})).await;
+    let(code,_)=r.call("GET",&format!("{root}/tasks/{}/revision-outcome?threadId=different-work&expectedRevision={}&writerTaskId={}",foreign["id"].as_str().unwrap(),foreign["inputRevision"],writer["id"].as_str().unwrap()),CANDIDATE,None).await;
+    assert!(!code.is_success());
+    let finish =
+        json!({"actionKey":"not-ready-finish","sourceRevisionId":assessment["sourceRevisionId"]});
+    let mut request = json!({"taskId":coordinator["id"],"threadId":coordinator["threadId"],"expectedRevision":coordinator["inputRevision"],"expectedWorkVersion":state["version"],"expectedSourceDigest":state["sourceDigest"],"actionKey":finish["actionKey"],"instruction":"不能以报告存在代替通过","idempotencyKey":"rejected-finish"});
+    let source = r
+        .source_check(
+            &root,
+            &coordinator,
+            finish["sourceRevisionId"].as_str().unwrap(),
+        )
+        .await;
+    request["chapterReview"] = json!({"sourceRevisionId":finish["sourceRevisionId"],"assessmentRevisionId":"unpassed-report","checks":state["chapterAcceptance"]["requirements"].as_array().unwrap().iter().map(|s|json!({"criterionId":s["id"],"issueId":null})).collect::<Vec<_>>(),"length":state["chapterAcceptance"]["length"]});
+    let (code, _) = r
+        .call(
+            "POST",
+            &format!(
+                "{root}/tasks/{}/work-decision/actions",
+                coordinator["id"].as_str().unwrap()
+            ),
+            CANDIDATE,
+            Some(request),
+        )
+        .await;
+    assert!(!code.is_success());
+    let before = r.get(&uri).await;
+    let grant = r
+        .get(&format!(
+            "{root}/tasks/{}/provider-budget",
+            coordinator["id"].as_str().unwrap()
+        ))
+        .await;
+    let control_uri = format!(
+        "{root}/tasks/{}/generation-control",
+        coordinator["id"].as_str().unwrap()
+    );
+    let pause = json!({"taskId":coordinator["id"],"threadId":coordinator["threadId"],"expectedRevision":coordinator["inputRevision"],"runId":before["id"],"expectedVersion":before["version"],"expectedIntentRevision":0,"instruction":"先暂停原任务，保留本章修订要求","idempotencyKey":"model-pause"});
+    let mut stale = pause.clone();
+    stale["expectedVersion"] = json!(0);
+    let (code, _) = r.call("POST", &control_uri, CANDIDATE, Some(stale)).await;
+    assert!(!code.is_success());
+    assert_eq!(r.get(&uri).await, before);
+    let receipt = r.candidate(&control_uri, pause.clone()).await;
+    assert_eq!(receipt["receipt"]["status"], "paused");
+    let paused = r.get(&uri).await;
+    assert_eq!(paused["status"], "paused");
+    let project =
+        novel_codex_story_core::ProjectId::parse(root.rsplit('/').next().unwrap()).unwrap();
+    let request:novel_codex_story_core::ModelRunPauseRequest=serde_json::from_value(json!({"runId":pause["runId"],"expectedVersion":pause["expectedVersion"],"expectedIntentRevision":pause["expectedIntentRevision"],"instruction":pause["instruction"],"idempotencyKey":pause["idempotencyKey"]})).unwrap();
+    let mut repo = novel_codex_story_core::SqliteStoryRepository::open(&r.path).unwrap();
+    let task = repo
+        .task(&project, coordinator["id"].as_str().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        repo.pause_generation_run_for_model(&task, &request)
+            .unwrap(),
+        receipt["receipt"]
+    );
+    drop(repo);
+    assert_eq!(paused["completedChapters"], 0);
+    assert_eq!(paused["targetChapters"], before["targetChapters"]);
+    assert_eq!(paused["providerTokensUsed"], before["providerTokensUsed"]);
+    r.settle(&uri, &coordinator, &grant).await;
+    assert_eq!(r.get(&uri).await["status"], "paused");
+    let next = r.post(&format!("{uri}/next"), json!({})).await;
+    assert_ne!(next["action"]["kind"], "agentTask");
+    let paused = r.get(&uri).await;
+    r.post(
+        &format!("{uri}/control"),
+        json!({"expectedVersion":paused["version"],"command":"resume"}),
+    )
+    .await;
+    let resumed = r.get(&uri).await;
+    let mut repo = novel_codex_story_core::SqliteStoryRepository::open(&r.path).unwrap();
+    assert!(matches!(
+        repo.pause_generation_run_for_model(&task, &request),
+        Err(novel_codex_story_core::RepositoryError::AuthoringRunStale)
+    ));
+    drop(repo);
+    assert_eq!(r.get(&uri).await, resumed);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn generation_work_control_checks_work_cas_even_when_run_version_did_not_change() {
+    let r = Runtime::new().await;
+    let (root, uri) = r.start().await;
+    let coordinator = r.next_task(&root, &uri, "coordinator").await;
+    let run = r.get(&uri).await;
+    let work_uri = format!("{root}/work-tasks/work-{}", run["id"].as_str().unwrap());
+    let before_work = r.get(&work_uri).await;
+    r.choose(&root, &coordinator, "generateBrief").await;
+    assert_eq!(r.get(&uri).await["version"], run["version"]);
+    let changed_work = r.get(&work_uri).await;
+    assert!(changed_work["version"].as_i64().unwrap() > before_work["version"].as_i64().unwrap());
+    for command in ["pause", "cancel"] {
+        let (code, _) = r
+            .call(
+                "POST",
+                &format!("{work_uri}/control"),
+                support::AUTHOR,
+                Some(json!({"expectedVersion":before_work["version"],"command":command})),
+            )
+            .await;
+        assert!(!code.is_success());
+        assert_eq!(r.get(&uri).await, run);
+        assert_eq!(r.get(&work_uri).await, changed_work);
+    }
+
+    let paused = r
+        .post(
+            &format!("{work_uri}/control"),
+            json!({"expectedVersion":changed_work["version"],"command":"pause"}),
+        )
+        .await;
+    assert_eq!(paused["status"], "paused");
+    assert_eq!(r.get(&uri).await["status"], "paused");
+    assert_eq!(paused["budget"], changed_work["budget"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn actual_prior_read_changes_revoke_report_but_future_plan_and_later_chapters_do_not() {
+    let r = Runtime::new().await;
+    let (root, uri) = r.start_with_chapters(2).await;
+    let (first, first_saved) = r
+        .saved_chapter(&root, &uri, "期限已过，林夕缴纳罚银并留下第一份收据。")
+        .await;
+    r.finish_chapter(&root, &uri).await;
+    let (second, _) = r
+        .saved_chapter(&root, &uri, "林夕拿着昨日缴纳罚银的收据进入港城。")
+        .await;
+    r.assess_chapter_report_with_prior(
+        &root,
+        &uri,
+        "supported",
+        "已读前章收据后独立核对当前正文",
+        &[],
+        Some(1),
+    )
+    .await;
+    let report_uri = format!(
+        "{root}/revision-outcomes/{}",
+        second["id"].as_str().unwrap()
+    );
+    assert_eq!(r.get(&report_uri).await["state"], "current");
+    let coordinator = r.next_task(&root, &uri, "coordinator").await;
+    let state = r.decision_status(&root, &coordinator).await;
+    assert!(
+        state["requirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|q| q["kind"] == "revisionOutcome")
+            .all(|q| q["chapterId"] == second["target"]["chapterId"])
+    );
+    r.post(&format!("{root}/artifacts/plan"),json!({"expectedRevision":r.get(&format!("{root}/creative-workspace")).await["revision"],"expectedCandidateRevisionId":null,"idempotencyKey":"future-plan","payload":{"chapters":[{"chapterPlanId":"future","chapterNumber":16,"goal":"规划未来港城线索","scenes":[{"id":"future-scene","goal":"未来的线索","beats":["进入下一卷"],"expectedEffects":[]}]}]}})).await;
+    assert_eq!(r.get(&report_uri).await["state"], "current");
+    r.post(&format!("{root}/drafts/checkpoints"),json!({"expectedRevision":r.get(&format!("{root}/creative-workspace")).await["revision"],"expectedCandidateRevisionId":null,"idempotencyKey":"later-chapter","payload":{"chapterId":"chapter-later","chapterNumber":3,"title":"后章","body":"后章保存不修改当前稿和已读前文。","completeness":"chapterComplete","sceneGroups":[]}})).await;
+    assert_eq!(r.get(&report_uri).await["state"], "current");
+    r.post(&format!("{root}/drafts/checkpoints"),json!({"expectedRevision":r.get(&format!("{root}/creative-workspace")).await["revision"],"expectedCandidateRevisionId":first_saved["revisionId"],"idempotencyKey":"changed-required-prior","payload":{"chapterId":first["target"]["chapterId"],"chapterNumber":1,"title":"前文改动","body":"林夕没有缴纳罚银，也没有收据。","completeness":"chapterComplete","sceneGroups":[]}})).await;
+    assert_eq!(r.get(&report_uri).await["state"], "stale");
+    let work = r
+        .get(&format!(
+            "{root}/work-tasks/work-{}",
+            r.get(&uri).await["id"].as_str().unwrap()
+        ))
+        .await;
+    let assessment = work["deliveryReport"]["chapterAcceptanceReports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["writerTaskId"] == second["id"])
+        .unwrap();
+    assert_eq!(assessment["current"], false);
+    assert_eq!(assessment["verdict"], "stale");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn original_author_omission_blocks_supported_report_and_sourced_correction_is_replaceable() {
+    let r = Runtime::new().await;
+    let (root, uri) = r.start().await;
+    let (_writer, _saved) = r.saved_chapter(&root, &uri, BODY).await;
+    r.assess_chapter_report(
+        &root,
+        &uri,
+        "supported",
+        "模型清单满足，但原要求遗漏调查动机",
+        &["原作者要求调查港城灯光，当前清单遗漏调查动机"],
+    )
+    .await;
+    let decision = r.next_task(&root, &uri, "coordinator").await;
+    let read = r.decision_status(&root, &decision).await;
+    let pending = read["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["kind"] == "revisionOutcome")
+        .unwrap();
+    assert_eq!(pending["assessment"]["verdict"], "notMet");
+    assert_eq!(pending["assessment"]["uncoveredRequirementCount"], 1);
+    assert_eq!(read["canFinish"], false);
+    assert!(
+        !read["readyActions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["operation"] == "finishChapter")
+    );
+    let repair = read["readyActions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["operation"] == "generateChapter")
+        .unwrap();
+    let author = r.read_author_requirements(&root, &decision).await;
+    let mut corrected = read["chapterAcceptance"].clone();
+    corrected["requirements"] =
+        json!([{"id":"whole-chapter","text":"保存完整章节并呈现林夕调查港城灯光的动机"}]);
+    corrected["interpretationCorrection"] = json!({"reason":"原作者要求中调查目标被初始模型清单遗漏","impact":"补回调查动机；保留篇幅和原授权范围","sourceChecks":[{"sourceId":author["sourceId"],"contentHash":author["contentHash"],"quote":"林夕调查港城灯光"}]});
+    let mut request = json!({"taskId":decision["id"],"threadId":decision["threadId"],"expectedRevision":decision["inputRevision"],"expectedWorkVersion":read["version"],"expectedSourceDigest":read["sourceDigest"],"actionKey":repair["actionKey"],"chapterAcceptance":corrected,"instruction":"补回原作者调查目标并独立重核","idempotencyKey":"sourced-correction"});
+    let mut fabricated = request.clone();
+    fabricated["chapterAcceptance"]["interpretationCorrection"]["sourceChecks"][0]["quote"] =
+        json!("没有读过的作者要求");
+    let (code, _) = r
+        .call(
+            "POST",
+            &format!(
+                "{root}/tasks/{}/work-decision/actions",
+                decision["id"].as_str().unwrap()
+            ),
+            CANDIDATE,
+            Some(fabricated),
+        )
+        .await;
+    assert!(!code.is_success());
+    let receipt = r
+        .candidate(
+            &format!(
+                "{root}/tasks/{}/work-decision/actions",
+                decision["id"].as_str().unwrap()
+            ),
+            request.take(),
+        )
+        .await;
+    assert!(receipt.is_object());
+    assert_eq!(r.get(&uri).await["completedChapters"], 0);
+    r.complete_and_advance(&root, &uri, &decision).await;
+    let repair_writer = r.next_task(&root, &uri, "repair-writer").await;
+    assert_eq!(repair_writer["target"]["chapterAcceptance"], corrected);
+    assert_eq!(
+        repair_writer["inputManifest"]["authorIntent"],
+        support::author_intent(&r.get(&uri).await)
+    );
 }

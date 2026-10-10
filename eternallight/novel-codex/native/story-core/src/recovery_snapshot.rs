@@ -1,5 +1,6 @@
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::{ProjectId, RepositoryError, SqliteStoryRepository};
 
@@ -74,10 +75,21 @@ impl SqliteStoryRepository {
             }
             let mut tasks = Vec::new();
             for id in &ids {
-                match crate::tasks::load_task(&tx,id) {
-                    Ok(task) if task.project_id==*project => tasks.push(json!({"id":task.task_id,"status":task.status,"stage":task.stage,"deliveryStatus":task.delivery_status})),
+                match crate::tasks::load_task(&tx, id) {
+                    Ok(task) if task.project_id == *project => {
+                        if matches!(task.status.as_str(), "completed" | "failed" | "cancelled") {
+                            settle_absent_work_actions(&tx, &task, now)?;
+                        }
+                        if task.status == "completed" {
+                            // Completion is idempotent: the persisted terminal state proves
+                            // its result, even when an earlier response was not observed.
+                            tx.execute("UPDATE story_tool_operations_v1 SET state='committed',receipt_ref=?1,updated_at=?2 WHERE project_id=?3 AND task_id=?4 AND tool_name='complete_task' AND state='accepted'",
+                                params![format!("runtime:task:{}:completed", task.task_id),now,project.as_str(),task.task_id]).map_err(storage_error)?;
+                        }
+                        tasks.push(json!({"id":task.task_id,"status":task.status,"stage":task.stage,"deliveryStatus":task.delivery_status,"delegatedCandidates":crate::delegated_candidates::summaries(&tx,&task.task_id,None)?}));
+                    }
                     Ok(_) => return Err(RepositoryError::TaskBindingInvalid),
-                    Err(RepositoryError::TaskNotFound) => {},
+                    Err(RepositoryError::TaskNotFound) => {}
                     Err(error) => return Err(error),
                 }
             }
@@ -149,4 +161,49 @@ fn invalid() -> RepositoryError {
 }
 fn storage_error(error: rusqlite::Error) -> RepositoryError {
     RepositoryError::Storage(error.to_string())
+}
+
+// Work actions and their idempotency rows commit atomically. The caller holds an
+// IMMEDIATE transaction and has proved the task terminal, so no new action can
+// commit after this absence proof. Matching or unkeyed calls remain unresolved.
+fn settle_absent_work_actions(
+    db: &rusqlite::Connection,
+    task: &crate::TaskRecord,
+    now: i64,
+) -> Result<(), RepositoryError> {
+    let mut statement = db
+        .prepare(
+            "SELECT idempotency_key FROM story_work_decision_actions_v1 WHERE decision_task_id=?1
+             UNION SELECT idempotency_key FROM story_direct_verifications_v1 WHERE decision_task_id=?1",
+        )
+        .map_err(storage_error)?;
+    let keys = statement
+        .query_map([&task.task_id], |row| row.get::<_, String>(0))
+        .map_err(storage_error)?
+        .map(|key| {
+            key.map(|key| {
+                format!(
+                    "sha256:{:x}",
+                    Sha256::digest(json!(key).to_string().as_bytes())
+                )
+            })
+            .map_err(storage_error)
+        })
+        .collect::<Result<std::collections::HashSet<_>, _>>()?;
+    drop(statement);
+    let mut statement = db.prepare("SELECT operation_id,idempotency_ref FROM story_tool_operations_v1 WHERE project_id=?1 AND task_id=?2 AND tool_name='request_work_action' AND state='accepted' AND idempotency_ref IS NOT NULL").map_err(storage_error)?;
+    let calls = statement
+        .query_map(params![task.project_id.as_str(), task.task_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(storage_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage_error)?;
+    drop(statement);
+    for (operation, key) in calls {
+        if !keys.contains(&key) {
+            db.execute("UPDATE story_tool_operations_v1 SET state='rejected',updated_at=?2 WHERE operation_id=?1 AND state='accepted'", params![operation,now]).map_err(storage_error)?;
+        }
+    }
+    Ok(())
 }

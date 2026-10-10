@@ -35,7 +35,7 @@ async fn proposal_set_http_previews_applies_and_undoes_a_group() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title":"多对象提案"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"多对象提案"})),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
@@ -281,7 +281,7 @@ async fn later_chapter_can_publish_source_bound_knowledge_of_an_earlier_proposit
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title":"跨章节认知"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"跨章节认知"})),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
@@ -501,12 +501,15 @@ async fn later_chapter_can_publish_source_bound_knowledge_of_an_earlier_proposit
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{writer_context}");
+    let writer_knowledge = read_frozen_context_source(
+        &path, project_id, &writer_task, writer_capability, &writer_context, "/operationContext/workingKnowledge",
+    ).await;
     assert_eq!(
-        writer_context["operationContext"]["workingKnowledge"]["perspective"],
+        writer_knowledge["perspective"],
         "character"
     );
     assert_eq!(
-        writer_context["operationContext"]["workingKnowledge"]["entries"],
+        writer_knowledge["entries"],
         json!([]),
         "第二章尚未发生的认知不得进入第二章 Writer POV"
     );
@@ -714,7 +717,7 @@ async fn hypothesis_routes_are_author_only_and_reject_unpinned_assumptions() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title":"假设边界"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"假设边界"})),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
@@ -766,7 +769,7 @@ async fn impact_analysis_is_author_only_and_never_claims_global_completeness() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title":"影响分析"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"影响分析"})),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
@@ -836,6 +839,48 @@ async fn call_as(
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
+async fn read_frozen_context_source(
+    path: &std::path::Path,
+    project_id: &str,
+    task: &Value,
+    capability: &str,
+    context: &Value,
+    section: &str,
+) -> Value {
+    let reference = context.pointer(section).expect("context source reference");
+    assert_eq!(reference["textDelivered"], false);
+    let source = context["taskSources"]["entries"]
+        .as_array().unwrap().iter()
+        .find(|entry| entry["sectionPath"] == section).unwrap();
+    assert_eq!(reference["sourceId"], source["sourceId"]);
+    let mut cursor = None::<String>;
+    let mut payload = String::new();
+    loop {
+        let suffix = cursor.as_ref().map_or(String::new(), |value| format!("&cursor={value}"));
+        let (status, page) = call_as(
+            application(path), "GET",
+            &format!("/api/projects/{project_id}/tasks/{}/task-source?threadId={}&expectedRevision={}&sourceId={}{suffix}",
+                task["id"].as_str().unwrap(), task["threadId"].as_str().unwrap(),
+                task["inputRevision"], source["sourceId"].as_str().unwrap()),
+            None, CANDIDATE_TOKEN, Some(capability),
+        ).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sectionPath"], section);
+        assert_eq!(page["contentHash"], source["contentHash"]);
+        assert_eq!(page["byteRange"]["start"], payload.len());
+        payload.push_str(page["payloadPart"].as_str().unwrap());
+        assert_eq!(page["byteRange"]["end"], payload.len());
+        cursor = page["nextCursor"].as_str().map(str::to_owned);
+        if cursor.is_none() {
+            assert_eq!(page["endOfInputFromCursor"], true);
+            assert_eq!(page["byteRange"]["total"], payload.len());
+            break;
+        }
+    }
+    assert_eq!(format!("{:x}", Sha256::digest(payload.as_bytes())), source["contentHash"]);
+    serde_json::from_str(&payload).unwrap()
+}
+
 #[tokio::test]
 async fn work_task_api_pages_all_active_tasks_and_rejects_invalid_cursor() {
     let directory = tempfile::tempdir().unwrap();
@@ -844,7 +889,7 @@ async fn work_task_api_pages_all_active_tasks_and_rejects_invalid_cursor() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title": "Many tasks"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Many tasks"})),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
@@ -901,7 +946,7 @@ async fn author_search_audit_runs_in_worker_and_can_pause_or_resume() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title":"Audit"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"Audit"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -961,7 +1006,7 @@ async fn author_entity_audit_runs_in_worker_and_is_hidden_from_candidates() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title":"Entity audit"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"Entity audit"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -1016,7 +1061,7 @@ async fn author_relation_audit_runs_in_worker_and_is_hidden_from_candidates() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title":"Relation audit"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"Relation audit"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -1072,7 +1117,7 @@ async fn author_knowledge_audit_checks_both_indexes_and_is_hidden_from_candidate
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title":"Knowledge audit"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"Knowledge audit"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -1130,7 +1175,7 @@ async fn author_fact_audit_runs_in_worker_and_is_hidden_from_candidates() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title":"Fact audit"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"Fact audit"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -1188,7 +1233,7 @@ async fn author_historical_knowledge_audit_runs_in_worker_and_is_hidden_from_can
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title":"Historical knowledge audit"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"Historical knowledge audit"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -1247,7 +1292,7 @@ async fn candidate_writes_are_task_bound_and_capability_is_revoked_on_completion
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title": "Capability"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Capability"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -1427,7 +1472,7 @@ async fn artifact_review_accept_undo_round_trip() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title": "Round trip", "logline": "Atomic story"})),
+        Some(json!({"medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Round trip", "logline": "Atomic story"})),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
@@ -1523,7 +1568,7 @@ async fn chinese_search_uses_selected_revision_and_returns_exact_source_evidence
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title": "Search"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Search"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -1647,7 +1692,7 @@ async fn chinese_search_uses_selected_revision_and_returns_exact_source_evidence
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title": "Other"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Other"})),
     )
     .await;
     let other_id = other["project"]["id"].as_str().unwrap();
@@ -1763,7 +1808,7 @@ async fn confirmed_fact_is_visible_in_context_and_undo_removes_it() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title": "Facts"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Facts"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -1982,7 +2027,7 @@ async fn confirmed_fact_creates_and_resolves_planning_impact() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title": "Impacts"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Impacts"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -2148,7 +2193,7 @@ async fn planning_review_seat_uses_frozen_context_and_persists_report() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title": "Review"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Review"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -2243,12 +2288,15 @@ async fn planning_review_seat_uses_frozen_context_and_persists_report() {
         "reviewPlanningSeat"
     );
     assert_eq!(context["queryReport"]["policy"], context["queryScope"]);
+    let planning_review_source = read_frozen_context_source(
+        &path, project_id, &task, capability, &context, "/operationContext/planningReview",
+    ).await;
     assert_eq!(
-        context["operationContext"]["planningReview"]["role"],
+        planning_review_source["role"],
         "structure"
     );
     assert_eq!(
-        context["operationContext"]["planningReview"]["checks"],
+        planning_review_source["checks"],
         json!(["structure:book-1"])
     );
     let report_uri = format!("/api/projects/{project_id}/planning-reviews/{run_id}/reports");
@@ -2297,7 +2345,7 @@ async fn draft_checkpoint_creates_chapter_and_is_visible_in_workspace() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title": "Draft"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Draft"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -2335,7 +2383,7 @@ async fn modeling_candidates_follow_exact_draft_revision_and_reject_late_publica
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title": "Knowledge"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Knowledge"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();
@@ -2917,7 +2965,10 @@ async fn modeling_candidates_follow_exact_draft_revision_and_reject_late_publica
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{second_context}");
-    let catalog_ids = second_context["operationContext"]["entityCatalog"]["entries"]
+    let entity_catalog_source = read_frozen_context_source(
+        &path, project_id, &second_task, second_capability, &second_context, "/operationContext/entityCatalog",
+    ).await;
+    let catalog_ids = entity_catalog_source["entries"]
         .as_array()
         .unwrap()
         .iter()
@@ -2925,7 +2976,7 @@ async fn modeling_candidates_follow_exact_draft_revision_and_reject_late_publica
         .collect::<Vec<_>>();
     assert!(catalog_ids.contains(&"letter-sent"));
     assert!(catalog_ids.contains(&"father-linxi"));
-    let father = second_context["operationContext"]["entityCatalog"]["entries"]
+    let father = entity_catalog_source["entries"]
         .as_array()
         .unwrap()
         .iter()
@@ -3080,9 +3131,15 @@ async fn modeling_candidates_follow_exact_draft_revision_and_reject_late_publica
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{writer_context}");
-    assert_eq!(writer_context["relevantText"].as_array().unwrap().len(), 1);
+    let writer_text_source = read_frozen_context_source(
+        &path, project_id, &writer_task, writer_capability, &writer_context, "/relevantText",
+    ).await;
+    assert_eq!(writer_text_source.as_array().unwrap().len(), 1);
+    let writer_modeling_source = read_frozen_context_source(
+        &path, project_id, &writer_task, writer_capability, &writer_context, "/operationContext/modeling",
+    ).await;
     assert_eq!(
-        writer_context["operationContext"]["modeling"]
+        writer_modeling_source
             .as_array()
             .unwrap()
             .len(),
@@ -3119,15 +3176,18 @@ async fn modeling_candidates_follow_exact_draft_revision_and_reject_late_publica
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{next_context}");
+    let next_knowledge = read_frozen_context_source(
+        &path, project_id, &next_writer, writer_capability, &next_context, "/operationContext/workingKnowledge",
+    ).await;
     assert_eq!(
-        next_context["operationContext"]["workingKnowledge"]["entries"]
+        next_knowledge["entries"]
             .as_array()
             .unwrap()
             .len(),
         3
     );
     assert_eq!(
-        next_context["operationContext"]["workingKnowledge"]["coverage"]["complete"],
+        next_knowledge["coverage"]["complete"],
         true
     );
 
@@ -3437,11 +3497,14 @@ async fn modeling_candidates_follow_exact_draft_revision_and_reject_late_publica
         confirmed_writer_context["coverage"]["scannedScope"]["typedEventFactsWithheld"],
         1
     );
+    let confirmed_knowledge = read_frozen_context_source(
+        &path, project_id, &confirmed_writer_task, confirmed_writer_capability, &confirmed_writer_context, "/operationContext/workingKnowledge",
+    ).await;
     assert_eq!(
-        confirmed_writer_context["operationContext"]["workingKnowledge"]["entries"][0]["confirmationState"],
+        confirmed_knowledge["entries"][0]["confirmationState"],
         "candidate"
     );
-    assert!(confirmed_writer_context["operationContext"]["workingKnowledge"]["entries"][0]["confirmedFactId"].is_null());
+    assert!(confirmed_knowledge["entries"][0]["confirmedFactId"].is_null());
     let (status, writer_checkpoint) = call_as(
         application(&path),
         "POST",
@@ -3576,7 +3639,7 @@ async fn standalone_chapter_and_working_source_round_trip() {
         application(&path),
         "POST",
         "/api/projects",
-        Some(json!({"title": "Working source"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title": "Working source"})),
     )
     .await;
     let project_id = created["project"]["id"].as_str().unwrap();

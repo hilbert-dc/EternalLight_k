@@ -21,7 +21,7 @@ async fn selected_historical_draft_is_frozen_read_and_advanced_by_writer_checkpo
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"港城"})),
         false,
     )
     .await;
@@ -77,28 +77,26 @@ async fn selected_historical_draft_is_frozen_read_and_advanced_by_writer_checkpo
     );
     let (status, context) = call(&path, "GET", &context_uri, None, true).await;
     assert_eq!(status, StatusCode::OK, "{context}");
+    let relevant_text = read_section(&path, &root, &task, &context, "/relevantText").await;
+    assert_eq!(relevant_text[0]["sourceRevisionId"], original["revisionId"]);
     assert_eq!(
-        context["relevantText"][0]["sourceRevisionId"],
-        original["revisionId"]
-    );
-    assert_eq!(
-        context["relevantText"][0]["content"]["sceneGroups"][0]["body"],
+        relevant_text[0]["content"]["sceneGroups"][0]["body"],
         "林夕藏起密函。"
     );
-    assert_eq!(context["relevantText"][0]["authority"], "working");
-    assert_eq!(context["relevantText"][0]["workingSelectionRevision"], 1);
-    assert_eq!(
-        context["operationContext"]["modeling"][0]["sourceRevisionId"],
-        original["revisionId"]
-    );
-    assert_eq!(
-        context["operationContext"]["modeling"][0]["status"],
-        "model_pending"
-    );
-    assert_eq!(
-        context["operationContext"]["workingKnowledge"]["coverage"]["sourceModelingIncomplete"],
-        true
-    );
+    assert_eq!(relevant_text[0]["authority"], "working");
+    assert_eq!(relevant_text[0]["workingSelectionRevision"], 1);
+    let modeling = read_section(&path, &root, &task, &context, "/operationContext/modeling").await;
+    assert_eq!(modeling[0]["sourceRevisionId"], original["revisionId"]);
+    assert_eq!(modeling[0]["status"], "model_pending");
+    let knowledge = read_section(
+        &path,
+        &root,
+        &task,
+        &context,
+        "/operationContext/workingKnowledge",
+    )
+    .await;
+    assert_eq!(knowledge["coverage"]["sourceModelingIncomplete"], true);
     let query_uri = format!("{root}/tasks/{task_id}/query");
     let (status, report) = call(
         &path,
@@ -201,10 +199,19 @@ async fn selected_historical_draft_is_frozen_read_and_advanced_by_writer_checkpo
     );
     let (status, refreshed) = call(&path, "GET", &context_uri, None, true).await;
     assert_eq!(status, StatusCode::OK, "{refreshed}");
+    let refreshed_text = read_section(&path, &root, &task, &refreshed, "/relevantText").await;
     assert_eq!(
-        refreshed["relevantText"][0]["sourceRevisionId"],
-        first["revisionId"]
+        refreshed["relevantText"]["sourceId"],
+        context["relevantText"]["sourceId"]
     );
+    assert_eq!(refreshed_text, relevant_text);
+    assert_eq!(
+        refreshed_text[0]["sourceRevisionId"],
+        original["revisionId"]
+    );
+    let first_source =
+        read_saved_checkpoint(&path, &root, &task, &refreshed, &first, 1, true).await;
+    assert_eq!(first_source["content"]["body"], "林夕把密函藏进灯座。");
     assert_ne!(refreshed["sourceWatermarks"]["digest"], before_digest);
     let (status, second) = call(
         &path,
@@ -225,6 +232,23 @@ async fn selected_historical_draft_is_frozen_read_and_advanced_by_writer_checkpo
         |row| row.get(0),
     ).unwrap();
     assert_eq!(second_base, first["revisionId"].as_str().unwrap());
+    let (status, after_second) = call(&path, "GET", &context_uri, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{after_second}");
+    assert_eq!(
+        after_second["relevantText"]["sourceId"],
+        context["relevantText"]["sourceId"]
+    );
+    assert_eq!(
+        read_section(&path, &root, &task, &after_second, "/relevantText").await,
+        relevant_text
+    );
+    let second_source =
+        read_saved_checkpoint(&path, &root, &task, &after_second, &second, 2, true).await;
+    assert_eq!(second_source["content"]["body"], "林夕记下灯座的刻痕。");
+    let historical_first =
+        read_saved_checkpoint(&path, &root, &task, &after_second, &first, 1, false).await;
+    assert_eq!(historical_first, first_source);
+
     let (status, switch) = call(
         &path,
         "PUT",
@@ -281,7 +305,7 @@ async fn planner_uses_selected_artifact_and_a_changed_selection_invalidates_its_
         &path,
         "POST",
         "/api/projects",
-        Some(json!({"title":"港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"港城"})),
         false,
     )
     .await;
@@ -343,18 +367,10 @@ async fn planner_uses_selected_artifact_and_a_changed_selection_invalidates_its_
     );
     let (status, context) = call(&path, "GET", &uri, None, true).await;
     assert_eq!(status, StatusCode::OK, "{context}");
-    assert_eq!(
-        context["narrativeGoals"]["brief"]["premise"],
-        "港城遗忘海名"
-    );
-    assert_eq!(
-        context["narrativeGoals"]["brief"]["sourceRevisionId"],
-        first["revisionId"]
-    );
-    assert_eq!(
-        context["narrativeGoals"]["brief"]["workingSelectionRevision"],
-        1
-    );
+    let brief = read_section(&path, &root, &task, &context, "/narrativeGoals/brief").await;
+    assert_eq!(brief["premise"], "港城遗忘海名");
+    assert_eq!(brief["sourceRevisionId"], first["revisionId"]);
+    assert_eq!(brief["workingSelectionRevision"], 1);
     let (status, _) = call(
         &path,
         "DELETE",
@@ -388,7 +404,7 @@ async fn planner_uses_selected_artifact_and_a_changed_selection_invalidates_its_
 }
 
 #[tokio::test]
-async fn writer_context_delivers_long_chapter_once_and_rejects_oversized_mandatory_source() {
+async fn writer_and_critic_context_reference_long_sources_and_return_full_bounded_pages() {
     for repeats in [110, 500] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("writer-context.sqlite3");
@@ -396,7 +412,7 @@ async fn writer_context_delivers_long_chapter_once_and_rejects_oversized_mandato
             &path,
             "POST",
             "/api/projects",
-            Some(json!({"title":"迟到的钟"})),
+            Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"迟到的钟"})),
             false,
         )
         .await;
@@ -428,35 +444,14 @@ async fn writer_context_delivers_long_chapter_once_and_rejects_oversized_mandato
             task["id"].as_str().unwrap()
         );
         let (status, context) = call(&path, "GET", &uri, None, true).await;
-        if repeats == 500 {
-            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{context}");
-            assert_eq!(
-                context["error"]["code"],
-                "context_model_item_budget_exceeded"
-            );
-        } else {
-            assert_eq!(status, StatusCode::OK, "{context}");
-            let draft = &context["relevantText"][0];
-            assert_eq!(draft["content"]["sceneGroups"], groups);
-            assert_eq!(
-                (
-                    draft["textRepresentation"].clone(),
-                    draft["sourceRevisionId"].clone()
-                ),
-                (json!("sceneGroups"), saved["revisionId"].clone())
-            );
-            assert!(draft["content"].get("body").is_none());
-            let item = json!({"type":"function_call_output","call_id":"call-1","output":[
-                {"type":"input_text","text":"Tool result: novel_workspace.read_context"},
-                {"type":"input_text","text":context.to_string()}
-            ]});
-            let tokens =
-                eternallight_engine_core::dispatch("tokens.count", json!(item.to_string()))
-                    .unwrap()
-                    .as_u64()
-                    .unwrap();
-            assert!(tokens <= 10_000, "actual model item has {tokens} tokens");
-        }
+        assert_eq!(status, StatusCode::OK, "{context}");
+        assert!(!context.to_string().contains(&body));
+        assert_model_item_bound(&context);
+        let draft = read_workspace_draft(&path, &root, &task, &context, &saved).await;
+        assert_eq!(draft["sourceRevisionId"], saved["revisionId"]);
+        assert_eq!(draft["content"]["sceneGroups"], groups);
+        assert_eq!(draft["content"]["body"], body);
+        assert_eq!(draft["authority"], "frozenWriterInput");
         let (status, batch) = call(&path,"POST",&format!("{root}/modeling-batches"),Some(json!({
             "objectId":format!("draft-{}",saved["chapterId"].as_str().unwrap()),"sourceRevisionId":saved["revisionId"],
             "expectedRevision":0,"extractorVersion":"current-context-contract"
@@ -473,29 +468,22 @@ async fn writer_context_delivers_long_chapter_once_and_rejects_oversized_mandato
             knowledge_task["id"].as_str().unwrap()
         );
         let (status, critic) = call(&path, "GET", &critic_uri, None, true).await;
-        if repeats == 500 {
-            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{critic}");
-            assert_eq!(
-                critic["error"]["code"],
-                "context_model_item_budget_exceeded"
-            );
-        } else {
-            assert_eq!(status, StatusCode::OK, "{critic}");
-            let source = &critic["relevantText"][0];
-            assert_eq!(source["content"]["sceneGroups"], groups);
-            assert_eq!(
-                (
-                    source["sourceRevisionId"].clone(),
-                    source["textRepresentation"].clone()
-                ),
-                (saved["revisionId"].clone(), json!("sceneGroups"))
-            );
-            assert!(source["content"].get("body").is_none());
-            assert_eq!(
-                critic["operationContext"]["modelingBatch"]["sourceRevisionId"],
-                saved["revisionId"]
-            );
-        }
+        assert_eq!(status, StatusCode::OK, "{critic}");
+        assert!(!critic.to_string().contains(&body));
+        assert_model_item_bound(&critic);
+        let source = read_workspace_draft(&path, &root, &knowledge_task, &critic, &saved).await;
+        assert_eq!(source["sourceRevisionId"], saved["revisionId"]);
+        assert_eq!(source["content"]["sceneGroups"], groups);
+        assert_eq!(source["content"]["body"], body);
+        let modeling_batch = read_section(
+            &path,
+            &root,
+            &knowledge_task,
+            &critic,
+            "/operationContext/modelingBatch",
+        )
+        .await;
+        assert_eq!(modeling_batch["sourceRevisionId"], saved["revisionId"]);
         let (status, workspace) = call(
             &path,
             "GET",
@@ -508,6 +496,299 @@ async fn writer_context_delivers_long_chapter_once_and_rejects_oversized_mandato
         assert_eq!(workspace["chapters"][0]["candidate"]["body"], body);
         assert!(workspace["chapters"][0]["accepted"].is_null());
     }
+}
+
+fn assert_model_item_bound(value: &Value) {
+    let result = json!({"content":[{"type":"text","text":value.to_string()}]});
+    let item = json!({"type":"function_call_output","call_id":"x".repeat(160),"output":result.to_string()});
+    let tokens = eternallight_engine_core::dispatch("tokens.count", json!(item.to_string()))
+        .unwrap()
+        .as_u64()
+        .unwrap();
+    assert!(tokens <= 9000, "actual model item has {tokens} tokens");
+}
+
+async fn read_section(
+    path: &std::path::Path,
+    root: &str,
+    task: &Value,
+    context: &Value,
+    section: &str,
+) -> Value {
+    let entry = context["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["sectionPath"] == section)
+        .unwrap_or_else(|| panic!("missing current source {section}: {context}"));
+    assert_eq!(
+        context.pointer(section).unwrap()["sourceId"],
+        entry["sourceId"]
+    );
+    read_content(
+        path,
+        root,
+        task,
+        entry["sourceId"].as_str().unwrap(),
+        entry["contentHash"].as_str(),
+    )
+    .await
+}
+
+async fn read_workspace_entries(
+    path: &std::path::Path,
+    root: &str,
+    task: &Value,
+    context: &Value,
+    filter: &str,
+) -> Vec<Value> {
+    let source = context["taskWorkspace"]["sourceId"].as_str().unwrap();
+    let endpoint = format!(
+        "{root}/tasks/{}/task-source-content?threadId={}&expectedRevision={}&sourceId={source}&view=workspace{filter}",
+        task["id"].as_str().unwrap(),
+        task["threadId"].as_str().unwrap(),
+        task["inputRevision"]
+    );
+    let mut cursor = String::new();
+    let mut entries = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut cursors = std::collections::BTreeSet::new();
+    loop {
+        let (status, page) = call(path, "GET", &format!("{endpoint}{cursor}"), None, true).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], source);
+        assert_eq!(page["representation"], "workspaceDirectory");
+        assert_eq!(page["contentRead"], false);
+        assert!(page.to_string().len() <= 6500);
+        assert_model_item_bound(&page);
+        for entry in page["items"].as_array().unwrap() {
+            assert_eq!(entry["contentRead"], false);
+            assert_eq!(entry["contentHash"], Value::Null);
+            assert!(seen.insert(entry["sourceId"].as_str().unwrap().to_owned()));
+            entries.push(entry.clone());
+        }
+        let Some(next) = page["nextCursor"].as_str() else {
+            break;
+        };
+        assert!(cursors.insert(next.to_owned()));
+        assert!(cursors.len() < 40);
+        cursor = format!("&cursor={next}");
+    }
+    entries
+}
+
+async fn read_saved_checkpoint(
+    path: &std::path::Path,
+    root: &str,
+    task: &Value,
+    context: &Value,
+    saved: &Value,
+    ordinal: u64,
+    current: bool,
+) -> Value {
+    let entries = read_workspace_entries(
+        path,
+        root,
+        task,
+        context,
+        "&chapterNumber=1&objectKind=draft",
+    )
+    .await;
+    let entry = entries
+        .iter()
+        .find(|item| {
+            item["revisionId"] == saved["revisionId"]
+                && item["producerTaskId"] == task["id"]
+                && item["outputOrdinal"] == ordinal
+        })
+        .unwrap_or_else(|| panic!("missing genuine saved checkpoint: {entries:?}"));
+    assert_eq!(entry["purpose"], "savedCheckpoint");
+    assert_eq!(entry["authority"], "nativeSavedCheckpoint");
+    assert_eq!(entry["outputKind"], "draft");
+    assert_eq!(
+        entry["version"],
+        json!({"revisionId":saved["revisionId"],"outputOrdinal":ordinal})
+    );
+    assert_eq!(entry["isCurrentAtListing"], current);
+    assert_eq!(entry["currentMeaning"], "equalsCandidateHeadAtListing");
+    assert_eq!(
+        entry["evidenceUse"],
+        "immutableSavedVersionForReadingAndComparison;notAcceptanceOrDelivery"
+    );
+    let source = read_content(path, root, task, entry["sourceId"].as_str().unwrap(), None).await;
+    assert_eq!(source["sourceRevisionId"], saved["revisionId"]);
+    assert_eq!(
+        source["objectId"],
+        format!("draft-{}", saved["chapterId"].as_str().unwrap())
+    );
+    assert_eq!(source["producerTaskId"], task["id"]);
+    assert_eq!(source["outputOrdinal"], ordinal);
+    assert_eq!(source["purpose"], "savedCheckpoint");
+    assert_eq!(source["authority"], "nativeSavedCheckpoint");
+    assert_eq!(source["evidenceUse"], entry["evidenceUse"]);
+    assert!(source.get("isCurrentAtListing").is_none());
+    assert!(source.get("producerStatusAtListing").is_none());
+    source
+}
+
+async fn read_workspace_draft(
+    path: &std::path::Path,
+    root: &str,
+    task: &Value,
+    context: &Value,
+    saved: &Value,
+) -> Value {
+    let directory_id = context["taskWorkspace"]["sourceId"].as_str().unwrap();
+    let uri = format!(
+        "{root}/tasks/{}/task-source-content?threadId={}&expectedRevision={}&sourceId={directory_id}&view=workspace&chapterNumber=1&objectKind=draft",
+        task["id"].as_str().unwrap(),
+        task["threadId"].as_str().unwrap(),
+        task["inputRevision"]
+    );
+    let (status, directory) = call(path, "GET", &uri, None, true).await;
+    assert_eq!(status, StatusCode::OK, "{directory}");
+    assert_eq!(directory["representation"], "workspaceDirectory");
+    assert_eq!(directory["contentRead"], false);
+    assert!(directory.to_string().len() <= 6500);
+    assert_model_item_bound(&directory);
+    let entries = directory["items"].as_array().unwrap();
+    assert_eq!(entries.len(), 1, "{directory}");
+    assert_eq!(entries[0]["revisionId"], saved["revisionId"]);
+    assert_eq!(
+        entries[0]["objectId"],
+        format!("draft-{}", saved["chapterId"].as_str().unwrap())
+    );
+    let source = read_content(
+        path,
+        root,
+        task,
+        entries[0]["sourceId"].as_str().unwrap(),
+        None,
+    )
+    .await;
+    assert_eq!(source["sourceRevisionId"], entries[0]["revisionId"]);
+    source
+}
+
+// Rebuild only the actually returned parsed fields; no database/author read can
+// stand in for the task's complete source transport and character coverage.
+async fn read_content(
+    path: &std::path::Path,
+    root: &str,
+    task: &Value,
+    source: &str,
+    expected_hash: Option<&str>,
+) -> Value {
+    let endpoint = format!(
+        "{root}/tasks/{}/task-source-content?threadId={}&expectedRevision={}&sourceId={source}",
+        task["id"].as_str().unwrap(),
+        task["threadId"].as_str().unwrap(),
+        task["inputRevision"]
+    );
+    let mut cursor = String::new();
+    let mut content_hash = expected_hash.map(str::to_owned);
+    let mut returned = Value::Null;
+    let mut chunks = std::collections::BTreeMap::<String, (usize, usize, String)>::new();
+    let mut from = 0usize;
+    let mut total = None;
+    loop {
+        let (status, page) = call(path, "GET", &format!("{endpoint}{cursor}"), None, true).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], source);
+        assert_eq!(page["representation"], "parsedFields");
+        assert_eq!(page["contentRead"], true);
+        assert!(page.to_string().len() <= 6500);
+        assert_model_item_bound(&page);
+        let hash = page["contentHash"].as_str().unwrap();
+        assert_eq!(
+            content_hash.get_or_insert_with(|| hash.to_owned()).as_str(),
+            hash
+        );
+        assert_eq!(page["coverage"]["fromEntry"], from);
+        let entries = page["entries"].as_array().unwrap();
+        assert!(!entries.is_empty());
+        from += entries.len();
+        assert_eq!(page["coverage"]["toEntry"], from);
+        let count = page["coverage"]["totalEntries"].as_u64().unwrap() as usize;
+        assert_eq!(*total.get_or_insert(count), count);
+        assert!(from <= count);
+        for entry in entries {
+            let pointer = entry["path"].as_str().unwrap();
+            if let Some(text) = entry["text"].as_str() {
+                let range = &entry["characterRange"];
+                let start = range["start"].as_u64().unwrap() as usize;
+                let end = range["end"].as_u64().unwrap() as usize;
+                let full = range["total"].as_u64().unwrap() as usize;
+                let chunk = chunks
+                    .entry(pointer.to_owned())
+                    .or_insert((0, full, String::new()));
+                assert_eq!((start, full), (chunk.0, chunk.1));
+                assert_eq!(end, start + text.chars().count());
+                assert!(end <= full);
+                chunk.0 = end;
+                chunk.2.push_str(text);
+            } else {
+                assert!(entry.get("value").is_some(), "{entry}");
+                set_field(&mut returned, pointer, entry["value"].clone());
+            }
+        }
+        if let Some(next) = page["nextCursor"].as_str() {
+            assert!(from < count);
+            let next = format!("&cursor={next}");
+            assert_ne!(next, cursor);
+            cursor = next;
+        } else {
+            assert_eq!(from, count);
+            break;
+        }
+    }
+    for (pointer, (end, total, text)) in chunks {
+        assert_eq!(end, total);
+        set_field(&mut returned, &pointer, json!(text));
+    }
+    assert_eq!(
+        format!("{:x}", Sha256::digest(returned.to_string().as_bytes())),
+        content_hash.unwrap()
+    );
+    returned
+}
+
+fn set_field(value: &mut Value, pointer: &str, field: Value) {
+    let parts: Vec<String> = pointer.strip_prefix('/').map_or_else(Vec::new, |pointer| {
+        pointer
+            .split('/')
+            .map(|part| part.replace("~1", "/").replace("~0", "~"))
+            .collect()
+    });
+    fn put(value: &mut Value, parts: &[String], field: Value) {
+        let Some((part, rest)) = parts.split_first() else {
+            *value = field;
+            return;
+        };
+        if value.is_null() {
+            *value = if part.parse::<usize>().is_ok() {
+                json!([])
+            } else {
+                json!({})
+            };
+        }
+        match value {
+            Value::Array(items) => {
+                let index = part.parse::<usize>().unwrap();
+                if items.len() <= index {
+                    items.resize(index + 1, Value::Null);
+                }
+                put(&mut items[index], rest, field);
+            }
+            Value::Object(object) => put(
+                object.entry(part.clone()).or_insert(Value::Null),
+                rest,
+                field,
+            ),
+            _ => panic!("non-container returned source at {parts:?}"),
+        }
+    }
+    put(value, &parts, field);
 }
 
 async fn call(

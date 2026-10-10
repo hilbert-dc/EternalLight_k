@@ -1,11 +1,17 @@
 use novel_codex_story_core::{
     BranchId, ChapterProjection, CommitId, CreateTaskRequest, IdempotencyKey, InitialWorkBudget,
     ObjectId, ProjectId, ProjectRecord, PublishModelingBatch, RevisionId, SaveCandidateRequest,
-    SnapshotId, SqliteStoryRepository, TaskActionRequest, TaskOutputBinding, WorkActionRequest,
-    WorkBudgetAuthorization, WorkDecisionRequest,
+    SnapshotId, SqliteStoryRepository, TaskActionRequest, TaskOutputBinding, TaskRecord,
+    WorkActionRequest, WorkBudgetAuthorization, WorkDecisionRequest,
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+
+fn empty_issues() -> Value {
+    json!({"entries":[],"openCount":0,"staleCount":0,"disputedCount":0,
+        "totalCount":0,"hasMore":false})
+}
 
 struct Fixture {
     repo: SqliteStoryRepository,
@@ -130,7 +136,8 @@ fn discussion_termination_is_not_artifact_or_goal_certification() {
                 "evidence":[{"stepId":"step-root","attemptId":"root","kind":"completionReport",
                     "referenceId":if summary.is_empty() { Value::Null } else { json!("root") },
                     "state":if summary.is_empty() { "missing" } else { "recorded" }}],
-                "pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null
+                "pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null,
+                "issues":empty_issues(),"chapterAcceptanceReports":[]
             })
         );
         assert_eq!(work["steps"].as_array().unwrap().len(), 1);
@@ -173,7 +180,7 @@ fn an_unexecuted_proposal_prevents_a_false_delivery_claim() {
             pending["deliveryStatus"].clone(),
             pending["deliveryReport"]["pendingActionIds"].clone()
         ),
-        (json!("completed"), json!("pending"), json!(["proposal"]))
+        (json!("running"), json!("pending"), json!(["proposal"]))
     );
     fixture
         .repo
@@ -185,8 +192,23 @@ fn an_unexecuted_proposal_prevents_a_false_delivery_claim() {
         )
         .unwrap();
     let ended = fixture.work("root");
-    assert_eq!(ended["deliveryStatus"], "discussion_ended");
+    assert_eq!(ended["status"], "running");
+    assert_eq!(ended["deliveryStatus"], "pending");
     assert_eq!(ended["deliveryReport"]["pendingActionIds"], json!([]));
+    assert!(ended["deliveryReport"]["deliveryReview"].is_null());
+    assert_eq!(
+        fixture
+            .repo
+            .task(&fixture.project, "root")
+            .unwrap()
+            .unwrap()
+            .status,
+        "completed"
+    );
+    assert_eq!(
+        fixture.repo.task_actions(&fixture.project, "root").unwrap()[0].status,
+        "declined"
+    );
     assert_eq!(fixture.repo.tasks(&fixture.project).unwrap().len(), 1);
 }
 
@@ -212,7 +234,8 @@ fn canonical_outputs_not_presentation_metadata_determine_delivery_after_reopen()
     let ready = fixture.work("root");
     assert_eq!(ready["deliveryStatus"], "ready_for_review");
     let report = json!({"evidence":[{"stepId":"step-root","attemptId":"root","kind":"brief",
-        "referenceId":"brief-one","state":"recorded"}],"pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null});
+        "referenceId":"brief-one","state":"recorded"}],"pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null,
+        "issues":empty_issues(),"chapterAcceptanceReports":[]});
     assert_eq!(ready["deliveryReport"], report);
     let db = rusqlite::Connection::open(&path).unwrap();
     db.execute(
@@ -229,7 +252,8 @@ fn canonical_outputs_not_presentation_metadata_determine_delivery_after_reopen()
         superseded["deliveryReport"],
         json!({"evidence":[{"stepId":"step-root",
         "attemptId":"root","kind":"brief","referenceId":"brief-one","state":"superseded"}],
-        "pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null})
+        "pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null,
+        "issues":empty_issues(),"chapterAcceptanceReports":[]})
     );
     fixture.repo = SqliteStoryRepository::open(&path).unwrap();
     assert_eq!(fixture.work("root"), superseded);
@@ -457,6 +481,8 @@ fn chapter_delivery_waits_for_its_actual_published_knowledge_and_detects_superse
                 instruction: "分析本次已保存章节的事实".into(),
                 idempotency_key: "select-knowledge".into(),
                 recovery_plan: None,
+                chapter_review: None,
+                chapter_acceptance: None,
             },
         )
         .unwrap();
@@ -468,7 +494,8 @@ fn chapter_delivery_waits_for_its_actual_published_knowledge_and_detects_superse
         {"stepId":"step-root","attemptId":"root","kind":"draft","referenceId":"draft-one","state":"recorded"},
         {"stepId":decision.id,"attemptId":"decision-parent","kind":"completionReport","referenceId":"decision-parent","state":"recorded"},
         {"stepId":selected_step,"attemptId":null,"kind":"knowledgeBatch","referenceId":null,"state":"pending"}
-    ],"pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null});
+    ],"pendingActionIds":[],"unsettledAttemptIds":[],"deliveryReview":null,
+        "issues":empty_issues(),"chapterAcceptanceReports":[]});
     assert_eq!(pending["deliveryStatus"], "partial");
     assert_eq!(pending["deliveryReport"], expected_report);
     let batch = selected["step"]["target"]["batchId"]
@@ -582,6 +609,7 @@ fn finish_work(fixture: &mut Fixture, work: &str) -> (String, Value) {
     target["resumeStepId"] = json!(step.id);
     request.target_json = target.to_string();
     let parent = fixture.repo.create_task(request).unwrap();
+    read_author_requirements(fixture, &parent);
     assert_eq!(
         fixture.repo.task_work_decision(&parent, None).unwrap()["canFinish"],
         true
@@ -606,7 +634,7 @@ fn finish_work(fixture: &mut Fixture, work: &str) -> (String, Value) {
             .task_work_decision(&parent, Some(cursor))
             .unwrap();
     }
-    let review = json!({"expectedWorkVersion":status["version"],"expectedSourceDigest":status["sourceDigest"],"goalStatus":"fulfilled","goalAssessment":"已保存本次正文和分析","checkedScope":"已核对实际保存内容，未进行其他检查","unresolved":[],"authorDecisions":[],"evidence":evidence});
+    let review = json!({"expectedWorkVersion":status["version"],"expectedSourceDigest":status["sourceDigest"],"goalStatus":"fulfilled","goalAssessment":"已保存本次正文和分析","checkedScope":"已核对实际保存内容，未进行其他检查","unresolved":[],"issueResolutions":[],"authorDecisions":[],"evidence":evidence});
     fixture
         .repo
         .complete_task(
@@ -620,4 +648,59 @@ fn finish_work(fixture: &mut Fixture, work: &str) -> (String, Value) {
         .unwrap();
     settle_followup(fixture, work, "decision-final");
     (step.id, review)
+}
+
+fn read_author_requirements(fixture: &Fixture, task: &TaskRecord) {
+    let mut context = json!({"coverage":{"complete":false,"missingScope":[]}});
+    fixture
+        .repo
+        .project_task_sources(task, &mut context)
+        .unwrap();
+    let source = context["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["sectionPath"] == "/authorRequirementsSource")
+        .unwrap();
+    let source_id = source["sourceId"].as_str().unwrap();
+    assert_eq!(
+        context["authorRequirementsSource"],
+        json!({"sourceId":source_id,"textDelivered":false})
+    );
+    let hash = source["contentHash"].as_str().unwrap();
+    let total = source["payloadBytes"].as_u64().unwrap() as usize;
+    let mut raw = String::new();
+    let mut cursor = None;
+    loop {
+        let page = fixture
+            .repo
+            .task_source_page(task, source_id, cursor.as_deref())
+            .unwrap();
+        assert_eq!(page["sourceId"], source_id);
+        assert_eq!(page["sectionPath"], "/authorRequirementsSource");
+        assert_eq!(page["contentHash"], hash);
+        assert_eq!(page["byteRange"]["start"], raw.len());
+        assert_eq!(page["byteRange"]["total"], total);
+        let text = page["payloadPart"].as_str().unwrap();
+        assert!(text.len() <= 2000);
+        assert!(page.to_string().len() <= 6500);
+        let model_item = json!({"type":"function_call_output","call_id":"x".repeat(160),
+            "output":json!({"content":[{"type":"text","text":page.to_string()}]}).to_string()});
+        assert!(model_item.to_string().len().div_ceil(3) <= 9000);
+        raw.push_str(text);
+        assert_eq!(page["byteRange"]["end"], raw.len());
+        cursor = page["nextCursor"].as_str().map(str::to_owned);
+        if cursor.is_none() {
+            assert_eq!(page["endOfInputFromCursor"], true);
+            break;
+        }
+    }
+    assert_eq!(raw.len(), total);
+    assert_eq!(format!("{:x}", Sha256::digest(raw.as_bytes())), hash);
+    let body: Value = serde_json::from_str(&raw).unwrap();
+    let manifest: Value = serde_json::from_str(&task.input_manifest_json).unwrap();
+    assert_eq!(body["authority"], "frozenAuthorIntent");
+    assert_eq!(body["intentRevision"], 0);
+    assert_eq!(body["authorText"], manifest["authorIntent"]);
+    assert!(!body["authorText"].as_str().unwrap().is_empty());
 }

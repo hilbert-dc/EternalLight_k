@@ -116,6 +116,46 @@ fn task_request(ws: &Value, event: &Value, key: &str) -> Value {
 fn source_request(task: &Value, role: &str, cursor: Value) -> Value {
     json!({"threadId":THREAD,"expectedRevision":task["inputRevision"],"sourceRole":role,"cursor":cursor,"limit":5})
 }
+async fn read_task_source(app: &Router, uri: &str, entry: &Value) -> Value {
+    let mut cursor = String::new();
+    let mut payload = String::new();
+    loop {
+        let (status, page) = call(
+            app,
+            "GET",
+            &format!("{uri}{cursor}"),
+            CANDIDATE,
+            Value::Null,
+            "read_task_source",
+            THREAD,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["sourceId"], entry["sourceId"]);
+        assert_eq!(page["sectionPath"], entry["sectionPath"]);
+        assert_eq!(page["contentHash"], entry["contentHash"]);
+        assert_eq!(page["payloadEncoding"], "jsonUtf8");
+        assert_eq!(page["byteRange"]["start"], payload.len());
+        assert_eq!(page["byteRange"]["total"], entry["payloadBytes"]);
+        let part = page["payloadPart"].as_str().unwrap();
+        assert!(!part.is_empty() && part.len() <= 2000);
+        assert!(page.to_string().len() <= 6500);
+        payload.push_str(part);
+        assert_eq!(page["byteRange"]["end"], payload.len());
+        if page["nextCursor"].is_null() {
+            assert_eq!(page["endOfInputFromCursor"], true);
+            assert_eq!(entry["payloadBytes"], payload.len());
+            break;
+        }
+        assert_eq!(page["endOfInputFromCursor"], false);
+        cursor = format!("&cursor={}", page["nextCursor"].as_str().unwrap());
+    }
+    assert_eq!(
+        format!("{:x}", Sha256::digest(payload.as_bytes())),
+        entry["contentHash"].as_str().unwrap()
+    );
+    serde_json::from_str(&payload).unwrap()
+}
 fn counts(path: &std::path::Path) -> (i64, i64, i64) {
     let db = rusqlite::Connection::open(path).unwrap();
     (
@@ -141,7 +181,7 @@ async fn deletion_captures_unpublished_and_published_sources_and_funds_one_reado
         novel_codex_story_runtime::RuntimeState::new(path.clone(), AUTHOR.into(), CANDIDATE.into())
             .with_engine_budget_database(path.with_extension("engine.sqlite3")),
     );
-    let project = author(&app, "POST", "/api/projects", json!({"title":"结构变化"})).await;
+    let project = author(&app, "POST", "/api/projects", json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"结构变化"})).await;
     let root = format!(
         "/api/projects/{}",
         project["project"]["id"].as_str().unwrap()
@@ -286,10 +326,50 @@ async fn deletion_captures_unpublished_and_published_sources_and_funds_one_reado
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{context}");
+    let metadata_entry = context["taskSources"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["sectionPath"] == "/operationContext/chapterStructureChange")
+        .unwrap();
     assert_eq!(
-        context["operationContext"]["chapterStructureChange"]["source"],
-        event["source"]
+        context["operationContext"]["chapterStructureChange"],
+        json!({"sourceId":metadata_entry["sourceId"],"textDelivered":false})
     );
+    let metadata_uri = format!(
+        "{task_uri}/task-source?threadId={THREAD}&expectedRevision={}&sourceId={}",
+        task["inputRevision"],
+        metadata_entry["sourceId"].as_str().unwrap()
+    );
+    for (tool, caller) in [
+        ("read_source_content", THREAD),
+        ("read_task_source", "child"),
+    ] {
+        assert!(
+            !call(
+                &app,
+                "GET",
+                &metadata_uri,
+                CANDIDATE,
+                Value::Null,
+                tool,
+                caller
+            )
+            .await
+            .0
+            .is_success()
+        );
+    }
+    let metadata = read_task_source(&app, &metadata_uri, metadata_entry).await;
+    let mut expected_metadata = event.clone();
+    expected_metadata
+        .as_object_mut()
+        .unwrap()
+        .remove("assessment");
+    expected_metadata["authority"] = json!("removedHistoricalSource");
+    expected_metadata["coverage"] =
+        json!({"globalImpactComplete":false,"sourceTextDelivered":false});
+    assert_eq!(metadata, expected_metadata);
     let mut cursor = Value::Null;
     let mut text = String::new();
     let mut first = Value::Null;
@@ -441,6 +521,20 @@ async fn deletion_captures_unpublished_and_published_sources_and_funds_one_reado
     assert!(
         !call(
             &app,
+            "GET",
+            &metadata_uri,
+            CANDIDATE,
+            Value::Null,
+            "read_task_source",
+            THREAD
+        )
+        .await
+        .0
+        .is_success()
+    );
+    assert!(
+        !call(
+            &app,
             "POST",
             &source_uri,
             CANDIDATE,
@@ -462,7 +556,7 @@ async fn empty_change_skip_and_bound_reader_refuses_freshness_drift_without_new_
         novel_codex_story_runtime::RuntimeState::new(path.clone(), AUTHOR.into(), CANDIDATE.into())
             .with_engine_budget_database(path.with_extension("engine.sqlite3")),
     );
-    let p = author(&app, "POST", "/api/projects", json!({"title":"边界"})).await;
+    let p = author(&app, "POST", "/api/projects", json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"边界"})).await;
     let root = format!("/api/projects/{}", p["project"]["id"].as_str().unwrap());
     let empty = make_chapter(&app, &root, "empty").await;
     let original = save(

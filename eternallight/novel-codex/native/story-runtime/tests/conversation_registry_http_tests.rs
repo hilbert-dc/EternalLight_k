@@ -48,7 +48,7 @@ async fn project(path: &Path) -> String {
         "POST",
         "/api/projects",
         AUTHOR,
-        Some(json!({"title":"独立会话"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"独立会话"})),
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");

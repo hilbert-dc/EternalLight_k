@@ -4,18 +4,66 @@ use sha2::Digest;
 use super::{RuntimeClient, validate_execution_identity};
 
 #[test]
+fn worker_completion_schema_cannot_masquerade_as_a_work_delivery_review() {
+    for operation in [
+        "generateChapter",
+        "modelKnowledge",
+        "generateOutline",
+        "advisory",
+    ] {
+        let client = RuntimeClient {
+            request_dispatched: Default::default(),
+            completion_receipt: Default::default(),
+            publication_gate: Default::default(),
+            read_progress: Default::default(),
+            argument_validation: Default::default(),
+            host: "127.0.0.1".into(),
+            port: 1,
+            candidate_token: "candidate".into(),
+            capability: "cap".into(),
+            operation: operation.into(),
+        };
+        let tools = client.operation_tools();
+        let schema = &tools
+            .iter()
+            .find(|tool| tool["name"] == "complete_task")
+            .unwrap()["inputSchema"];
+        assert_eq!(
+            schema["properties"].get("deliveryReview").is_some(),
+            operation == "advisory"
+        );
+        let validator = jsonschema::options().build(schema).unwrap();
+        let worker = json!({"projectId":"p","taskId":"writer","threadId":"root","expectedRevision":0,"summary":"已保存"});
+        assert!(validator.is_valid(&worker));
+        if operation != "advisory" {
+            let mut wrong = worker;
+            wrong["deliveryReview"] = json!({"goalStatus":"fulfilled"});
+            assert!(!validator.is_valid(&wrong));
+        }
+    }
+}
+
+#[test]
 fn new_chapter_candidate_error_points_to_the_generation_goal_route_before_http() {
     let client = RuntimeClient {
+        request_dispatched: Default::default(),
+        completion_receipt: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
-        read_progress: Default::default(), argument_validation: Default::default(),
-        host: "127.0.0.1".into(), port: 1, candidate_token: "candidate".into(),
-        capability: "capability".into(), operation: "advisory".into(),
+        read_progress: Default::default(),
+        argument_validation: Default::default(),
+        host: "127.0.0.1".into(),
+        port: 1,
+        candidate_token: "candidate".into(),
+        capability: "capability".into(),
+        operation: "advisory".into(),
     };
     let root = json!({"rootThreadId":"root","callerThreadId":"root","sessionId":"root","turnId":"turn","callId":"create"});
     let arguments = json!({"projectId":"project","taskId":"advisory","threadId":"root","expectedRevision":0,
         "expectedIntentRevision":0,"operation":"generateChapter","target":{"type":"newChapter","chapterNumber":1},
         "instruction":"生成前100章","idempotencyKey":"creation"});
-    let error = client.call("request_candidate_task", &arguments, &root).unwrap_err();
+    let error = client
+        .call("request_candidate_task", &arguments, &root)
+        .unwrap_err();
     assert!(error.contains("request_generation_handoff"), "{error}");
     assert!(error.contains("target.chapterId"), "{error}");
 }
@@ -29,8 +77,10 @@ fn revision_outcome_submission_preserves_candidate_cas_and_root_recovery_identit
     for expected in [json!(null), json!("outcome-checkpoint")] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = RuntimeClient {
+            request_dispatched: Default::default(),
             publication_gate: super::publication_gate::PublicationGate::default(),
             read_progress: Default::default(),
+            completion_receipt: Default::default(),
             argument_validation: Default::default(),
             host: "127.0.0.1".into(),
             port: listener.local_addr().unwrap().port(),
@@ -41,8 +91,8 @@ fn revision_outcome_submission_preserves_candidate_cas_and_root_recovery_identit
         let args = json!({"taskId":"assessment","projectId":"project","threadId":"root","expectedRevision":8,
             "writerTaskId":"writer-one","expectedCandidateRevisionId":expected,"idempotencyKey":"outcome-one",
             "payload":{"writerTaskId":"writer-one","chapterId":"chapter-one","originalRevisionId":"original",
-                "draftRevisionId":"revised","knowledgeBatchId":"batch-one","outcomes":[{"id":"evidence",
-                    "status":"supported","reason":"正文呈现信中依据","evidence":[{"groupId":"letter","quote":"🌙信","start":1,"end":3}]}]}});
+                "draftRevisionId":"revised","knowledgeBatchId":"batch-one","uncoveredRequirements":[],"outcomes":[{"id":"evidence",
+                    "status":"supported","reason":"正文呈现信中依据","issue":null,"evidence":[{"groupId":"letter","quote":"🌙信","start":1,"end":3}]}]}});
         let names = client
             .exposed_tools()
             .iter()
@@ -53,7 +103,10 @@ fn revision_outcome_submission_preserves_candidate_cas_and_root_recovery_identit
             [
                 "read_context",
                 "read_creative_strategy",
+                "discover_creative_capabilities",
+                "read_source_content",
                 "read_task_source",
+                "read_work_issues",
                 "search_story",
                 "search_relations",
                 "query_story",
@@ -67,7 +120,7 @@ fn revision_outcome_submission_preserves_candidate_cas_and_root_recovery_identit
         );
         assert_eq!(
             client.call("submit_revision_outcome", &args, &child),
-            Err("Subagents may only use read-only tools".into())
+            Err("Subagents may read sources or save explicitly authorized isolated candidates; parent owns formal writes and decisions".into())
         );
         for name in [
             "save_draft_checkpoint",
@@ -171,8 +224,10 @@ fn revision_outcome_submission_preserves_candidate_cas_and_root_recovery_identit
 #[test]
 fn model_supplied_call_ids_cannot_inject_http_headers() {
     let client = RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: 1,
@@ -191,8 +246,10 @@ fn model_supplied_call_ids_cannot_inject_http_headers() {
 #[test]
 fn reading_progress_is_root_owned_and_cannot_be_forged_by_a_child() {
     let client = RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: 1,
@@ -264,8 +321,10 @@ fn context_query_plan_is_encoded_as_a_read_only_task_request() {
                 String::from_utf8(request).unwrap()
             });
             let client = RuntimeClient {
+                request_dispatched: Default::default(),
                 publication_gate: super::publication_gate::PublicationGate::default(),
                 read_progress: Default::default(),
+                completion_receipt: Default::default(),
                 argument_validation: Default::default(),
                 host: "127.0.0.1".into(),
                 port,
@@ -291,7 +350,10 @@ fn context_query_plan_is_encoded_as_a_read_only_task_request() {
             let arguments = json!({"taskId":"task","projectId":"project","threadId":"root","expectedRevision":0,"budget":24,"byteBudget":60000,"queryPlan":plan});
             assert_eq!(
                 client.call("read_context", &arguments, &child).unwrap(),
-                (200, json!({"readOnly":true}))
+                (
+                    200,
+                    json!({"readOnly":true,"executionIdentity":{"authority":"trustedRuntimeIdentity","rootThreadId":"root","callerThreadId":caller,"parentThreadId":if caller=="root" {json!(null)} else {json!("root")},"instruction":"Role labels and spawn task names are not thread IDs. For isolated writing, the parent grants this exact child callerThreadId under its existing task."}})
+                )
             );
             let request = server.join().unwrap();
             assert!(request.starts_with("GET /api/projects/project/context?"));
@@ -312,6 +374,7 @@ fn context_query_plan_is_encoded_as_a_read_only_task_request() {
             );
             assert!(request.contains(&format!("X-Novel-Request-Hash: {expected_hash}")));
             let other = RuntimeClient {
+                request_dispatched: Default::default(),
                 operation: "unknown".into(),
                 ..client
             };
@@ -326,8 +389,10 @@ fn context_query_plan_is_encoded_as_a_read_only_task_request() {
 #[test]
 fn commitment_submission_is_root_only_and_never_granted_to_other_operations() {
     let mut client = RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: 1,
@@ -340,7 +405,7 @@ fn commitment_submission_is_root_only_and_never_granted_to_other_operations() {
     let child = json!({"rootThreadId":"root","callerThreadId":"child","parentThreadId":"root","sessionId":"root"});
     assert_eq!(
         client.call("submit_commitment_extraction", &arguments, &child),
-        Err("Subagents may only use read-only tools".into())
+        Err("Subagents may read sources or save explicitly authorized isolated candidates; parent owns formal writes and decisions".into())
     );
     let root = json!({"rootThreadId":"root","callerThreadId":"root","parentThreadId":null,"sessionId":"root"});
     for operation in ["advisory", "generateChapter", "modelKnowledge"] {
@@ -358,8 +423,10 @@ fn property_rule_submission_uses_the_artifact_route_and_blocks_children_and_othe
     use std::net::TcpListener;
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let mut client = RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: listener.local_addr().unwrap().port(),
@@ -373,7 +440,7 @@ fn property_rule_submission_uses_the_artifact_route_and_blocks_children_and_othe
     let root = json!({"rootThreadId":"root","callerThreadId":"root","sessionId":"root","turnId":"turn","callId":"call"});
     assert_eq!(
         client.call("save_property_rules", &args, &child),
-        Err("Subagents may only use read-only tools".into())
+        Err("Subagents may read sources or save explicitly authorized isolated candidates; parent owns formal writes and decisions".into())
     );
     for operation in [
         "advisory",
@@ -442,8 +509,10 @@ fn property_rule_submission_uses_the_artifact_route_and_blocks_children_and_othe
 #[test]
 fn commitment_revision_write_is_root_only_and_reads_do_not_expand_writer_permissions() {
     let mut client = RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: 1,
@@ -455,7 +524,7 @@ fn commitment_revision_write_is_root_only_and_reads_do_not_expand_writer_permiss
     let child = json!({"rootThreadId":"root","callerThreadId":"child","parentThreadId":"root","sessionId":"root"});
     assert_eq!(
         client.call("submit_commitment_candidate", &args, &child),
-        Err("Subagents may only use read-only tools".into())
+        Err("Subagents may read sources or save explicitly authorized isolated candidates; parent owns formal writes and decisions".into())
     );
     for operation in [
         "advisory",
@@ -501,8 +570,10 @@ fn commitment_input_transport_preserves_task_identity_and_percent_encodes_the_ta
             String::from_utf8(request).unwrap()
         });
         let client = RuntimeClient {
+            request_dispatched: Default::default(),
             publication_gate: super::publication_gate::PublicationGate::default(),
             read_progress: Default::default(),
+            completion_receipt: Default::default(),
             argument_validation: Default::default(),
             host: "127.0.0.1".into(),
             port,
@@ -580,8 +651,10 @@ fn scoped_query_plan_is_forwarded_read_only_for_a_trusted_child() {
                 (header, body)
             });
             let client = RuntimeClient {
+                request_dispatched: Default::default(),
                 publication_gate: super::publication_gate::PublicationGate::default(),
                 read_progress: Default::default(),
+                completion_receipt: Default::default(),
                 argument_validation: Default::default(),
                 host: "127.0.0.1".into(),
                 port,
@@ -603,6 +676,7 @@ fn scoped_query_plan_is_forwarded_read_only_for_a_trusted_child() {
                 json!({"threadId":"root","expectedRevision":0,"plan":plan})
             );
             let other = RuntimeClient {
+                request_dispatched: Default::default(),
                 operation: "unknown".into(),
                 ..client
             };
@@ -617,8 +691,10 @@ fn scoped_query_plan_is_forwarded_read_only_for_a_trusted_child() {
 #[test]
 fn writer_relation_search_is_read_only_and_not_exposed_to_other_operations() {
     let client = RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: super::publication_gate::PublicationGate::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port: 1,
@@ -647,6 +723,7 @@ fn writer_relation_search_is_read_only_and_not_exposed_to_other_operations() {
     assert_eq!(error["reason"], "type");
     assert!(error["schemaPath"].as_str().unwrap().contains("maxHops"));
     let advisory = RuntimeClient {
+        request_dispatched: Default::default(),
         operation: "advisory".into(),
         ..client
     };
@@ -686,8 +763,10 @@ fn correction_limit_blocks_later_valid_writes_and_reads_before_runtime_dispatch(
         }
     });
     let client = RuntimeClient {
+        request_dispatched: Default::default(),
         publication_gate: Default::default(),
         read_progress: Default::default(),
+        completion_receipt: Default::default(),
         argument_validation: Default::default(),
         host: "127.0.0.1".into(),
         port,
@@ -757,8 +836,10 @@ fn all_local_schema_rejections_are_task_bound_and_never_reach_runtime() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let client = RuntimeClient {
+            request_dispatched: Default::default(),
             publication_gate: Default::default(),
             read_progress: Default::default(),
+            completion_receipt: Default::default(),
             argument_validation: Default::default(),
             host: "127.0.0.1".into(),
             port: listener.local_addr().unwrap().port(),

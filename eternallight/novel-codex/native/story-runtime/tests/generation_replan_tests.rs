@@ -16,6 +16,98 @@ const AUTHOR: &str = "replan-author-token-1234567890123456";
 const CANDIDATE: &str = "replan-candidate-token-1234567890123";
 const CAPABILITY: &str = "replan-task-secret-1234567890123456";
 
+#[tokio::test]
+async fn checkpoint_rebind_preserves_author_identity_and_rejects_creative_instructions() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("rebind.sqlite3");
+    let app = router(
+        task_fixture::state(path.clone(), AUTHOR.into(), CANDIDATE.into())
+            .with_engine_budget_database(path.with_extension("budget.sqlite3")),
+    );
+    let (_, created) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        AUTHOR,
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"续写"})),
+    )
+    .await;
+    let root = format!(
+        "/api/projects/{}",
+        created["project"]["id"].as_str().unwrap()
+    );
+    let (status, initial) = call(&app,"POST",&format!("{root}/generation-runs"),AUTHOR,
+        Some(json!({"expectedProjectRevision":0,"authorIntent":"按我的要求写两章，每章约3000字，不改已有原文", "targetChapters":2,
+            "maxTaskAttempts":12,"maxProviderRequests":256,"maxProviderTokens":4000000,"deadlineAt":null}))).await;
+    assert_eq!(status, StatusCode::CREATED, "{initial}");
+    let uri = format!("{root}/generation-runs/{}", initial["id"].as_str().unwrap());
+    let (_, paused) = call(
+        &app,
+        "POST",
+        &format!("{uri}/control"),
+        AUTHOR,
+        Some(json!({"expectedVersion":initial["version"],"command":"pause"})),
+    )
+    .await;
+    let (status, saved) = call(&app,"POST",&format!("{root}/artifacts/brief"),AUTHOR,
+        Some(json!({"payload":{"premise":"当前简报"},"expectedRevision":0,"expectedCandidateRevisionId":null,"idempotencyKey":"source-edit"}))).await;
+    assert_eq!(status, StatusCode::CREATED, "{saved}");
+    let (_, preview) = call(&app, "GET", &format!("{uri}/replan"), AUTHOR, None).await;
+    let request = json!({"expectedVersion":paused["version"],"expectedProjectRevision":preview["projectRevision"],
+        "expectedSourceDigest":preview["sourceDigest"],"restartFrom":"rollingPlan"});
+    let mut forged = request.clone();
+    forged["instruction"] = json!("降低每章篇幅要求");
+    assert_eq!(
+        call(&app, "POST", &format!("{uri}/rebind"), AUTHOR, Some(forged))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(call(&app, "GET", &uri, AUTHOR, None).await.1, paused);
+    let (status, rebound) = call(
+        &app,
+        "POST",
+        &format!("{uri}/rebind"),
+        AUTHOR,
+        Some(request.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{rebound}");
+    for field in [
+        "intentGeneration",
+        "intentRevisions",
+        "authorIntent",
+        "targetChapters",
+        "completedChapters",
+        "providerBudget",
+        "usedTaskAttempts",
+        "retryAttempts",
+        "maxRetryAttempts",
+        "maxTaskAttempts",
+        "deadlineAt",
+    ] {
+        assert_eq!(
+            rebound[field], paused[field],
+            "rebind must preserve {field}"
+        );
+    }
+    assert_eq!(rebound["sourceDigest"], preview["sourceDigest"]);
+    assert_eq!(rebound["status"], "running");
+    assert!(
+        call(
+            &app,
+            "POST",
+            &format!("{uri}/rebind"),
+            AUTHOR,
+            Some(request)
+        )
+        .await
+        .0
+        .is_client_error()
+    );
+    assert_eq!(call(&app, "GET", &uri, AUTHOR, None).await.1, rebound);
+}
+
 async fn call(
     app: &Router,
     method: &str,
@@ -73,7 +165,7 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
         "POST",
         "/api/projects",
         AUTHOR,
-        Some(json!({"title":"港城"})),
+        Some(json!({"logline":"","medium":"novel","idempotencyKey":uuid::Uuid::new_v4().to_string(),"title":"港城"})),
     )
     .await;
     let project = created["project"]["id"].as_str().unwrap();
@@ -99,41 +191,23 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
     let (status, task) = call(&app, "POST", &format!("{root}/tasks"), AUTHOR, Some(create)).await;
     assert_eq!(status, StatusCode::CREATED, "{task}");
     let task_id = task["id"].as_str().unwrap();
-    let (_, claimed) = call(&app, "GET", &uri, AUTHOR, /*body*/ None).await;
-    let (status, paused_active) = call(
+    let (status, grant) = call(
         &app,
-        "POST",
-        &format!("{uri}/control"),
+        "GET",
+        &format!("{root}/tasks/{task_id}/provider-budget"),
         AUTHOR,
-        Some(json!({"expectedVersion":claimed["version"],"command":"pause"})),
+        None,
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{paused_active}");
-    let request = json!({"expectedVersion":paused_active["version"],"expectedProjectRevision":0,
-        "expectedSourceDigest":initial["sourceDigest"],"restartFrom":"brief","instruction":"继续"});
-    let (status, rejected) = call(
-        &app,
-        "POST",
-        &format!("{uri}/replan"),
-        AUTHOR,
-        Some(request),
-    )
-    .await;
-    assert!(status.is_client_error(), "{rejected}");
-    assert_eq!(
-        call(&app, "GET", &uri, AUTHOR, /*body*/ None).await.1,
-        paused_active
-    );
-    let (status, resumed_active) = call(
-        &app,
-        "POST",
-        &format!("{uri}/control"),
-        AUTHOR,
-        Some(json!({"expectedVersion":paused_active["version"],"command":"resume"})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{resumed_active}");
-    let (status, decision) = call(
+    assert_eq!(status, StatusCode::OK, "{grant}");
+    assert_eq!(grant["taskId"], task_id);
+    assert_eq!(grant["budgetId"], format!("budget-{task_id}"));
+    assert_eq!(grant["maxRequests"], 256);
+    assert_eq!(grant["maxTokens"], 4000000);
+    assert_eq!(grant["deadlineAt"], now + 600);
+    // The checkpoint replan below starts from a settled terminal attempt.
+    // Active author pauses cancel the attempt and are covered by continuous recovery tests.
+    let (status, mut decision) = call(
         &app,
         "GET",
         &format!("{root}/tasks/{task_id}/work-decision?threadId=brief&expectedRevision=0"),
@@ -142,6 +216,55 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{decision}");
+    assert_eq!(decision["pagination"]["page"], 0);
+    assert_eq!(decision["threadId"], "brief");
+    assert_eq!(decision["workTaskId"], grant["workTaskId"]);
+    assert_eq!(decision["coverage"]["actionsOffset"], 0);
+    let action_count = decision["coverage"]["availableActions"].as_u64().unwrap();
+    let mut cursor = decision["pagination"]["nextCursor"].clone();
+    let mut seen_cursors = std::collections::BTreeSet::new();
+    let mut expected_page = 1_u64;
+    while let Some(current) = cursor.as_str() {
+        assert!(seen_cursors.insert(current.to_owned()), "repeated cursor");
+        let (status, page) = call(
+            &app,
+            "GET",
+            &format!(
+                "{root}/tasks/{task_id}/work-decision?threadId=brief&expectedRevision=0&cursor={}",
+                current.replace(':', "%3A")
+            ),
+            CANDIDATE,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        for field in ["workTaskId", "threadId", "version", "sourceDigest"] {
+            assert_eq!(page[field], decision[field], "page fence {field}");
+        }
+        assert_eq!(page["pagination"]["page"], expected_page);
+        assert_eq!(page["coverage"]["availableActions"], action_count);
+        assert_eq!(
+            page["coverage"]["actionsOffset"],
+            (expected_page * 2).min(action_count)
+        );
+        assert_eq!(
+            page["pagination"]["hasMore"],
+            !page["pagination"]["nextCursor"].is_null()
+        );
+        decision["readyActions"]
+            .as_array_mut()
+            .unwrap()
+            .extend(page["readyActions"].as_array().unwrap().iter().cloned());
+        cursor = page["pagination"]["nextCursor"].clone();
+        expected_page += 1;
+    }
+    let all_actions = decision["readyActions"].as_array().unwrap();
+    assert_eq!(all_actions.len() as u64, action_count);
+    let action_keys = all_actions
+        .iter()
+        .map(|action| action["actionKey"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(action_keys.len(), all_actions.len());
     let action = decision["readyActions"]
         .as_array()
         .unwrap()
@@ -175,7 +298,7 @@ async fn replan_uses_new_sources_without_reopening_attempts_or_refunding_budget(
     let mut budget = PersistentBudget::new(
         &path.with_extension("budget.sqlite3"),
         task_id,
-        json!({"options":{"id":format!("budget-{task_id}")},"now":0}),
+        json!({"options":{"id":grant["budgetId"],"maxRequests":grant["maxRequests"],"maxTokens":grant["maxTokens"]},"now":0}),
     )
     .unwrap();
     budget.complete("terminal").unwrap();

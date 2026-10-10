@@ -59,6 +59,24 @@ pub(crate) async fn deliver(
     }
 }
 
+pub(crate) async fn retain_unsent(
+    State(state): State<RuntimeState>,
+    Path((project_id, task_id, intent_revision)): Path<(String, String, i64)>,
+) -> Response {
+    let project_id = match ProjectId::parse(project_id) {
+        Ok(id) => id,
+        Err(source) => return bad_request("invalid_project_id", source),
+    };
+    let mut repository = match SqliteStoryRepository::open(&state.database_path) {
+        Ok(repository) => repository,
+        Err(source) => return repository_error(source),
+    };
+    match repository.retain_unsent_task_intent(&project_id, &task_id, intent_revision, unix_now()) {
+        Ok(intent) => Json(json!(intent)).into_response(),
+        Err(source) => repository_error(source),
+    }
+}
+
 pub(crate) async fn list(
     State(state): State<RuntimeState>,
     Path((project_id, task_id)): Path<(String, String)>,

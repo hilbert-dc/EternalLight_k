@@ -76,7 +76,7 @@ fn task(repo: &mut SqliteStoryRepository, id: &str, target: Value) -> TaskRecord
         model: None,
         target_json: target.to_string(),
         input_manifest_json: json!({"authorIntent":"分析行程"}).to_string(),
-        capability_hash: "a".repeat(64),
+        capability_hash: format!("{:x}", Sha256::digest(format!("capability-{id}"))),
         capability_expires_at: 1000,
     })
     .unwrap()
@@ -109,7 +109,7 @@ fn resume(repo: &mut SqliteStoryRepository, old: &TaskRecord, id: &str) -> TaskR
     let work = repo
         .work_task_for_attempt(&project(), &old.task_id)
         .unwrap();
-    repo.control_work_task(&project(), &work.id, "pause", work.version, 12)
+    repo.control_work_task(&project(), &work.id, "pause", work.control_revision, 12)
         .unwrap();
     assert!(repo.reading_progress(old, 13).is_err());
     repo.update_task(
@@ -123,9 +123,9 @@ fn resume(repo: &mut SqliteStoryRepository, old: &TaskRecord, id: &str) -> TaskR
             now: 13,
         },
     )
-    .unwrap();
+    .expect_err("pause already revoked the old attempt");
     let paused = repo.work_task(&project(), &work.id).unwrap();
-    repo.control_work_task(&project(), &work.id, "resume", paused.version, 14)
+    repo.control_work_task(&project(), &work.id, "resume", paused.control_revision, 14)
         .unwrap();
     task(
         repo,
@@ -169,6 +169,19 @@ fn progress_survives_reopen_and_resume_without_old_credentials_or_novel_outputs(
     let mut repo = SqliteStoryRepository::open(&path).unwrap();
     assert_eq!(repo.reading_progress(&first, 11).unwrap(), saved);
     let second = resume(&mut repo, &first, "second");
+    assert_ne!(second.thread_id, first.thread_id);
+    assert_ne!(second.capability_hash, first.capability_hash);
+    assert!(matches!(
+        repo.authorize_task_capability(
+            &project(),
+            &second.task_id,
+            &second.thread_id,
+            second.input_revision,
+            &first.capability_hash,
+            15,
+        ),
+        Err(RepositoryError::TaskCapabilityInvalid)
+    ));
     let recovered = repo.reading_progress(&second, 15).unwrap();
     assert_ne!(
         recovered["checkpoint"]["resumePlan"],
@@ -208,7 +221,8 @@ fn progress_survives_reopen_and_resume_without_old_credentials_or_novel_outputs(
             &project(),
             "second",
             "thread-second",
-            "仅完成本轮讨论".into(), None,
+            "仅完成本轮讨论".into(),
+            None,
             20,
         )
         .unwrap();
@@ -240,6 +254,70 @@ fn progress_survives_reopen_and_resume_without_old_credentials_or_novel_outputs(
             .len(),
         2
     );
+    assert_eq!(
+        repo.branch_head(&project(), &BranchId::parse("main").unwrap())
+            .unwrap(),
+        formal
+    );
+    assert_eq!(
+        repo.work_task_for_attempt(&project(), "second")
+            .unwrap()
+            .delivery_status,
+        "discussion_ended"
+    );
+}
+
+#[test]
+fn new_thread_reading_resume_does_not_inherit_root_plan_or_final_delivery_authority() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut repo = setup(&dir.path().join("delivery-authority.sqlite"));
+    let first = task(&mut repo, "first", json!({"type":"project"}));
+    repo.update_model_work_plan(
+        &first,
+        &serde_json::from_value::<UpdateModelWorkPlan>(json!({
+            "expectedPlanVersion":0,"idempotencyKey":"author-obligation",
+            "plan":{"intentMode":"executeGoals","goals":[]}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let saved = repo
+        .checkpoint_reading(&first, &request(&repo, &first, plan(), 0), 10)
+        .unwrap();
+    let second = resume(&mut repo, &first, "second");
+    assert_eq!(
+        repo.reading_progress(&second, 15).unwrap()["checkpoint"]["version"],
+        saved["checkpoint"]["version"]
+    );
+    assert!(matches!(
+        repo.read_model_work_plan(&second, None),
+        Err(RepositoryError::TaskBindingInvalid)
+    ));
+    let before = repo.work_task_for_attempt(&project(), "second").unwrap();
+    for review in [None, Some(json!({"goalStatus":"fulfilled"}))] {
+        assert!(matches!(
+            repo.complete_task(
+                &project(),
+                &second.task_id,
+                &second.thread_id,
+                "阅读不能结清原作者交付义务".into(),
+                review,
+                20
+            ),
+            Err(RepositoryError::TaskBindingInvalid)
+        ));
+        assert_eq!(
+            repo.work_task_for_attempt(&project(), "second").unwrap(),
+            before
+        );
+        assert_eq!(
+            repo.task(&project(), "second")
+                .unwrap()
+                .unwrap()
+                .output_refs_json,
+            "[]"
+        );
+    }
 }
 
 #[test]
@@ -300,7 +378,7 @@ fn changing_source_after_pause_hides_the_old_note_and_cursor() {
         Some(AuthorReadingProgress::Stale)
     );
     let work = repo.work_task_for_attempt(&project(), "second").unwrap();
-    repo.control_work_task(&project(), &work.id, "pause", work.version, 16)
+    repo.control_work_task(&project(), &work.id, "pause", work.control_revision, 16)
         .unwrap();
     repo.update_task(
         &project(),
@@ -313,10 +391,10 @@ fn changing_source_after_pause_hides_the_old_note_and_cursor() {
             now: 17,
         },
     )
-    .unwrap();
+    .expect_err("a late failure cannot replace author_paused");
     let paused = repo.work_task(&project(), &work.id).unwrap();
     assert!(matches!(
-        repo.control_work_task(&project(), &work.id, "resume", paused.version, 18),
+        repo.control_work_task(&project(), &work.id, "resume", paused.control_revision, 18),
         Err(RepositoryError::TaskInputStale)
     ));
 }
@@ -489,7 +567,7 @@ fn author_progress_is_read_only_survives_controls_and_hides_unverifiable_records
     assert_eq!(page.tasks[0].steps[0].reading_progress, current);
     assert_eq!(page.tasks[0].version, work.version);
     let paused = repo
-        .control_work_task(&project(), &work.id, "pause", work.version, 11)
+        .control_work_task(&project(), &work.id, "pause", work.control_revision, 11)
         .unwrap();
     assert_eq!(paused.steps[0].reading_progress, current);
     assert!(repo.reading_progress(&first, 11).is_err());
@@ -501,7 +579,7 @@ fn author_progress_is_read_only_survives_controls_and_hides_unverifiable_records
     )
     .unwrap();
     let cancelled = repo
-        .control_work_task(&project(), &work.id, "cancel", paused.version, 12)
+        .control_work_task(&project(), &work.id, "cancel", paused.control_revision, 12)
         .unwrap();
     assert_eq!(cancelled.steps[0].reading_progress, current);
     assert_eq!(cancelled.status, "cancelled");

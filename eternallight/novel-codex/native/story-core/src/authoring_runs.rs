@@ -5,7 +5,9 @@ use crate::{ProjectId, RepositoryError, SqliteStoryRepository};
 
 enum GenerationRunSourceGuard<'a> {
     Unchecked,
+    AuthorControl,
     Matches(&'a str),
+    ModelPause(&'a crate::TaskRecord, &'a crate::ModelRunPauseRequest),
 }
 
 pub(crate) fn claim_generation_run_for_task(
@@ -260,7 +262,8 @@ impl SqliteStoryRepository {
             || state["startChapterNumber"] != position.completed_chapters + 1
             || state["stage"] != "coordinate"
             || state["targetChapters"].as_i64().is_none_or(|target| {
-                target <= position.completed_chapters || target - position.completed_chapters > crate::MAX_GENERATION_CHAPTERS
+                target <= position.completed_chapters
+                    || target - position.completed_chapters > crate::MAX_GENERATION_CHAPTERS
             })
         {
             return Err(RepositoryError::AuthoringRunStale);
@@ -315,10 +318,8 @@ impl SqliteStoryRepository {
         project_id: &ProjectId,
         run_id: &str,
     ) -> Result<StoredGenerationRun, RepositoryError> {
-        let read = self
-            .connection
-            .unchecked_transaction()
-            .map_err(storage_error)?;
+        let snapshot = self.connection.is_autocommit().then(|| self.connection.unchecked_transaction()).transpose().map_err(storage_error)?;
+        let read = snapshot.as_ref().map(|tx| &**tx).unwrap_or(&self.connection);
         read
             .query_row(
                 "SELECT version, state_json FROM story_generation_runs_v1 WHERE project_id = ?1 AND run_id = ?2",
@@ -381,10 +382,18 @@ impl SqliteStoryRepository {
         state_json: &str,
         now: i64,
     ) -> Result<StoredGenerationRun, RepositoryError> {
-        let transaction = self
-            .connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
+        let transaction = crate::work_control_commands::ControlTransaction::new(&self.connection)?;
+        if let Some((work, version)) = &self.generation_work_control_guard {
+            if work != &format!("work-{run_id}") {
+                return Err(RepositoryError::TaskBindingInvalid);
+            }
+            let actual:Option<i64>=transaction.query_row("SELECT control_revision FROM story_work_tasks_v1 WHERE id=?1 AND project_id=?2 AND kind='generation'",params![work,project_id.as_str()],|r|r.get(0)).optional().map_err(storage_error)?;
+            if actual != Some(*version) {
+                return Err(RepositoryError::WorkTaskStale);
+            }
+        }
+        crate::work_interludes::invalidate(&transaction,&format!("work-{run_id}"))?;
+        crate::work_pause_barrier::clear(&transaction, &format!("work-{run_id}"))?;
         let previous: Option<(i64, String)> = transaction
             .query_row(
                 "SELECT version, state_json FROM story_generation_runs_v1 WHERE project_id = ?1 AND run_id = ?2",
@@ -448,20 +457,50 @@ impl SqliteStoryRepository {
         }
         let updated = transaction
             .execute(
-                "UPDATE story_work_tasks_v1 SET status = 'cancelled', version = version + 1 WHERE id = ?1 AND project_id = ?2",
+                "UPDATE story_work_tasks_v1 SET status = 'cancelled', version = version + 1, control_revision = control_revision + 1 WHERE id = ?1 AND project_id = ?2",
                 params![format!("work-{run_id}"), project_id.as_str()],
             )
             .map_err(storage_error)?;
         if updated != 1 {
             return Err(RepositoryError::CorruptState);
         }
-        transaction.commit().map_err(storage_error)?;
+        transaction.commit()?;
         Ok(StoredGenerationRun {
             run_id: run_id.to_owned(),
             project_id: project_id.clone(),
             version: version + 1,
             state_json: state_json.to_owned(),
         })
+    }
+
+    /// The selected Work control revision is checked inside the generation write transaction.
+    /// This request-only guard is never persisted and never substitutes a Run version.
+    pub fn with_generation_work_control<T>(
+        &mut self,
+        work_id: &str,
+        expected_control_revision: i64,
+        control: impl FnOnce(&mut Self) -> Result<T, RepositoryError>,
+    ) -> Result<T, RepositoryError> {
+        if self.generation_work_control_guard.is_some() {
+            return Err(RepositoryError::TaskBindingInvalid);
+        }
+        self.generation_work_control_guard = Some((work_id.to_owned(), expected_control_revision));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| control(self)));
+        self.generation_work_control_guard = None;
+        match result { Ok(result) => result, Err(panic) => std::panic::resume_unwind(panic) }
+    }
+    /// Persist an explicit author control and its Work control revision atomically.
+    pub fn update_generation_run_for_author_control(
+        &mut self,
+        project_id: &ProjectId,
+        run_id: &str,
+        expected_version: i64,
+        state_json: &str,
+    ) -> Result<StoredGenerationRun, RepositoryError> {
+        self.update_generation_run_with_guard(
+            project_id, run_id, expected_version, state_json,
+            GenerationRunSourceGuard::AuthorControl, None,
+        )
     }
 
     pub fn update_generation_run(
@@ -477,6 +516,7 @@ impl SqliteStoryRepository {
             expected_version,
             state_json,
             GenerationRunSourceGuard::Unchecked,
+            None,
         )
     }
 
@@ -495,6 +535,44 @@ impl SqliteStoryRepository {
             expected_version,
             state_json,
             GenerationRunSourceGuard::Matches(expected_source_digest),
+            None,
+        )
+    }
+
+    /// The source proposal is consumed atomically with the first resumed run
+    /// version, including its checkpoint and Work transition.
+    pub fn update_generation_run_for_handoff(
+        &mut self,
+        project_id: &ProjectId,
+        run_id: &str,
+        expected_version: i64,
+        state_json: &str,
+        expected_source_digest: &str,
+        source_task_id: &str,
+    ) -> Result<StoredGenerationRun, RepositoryError> {
+        self.update_generation_run_with_guard(
+            project_id,
+            run_id,
+            expected_version,
+            state_json,
+            GenerationRunSourceGuard::Matches(expected_source_digest),
+            Some(source_task_id),
+        )
+    }
+
+    pub(crate) fn update_generation_run_for_model_pause(
+        &mut self,
+        task: &crate::TaskRecord,
+        request: &crate::ModelRunPauseRequest,
+        state: &str,
+    ) -> Result<StoredGenerationRun, RepositoryError> {
+        self.update_generation_run_with_guard(
+            &task.project_id,
+            &request.run_id,
+            request.expected_version,
+            state,
+            GenerationRunSourceGuard::ModelPause(task, request),
+            None,
         )
     }
 
@@ -505,18 +583,30 @@ impl SqliteStoryRepository {
         expected_version: i64,
         state_json: &str,
         source_guard: GenerationRunSourceGuard<'_>,
+        handoff_source: Option<&str>,
     ) -> Result<StoredGenerationRun, RepositoryError> {
         // Shared repository reads reuse this write snapshot without opening nested transactions.
-        let transaction = rusqlite::Transaction::new_unchecked(
-            &self.connection,
-            rusqlite::TransactionBehavior::Immediate,
-        )
-        .map_err(storage_error)?;
+        let transaction = crate::work_control_commands::ControlTransaction::new(&self.connection)?;
+        if let Some((work, version)) = &self.generation_work_control_guard {
+            if work != &format!("work-{run_id}") {
+                return Err(RepositoryError::TaskBindingInvalid);
+            }
+            let actual:Option<i64>=transaction.query_row("SELECT control_revision FROM story_work_tasks_v1 WHERE id=?1 AND project_id=?2 AND kind='generation'",params![work,project_id.as_str()],|r|r.get(0)).optional().map_err(storage_error)?;
+            if actual != Some(*version) {
+                return Err(RepositoryError::WorkTaskStale);
+            }
+        }
         if let GenerationRunSourceGuard::Matches(expected) = source_guard {
             let actual = crate::task_input::project_source_digest(&transaction, project_id)?;
             if actual != expected {
                 return Err(RepositoryError::AuthoringRunStale);
             }
+        }
+        if let GenerationRunSourceGuard::ModelPause(task, request) = source_guard {
+            crate::generation_model_control::validate(&transaction, task, request)?;
+            // An author-owned drain cannot produce a model pause receipt while
+            // its frozen attempts are still running.
+            crate::work_pause_barrier::assert_can_schedule(&transaction, &format!("work-{run_id}"))?;
         }
         let previous_state: Option<String> = transaction.query_row(
             "SELECT state_json FROM story_generation_runs_v1 WHERE project_id = ?1 AND run_id = ?2 AND version = ?3",
@@ -540,12 +630,45 @@ impl SqliteStoryRepository {
                     return Err(RepositoryError::TaskBindingInvalid);
                 }
             }
-            if prior["intentGeneration"] != stored_state["intentGeneration"]
+            let appended_replan = stored_state["replans"]
+                .as_array()
+                .zip(prior["replans"].as_array())
+                .is_some_and(|(next, previous)| {
+                    next.len() == previous.len() + 1
+                        && next.last().is_some_and(|record| {
+                            record["previousVersion"] == prior["version"]
+                                && record["previousTaskId"] == prior["activeTaskId"]
+                        })
+                });
+            if (prior["intentGeneration"] != stored_state["intentGeneration"] || appended_replan)
                 && stored_state["activeTaskId"].is_null()
             {
-                // An Author replan invalidates unclaimed choices, not their immutable
-                // receipts or granted budget. The next decision captures the new intent.
+                // A checkpoint refresh invalidates unclaimed choices, not immutable
+                // receipts or granted budget. Only author replan changes intent.
                 transaction.execute("UPDATE story_work_steps_v1 SET status='superseded' WHERE work_task_id=?1 AND status='queued' AND current_attempt_id IS NULL",[format!("work-{run_id}")]).map_err(storage_error)?;
+                if appended_replan {
+                    let unresolved: bool = transaction.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM story_work_steps_v1 s JOIN story_work_attempts_v1 a ON a.step_id=s.id JOIN story_tool_operations_v1 o ON o.task_id=a.attempt_id WHERE s.work_task_id=?1 AND o.state='accepted') OR EXISTS(SELECT 1 FROM story_work_steps_v1 s JOIN story_work_attempts_v1 a ON a.step_id=s.id JOIN story_task_provider_budgets_v1 b ON b.task_id=a.attempt_id WHERE s.work_task_id=?1 AND b.settled=0)",
+                        [format!("work-{run_id}")], |row| row.get(0),
+                    ).map_err(storage_error)?;
+                    if unresolved {
+                        return Err(RepositoryError::TaskNotWritable);
+                    }
+                    if let Some(id) = prior["activeTaskId"].as_str() {
+                        let task = crate::tasks::load_task(&transaction, id)?;
+                        let unresolved: bool = transaction.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM story_tool_operations_v1 WHERE task_id=?1 AND state='accepted') OR EXISTS(SELECT 1 FROM story_task_provider_budgets_v1 WHERE task_id=?1 AND settled=0)",
+                            [id], |row| row.get(0),
+                        ).map_err(storage_error)?;
+                        if unresolved
+                            || !matches!(task.status.as_str(), "completed" | "failed" | "cancelled")
+                        {
+                            return Err(RepositoryError::TaskNotWritable);
+                        }
+                        transaction.execute("UPDATE story_work_steps_v1 SET status='superseded' WHERE work_task_id=?1 AND current_attempt_id=?2 AND status IN ('blocked','cancelled')",
+                            params![format!("work-{run_id}"),id]).map_err(storage_error)?;
+                    }
+                }
                 transaction
                     .execute(
                         "UPDATE story_work_decisions_v1 SET finished=0 WHERE work_task_id=?1",
@@ -568,7 +691,23 @@ impl SqliteStoryRepository {
                 &stored_state,
             )?;
         }
+        if matches!(source_guard, GenerationRunSourceGuard::AuthorControl) {
+            crate::work_interludes::invalidate(&transaction,&format!("work-{run_id}"))?;
+            crate::work_pause_barrier::clear(&transaction, &format!("work-{run_id}"))?;
+        } else if let Some(barrier) = crate::work_pause_barrier::read(&transaction, &format!("work-{run_id}"))? {
+            stored_state["status"] = serde_json::json!(if barrier.remaining_attempts == 0 { "paused" } else { "running" });
+        }
         let result_state_json = stored_state.to_string();
+        if let Some(source) = handoff_source {
+            crate::generation_handoff_execution::record_start(
+                &transaction,
+                project_id,
+                source,
+                run_id,
+                expected_version,
+                &stored_state,
+            )?;
+        }
         let budget = crate::work_budget_storage::take(&mut stored_state)?;
         let updated = transaction
             .execute(
@@ -599,6 +738,53 @@ impl SqliteStoryRepository {
             &budget,
         )?;
         let state = stored_state;
+        if let Some(prior) = previous_state.as_deref() {
+            let prior: Value =
+                serde_json::from_str(prior).map_err(|_| RepositoryError::CorruptState)?;
+            if prior["status"] == "running" && state["status"] == "paused" {
+                if let Some(id) = prior["activeTaskId"].as_str() {
+                    let changed = transaction.execute(
+                        "UPDATE story_tasks_v2 SET status='cancelled',stage='cancelled',delivery_status=CASE WHEN output_refs_json='[]' THEN 'pending' ELSE 'incomplete' END,error='author_paused',capability_revoked_at=unixepoch() WHERE task_id=?1 AND status IN ('queued','running','waiting')",
+                        [id],
+                    ).map_err(storage_error)?;
+                    if changed == 1 {
+                        crate::work_tasks::finish_attempt(
+                            &transaction,
+                            &crate::tasks::load_task(&transaction, id)?,
+                        )?;
+                    }
+                }
+            }
+            if prior["status"] == "paused"
+                && state["status"] == "running"
+                && state["activeTaskId"].is_null()
+            {
+                if let Some(id) = prior["activeTaskId"].as_str() {
+                    let task = crate::tasks::load_task(&transaction, id)?;
+                    if task.was_author_paused() {
+                        let unknown: bool = transaction.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM story_tool_operations_v1 WHERE task_id=?1 AND state='accepted') OR EXISTS(SELECT 1 FROM story_task_provider_budgets_v1 WHERE task_id=?1 AND settled=0)",
+                            [id], |row| row.get(0),
+                        ).map_err(storage_error)?;
+                        if unknown {
+                            return Err(RepositoryError::TaskNotWritable);
+                        }
+                        if task.operation == "generateChapter"
+                            && crate::tasks::recoverable_output(&transaction, &task)?
+                        {
+                            transaction.execute("UPDATE story_tasks_v2 SET status='completed',stage='ready_for_review',delivery_status='ready_for_review',result_summary='作者恢复：复用暂停前完整保存的章节' WHERE task_id=?1", [id]).map_err(storage_error)?;
+                            crate::work_tasks::finish_attempt(
+                                &transaction,
+                                &crate::tasks::load_task(&transaction, id)?,
+                            )?;
+                        } else {
+                            transaction.execute("UPDATE story_work_steps_v1 SET status='queued',current_attempt_id=NULL WHERE current_attempt_id=?1 AND status='cancelled'", [id]).map_err(storage_error)?;
+                            transaction.execute("UPDATE story_task_action_requests_v1 SET status='queued',result_task_id=NULL,error=NULL WHERE result_task_id=?1 AND status='failed'", [id]).map_err(storage_error)?;
+                        }
+                    }
+                }
+            }
+        }
         if state["status"] == "running"
             && state["retryAttempts"]
                 .as_i64()
@@ -614,12 +800,35 @@ impl SqliteStoryRepository {
                 let previous = old["activeTaskId"]
                     .as_str()
                     .ok_or(RepositoryError::CorruptState)?;
-                transaction.execute(
+                let task = crate::tasks::load_task(&transaction, previous)?;
+                let unresolved: bool = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM story_tool_operations_v1 WHERE task_id=?1 AND state='accepted')",
+                    [previous], |row| row.get(0),
+                ).map_err(storage_error)?;
+                if unresolved {
+                    return Err(RepositoryError::TaskNotWritable);
+                }
+                if task.status == "failed"
+                    && task.operation == "generateChapter"
+                    && crate::tasks::recoverable_output(&transaction, &task)?
+                {
+                    // Author continuation recovers a verified stored product, not
+                    // a model completion call or a final literary self-review.
+                    transaction.execute(
+                        "UPDATE story_tasks_v2 SET status='completed',stage='ready_for_review',delivery_status='ready_for_review',result_summary='作者继续：已核验完整章节保存回执，未重复生成正文',capability_revoked_at=COALESCE(capability_revoked_at,unixepoch()) WHERE task_id=?1 AND status='failed'",
+                        [previous],
+                    ).map_err(storage_error)?;
+                    let recovered = crate::tasks::load_task(&transaction, previous)?;
+                    crate::work_tasks::finish_attempt(&transaction, &recovered)?;
+                } else {
+                    transaction.execute(
                     "UPDATE story_work_steps_v1 SET status = 'queued', current_attempt_id = NULL WHERE id = (SELECT step_id FROM story_work_attempts_v1 WHERE attempt_id = ?1) AND status = 'blocked'",
                     [previous],
                 ).map_err(storage_error)?;
+                }
             }
         }
+        if matches!(source_guard, GenerationRunSourceGuard::AuthorControl) { crate::work_interludes::invalidate(&transaction,&format!("work-{run_id}"))?; }
         let status = state["status"]
             .as_str()
             .ok_or(RepositoryError::CorruptState)?;
@@ -631,11 +840,34 @@ impl SqliteStoryRepository {
             "cancelled" => "cancelled",
             _ => return Err(RepositoryError::CorruptState),
         };
+        let status=if crate::work_interludes::top(&transaction,&format!("work-{run_id}"))?.is_some(){"running"}else{status};
         transaction.execute(
             "UPDATE story_work_tasks_v1 SET status = ?1, version = version + 1 WHERE id = ?2 AND project_id = ?3",
             params![status, format!("work-{run_id}"), project_id.as_str()],
         ).map_err(storage_error)?;
-        transaction.commit().map_err(storage_error)?;
+        if matches!(source_guard, GenerationRunSourceGuard::AuthorControl) {
+            transaction.execute("UPDATE story_work_tasks_v1 SET control_revision=control_revision+1 WHERE id=?1 AND project_id=?2", params![format!("work-{run_id}"), project_id.as_str()]).map_err(storage_error)?;
+        }
+        if let GenerationRunSourceGuard::ModelPause(task, request) = source_guard {
+            crate::generation_model_control::finish(
+                &transaction,
+                task,
+                request,
+                expected_version + 1,
+            )?;
+            crate::recovery_operations::commit_operation(
+                &transaction,
+                self.recovery_operation.as_ref(),
+                project_id,
+                &task.task_id,
+                &["pause_generation_run"],
+                &format!(
+                    "runtime:model-run-pause:{}:{}",
+                    task.task_id, request.idempotency_key
+                ),
+            )?;
+        }
+        transaction.commit()?;
         Ok(StoredGenerationRun {
             run_id: run_id.to_owned(),
             project_id: project_id.clone(),

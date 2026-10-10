@@ -99,11 +99,48 @@ fn autonomous_packets_are_work_owned_current_optional_and_not_replayed() {
 #[test]
 fn creative_workers_can_read_preferences_but_cannot_write_quality_records() {
     let (mut r, p) = fixture();
-    change(&mut r, &p, QualityAction::Note { note: item("preference") });
-    for operation in ["generateBrief", "generateOutline", "generatePlan", "generateChapter"] {
-        let worker = task(&mut r, &p, operation, if operation == "generateChapter" { json!({"chapterId":"chapter"}) } else { json!({}) }, operation);
-        assert_eq!(r.quality_notebook(&p, None, Some(&worker)).unwrap()["notes"][0]["status"], "confirmed");
-        assert!(r.change_quality_notebook(&p, QualityMutation { expected_version: 1, idempotency_key: operation.into(), change: QualityAction::Note { note: item("strength") } }, Some(&worker)).is_err());
+    change(
+        &mut r,
+        &p,
+        QualityAction::Note {
+            note: item("preference"),
+        },
+    );
+    for operation in [
+        "generateBrief",
+        "generateOutline",
+        "generatePlan",
+        "generateChapter",
+    ] {
+        let worker = task(
+            &mut r,
+            &p,
+            operation,
+            if operation == "generateChapter" {
+                json!({"chapterId":"chapter"})
+            } else {
+                json!({})
+            },
+            operation,
+        );
+        assert_eq!(
+            r.quality_notebook(&p, None, Some(&worker)).unwrap()["notes"][0]["status"],
+            "confirmed"
+        );
+        assert!(
+            r.change_quality_notebook(
+                &p,
+                QualityMutation {
+                    expected_version: 1,
+                    idempotency_key: operation.into(),
+                    change: QualityAction::Note {
+                        note: item("strength")
+                    }
+                },
+                Some(&worker)
+            )
+            .is_err()
+        );
     }
 }
 
@@ -204,7 +241,10 @@ fn autonomous_quality_round_trip_uses_original_work_and_returns_report_to_decisi
         instruction: "SECRET_AUTHOR_DIAGNOSIS".into(),
         idempotency_key: "choose-reader".into(),
         recovery_plan: None,
+        chapter_review: None,
+        chapter_acceptance: None,
     };
+    r.update_model_work_plan(&parent,&serde_json::from_value(json!({"expectedPlanVersion":0,"idempotencyKey":"quality-plan","plan":{"intentMode":"executeGoals","goals":[{"id":"review-quality","title":"独立阅读当前内容","acceptance":"依据真实保存稿给出质量检查结果","kind":"deliverable","status":"inProgress","dependsOn":[],"readingQuestion":"当前正文有哪些待修改问题","checkScope":"授权正文","approach":"独立读者核对","assessment":"","evidence":[],"sourceIds":[],"sourceChecks":[],"continuation":null}]}})).unwrap()).unwrap();
     let selected = r.select_work_action(&parent, &request).unwrap();
     assert_eq!(r.select_work_action(&parent, &request).unwrap(), selected);
     r.complete_task(
@@ -291,6 +331,440 @@ fn item(kind: &str) -> QualityNote {
         relates_to: None,
         verdict: None,
     }
+}
+
+fn method_draft() -> QualityNote {
+    let mut method = item("method");
+    method.scope = "task".into();
+    method.evidence.clear();
+    method.question = Some("如何检查动作是否让读者感到关心？".into());
+    method.body = Some("回读行动与对白的反差；若旁白重复解释则记录无改善，不扩大检查范围。".into());
+    method
+}
+
+fn model_note(
+    repo: &mut SqliteStoryRepository,
+    task: &TaskRecord,
+    item: QualityNote,
+    key: &str,
+) -> Value {
+    repo.change_quality_notebook(
+        &task.project_id,
+        QualityMutation {
+            expected_version: version(&repo.connection, &task.project_id).unwrap(),
+            idempotency_key: key.into(),
+            change: QualityAction::Note { note: item },
+        },
+        Some(task),
+    )
+    .unwrap()
+}
+
+fn continue_method_work(
+    repo: &mut SqliteStoryRepository,
+    root: &TaskRecord,
+    id: &str,
+) -> TaskRecord {
+    let p = &root.project_id;
+    repo.change_quality_notebook(
+        p,
+        QualityMutation {
+            expected_version: version(&repo.connection, p).unwrap(),
+            idempotency_key: "method-reader-packet".into(),
+            change: QualityAction::Packet {
+                kind: "reading".into(),
+                sources: vec![QualityPacketSource {
+                    revision_id: Some("draft-a".into()),
+                    quote: None,
+                    note_id: None,
+                }],
+            },
+        },
+        Some(root),
+    )
+    .unwrap();
+    repo.complete_task(
+        p,
+        &root.task_id,
+        &root.thread_id,
+        "已保存资料，交回主任务".into(),
+        None,
+        10,
+    )
+    .unwrap();
+    let work = repo.work_task_for_attempt(p, &root.task_id).unwrap();
+    let digest = repo.project_source_watermarks(p).unwrap()["digest"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    repo.authorize_work_budget(
+        p,
+        &work.id,
+        &crate::WorkBudgetAuthorization {
+            expected_version: work.version,
+            expected_project_revision: 0,
+            expected_source_digest: digest.clone(),
+            max_requests: None,
+            max_tokens: None,
+            deadline_at: None,
+        },
+        10,
+    )
+    .unwrap();
+    let work = repo.work_task(p, &work.id).unwrap();
+    let step = repo
+        .prepare_work_decision(
+            p,
+            &work.id,
+            &crate::WorkDecisionRequest {
+                expected_work_version: work.version,
+                expected_revision: 0,
+                expected_source_digest: digest,
+            },
+        )
+        .unwrap()
+        .step
+        .unwrap();
+    let mut target = step.target;
+    target["resumeStepId"] = json!(step.id);
+    let next = repo
+        .create_task(CreateTaskRequest {
+            task_id: id.into(),
+            project_id: p.clone(),
+            thread_id: root.thread_id.clone(),
+            operation: "advisory".into(),
+            input_revision: 0,
+            model: None,
+            target_json: target.to_string(),
+            input_manifest_json: json!({"authorIntent":"读取原任务资料并自行决定下一步"})
+                .to_string(),
+            capability_hash: "b".repeat(64),
+            capability_expires_at: 9999999999,
+        })
+        .unwrap();
+    assert_eq!(
+        repo.work_task_for_attempt(p, &next.task_id).unwrap().id,
+        work.id
+    );
+    next
+}
+
+fn notebook_notes(repo: &SqliteStoryRepository, task: &TaskRecord) -> Vec<Value> {
+    let mut before = None;
+    let mut notes = Vec::new();
+    for _ in 0..20 {
+        let page = repo
+            .quality_notebook(&task.project_id, before, Some(task))
+            .unwrap();
+        assert_eq!(
+            page,
+            repo.quality_notebook(&task.project_id, before, Some(task))
+                .unwrap(),
+            "pagination retry must be identical"
+        );
+        assert!(
+            page["notes"].as_array().unwrap().len() + page["packets"].as_array().unwrap().len()
+                <= 1
+        );
+        notes.extend(page["notes"].as_array().unwrap().iter().cloned());
+        before = page["nextCursor"].as_i64();
+        if before.is_none() {
+            return notes;
+        }
+    }
+    panic!("notebook did not terminate");
+}
+
+#[test]
+fn method_drafts_resume_by_native_work_without_promoting_task_preferences() {
+    let (mut repo, p) = fixture();
+    let root = task(&mut repo, &p, "advisory", json!({}), "method-origin");
+    let receipt = model_note(&mut repo, &root, method_draft(), "resume-method");
+    let id = receipt["result"]["id"].as_str().unwrap();
+    let mut preference = item("preference");
+    preference.scope = "task".into();
+    model_note(&mut repo, &root, preference, "local-preference");
+    let next = continue_method_work(&mut repo, &root, "method-next");
+    let read = notebook_notes(&repo, &next);
+    assert_eq!(read.len(), 1);
+    assert_eq!(read[0]["id"], id);
+    assert_eq!(read[0]["note"]["scope"], "task");
+    assert_eq!(read[0]["status"], "proposed");
+    assert_eq!(read[0]["authorKind"], "model");
+    assert_eq!(read[0]["taskId"], root.task_id);
+    // A matching thread or model-authored target is not Native membership.
+    let foreign = repo
+        .create_task(CreateTaskRequest {
+            task_id: "unrelated-method-task".into(),
+            project_id: p.clone(),
+            thread_id: root.thread_id.clone(),
+            operation: "advisory".into(),
+            input_revision: 0,
+            model: None,
+            target_json:
+                json!({"workTaskId":repo.work_task_for_attempt(&p,&next.task_id).unwrap().id})
+                    .to_string(),
+            input_manifest_json: json!({"authorIntent":"别的任务"}).to_string(),
+            capability_hash: "c".repeat(64),
+            capability_expires_at: 9999999999,
+        })
+        .unwrap();
+    assert!(notebook_notes(&repo, &foreign).is_empty());
+    assert!(
+        repo.quality_notebook(
+            &ProjectId::parse("another-book").unwrap(),
+            None,
+            Some(&next)
+        )
+        .is_err()
+    );
+    assert_eq!(repo.project_revision(&p).unwrap(), 0);
+}
+
+#[test]
+fn creative_worker_reads_a_method_from_its_real_parent_work_only() {
+    let (mut repo, p) = fixture();
+    let root = task(&mut repo, &p, "advisory", json!({}), "worker-method-origin");
+    let saved = model_note(&mut repo, &root, method_draft(), "worker-method");
+    repo.record_task_action(
+        &p,
+        &root.task_id,
+        "brief-action",
+        crate::TaskActionRequest {
+            id: "brief-action".into(),
+            source_task_id: root.task_id.clone(),
+            operation: "generateBrief".into(),
+            target: json!({"type":"artifact"}),
+            instruction: "整理创作简报".into(),
+            input_revision: 0,
+            intent_revision: 0,
+            status: "proposed".into(),
+            result_task_id: None,
+            error: None,
+        },
+    )
+    .unwrap();
+    repo.complete_task(
+        &p,
+        &root.task_id,
+        &root.thread_id,
+        "提案已保存".into(),
+        None,
+        10,
+    )
+    .unwrap();
+    let approved = repo
+        .approve_task_action(&p, &root.task_id, "brief-action", 0, 11)
+        .unwrap();
+    let mut target = approved.target;
+    target["requestedByTaskId"] = json!(root.task_id);
+    target["requestedActionId"] = json!("brief-action");
+    let worker = task(
+        &mut repo,
+        &p,
+        "generateBrief",
+        target,
+        "method-brief-worker",
+    );
+    assert_eq!(
+        repo.work_task_for_attempt(&p, &worker.task_id).unwrap().id,
+        repo.work_task_for_attempt(&p, &root.task_id).unwrap().id
+    );
+    let read = notebook_notes(&repo, &worker);
+    assert_eq!(read.len(), 1);
+    assert_eq!(read[0]["id"], saved["result"]["id"]);
+    assert_eq!(read[0]["status"], "proposed");
+    let unrelated = task(
+        &mut repo,
+        &p,
+        "generateBrief",
+        json!({}),
+        "other-brief-worker",
+    );
+    assert!(notebook_notes(&repo, &unrelated).is_empty());
+    assert!(
+        repo.change_quality_notebook(
+            &p,
+            QualityMutation {
+                expected_version: version(&repo.connection, &p).unwrap(),
+                idempotency_key: "worker-self-publish".into(),
+                change: QualityAction::Decide {
+                    id: saved["result"]["id"].as_str().unwrap().into(),
+                    status: "confirmed".into(),
+                    reason: "我认为有效".into()
+                },
+            },
+            Some(&worker)
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn method_observations_keep_real_failure_evidence_and_same_work_visibility() {
+    let (mut repo, p) = fixture();
+    let root = task(&mut repo, &p, "advisory", json!({}), "effect-origin");
+    let receipt = model_note(&mut repo, &root, method_draft(), "method-for-effect");
+    let id = receipt["result"]["id"].as_str().unwrap().to_owned();
+    let mut prior = item("observation");
+    prior.scope = "task".into();
+    prior.relates_to = Some(id.clone());
+    prior.verdict = Some("insufficientEvidence".into());
+    model_note(&mut repo, &root, prior, "prior-method-effect");
+    let next = continue_method_work(&mut repo, &root, "effect-next");
+    let resumed = notebook_notes(&repo, &next);
+    assert_eq!(
+        resumed.len(),
+        2,
+        "both method and earlier effect survive Native task continuation"
+    );
+    assert_eq!(resumed[0]["note"]["verdict"], "insufficientEvidence");
+    assert_eq!(resumed[0]["taskId"], root.task_id);
+    let mut observation = item("observation");
+    observation.scope = "task".into();
+    observation.relates_to = Some(id.clone());
+    observation.verdict = Some("unmet".into());
+    observation.text = "该方法在此处未提供更多信息；仅有留伞动作不足以确认关系改善。".into();
+    let request = QualityMutation {
+        expected_version: version(&repo.connection, &p).unwrap(),
+        idempotency_key: "method-failure".into(),
+        change: QualityAction::Note {
+            note: observation.clone(),
+        },
+    };
+    let effect = repo
+        .change_quality_notebook(&p, request.clone(), Some(&next))
+        .unwrap();
+    assert_eq!(
+        repo.change_quality_notebook(&p, request, Some(&next))
+            .unwrap(),
+        effect
+    );
+    let read = notebook_notes(&repo, &next);
+    assert_eq!(read.len(), 3);
+    assert_eq!(read[0]["note"]["relatesTo"], id);
+    assert_eq!(read[0]["note"]["verdict"], "unmet");
+    assert_eq!(read[0]["sourceCurrent"], true);
+    assert_eq!(read[0]["status"], "proposed");
+    let other = task(&mut repo, &p, "advisory", json!({}), "foreign-effect");
+    assert!(notebook_notes(&repo, &other).is_empty());
+    let before = version(&repo.connection, &p).unwrap();
+    let count: i64 = repo
+        .connection
+        .query_row("SELECT COUNT(*) FROM story_quality_notes_v1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let mut bad = Vec::new();
+    let mut promoted = observation.clone();
+    promoted.scope = "work".into();
+    bad.push((&next, promoted));
+    bad.push((&other, observation.clone()));
+    let mut forged = observation.clone();
+    forged.evidence[0].quote = "未发生的改善".into();
+    bad.push((&next, forged));
+    let mut missing = observation.clone();
+    missing.evidence.clear();
+    bad.push((&next, missing));
+    let mut unknown = observation.clone();
+    unknown.relates_to = Some("quality-nonexistent".into());
+    bad.push((&next, unknown));
+    for (index, (task, note)) in bad.into_iter().enumerate() {
+        assert!(
+            repo.change_quality_notebook(
+                &p,
+                QualityMutation {
+                    expected_version: before,
+                    idempotency_key: format!("rejected-effect-{index}"),
+                    change: QualityAction::Note { note }
+                },
+                Some(task)
+            )
+            .is_err()
+        );
+        assert_eq!(version(&repo.connection, &p).unwrap(), before);
+        assert_eq!(
+            repo.connection
+                .query_row("SELECT COUNT(*) FROM story_quality_notes_v1", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            count
+        );
+    }
+    change(
+        &mut repo,
+        &p,
+        QualityAction::Decide {
+            id,
+            status: "withdrawn".into(),
+            reason: "此方法不适用；保留失败记录".into(),
+        },
+    );
+    assert!(
+        repo.change_quality_notebook(
+            &p,
+            QualityMutation {
+                expected_version: version(&repo.connection, &p).unwrap(),
+                idempotency_key: "withdrawn-effect".into(),
+                change: QualityAction::Note { note: observation }
+            },
+            Some(&next)
+        )
+        .is_err()
+    );
+    let history = notebook_notes(&repo, &next);
+    assert_eq!(
+        history.len(),
+        3,
+        "withdrawal preserves actual method/effect history"
+    );
+    assert!(history.iter().any(|row| row["status"] == "withdrawn"));
+    assert_eq!(repo.project_revision(&p).unwrap(), 0);
+}
+
+#[test]
+fn invented_method_is_a_bounded_task_draft_not_an_author_preference_or_tool() {
+    let (mut repo, p) = fixture();
+    let parent = task(&mut repo, &p, "advisory", json!({}), "method-parent");
+    let before = repo.project_revision(&p).unwrap();
+    let mut method = item("method");
+    method.scope = "task".into();
+    method.evidence = vec![];
+    method.question = Some("如何检查名字遗失的叙事影响？".into());
+    method.body = Some("先列当前证据，再提出两种读者解释，回读原句比较。".into());
+    let request = QualityMutation {
+        expected_version: 0,
+        idempotency_key: "temporary-method".into(),
+        change: QualityAction::Note {
+            note: method.clone(),
+        },
+    };
+    let receipt = repo
+        .change_quality_notebook(&p, request.clone(), Some(&parent))
+        .unwrap();
+    let id = receipt["result"]["id"].as_str().unwrap();
+    let (saved, state) = note(&repo.connection, &p, id).unwrap();
+    assert_eq!(saved.kind, "method");
+    assert_eq!(state, "proposed");
+    assert_eq!(repo.project_revision(&p).unwrap(), before);
+    assert_eq!(
+        repo.change_quality_notebook(&p, request, Some(&parent))
+            .unwrap(),
+        receipt
+    );
+    method.scope = "work".into();
+    assert!(
+        repo.change_quality_notebook(
+            &p,
+            QualityMutation {
+                expected_version: 1,
+                idempotency_key: "auto-promote".into(),
+                change: QualityAction::Note { note: method }
+            },
+            Some(&parent)
+        )
+        .is_err()
+    );
 }
 fn change(repo: &mut SqliteStoryRepository, p: &ProjectId, change: QualityAction) -> Value {
     let v = version(&repo.connection, p).unwrap();
