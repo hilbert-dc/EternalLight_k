@@ -67,7 +67,7 @@ APPROVE WITH CONDITIONS：入口靠近选区，键盘可操作；引用卡片显
 
 - `npm run build`：通过 TypeScript 与 Vite 构建；现有大包体积警告仍存在。
 - Node 定向回归：`discussion-excerpts`、`conversation-analysis`、`revision-repair-handlers`、`agent-events`，63 项通过。
-- Electron UI 定向回归：`selection-discussion-ui`、`chapter-scene-discussion-ui`、`saved-analysis-ui`、`planning-versions-ui`，4 项通过。截图：`/private/tmp/novel-selection-discussion-qa/selection-discussion-{light,dark}.png`。
+- 当时的 Electron UI 定向回归：`selection-discussion-ui`、场景讨论、`saved-analysis-ui`、`planning-versions-ui`，4 项通过。截图：`/private/tmp/novel-selection-discussion-qa/selection-discussion-{light,dark}.png`。2026-10-07 已移除场景专用讨论按钮，保留自然对话和真实选区引用；当前场景编辑回归为 `chapter-scene-editing-ui`。
 - Rust `task_action_binding_tests`：12 项通过，包括未保存讨论候选/生成授权拒绝。现有未使用字段警告仍存在。
 - 本次涉及文件 `git diff --check`：通过。
 

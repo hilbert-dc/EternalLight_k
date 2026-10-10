@@ -1,0 +1,90 @@
+{
+  "reportId": "6e646a8d76b7d82d52c008d90d2f747e84ffc14021e5887e6744daddea11be8f",
+  "status": "verified",
+  "attempts": [
+    {
+      "protocol": "responses",
+      "status": "verified"
+    },
+    {
+      "protocol": "responses",
+      "status": "verified",
+      "suite": "codex-engine-core-integration-v1"
+    },
+    {
+      "diagnostics": {
+        "stages": [
+          {
+            "budget": {
+              "id": "22d0f1d3-5e17-48f0-aada-b00380108eeb",
+              "maxDurationMs": 90000,
+              "maxRequests": 16,
+              "maxTokens": 200000,
+              "overrun": false,
+              "requests": 3,
+              "reservedTokens": 15681,
+              "startedAt": 1791515443422,
+              "tokens": 14656,
+              "unknownTokens": 0
+            },
+            "eventDigest": "679100c46d471a509f1d8b4d66abb0b8eae3168015b3f351259743285e18f884",
+            "stageId": "spawn-route",
+            "status": "passed"
+          },
+          {
+            "budget": {
+              "id": "db874b4d-07e7-45a5-a27a-7157af9edd59",
+              "maxDurationMs": 90000,
+              "maxRequests": 16,
+              "maxTokens": 200000,
+              "overrun": false,
+              "requests": 7,
+              "reservedTokens": 0,
+              "startedAt": 1791515445567,
+              "tokens": 53731,
+              "unknownTokens": 0
+            },
+            "eventDigest": "1f64c5d5a60fbbcc8a669bee5fc8883f8529e503f2af95ad30a63ca2942b63f6",
+            "stageId": "message-running",
+            "status": "passed"
+          },
+          {
+            "budget": {
+              "id": "e0e19a09-f4c5-43ab-8dab-8bb69323510c",
+              "maxDurationMs": 90000,
+              "maxRequests": 16,
+              "maxTokens": 200000,
+              "overrun": false,
+              "requests": 4,
+              "reservedTokens": 0,
+              "startedAt": 1791515450924,
+              "tokens": 29487,
+              "unknownTokens": 0
+            },
+            "eventDigest": "9acd5a32a257555456d670da1376594a1eb6ed609e16746634fe3fd2f5c45964",
+            "stageId": "wait",
+            "status": "passed",
+            "terminalWaitEvidence": {
+              "childResponseCompleted": true,
+              "childResponseDigestMatched": true,
+              "completionEventMatched": true,
+              "observed": true,
+              "parentMessageMatched": true,
+              "parentWaitResultMatched": true,
+              "stateCompleted": false,
+              "stateMessageMatched": false,
+              "stateResultPresent": false,
+              "trustedChildObserved": true,
+              "waitCompleted": true
+            }
+          }
+        ]
+      },
+      "protocol": "responses",
+      "status": "verified",
+      "suite": "codex-engine-delegation-execution-v1"
+    }
+  ],
+  "startedAt": "2026-10-09T03:10:38.461Z",
+  "completedAt": "2026-10-09T03:10:53.972Z"
+}

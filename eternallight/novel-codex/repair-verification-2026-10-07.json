@@ -1,15 +1,38 @@
 {
   "date": "2026-10-07",
   "book": "万城灯火",
-  "implementation": "source changes built; typed 100-chapter range verified",
+  "implementation": "bounded saved receipt and transactional recovery built; current schema real generation resumed",
   "tests": {
     "productionHostNativeRuntime": 4,
     "bridgeAndContracts": 43,
     "decisionRecoveryReply": 26,
     "nativeScope": 4,
     "nativeAuthorSource": 13,
-    "nativeContinuousRecovery": 5,
-    "nativeReplan": 1
+    "nativeContinuousRecovery": 12,
+    "nativeReplan": 1,
+    "mcpFullContracts": 52,
+    "longDraftRealCoreIntegration": 2,
+    "longDraftIntegrationHanCharacters": 4500,
+    "offlineTaskRecovery": 6,
+    "boundedOutputAndAdapterProtocols": 34,
+    "activeRecoveryAuthorityOfflineResume": 17,
+    "hostGenerationPauseIsolation": 2,
+    "authorPlanningPreconditionPolicy": 2,
+    "hostNativeCandidateDecision": 2,
+    "broaderAuthoringRunSuite": {
+      "passed": 1,
+      "failed": 11,
+      "result": "existing suite expects fixed brief/rollingPlan pipeline and old direct claims; failures include pre-pause stages, not a passing suite"
+    },
+    "conversationUxTargeted": 8,
+    "repeatedRecoveryPanelRegression": {
+      "before": "reproduced duplicate recovery panels in actual App fixture",
+      "after": "passed; one panel and one pending record after repeated switches/updates"
+    },
+    "appTaskControlsLegacyFixture": {
+      "passed": false,
+      "reason": "fixture supplies no conversations and expects original task controls immediately; current App selects conversation ownership first"
+    }
   },
   "actualApplication": {
     "driver": "CUA",
@@ -17,12 +40,954 @@
     "originalFirstChapterCharacters": 3421,
     "realModelProposedNewChapters": 99,
     "newPlaceholderChapters": 0,
-    "newBodySaveVerified": false,
+    "newBodySaveVerified": true,
     "complete100ChapterRunVerified": false,
     "oldVerificationProfileResult": "proposal submitted; stopped on outdated quality table schema",
     "currentSchemaProfile": "/tmp/novel-repair-current-schema-author",
-    "currentSchemaUiResult": "Mac locked; automatic unlock failed; waiting for manual unlock"
+    "currentSchemaUiResult": "CUA previewed and confirmed empty chapter replan on original run; continued through application; real DeepSeek coordinator completed and chapter 6 writer active",
+    "currentProjectId": "project-6b85f4c87b4a4562a329decaa5cfffe7",
+    "currentGenerationRunId": "generation-74aa519d38424615834d6ce059d4b645",
+    "firstChapterPreservedExactly": true,
+    "firstChapterSha256": "5bb061a180461b0d52809f4ab4ae31f9684d06145687b496c1179289ed1c1f72",
+    "generationStartChapter": 2,
+    "generationTargetChapter": 100,
+    "generationStatus": "blocked",
+    "newlyGeneratedSavedChapters": 5,
+    "newSecondChapterCharacters": 4533,
+    "secondChapterRevisionId": "draft-4721574027b04e2f88ea235db10b9eba",
+    "originalRunResumedThroughUi": true,
+    "userReplacedCredential": true,
+    "newCredentialRealConnectionVerification": "passed through application model selector",
+    "confirmedCompletedThroughChapter": 6,
+    "futureQualityInstructionAppliedThroughUi": true,
+    "intentGeneration": 2,
+    "lastObservedBlock": "pendingRecovery after model repeated already-recorded finishChapter with different idempotency keys; repair in verification",
+    "actualSavedBodyCharacters": 24224,
+    "boundedOutputRepairVerified": "real Core/bridge/MCP/Native synthetic-provider integration: same process/thread/task/budget, one write, original unknown usage retained",
+    "sixthChapterRevisionId": "draft-8bcd19a1f1cc4734a32c048bf6d3c54e"
   },
   "compatibility": "none; original data and verification copy preserved; fresh current-schema environment",
-  "designReview": "LONG_CREATION_RELIABILITY_DESIGN.md"
+  "designReview": "LONG_CREATION_RELIABILITY_DESIGN.md",
+  "modelOwnedWorkPlan": {
+    "scope": [
+      "goalDecomposition",
+      "nextAction",
+      "evidenceSelection",
+      "reviewScope",
+      "recoveryMethod",
+      "deliveryAssessment"
+    ],
+    "authority": "model semantics; Native checks ownership, dependencies, CAS, permissions, budgets and actual saved output identities",
+    "actualApplication": {
+      "driver": "CUA",
+      "model": "deepseek-flash",
+      "taskId": "task-5a408f5a924fab068caa5af8bd8a218d",
+      "planVersion": 1,
+      "checkStatus": "satisfied",
+      "checkSourceCount": 1,
+      "futureGoalStatus": "pending",
+      "readBackVerified": true,
+      "candidateActions": 0,
+      "generationHandoffs": 0,
+      "storyOutputs": 0,
+      "originalRunVersion": 64,
+      "savedChapters": 6,
+      "firstChapterUnchanged": true,
+      "previousPlanReadbackTaskId": "task-1032b4e9c64e4a6b19e8d45efd05eda0",
+      "finalReplyVerified": true,
+      "finalReplyRecorded": true,
+      "elapsedSecondsApprox": 21
+    },
+    "tests": {
+      "sharedHostPolicyAndDelivery": 68,
+      "eventAndErrorPresentation": 24,
+      "hostArgumentCorrection": 5,
+      "mcpAllContracts": 56,
+      "planPersistenceAndSources": 5,
+      "planDependencyAndStaleEvidence": 1,
+      "deliveryReview": 4,
+      "runtimeDecision": 5,
+      "runtimeSource": 3,
+      "generationHandoff": 5,
+      "nativeBuild": "passed",
+      "frontendBuild": "passed",
+      "diffCheck": "passed",
+      "realCoreSyntheticProviderCompletion": 2
+    },
+    "realModelCorrections": [
+      "omit first-page source cursor",
+      "derive active goal from status",
+      "synchronize executor validation manifest",
+      "differentiate check source evidence from deliverable output evidence",
+      "allow review when no next executable action exists",
+      "bound compact completion receipt prevents repeated execution after task completion"
+    ],
+    "limits": [
+      "Actual live test covers planning, source reading, checked/pending states and public progress, not every creative scenario.",
+      "Evidence identity does not certify literary quality or every model judgment.",
+      "First 100 chapters remain incomplete.",
+      "Final live turn did not force context compaction; post-completion call behavior has automated coverage."
+    ],
+    "designReview": "LONG_CREATION_RELIABILITY_DESIGN.md: six model decisions post-implementation review"
+  },
+  "crossTurnPlanAndCompletionRecovery": {
+    "implementation": [
+      "同对话历史模型计划按需读取，重新评估当前来源后接续",
+      "保存后决策可显式选择原连续任务，保留原范围与预算",
+      "完成动作的明确前写拒绝关闭为 rejected，存储失败保持未知",
+      "已完成任务恢复只核对 complete_task 幂等结果，不关闭其它未知写入",
+      "模型状态读取返回本任务已登记候选动作，供压缩后核实",
+      "精简重复工作决策提示，完整保留作者要求及收尾、安全约束，不提高9000预算上限"
+    ],
+    "tests": {
+      "coreRecoveryLedger": {
+        "passed": 6,
+        "log": "/tmp/completion-recovery-tests.log"
+      },
+      "runtimeHandoffRecoveryDecision": {
+        "passed": 13,
+        "log": "/tmp/completion-runtime-final.log"
+      },
+      "productionBuild": "/tmp/completion-recovery-build-final.log",
+      "longGenerationDecisionBudget": {
+        "passed": 3,
+        "actualFrozenMessageBudget": 8590,
+        "limit": 9000,
+        "authorIntentPreserved": true,
+        "log": "/tmp/completion-real-budget-test.log"
+      }
+    },
+    "actualApplication": {
+      "model": "deepseek-flash",
+      "conversation": "01a113a0-e38f-7301-8885-234b3b3217d0",
+      "briefSavedRevision": "brief-327fcbf4388c406b8036138a4042b757",
+      "planSavedRevision": "plan-d417cf2be3dd4a50b382667490bfa070",
+      "recoveredCompletionOperation": "operation-4692582b9c825df4a38052cbcafb5124d7bea19085a1452862c9c13c7011f107",
+      "operationState": "committed",
+      "resumeVerificationTask": "task-f10a3ed6201d62f3b37587fc9009877b",
+      "originalRun": "generation-74aa519d38424615834d6ce059d4b645",
+      "resumeStatus": "已在原任务中实际保存第7章；其篇幅1918字符未达约3000字要求，暂停后续生成并修复资料定位与验收指引",
+      "preflightFailureTask": "task-2ec117731e174c849f6a5aa14523633e",
+      "preflightFailureBudget": 9410,
+      "replanIntentGeneration": 4,
+      "runVersionObserved": 74,
+      "targetChapters": 100,
+      "completedChapters": 6,
+      "coordinationTask": "task-de5ce99d266240c681dcc4f6a20260a3",
+      "chapter7Task": "task-b710a07ac7c746f28ef7c09c09bd1c6f",
+      "retryAttemptsPreserved": 2,
+      "maxRetryAttemptsPreserved": 2,
+      "budgetPreserved": true,
+      "chapter7SavedRevision": "draft-b7595fbee0c549e2a82b5f03c17e85d0",
+      "chapter7Title": "一角罚银",
+      "chapter7CharacterCount": 1918,
+      "chapter1BodySha256": "5bb061a180461b0d52809f4ab4ae31f9684d06145687b496c1179289ed1c1f72",
+      "chapter1Unchanged": true
+    },
+    "limits": [
+      "前100章尚未完成",
+      "实机保存后原Work决策直接交接仍需验证；本次续写验证从原对话新作者轮发起",
+      "实际压缩发生在完成前，尚未证明完成后的实机压缩重放",
+      "模型仍偶有技术术语、英文进展与重复开场，不能宣称全面解决",
+      "真实模型曾将旧回执错认成第8—10章，并将第7章篇幅不足延期修订后登记完成；资料目录、准确回执身份与交付指引修复正在验收"
+    ]
+  },
+  "frozenSourceIndexAndChapterIdentity": {
+    "implementation": [
+      "冻结资料有界结构目录，模型按真实章节身份选择读取游标",
+      "回执提供保存稿章号、标题；待执行行动提供章号",
+      "交付指引区分保留历史成果与本轮明确验收要求，禁止擅自延期已发现缺项"
+    ],
+    "tests": {
+      "runtimeSourceAndDecision": {
+        "passed": 9,
+        "log": "/tmp/source-index-runtime-final.log"
+      },
+      "mcp": {
+        "passed": 58,
+        "log": "/tmp/source-index-mcp-tests.log"
+      },
+      "javascript": {
+        "passed": 64,
+        "log": "/tmp/source-index-prompt-tests.log"
+      },
+      "productionBuild": "/tmp/source-index-production-build.log"
+    },
+    "actualApplication": {
+      "taskId": "task-02a6cd5fa8d5505b24b1a699902b94bb",
+      "model": "deepseek-flash",
+      "indexUsed": true,
+      "initialChapter7ContentReads": 2,
+      "chapter7EntryOffsets": [
+        157,
+        164
+      ],
+      "nextReadDirectlyTargetsChapter6": true,
+      "repairSaved": false
+    },
+    "limits": [
+      "补稿与接续仍待实际保存验证",
+      "模型仍需遵守语义验收，索引不等于已阅读或质量通过",
+      "前100章尚未完成"
+    ]
+  },
+  "conversationArchitectureImplementation": {
+    "document": "CONVERSATION_CREATION_ARCHITECTURE.md",
+    "boundaries": {
+      "semanticDecisions": "model",
+      "savedFactsAndVersionScopeBudget": "Native Runtime",
+      "toolLoop": "Codex App Server",
+      "dispatcher": "Electron Host",
+      "display": "Renderer"
+    },
+    "changes": [
+      "起草前模型验收标准冻结；后续修订不能自行降低标准",
+      "定稿评审绑定当前实际保存稿，未满足不能推进",
+      "暂停当前章接续保留原范围、预算与尝试计数",
+      "同一步重试的 Native 作者来源绑定校验",
+      "引擎预算在提示构造前绑定；已证明未启动任务的零用量结算",
+      "检查点rebind不写作者指令、不增加作者版本，保留冻结标准",
+      "同一步重试绑定原候选与当前真实Attempt，历史失败不遮蔽成果",
+      "普通发送与恢复入口共享保存后的模型交接",
+      "通用工具错误包含声明内missingField和instancePath，未知键与值不回显",
+      "模型选择的辅助分析失败仍可选；明确作者候选与直接任务保持必需",
+      "公开中文错误说明与持久机器错误码分离，纠错上限不重置",
+      "计划区分planningOnly与executeGoals，真实接续目标绑定原run与本Work交接回执",
+      "来源检查绑定授权目录、当前修订哈希与正文引文；元数据不能替代正文证据",
+      "登记写作与规划评审同事务创建最终交付核验义务",
+      "同章待执行修订拒绝重复登记；保存后明确交还执行与冻结快照语义",
+      "原任务来源刷新、恢复、交接消费和执行回执在Native同一事务完成",
+      "Host从持久交接回执恢复；fulfilled前置门禁、重放不撤销作者后续暂停",
+      "完成但待交接任务只提供接回原任务操作"
+    ],
+    "tests": {
+      "coreChapterAcceptance": {
+        "passed": 2,
+        "log": "/tmp/chapter-acceptance-core-verified-unit.log"
+      },
+      "runtimeChapterAcceptance": {
+        "passed": 1,
+        "log": "/tmp/chapter-acceptance-runtime-final.log"
+      },
+      "continuousRecovery": {
+        "passed": 14,
+        "log": "/tmp/chapter-acceptance-continuous-closure-final.log"
+      },
+      "runtimeDecision": {
+        "passed": 6,
+        "log": "/tmp/chapter-acceptance-method-typed-decision-final.log",
+        "includes": [
+          "same-step successful retry",
+          "mandatory failure stays incomplete",
+          "both invalid_tool_arguments and tool_argument_correction_limit under original allowance"
+        ]
+      },
+      "mcp": {
+        "passed": 61,
+        "log": "/tmp/chapter-acceptance-diagnostic-mcp-final.log"
+      },
+      "hostAndPrompt": {
+        "passed": 50,
+        "log": "/tmp/chapter-acceptance-js-final.log"
+      },
+      "hostBudgetAndAuthorBinding": {
+        "passed": 32,
+        "log": "/tmp/chapter-acceptance-budget-host-final.log"
+      },
+      "runtimeBudgetAuthorization": {
+        "passed": 17,
+        "log": "/tmp/chapter-acceptance-unstarted-verified.log"
+      },
+      "realEngineScriptedProviderIntegration": {
+        "passed": 1,
+        "log": "/tmp/chapter-acceptance-engine-integration-final.log",
+        "provider": "scripted fixture, not DeepSeek"
+      },
+      "electronReadingUi": {
+        "passed": 2,
+        "log": "/tmp/chapter-acceptance-ui.log"
+      },
+      "productionNativeBuild": "/tmp/chapter-acceptance-method-typed-production.log",
+      "frontendBuild": "/tmp/chapter-acceptance-frontend-build.log",
+      "countsOverlap": true,
+      "checkpointRebind": {
+        "passed": 2,
+        "log": "/tmp/chapter-acceptance-rebind-native-final.log"
+      },
+      "sharedContinuationHost": {
+        "passed": 19,
+        "log": "/tmp/chapter-acceptance-shared-continuation-final.log"
+      },
+      "typedFailureAndContinuationHost": {
+        "passed": 25,
+        "log": "/tmp/chapter-acceptance-typed-failure-host.log"
+      },
+      "optionalAnalysisAuthority": {
+        "passed": 2,
+        "log": "/tmp/chapter-acceptance-optional-method-core.log"
+      },
+      "correctionProtocolRealEngine": {
+        "passed": 8,
+        "log": "/tmp/chapter-acceptance-diagnostic-engine-final.log",
+        "provider": "scripted fixture, not DeepSeek",
+        "runtimeReceiver": "fixture; Native persistence separately verified",
+        "protocols": [
+          "responses",
+          "chat-completions"
+        ]
+      }
+    },
+    "actualApplication": {
+      "driver": "CUA",
+      "model": "deepseek-flash",
+      "conversation": "01a113a0-e38f-7301-8885-234b3b3217d0",
+      "originalRun": "generation-74aa519d38424615834d6ce059d4b645",
+      "repairTask": "task-f6f1c2e9a0ed40c1aeebdc8221a9e321",
+      "unstartedAttemptSettled": "task-4cc6d10d73db4c73b269193df8a45aa8",
+      "repairSaved": true,
+      "status": "真实DeepSeek经应用保存第7章4541字符候选；原任务仍paused/version86/currentChapter8。本轮交接未登记。售卖与灯吏先后仍错误，不能算核验通过。",
+      "repairRevision": "draft-a76872def0fd4521a48221b4c6176111",
+      "bodyCharactersExcludingWhitespace": 3899,
+      "repairBodySha256": "6304701bd8841f92308ebce9dc90f948320d5fe2685b43df564315fb908f9320",
+      "protectedFirstChapterSha256": "5bb061a180461b0d52809f4ab4ae31f9684d06145687b496c1179289ed1c1f72",
+      "protectedFirstChapterUnchanged": true,
+      "originalRunIntentGeneration": 4,
+      "originalRunVersionBeforeHandoff": 86,
+      "originalRunTargetChapters": 100,
+      "originalRunRetryAttempts": 2,
+      "originalRunMaxRetryAttempts": 2,
+      "businessMutations": "through CUA application only; SQLite inspection read-only",
+      "repairWorkCompleted": "work-task-02a6cd5fa8d5505b24b1a699902b94bb",
+      "knowledgeRetry": {
+        "taskId": "task-bf01d4c8be5b4af1b011c6bf78ddbca2",
+        "batchId": "modeling-fec6106262c2430ba4423faf7ddecbd1",
+        "status": "ready",
+        "entities": 1,
+        "assertions": 1,
+        "coverage": "partial; model used a minimal submission for diagnosis; not full chapter analysis",
+        "verified": "read-only SQLite counts and CUA final reply"
+      },
+      "repairDelivery": {
+        "decisionTaskId": "task-71893f70c610484495bb508d24f3826c",
+        "status": "partial",
+        "unresolved": "resume original 100-chapter run; model did not select a handoff in this decision"
+      },
+      "specificCorrectionFeedback": {
+        "rootTaskId": "task-b2633710232417a926364db0713f88e0",
+        "writerTaskId": "task-fc3030f5545c45aa9ad3e8e4bec519ae",
+        "submittedThrough": "CUA same conversation",
+        "purpose": "fix money causality and same-day timeline, then resume original run",
+        "status": "writer saved; coordinator completed; original run did not resume",
+        "modelFinding": "Chapter 6 already sold the lamp flowers for 63 coins; Chapter 7 incorrectly restarted with 7 coins and unsold flowers",
+        "saved": {
+          "revisionId": "draft-a10e4d9c14a94516af5bc83d424f1879",
+          "bodyCharactersExcludingWhitespace": 4707,
+          "bodySha256": "d94a5a79858d75ac1cd9c84f1ceafc1e794503d2fcb7cd23529f3def053a7f53",
+          "qualityIssuesStillPresent": [
+            "Chapter 6 day-5 evening sale incorrectly described as yesterday/last night, introducing another overnight",
+            "narrator self-correction says 630 then 63",
+            "model claims timeline fixed despite these saved passages"
+          ]
+        },
+        "decisionTaskId": "task-268967dc78094681a60ef99d27844e78"
+      },
+      "originalRunLatest": {
+        "status": "paused",
+        "stage": "coordinate",
+        "currentChapterNumber": 8,
+        "completedChapters": 7,
+        "targetChapters": 100,
+        "intentGeneration": 4,
+        "retryAttempts": 2,
+        "usedTaskAttempts": 24,
+        "maxTaskAttempts": null,
+        "maxRetryAttempts": 2,
+        "activeTaskId": "task-af0e735012bb4f7ead3c2ca4a0b711ce",
+        "version": 86
+      },
+      "pendingPreciseTimelineFeedback": {
+        "submitted": true,
+        "submittedThrough": "CUA same conversation",
+        "authorization": "user explicitly authorized chapter 6/7 private content and timeline feedback to configured DeepSeek",
+        "result": "two real writers saved; chronology still incorrect; no handoff"
+      },
+      "preciseTimelineFeedback": {
+        "rootTaskId": "task-2359d25b715515dfa9d2006ab5c99a4e",
+        "workTaskId": "work-task-2359d25b715515dfa9d2006ab5c99a4e",
+        "registeredActions": [
+          "action-a3f897e6350c4f98a64d0130156c9b21",
+          "action-da5466bb593745d89cadfc97605e1ad5"
+        ],
+        "writerTaskIds": [
+          "task-3eafe3bd8e9f43b183f61b9f60c077bd",
+          "task-b4f0b9a511ec4adf8ed11957d152469b"
+        ],
+        "savedRevisionId": "draft-ecbac50dd4f14387815c0f81fc4b9c14",
+        "bodyCharactersExcludingWhitespace": 4541,
+        "bodySha256": "4b5a831d18cbe4e12fa653931fa9aa6f850a76ad0144454464b69ce6bdd4aff2",
+        "qualityIssuesStillPresent": [
+          "sale said before officer visit, while chapter 6 orders officer then investigation then sale",
+          "child says not yet fully dark after sale, while chapter 6 says already dark before sale",
+          "officer visit described as tonight instead of chapter 6 afternoon"
+        ],
+        "engineeringFindings": [
+          "writer re-read frozen pre-edit source after committed save, attempted stale save",
+          "root registered duplicate waiting revision",
+          "Work reached completed after workers settled without final decision obligation"
+        ],
+        "originalRunResumed": false
+      }
+    },
+    "limits": [
+      "前100章尚未完成；原任务仍paused/version86/currentChapter8",
+      "第7章当前4541字符稿实际保存，但仍有同日顺序冲突；模型自评不能替代正文核对",
+      "新的接续/来源/最终交付义务协议正在定向测试并等待实机验证；不宣称全局体验全部解决"
+    ],
+    "closedLoopImplementationRound": {
+      "review": "design-reviews/2026-10-07-durable-continuation-and-source-checks.md",
+      "state": "core_implementation_verified_real_deepseek_acceptance_in_progress",
+      "tests": {
+        "rootPromptDeliveryProtocol": {
+          "passed": 12,
+          "log": "/tmp/closed-loop-root-js.log"
+        },
+        "pendingContinuationElectronUi": {
+          "passed": 1,
+          "log": "/tmp/closed-loop-ui-continuation.log"
+        },
+        "frontend": {
+          "passed": true,
+          "log": "/tmp/closed-loop-frontend-final.log",
+          "warning": "existing large bundle warning"
+        },
+        "native": "pending current targeted suites",
+        "sourceChecksCore": {
+          "passed": 5,
+          "log": "/tmp/source-check-core-evidence-final-binary.log"
+        },
+        "chapterReviewCore": {
+          "passed": 2,
+          "log": "/tmp/source-check-chapter-core-final.log"
+        },
+        "chapterReviewHttp": {
+          "passed": 1,
+          "scope": "missing,stale,fabricated,wrong hash rejected; current saved draft and idempotency passed"
+        },
+        "chapterAcceptanceMcpSchema": {
+          "passed": 1
+        },
+        "hostFinal": {
+          "passed": 33,
+          "log": "/tmp/closed-loop-host-final.log",
+          "countsOverlap": true
+        },
+        "nativeAtomicHandoff": {
+          "passed": 11,
+          "scope": "atomic first resume, restart, replay, unchanged allowance, partial/author decisions, stale sources, later author pause"
+        }
+      },
+      "compatibility": "no migrations, backfill or fabricated old decisions; historical plans read as untrusted reference documents only",
+      "finalTests": {
+        "coreModelPlanUnit": {
+          "passed": 4,
+          "log": "/tmp/continuation-model-plan-final.log"
+        },
+        "coreDeliveryReviewUnit": {
+          "passed": 5,
+          "log": "/tmp/continuation-delivery-review-final.log"
+        },
+        "coreModelPlanPublic": {
+          "passed": 8,
+          "log": "/tmp/continuation-model-plan-public-final.log"
+        },
+        "coreActionBinding": {
+          "passed": 14,
+          "log": "/tmp/closed-loop-candidate-binding.log"
+        },
+        "runtimeHandoff": {
+          "passed": 11,
+          "log": "/tmp/closed-loop-runtime-final.log"
+        },
+        "runtimePlanningReview": {
+          "passed": 4,
+          "log": "/tmp/closed-loop-runtime-final.log"
+        },
+        "runtimeWorkDecision": {
+          "passed": 6,
+          "log": "/tmp/closed-loop-runtime-final.log"
+        },
+        "mcpFullCurrent": {
+          "passed": 62,
+          "log": "/tmp/closed-loop-all-mcp-local-final.log",
+          "initialSandboxRun": "33 pass / 29 blocked by loopback PermissionDenied; same compiled binary authorized local run 62 pass"
+        },
+        "startupHost": {
+          "passed": 12,
+          "log": "/tmp/closed-loop-startup-host-tests.log"
+        },
+        "startupUI": {
+          "passed": 2,
+          "log": "/tmp/startup-gate-ui-test.log"
+        },
+        "frontendBuild": {
+          "passed": true,
+          "log": "/tmp/closed-loop-frontend-startup-final.log"
+        },
+        "syntheticEngineIntegrations": {
+          "passed": 0,
+          "failed": 2,
+          "log": "/tmp/closed-loop-engine-integration-final.log",
+          "status": "historical failures superseded by scoped pass v6, recovery 11 pass v7, rebind 1 pass v9"
+        },
+        "coreCurrentPlanGate": {
+          "passed": 40,
+          "logs": [
+            "/tmp/continuation-plan-gate-unit.log",
+            "/tmp/continuation-plan-gate-review.log",
+            "/tmp/continuation-plan-gate-public.log",
+            "/tmp/continuation-plan-gate-actions.log",
+            "/tmp/continuation-plan-gate-ledger.log"
+          ],
+          "scope": "5 plan unit,5 review unit,10 public plan,14 action binding,6 recovery ledger; before final scoped repair eligibility amendment"
+        },
+        "promptProtocolV3": {
+          "passed": 30,
+          "log": "/tmp/closed-loop-final-prompt-protocol-v3.log"
+        },
+        "mcpV2": {
+          "passed": 62,
+          "log": "/tmp/closed-loop-all-mcp-v2.log",
+          "status": "before pending precise invalid-argument diagnostic amendment"
+        },
+        "runtimeConnectionUI": {
+          "passed": 3,
+          "log": "/tmp/closed-loop-runtime-connection-ui-tests.log"
+        },
+        "runtimeConnectionBuild": {
+          "passed": true,
+          "log": "/tmp/closed-loop-runtime-connection-build.log"
+        },
+        "recoveryEventProjection": {
+          "passed": 8,
+          "log": "/tmp/closed-loop-recovery-event-tests.log",
+          "scope": "5 observer and 3 report tests; actual recovery reconcile suite pending"
+        },
+        "hostPromptAndCapacityCurrent": {
+          "passed": 53,
+          "log": "/tmp/closed-loop-final-host-prompt-v8.log",
+          "scope": "47 existing Host/prompt tests plus 6 trusted route capacity tests; counts overlap earlier records"
+        },
+        "mcpCurrentDiagnostic": {
+          "passed": 66,
+          "log": "/tmp/closed-loop-all-mcp-v6.log",
+          "scope": "complete MCP test binary; production diagnostics current, before output-recovery description-only sync"
+        },
+        "runtimeCurrentPlanGate": {
+          "passed": 38,
+          "logs": [
+            "/tmp/continuation-plan-gate-chapter_acceptance_http_tests.log",
+            "/tmp/continuation-plan-gate-continuous_recovery_tests.log",
+            "/tmp/continuation-plan-gate-generation_handoff_tests.log",
+            "/tmp/continuation-plan-gate-task_planning_review_http_tests.log",
+            "/tmp/continuation-plan-gate-work_decision_http_tests.log",
+            "/tmp/continuation-plan-gate-revision-source.log"
+          ],
+          "scope": "1 chapter acceptance,14 continuous recovery,11 handoff,5 planning review,6 Work decision,1 true revision source HTTP"
+        },
+        "sourceHttpCurrent": {
+          "passed": 4,
+          "log": "/tmp/closed-loop-source-http-v3.log"
+        },
+        "recoveryReconciliationCurrent": {
+          "passed": 11,
+          "log": "/tmp/closed-loop-engine-integration-v7-failed-only.log",
+          "scope": "RecoveryJournal/Native runtime reconciliation; rebind in same log failed only its UI snapshot"
+        },
+        "scopedEngineIntegrationCurrent": {
+          "passed": 1,
+          "log": "/tmp/closed-loop-engine-integration-v6.log",
+          "scope": "actual App Server, Runtime and MCP, script supplier; not real DeepSeek"
+        },
+        "productionNativeCurrent": {
+          "passed": true,
+          "log": "/tmp/closed-loop-production-native-v10.log"
+        },
+        "frontendCurrent": {
+          "passed": true,
+          "log": "/tmp/closed-loop-unfinished-output-build.log",
+          "scope": "tsc and vite with frozen final UI"
+        },
+        "outputLimitCoreRecovery": {
+          "passed": 8,
+          "log": "/tmp/closed-loop-output-limit-core-v8.log",
+          "scope": "known-zero settlement proof and actual modeling publication; before planning-seat specialized route amendment"
+        },
+        "outputLimitWorkDecisionHttp": {
+          "passed": 8,
+          "log": "/tmp/closed-loop-output-limit-runtime-v8.log",
+          "scope": "same Work/attempt preservation, mandatory model recovery plan, zero-write settlement fences, idempotency and original total budget"
+        },
+        "rebindEngineIntegrationCurrent": {
+          "passed": 1,
+          "log": "/tmp/closed-loop-rebind-v9.log",
+          "scope": "real Runtime restart, model knowledge publication and next chapter plan with script supplier and deterministic verified revision snapshot; not DeepSeek"
+        },
+        "planningSeatRecoveryCurrent": {
+          "passed": 6,
+          "log": "/tmp/closed-loop-planning-seat-recovery-v10.log",
+          "scope": "dedicated planning-seat author resume; atomic known-zero settlement proof and unknown-write rejection"
+        },
+        "mcpCurrentFull": {
+          "passed": 66,
+          "log": "/tmp/closed-loop-all-mcp-v10.log",
+          "scope": "complete current MCP contract; all production frozen"
+        },
+        "unfinishedOutputPresentation": {
+          "passed": 10,
+          "logs": [
+            "/tmp/closed-loop-unfinished-output-last.log",
+            "/tmp/closed-loop-unfinished-output-regressions.log"
+          ],
+          "scope": "current directed UI tests; new one Node test includes 11 semantic scenes, identity and result/control boundary assertions; preceding same group failed only a current label snapshot, superseded"
+        },
+        "multipleTaskRecoveryChooser": {
+          "status": "passed",
+          "tests": 6,
+          "log": "/tmp/closed-loop-multiple-retry-final.log",
+          "build": "/tmp/closed-loop-multiple-retry-build-final.log",
+          "scope": "Actual App fixtures: explicit existing task choice, single-task recovery, live thread/project refs, stale version/mode, Native blocking, duplicate clicks, unfinished output presentation. Overlaps previous directed UI tests; do not sum."
+        },
+        "providerBillingErrorExplanation": {
+          "status": "passed",
+          "nodeTests": 31,
+          "uiTests": 1,
+          "nodeLog": "/tmp/closed-loop-billing-error-tests-final.log",
+          "uiLog": "/tmp/closed-loop-billing-error-ui-final.log",
+          "buildLog": "/tmp/closed-loop-billing-error-build-final.log",
+          "actualCUA": "Verified simplified Chinese billing notice in both editor and failed-turn main text; current editor shows5703 characters and saved; no new model request.",
+          "scope": "Presentation only: anchored framework HTTP402, normal IPC/Error prefixes, false-positive author quote/non402 tests, original detail retained. Native authority/budget/receipts unchanged. Overlaps existing agent-events and retry tests; not a full suite."
+        }
+      },
+      "liveCurrentProtocol": {
+        "authorized": true,
+        "driver": "CUA",
+        "model": "deepseek-flash",
+        "destination": "configured DeepSeek",
+        "workTaskId": "work-task-df1eef87e8306d7e0052e2c0b7bedfee",
+        "instruction": "Repair chapter 7 precise fifth-day event order; read saved complete draft; real original run resume from chapter 8 under unchanged 100-chapter scope and budget",
+        "status": "Original repair Work resumed through actual app; recovery decision completed and writer saved current5703-character draft. Follow-up inspection failed402; no original-run handoff.",
+        "actualStartup": "Window visible with starting; original book and conversation opened automatically after online",
+        "result": "Identity-preserving recovery and real save verified; chapter7 fails semantic acceptance and chapter8 has no saved draft.",
+        "followup": {
+          "workTaskId": "work-task-df1eef87e8306d7e0052e2c0b7bedfee",
+          "status": "Earlier1470 draft/output-limit failure are historical; current state is in currentResume and top-level currentAcceptance.",
+          "writerTaskId": "task-03c54ba049f6422ba5369979ff338453",
+          "revisionId": "draft-112f9393ac254c2194a0285520c41fcd",
+          "characterCount": 1470,
+          "sha256": "43530aa94277fddf2dee5e54a777787eb75a8e4a57b0138368ae525c6128c2e9",
+          "plan": "three executeGoals with deliverable -> full check -> continuation dependencies",
+          "latestDecision": "task-ded5f5df712c439fad9de2bfeb788eac",
+          "error": "provider_output_limit after prior local-argument errors were corrected using precise schema diagnostics",
+          "actualEvidence": "CUA expanded tool errors; current body read in application; SQLite read-only hashes",
+          "latestFailure": {
+            "taskId": "task-00a5556aff024e509b9b5cc4eea91d99",
+            "code": "provider_output_limit",
+            "outputRefs": 0,
+            "savedFinalReply": 0,
+            "writeLedger": 0,
+            "settled": true,
+            "unknownTokens": 0,
+            "overrun": false,
+            "requests": 21,
+            "tokens": 809301,
+            "totalAuthorMaxRequests": null,
+            "totalAuthorMaxTokens": null,
+            "perResponseRouteOutputTokens": 8192,
+            "currentChapter7RevisionUnchanged": true,
+            "workVersion": 22
+          },
+          "historicalStatus": "same Work resume registered precise repair; writer failed at output limit without saving any new revision"
+        },
+        "currentResume": {
+          "supersededBy": "top-level currentAcceptance",
+          "historicalSnapshot": {
+            "via": "Actual application CUA: composer retry chooser, explicit original chapter7 repair Work",
+            "workTaskId": "work-task-df1eef87e8306d7e0052e2c0b7bedfee",
+            "workVersion": 37,
+            "workStatus": "blocked",
+            "decisionTaskId": "task-03f7e5ef39104409a4a4f9c43a9d133b",
+            "observedTaskStatus": "completed recovery decision",
+            "uiProgress": "我先读取本轮任务的冻结上下文与当前状态，确认上一步修订的实际保存结果。",
+            "newRootWork": false,
+            "acceptance": "Saved current draft but semantic check failed. Original-run handoff executions0; chapter8 empty.",
+            "writerTaskId": "task-45fcc2f400294c8eb35c42382608cb5d",
+            "writerStatus": "completed",
+            "writerRevisionId": "draft-5594e9b8443f4c1db3675c1854b2a368",
+            "followupDecisionTaskId": "task-9ff73e4fb73d43018093b06b2d10b54e",
+            "followupStatus": "failed402"
+          },
+          "note": "This record is historical; latest readonly baseline confirms saved5188, repairWork cancelled, originalrun87 running withoutactive task."
+        },
+        "billingCurrent": {
+          "source": "Native settled work-budget charges; not a price estimate",
+          "recoveryDecision": {
+            "requests": 11,
+            "tokens": 604248,
+            "unknownTokens": 0
+          },
+          "writer": {
+            "requests": 13,
+            "tokens": 465383,
+            "unknownTokens": 0
+          },
+          "failedInspection": {
+            "requests": 58,
+            "tokens": 2589125,
+            "unknownTokens": 781044,
+            "settled": true,
+            "overrun": false
+          },
+          "notes": "58 counts cumulative model requests, not402 retries. Cached input is included in tokens. Unknown token accounting is preserved; it is not unknown writing and does not by itself prove all recovery must be refused."
+        }
+      },
+      "verifiedProtocolGaps": [
+        "Action could run before any model plan; final plan only included continuation and omitted repair/full read checks",
+        "New decision never called read_context then reused prior task source/cursor; scope rejection misinterpreted as lack of reading permission",
+        "Missing wrong phrases is not full or semantic validation of new prose",
+        "Public model commentary still drifted to English despite durable language instruction",
+        "After restart, multiple valid paused/blocked Work tasks made conversationRetryTask return null; Composer retry disappeared and WorkPanel had no alternative explicit target control. Current Native known-zero recovery remains valid but inaccessible from UI.",
+        {
+          "gap": "Compaction repeatedly retains full internal task prompt packages as user messages, loses parsed-field source traversal progress, and model summary wrongly declares incomplete chapter6 read complete.",
+          "evidence": "/tmp/closed-loop-read-compaction-audit-2026-10-07.json",
+          "measured": {
+            "sourceContentCalls": 34,
+            "compactions": 4,
+            "chapter6RecordRange": [
+              118,
+              157
+            ],
+            "chapter6FurthestReadEnd": 138,
+            "chapter7FullRead": true,
+            "persistedPlanUpdatedInInspection": false
+          },
+          "authority": "Sources/cursors succeeded. Source authenticity is not full reading or semantic correctness.",
+          "status": "confirmed; design/implementation outstanding"
+        }
+      ],
+      "pendingEngineering": [
+        "Finish actual application autonomous assessment, repair and reassessment acceptance; preserve protected hashes and original run budget."
+      ],
+      "currentAcceptance": {
+        "status": "real_application_acceptance_in_progress",
+        "complete100Chapters": false,
+        "actualModel": "configured DeepSeek deepseek-flash",
+        "actualDriver": "CUA original application conversation",
+        "workTaskId": "work-task-97435cad08cde266bd6b7b5a3329c21f",
+        "workVersion": 14,
+        "workStatus": "running",
+        "originalRunVersion": 88,
+        "originalRunStatus": "paused",
+        "originalRunActiveTaskId": null,
+        "originalIntentGeneration": 4,
+        "originalUsedTaskAttempts": 24,
+        "originalRetryAttempts": 2,
+        "originalTargetChapters": 100,
+        "runRecordedCompletedChapters": 7,
+        "currentChapterNumber": 8,
+        "chapter7Revision": "draft-8752cacf8d2f41118f483210ba812e19",
+        "chapter7Characters": 2139,
+        "characterDefinition": "non-whitespace Unicode characters, including punctuation",
+        "chapter7Sha256": "57bf529f518a5c1ce30d63ccb56592e0a2b75b19268203f6558b9530bff74a5f",
+        "chapter7SemanticCheck": "independent_assessment_in_progress",
+        "chapter7Gaps": [
+          "Current saved character count is below frozen minimum 2700; independent semantic assessment in progress."
+        ],
+        "chapter8HasSavedDraft": false,
+        "protectedHashes": {
+          "chapter1": "5bb061a180461b0d52809f4ab4ae31f9684d06145687b496c1179289ed1c1f72",
+          "chapter6": "7921b69c03188b40e724f19830983c68659b351e3f35b46e0f71b91599ce929a"
+        },
+        "protectedHashesUnchanged": true,
+        "blocker": "Current real DeepSeek draft has not passed frozen acceptance; application has started independent assessment without external story corrections.",
+        "originalRunWorkVersion": 116,
+        "oneNewAuthorGoal": true,
+        "externalPerErrorCorrections": 0,
+        "frozenLength": {
+          "minCharacters": 2700,
+          "maxCharacters": 3300,
+          "decidedBy": "model from existing author requirement before drafting"
+        }
+      },
+      "autonomousImplementationDocument": "AUTONOMOUS_CREATION_IMPLEMENTATION.md",
+      "autonomousAcceptanceEvidence": {
+        "native": {
+          "core": 232,
+          "runtime": 97,
+          "mcp": 67
+        },
+        "host": "bad draft to negative assessment to paged report to scoped repair to positive assessment to fulfilled verified with scripted provider",
+        "ui": "pause race and current report/source presentation passed",
+        "actualAuthorGoal": "one generic UI message at 18:10; no new per-error corrections",
+        "actualPauseReceipt": {
+          "runVersion": 88,
+          "status": "paused",
+          "workVersion": 116
+        },
+        "literaryResult": "pending; actual new draft2139 below2700, detected by application"
+      }
+    }
+  },
+  "currentAcceptance": {
+    "status": "real_application_acceptance_in_progress",
+    "complete100Chapters": false,
+    "actualModel": "configured DeepSeek deepseek-flash",
+    "actualDriver": "CUA original application conversation",
+    "workTaskId": "work-task-97435cad08cde266bd6b7b5a3329c21f",
+    "workVersion": 14,
+    "workStatus": "running",
+    "originalRunVersion": 88,
+    "originalRunStatus": "paused",
+    "originalRunActiveTaskId": null,
+    "originalIntentGeneration": 4,
+    "originalUsedTaskAttempts": 24,
+    "originalRetryAttempts": 2,
+    "originalTargetChapters": 100,
+    "runRecordedCompletedChapters": 7,
+    "currentChapterNumber": 8,
+    "chapter7Revision": "draft-8752cacf8d2f41118f483210ba812e19",
+    "chapter7Characters": 2139,
+    "characterDefinition": "non-whitespace Unicode characters, including punctuation",
+    "chapter7Sha256": "57bf529f518a5c1ce30d63ccb56592e0a2b75b19268203f6558b9530bff74a5f",
+    "chapter7SemanticCheck": "independent_assessment_in_progress",
+    "chapter7Gaps": [
+      "Current saved character count is below frozen minimum 2700; independent semantic assessment in progress."
+    ],
+    "chapter8HasSavedDraft": false,
+    "protectedHashes": {
+      "chapter1": "5bb061a180461b0d52809f4ab4ae31f9684d06145687b496c1179289ed1c1f72",
+      "chapter6": "7921b69c03188b40e724f19830983c68659b351e3f35b46e0f71b91599ce929a"
+    },
+    "protectedHashesUnchanged": true,
+    "blocker": "Current real DeepSeek draft has not passed frozen acceptance; application has started independent assessment without external story corrections.",
+    "originalRunWorkVersion": 116,
+    "oneNewAuthorGoal": true,
+    "externalPerErrorCorrections": 0,
+    "frozenLength": {
+      "minCharacters": 2700,
+      "maxCharacters": 3300,
+      "decidedBy": "model from existing author requirement before drafting"
+    }
+  },
+  "acceptanceHistory": [
+    {
+      "phase": "before explicit same-Work recovery on 2026-10-07",
+      "snapshot": {
+        "status": "in_progress",
+        "complete100Chapters": false,
+        "actualModel": "configured DeepSeek deepseek-flash",
+        "actualDriver": "CUA original application conversation",
+        "originalRunVersion": 86,
+        "completedChapters": 7,
+        "currentChapterNumber": 8,
+        "runStatus": "paused",
+        "chapter7Revision": "draft-5dbf3a23b8c24bc399000aef7bdafc57",
+        "chapter7Characters": 4826,
+        "chapter7SemanticCheck": "not_passed: opening repeats preceding sale; fourth-day deposit incorrectly moved to fifth afternoon",
+        "handoffRegistered": true,
+        "handoffExecuted": false,
+        "handoffBlock": "deliveryReview partial; did not fully read saved new draft; Native correctly refuses execution",
+        "nextLiveFeedback": "submitted through CUA; asks model to record all three goals, repair causal bridge and deposit chronology, fully read current saved draft, then continue original scope"
+      }
+    },
+    {
+      "snapshotBeforeAutonomousImplementation": {
+        "status": "blocked",
+        "complete100Chapters": false,
+        "actualModel": "configured DeepSeek deepseek-flash",
+        "actualDriver": "CUA original application conversation",
+        "workTaskId": "work-task-df1eef87e8306d7e0052e2c0b7bedfee",
+        "workVersion": 37,
+        "workStatus": "blocked",
+        "originalRunVersion": 86,
+        "originalRunStatus": "paused",
+        "originalIntentGeneration": 4,
+        "originalUsedTaskAttempts": 24,
+        "originalRetryAttempts": 2,
+        "originalTargetChapters": 100,
+        "runRecordedCompletedChapters": 7,
+        "currentChapterNumber": 8,
+        "chapter7Revision": "draft-5594e9b8443f4c1db3675c1854b2a368",
+        "chapter7Characters": 5703,
+        "characterDefinition": "non-whitespace Unicode characters, including punctuation",
+        "chapter7Sha256": "9639458186a1b03b5caf5d9201f9f2a1f3e30e2556f61c669a1e35cd0ae482d0",
+        "chapter7SemanticCheck": "not_passed",
+        "chapter7Gaps": [
+          "63+7 incorrectly becomes 72; 63 coins become 70 at the counter; pays own 7 instead of paying63 and retaining7",
+          "14 long paragraphs repeat chapter6 verbatim, 758 non-whitespace characters",
+          "today-deposit phrase conflicts with yesterday-deposit/today-check chronology",
+          "missing or replaced required guild/old craftsman/empty stall/child message/indigo packet/half ticket/date/crossed character/receipt moon hook/family-lamp fragment plot beats",
+          "writer claims about3400 characters; actual saved body is5703"
+        ],
+        "chapter8HasSavedDraft": false,
+        "handoffExecutions": 0,
+        "currentWorkDeliveryReviews": 0,
+        "protectedHashes": {
+          "chapter1": "5bb061a180461b0d52809f4ab4ae31f9684d06145687b496c1179289ed1c1f72",
+          "chapter6": "7921b69c03188b40e724f19830983c68659b351e3f35b46e0f71b91599ce929a"
+        },
+        "protectedHashesUnchanged": true,
+        "blocker": "DeepSeek HTTP402 Payment Required: Insufficient Balance during follow-up inspection. Account action is required; no more model requests sent after observing this error."
+      }
+    },
+    {
+      "supersededBy": "actual app 18:10 single goal autonomous acceptance",
+      "snapshot": {
+        "status": "engineering_in_progress",
+        "complete100Chapters": false,
+        "actualModel": "configured DeepSeek deepseek-flash",
+        "actualDriver": "CUA original application conversation",
+        "workTaskId": "work-task-5fec5e8c1475f7e2152f50fef5d0f748",
+        "workVersion": 12,
+        "workStatus": "cancelled",
+        "stoppedFollowupStatus": "cancelled",
+        "originalRunVersion": 87,
+        "originalRunStatus": "running",
+        "originalRunActiveTaskId": null,
+        "originalIntentGeneration": 4,
+        "originalUsedTaskAttempts": 24,
+        "originalRetryAttempts": 2,
+        "originalTargetChapters": 100,
+        "runRecordedCompletedChapters": 7,
+        "currentChapterNumber": 8,
+        "chapter7Revision": "draft-d75aebcc69d44c889dbb862bd9134ed2",
+        "chapter7Characters": 5188,
+        "characterDefinition": "non-whitespace Unicode characters, including punctuation",
+        "chapter7Sha256": "9d0c5d3f38a0f296c8041e3f31bb2351607e8be02a8b6ff8fb188eae0178e8d0",
+        "chapter7SemanticCheck": "not_independently_verified",
+        "chapter7Gaps": [
+          "Latest saved 5188-character draft has not passed application-internal independent current-revision acceptance; earlier semantic defects apply only to archived drafts."
+        ],
+        "chapter8HasSavedDraft": false,
+        "protectedHashes": {
+          "chapter1": "5bb061a180461b0d52809f4ab4ae31f9684d06145687b496c1179289ed1c1f72",
+          "chapter6": "7921b69c03188b40e724f19830983c68659b351e3f35b46e0f71b91599ce929a"
+        },
+        "protectedHashesUnchanged": true,
+        "currentRepairWorkBudget": {
+          "usedRequests": 108,
+          "usedTokens": 5540418,
+          "unknownTokens": 80832,
+          "maxRequests": null,
+          "maxTokens": null,
+          "overrun": false
+        },
+        "blocker": "Application autonomous generation/review/repair/continuation is not yet demonstrated. DeepSeek HTTP402 is historical, no longer the latest observed blocker. Original continuous run remains running without an active task; latest repair Work was cancelled by actual UI stop."
+      }
+    }
+  ],
+  "evidenceInterpretation": {
+    "currentSnapshot": "Top-level currentAcceptance and closedLoopImplementationRound.currentAcceptance are the authoritative current snapshot and must match.",
+    "history": "acceptanceHistory and earlier actualApplication/live followup/implementation records describe prior rounds. They are not current chapter7 prose or current Work status.",
+    "testScope": "Directed test rounds overlap; do not sum them or call them full-repository/real-model acceptance. Scripted supplier journeys are separately labelled."
+  }
 }

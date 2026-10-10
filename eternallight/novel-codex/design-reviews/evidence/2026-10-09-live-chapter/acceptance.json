@@ -1,0 +1,278 @@
+{
+  "project": "project-25fdb53acefe43e799eb65bf241dce87",
+  "title": "潮汐邮局",
+  "input": "生成第1章，约800字",
+  "interaction": "UI create work with premise; submit exactly the input; approve one chapter scope; no subsequent model steering or editing",
+  "observedDelivery": {
+    "chapterTitle": "潮水街",
+    "characters": 742,
+    "saved": true,
+    "verification": "passed",
+    "published": false
+  },
+  "tasks": [
+    {
+      "id": "task-7cdebeb4c10611df28e485c54a0d40de",
+      "operation": "advisory",
+      "status": "completed"
+    },
+    {
+      "id": "task-540a01ac614447fea03b79439b983825",
+      "operation": "advisory",
+      "status": "completed"
+    },
+    {
+      "id": "task-07d3e700b02a494db0bf955c01878ae6",
+      "operation": "generateChapter",
+      "status": "completed"
+    },
+    {
+      "id": "task-bfcedc604af544b48c0d5260f25e02f0",
+      "operation": "advisory",
+      "status": "completed"
+    }
+  ],
+  "runs": [
+    {
+      "id": "generation-9f70e5428ec64e67aa0684600cb8dede",
+      "status": "completed",
+      "completedChapters": 1
+    }
+  ],
+  "budgets": [
+    {
+      "taskId": "task-7cdebeb4c10611df28e485c54a0d40de",
+      "status": "completed",
+      "requests": 6,
+      "tokens": 185679.0,
+      "unknownTokens": 0.0,
+      "reservedTokens": 0.0
+    },
+    {
+      "taskId": "task-540a01ac614447fea03b79439b983825",
+      "status": "completed",
+      "requests": 4,
+      "tokens": 154854.0,
+      "unknownTokens": 0.0,
+      "reservedTokens": 0.0
+    },
+    {
+      "taskId": "task-07d3e700b02a494db0bf955c01878ae6",
+      "status": "completed",
+      "requests": 8,
+      "tokens": 212286.0,
+      "unknownTokens": 0.0,
+      "reservedTokens": 0.0
+    },
+    {
+      "taskId": "task-bfcedc604af544b48c0d5260f25e02f0",
+      "status": "completed",
+      "requests": 34,
+      "tokens": 1536892.0,
+      "unknownTokens": 0.0,
+      "reservedTokens": 0.0
+    }
+  ],
+  "remaining": [
+    "Prior 雾港来信 unknown usage and original Chapter 2 unknown reservation remain unreconciled; no provider usage was invented. Historical unknown cost no longer prevents default metering-only Work continuation.",
+    "Completed advisory task continued calling tools after context compaction, hit exact-root binding errors, then ended; Host proceeded automatically.",
+    "Progress includes English and internal identifiers; intermediate response unnecessarily asks whether to assess although application subsequently assesses automatically.",
+    "Result-entry click did not visibly switch editor in this check; chapter sidebar opened the saved body successfully."
+  ],
+  "completionRegistrationFix": {
+    "owner": "Native status projection",
+    "regression": "completion-registration-tests.log",
+    "testsPassed": 3,
+    "nativeBuild": "native-build.log",
+    "applicationRetest": "Passed on recovered original Chapter 2 Work: completion registered, final task and Work completed; saved body opened in app."
+  },
+  "newThreadUiRetest": {
+    "passed": true,
+    "work": "潮汐邮局",
+    "historyError": false,
+    "sendEnabledAfterInput": true,
+    "input": "续写第2章，约800字",
+    "sent": true,
+    "blocker": "Authorization received; application continuation sent and scope approved. Writer subsequently failed; see chapter2-failure.json."
+  },
+  "usageReconciliationFix": {
+    "engineTestsPassed": 72,
+    "hostTestsPassed": 13,
+    "ordinaryRuntimeTestsPassed": 24,
+    "generationRuntimeTestsPassed": 4,
+    "contract": "Trusted Engine receipt proof updates the original Native charge through task-ID-only Runtime routes; repeated refresh is idempotent and task status is unchanged.",
+    "applicationRetest": {
+      "restartedLatestBuild": true,
+      "savedChapter1Characters": 742,
+      "chapter2UnknownUsageStillBlocked": true,
+      "failureCopy": "本轮遇到问题，尚未完成。请查看错误详情和任务恢复安排。",
+      "modelConnection": "Reverified and applied through the actual Composer model picker; UI shows 模型连接已就绪.",
+      "newModelRequests": false,
+      "historicalObservation": true,
+      "supersededBy": "metering-recovery-acceptance.json; original charge remains unknown, same Work now completed."
+    },
+    "limitations": "Tests use controlled receipts. No real supplier receipt was acquired or invented for the failed Chapter 2 request; original task was not reconciled or resumed."
+  },
+  "meteringRecovery": {
+    "date": "2026-10-09",
+    "contract": "Default metering only; historical unknown cost retained without blocking new settled-attempt continuation. Unknown writes and same-request replay guards remain.",
+    "interaction": "Clicked original Work retry once in actual app; no additional author instruction, quota form, database mutation or manuscript editing. Model generated, saved, assessed and delivered automatically.",
+    "model": "configured DeepSeek deepseek-flash",
+    "work": {
+      "id": "work-generation-549875887360486daa6f25fa721be764",
+      "status": "completed",
+      "version": 27,
+      "error": null
+    },
+    "run": {
+      "acceptedFeedbackRevisionId": null,
+      "activeTaskId": null,
+      "authorMessageId": "author-message-85c1ed047e2147e688bc49723ae2fa4c",
+      "baseSnapshotId": "snapshot-ab82b666daf64d1687b363bb732d2e00",
+      "blockedReason": null,
+      "chapterDeliveries": [
+        {
+          "assessmentRevisionId": null,
+          "assessmentTaskId": null,
+          "chapterId": "chapter-2b78b9a4-0276-47c9-896d-017f3b7915cb",
+          "chapterNumber": 2,
+          "checkedRunVersion": 19,
+          "checkedSnapshotId": "snapshot-5873b06686cf4375b5b36a1077383471",
+          "commitmentExtractionRevisionId": null,
+          "draftRevisionId": "draft-57ed36a982db4a87a3c4eb1288b92e8d",
+          "feedbackDecisionId": null,
+          "knowledgeBatchId": null,
+          "planRevisionId": null,
+          "sourceDigest": "1cd8338a8904a9d0fec2ca78d3f7d17e0b17a2d02b7022f219f29a0fa2ea4807"
+        }
+      ],
+      "completedChapters": 2,
+      "currentChapterId": null,
+      "currentChapterNumber": null,
+      "deadlineAt": null,
+      "feedbackDecisions": [],
+      "feedbackRepairCount": 0,
+      "feedbackRepairPrompt": null,
+      "generationProposalId": "generation-proposal-6fcb7552c2a946a5bd1402e46d41e578",
+      "id": "generation-549875887360486daa6f25fa721be764",
+      "intentGeneration": 0,
+      "intentRevisions": [
+        {
+          "effectiveFromChapter": 2,
+          "generation": 0,
+          "id": "intent-31f83e2724a74a42ac246d66be08f0b9",
+          "instruction": "续写第2章，约800字",
+          "source": {
+            "authorMessageId": "author-message-85c1ed047e2147e688bc49723ae2fa4c",
+            "createdAt": 1791520337,
+            "type": "authorMessage"
+          }
+        }
+      ],
+      "lastTaskId": "task-dc5db135646446bdb1f23eb2b95c80b3",
+      "maxRetryAttempts": 2,
+      "maxTaskAttempts": null,
+      "originTaskId": "task-334057c2315d2b40d2937e79ba3f57fc",
+      "pendingCurrentIntentGeneration": null,
+      "projectId": "project-25fdb53acefe43e799eb65bf241dce87",
+      "replans": [],
+      "retryAttempts": 1,
+      "revisionPredecessor": null,
+      "rootThreadId": "01a11eeb-e988-7132-9f4e-859a0519e76b",
+      "sourceDigest": "1cd8338a8904a9d0fec2ca78d3f7d17e0b17a2d02b7022f219f29a0fa2ea4807",
+      "stage": "finished",
+      "startChapterNumber": 2,
+      "status": "completed",
+      "stepToken": "844a44b511e34cf7a77ab5fd3d82fac0",
+      "targetChapters": 2,
+      "usedTaskAttempts": 6,
+      "version": 20
+    },
+    "ledger": {
+      "maxRequests": null,
+      "maxTokens": null,
+      "usedRequests": 81,
+      "usedTokens": 2920291,
+      "unknownTokens": 35931,
+      "overrun": false,
+      "charges": [
+        {
+          "taskId": "task-1402da17391846208ca7c5221029e062",
+          "budgetId": "budget-task-1402da17391846208ca7c5221029e062",
+          "status": "completed",
+          "requests": 6,
+          "tokens": 278955,
+          "unknownTokens": 0,
+          "overrun": false
+        },
+        {
+          "taskId": "task-c5c6dde4819f4bd4ab893165d1f773e9",
+          "budgetId": "budget-task-c5c6dde4819f4bd4ab893165d1f773e9",
+          "status": "failed",
+          "requests": 4,
+          "tokens": 65506,
+          "unknownTokens": 35931,
+          "overrun": false
+        },
+        {
+          "taskId": "task-4ae9d6909cb44659a92eb943d523c1e2",
+          "budgetId": "budget-task-4ae9d6909cb44659a92eb943d523c1e2",
+          "status": "completed",
+          "requests": 15,
+          "tokens": 486819,
+          "unknownTokens": 0,
+          "overrun": false
+        },
+        {
+          "taskId": "task-29c6237ee310448f9ed344635e70304b",
+          "budgetId": "budget-task-29c6237ee310448f9ed344635e70304b",
+          "status": "completed",
+          "requests": 26,
+          "tokens": 931204,
+          "unknownTokens": 0,
+          "overrun": false
+        },
+        {
+          "taskId": "task-20b99d535fb04038a99ff3505d7cdc1f",
+          "budgetId": "budget-task-20b99d535fb04038a99ff3505d7cdc1f",
+          "status": "completed",
+          "requests": 12,
+          "tokens": 329998,
+          "unknownTokens": 0,
+          "overrun": false
+        },
+        {
+          "taskId": "task-dc5db135646446bdb1f23eb2b95c80b3",
+          "budgetId": "budget-task-dc5db135646446bdb1f23eb2b95c80b3",
+          "status": "completed",
+          "requests": 18,
+          "tokens": 827809,
+          "unknownTokens": 0,
+          "overrun": false
+        }
+      ]
+    },
+    "observedEditor": {
+      "chapter": 2,
+      "title": "红衣",
+      "characters": 688,
+      "saved": true,
+      "openedVia": "chapter sidebar",
+      "assessment": "passed",
+      "published": false
+    },
+    "knownIssues": [
+      "Completed advisory task continued calling tools after context compaction, hit exact-root binding errors, then ended; Host proceeded automatically.",
+      "Progress includes English and internal identifiers; intermediate response unnecessarily asks whether to assess although application subsequently assesses automatically.",
+      "Result-entry click did not visibly switch editor in this check; chapter sidebar opened the saved body successfully."
+    ],
+    "tests": {
+      "runtimeWorkBudget": 25,
+      "generationBudget": 4,
+      "coreRecovery": 15,
+      "host": 23,
+      "architecture": "passed",
+      "nativeBuild": "passed"
+    }
+  }
+}

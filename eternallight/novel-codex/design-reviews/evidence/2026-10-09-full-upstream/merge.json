@@ -1,0 +1,29 @@
+{
+  "upstream": "https://github.com/openai/codex.git",
+  "branch": "main",
+  "target": "82883da25e3be5883e905afa02c3a639d02a97aa",
+  "merge": "d46bf6f403d8ad6aa44fdf1b8b77c8d8d843f329",
+  "parents": [
+    "a54564a127297c67c2d86e0420d828eb06300615",
+    "82883da25e3be5883e905afa02c3a639d02a97aa"
+  ],
+  "upstreamIsAncestor": true,
+  "officialCommits": [
+    "82883da25 Notify subscribers when thread read state changes (#52384)",
+    "5b3c1522f Preserve per-session routing for gRPC code mode (#52381)",
+    "03b761dca Expand realtime v3 voice support (#52363)",
+    "0ada5d880 Expose experimental durable thread read state in the app server (#52350)"
+  ],
+  "workingTreeProtection": "Tracked pre-merge diff saved in /tmp/novel-full-upstream-20261009/before.patch. Comparison after merge only differed in upstream-owned migration rename and updated registry.",
+  "acceptance": {
+    "build": "PASS; 2m34s",
+    "buildIdentity": "21885e816cb433230540d1c78c17cc27cbb151631e1f55dc508a04ade49cd1f8",
+    "modelPolicy": "refreshed and identity verified",
+    "adapterTests": "35 passed",
+    "migrationGate": "passed",
+    "architecture": "332 files, 7 crates, 0 diagnostics",
+    "emptyDatabaseStartup": "exit 0; migrations 60 and 61 both successful; plugin cache/network and early remote-control shutdown warnings preserved in evidence",
+    "forkGate": "blocked by pre-existing unregistered paths; trusted MCP registry digest also mismatches unchanged before/after upstream merge",
+    "realCreation": "not retested; unknown usage and history-read failures remain open"
+  }
+}
