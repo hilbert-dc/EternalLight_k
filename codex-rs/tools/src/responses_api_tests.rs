@@ -149,13 +149,14 @@ fn mcp_tool_to_deferred_responses_api_tool_sets_defer_loading() {
                 Some(vec!["order_id".to_string()]),
                 Some(false.into())
             ),
+            // Deferred declarations intentionally omit output materialization.
             output_schema: None,
         }
     );
 }
 
 #[test]
-fn agent_plugin_mcp_tool_uses_fallback_for_oversized_schema() {
+fn agent_plugin_mcp_tool_rejects_oversized_schema_without_a_permissive_fallback() {
     let properties: serde_json::Map<String, serde_json::Value> = (0..1_024)
         .map(|index| (format!("property_{index}"), json!({"type": "string"})))
         .collect();
@@ -168,22 +169,19 @@ fn agent_plugin_mcp_tool_uses_fallback_for_oversized_schema() {
         }))),
     );
 
-    assert_eq!(
-        agent_plugin_mcp_tool_to_responses_api_tool(&ToolName::from("oversized"), &tool)
-            .expect("Agent Plugin MCP tool should use a fallback schema")
-            .parameters,
-        JsonSchema::object(BTreeMap::new(), /*required*/ None, Some(true.into()))
-    );
+    let error = agent_plugin_mcp_tool_to_responses_api_tool(&ToolName::from("oversized"), &tool)
+        .expect_err("oversized declarations must not become permissive success");
+    assert!(error.to_string().contains("byte limit"));
 }
 
 #[test]
-fn legacy_mcp_tool_accepts_oversized_schema() {
+fn mcp_tool_requires_explicit_bytes_for_a_large_complete_schema() {
     let properties: serde_json::Map<String, serde_json::Value> = (0..1_024)
         .map(|index| (format!("property_{index}"), json!({"type": "string"})))
         .collect();
     let tool = rmcp::model::Tool::new(
         "oversized",
-        "Large legacy schema",
+        "Large complete schema",
         std::sync::Arc::new(rmcp::model::object(json!({
             "type": "object",
             "properties": properties,
@@ -193,21 +191,30 @@ fn legacy_mcp_tool_accepts_oversized_schema() {
     let schema_bytes = serde_json::to_vec(tool.input_schema.as_ref())
         .expect("MCP input schema JSON")
         .len();
+    let original_schema = serde_json::Value::Object(tool.input_schema.as_ref().clone());
     assert!(schema_bytes > codex_code_mode::DEFAULT_INPUT_SCHEMA_MAX_BYTES);
-    for (server_limit, expected_limit, expected_type) in [
-        (
-            None,
-            codex_code_mode::DEFAULT_INPUT_SCHEMA_MAX_BYTES,
-            "args: unknown",
-        ),
-        (Some(schema_bytes), schema_bytes, "property_1023?: string;"),
-    ] {
+    for server_limit in [None, Some(schema_bytes - 1)] {
+        let error = super::mcp_tool_to_responses_api_tool(
+            &ToolName::from("oversized"),
+            &tool,
+            server_limit,
+        )
+        .expect_err("the current allowance cannot drop schema content");
+        assert!(error.to_string().contains("byte limit"));
+    }
+    for (server_limit, expected_limit, expected_type) in
+        [(Some(schema_bytes), schema_bytes, "property_1023?: string;")]
+    {
         let tool = super::mcp_tool_to_responses_api_tool(
             &ToolName::from("oversized"),
             &tool,
             server_limit,
         )
-        .expect("legacy MCP conversion must preserve existing acceptance");
+        .expect("explicit exact byte allowance permits the complete declaration");
+        assert_eq!(
+            serde_json::to_value(&tool.parameters).expect("actual wire parameters"),
+            original_schema
+        );
         let definition =
             crate::tool_spec_to_code_mode_tool_definition(&crate::ToolSpec::Function(tool))
                 .expect("Code Mode tool");

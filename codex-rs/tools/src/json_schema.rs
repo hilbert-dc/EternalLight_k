@@ -44,6 +44,29 @@ pub fn parse_tool_input_schema_without_compaction(
     deserialize_tool_input_schema(prepare_tool_input_schema(input_schema))
 }
 
+/// MCP declarations are executable contracts, not hints to simplify.
+pub(crate) fn parse_mcp_input_schema(
+    input_schema: &JsonValue,
+    max_bytes: Option<usize>,
+) -> Result<JsonSchema, serde_json::Error> {
+    let max_bytes = max_bytes.unwrap_or(DEFAULT_COMPACT_TOOL_SCHEMA_BYTES);
+    let actual_bytes = serde_json::to_vec(input_schema)?.len();
+    if actual_bytes > max_bytes {
+        return Err(<serde_json::Error as serde::de::Error>::custom(format!(
+            "MCP input schema exceeds its explicit byte limit: {actual_bytes} > {max_bytes}"
+        )));
+    }
+    // Do not sanitize or compact: retained unknown keywords may themselves
+    // contain schemas, and inference can change the declaration's semantics.
+    let schema = deserialize_tool_input_schema(input_schema.clone())?;
+    if serde_json::to_value(&schema)? != *input_schema {
+        return Err(<serde_json::Error as serde::de::Error>::custom(
+            "MCP input schema cannot be represented losslessly",
+        ));
+    }
+    Ok(schema)
+}
+
 fn prepare_tool_input_schema(input_schema: &JsonValue) -> JsonValue {
     let mut input_schema = input_schema.clone();
     sanitize_json_schema(&mut input_schema);
@@ -76,7 +99,7 @@ fn has_composition_keyword(map: &serde_json::Map<String, JsonValue>) -> bool {
 /// - Collapses `const` into single-value `enum`.
 /// - Fills required child fields for object/array schema types, including
 ///   nullable unions, with permissive defaults when absent.
-/// - Coerces object schemas with no recognized schema hints into `{}`.
+/// - Preserves unknown keywords and annotation-only schema objects.
 fn sanitize_json_schema(value: &mut JsonValue) {
     match value {
         JsonValue::Bool(_) => {
@@ -145,7 +168,8 @@ fn sanitize_json_schema(value: &mut JsonValue) {
                 {
                     schema_types.push(JsonSchemaPrimitiveType::Number);
                 } else {
-                    map.clear();
+                    // Unknown schema keywords remain part of the declaration,
+                    // including conditional/compositional schemas and metadata.
                     return;
                 }
             }

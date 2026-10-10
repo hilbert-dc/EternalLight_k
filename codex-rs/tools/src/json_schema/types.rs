@@ -72,6 +72,10 @@ pub struct JsonSchema {
     pub defs: Option<BTreeMap<String, JsonSchema>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub definitions: Option<BTreeMap<String, JsonSchema>>,
+    /// Preserve constraints and annotations not interpreted by Codex itself.
+    /// The receiving protocol/executor remains responsible for validation.
+    #[serde(flatten)]
+    pub additional_keywords: BTreeMap<String, JsonValue>,
 }
 
 impl JsonSchema {

@@ -137,15 +137,13 @@ pub fn agent_plugin_mcp_tool_to_responses_api_tool(
     tool_name: &ToolName,
     tool: &rmcp::model::Tool,
 ) -> Result<ResponsesApiTool, serde_json::Error> {
-    let mut tool = tool_definition_to_responses_api_tool(
+    let tool = tool_definition_to_responses_api_tool(
         parse_agent_plugin_mcp_tool(tool)?.renamed(tool_name.name.clone()),
     );
     if serde_json::to_vec(&tool)?.len() > MAX_SERIALIZED_MCP_TOOL_BYTES {
-        tool.parameters = JsonSchema::object(
-            Default::default(),
-            /*required*/ None,
-            Some(true.into()),
-        );
+        return Err(<serde_json::Error as serde::de::Error>::custom(
+            "Agent Plugin MCP tool exceeds the serialized tool byte limit",
+        ));
     }
     Ok(tool)
 }

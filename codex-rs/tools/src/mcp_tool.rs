@@ -1,7 +1,6 @@
 use crate::ToolDefinition;
 use crate::ToolOutputSchema;
-use crate::json_schema::parse_tool_input_schema_with_max_bytes;
-use crate::parse_tool_input_schema;
+use crate::json_schema::parse_mcp_input_schema;
 use codex_utils_string::take_bytes_at_char_boundary;
 use serde_json::Value as JsonValue;
 use serde_json::json;
@@ -40,25 +39,14 @@ fn parse_mcp_tool_with_description_limit(
     description_limit: Option<usize>,
     schema_max_bytes: Option<usize>,
 ) -> Result<ToolDefinition, serde_json::Error> {
-    let mut serialized_input_schema = serde_json::Value::Object(tool.input_schema.as_ref().clone());
-
-    // OpenAI models mandate the "properties" field in the schema. Some MCP
-    // servers omit it (or set it to null), so we insert an empty object to
-    // match the behavior of the Agents SDK.
-    if let serde_json::Value::Object(obj) = &mut serialized_input_schema
-        && obj.get("properties").is_none_or(serde_json::Value::is_null)
-    {
-        obj.insert(
-            "properties".to_string(),
-            serde_json::Value::Object(serde_json::Map::new()),
-        );
-    }
-
-    let input_schema = if let Some(budget) = schema_max_bytes {
-        parse_tool_input_schema_with_max_bytes(&serialized_input_schema, budget)?
-    } else {
-        parse_tool_input_schema(&serialized_input_schema)?
-    };
+    let serialized_input_schema = serde_json::Value::Object(tool.input_schema.as_ref().clone());
+    let input_schema =
+        parse_mcp_input_schema(&serialized_input_schema, schema_max_bytes).map_err(|error| {
+            <serde_json::Error as serde::de::Error>::custom(format!(
+                "MCP tool {} input schema: {error}",
+                tool.name
+            ))
+        })?;
     Ok(ToolDefinition {
         name: tool.name.to_string(),
         description: tool

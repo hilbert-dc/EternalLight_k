@@ -25,6 +25,56 @@
       "expectedDiffSha256": "5f03c2775c857a79600878a88459e87702d53e688ed66aad6606d947c21f318f",
       "upstreamTracking": null,
       "removalCondition": "Remove after upstream exposes equivalent trusted MCP lineage metadata and Agent Engine integration tests pass without this patch."
+    },
+    {
+      "id": "lossless-mcp-input-schema-v1",
+      "status": "active",
+      "motivation": "Preserve ordinary MCP input schema constraints through the generic Core DTO and model tool conversion. Reject unrepresentable or over-budget declarations explicitly instead of silently sanitizing or compacting executable contracts.",
+      "upstreamBaseline": "822e58cc3d666166c7446c5b1ea2e52f5d09594c",
+      "paths": [
+        "codex-rs/tools/src/json_schema.rs",
+        "codex-rs/tools/src/json_schema/types.rs",
+        "codex-rs/tools/src/json_schema/types_tests.rs",
+        "codex-rs/tools/src/json_schema_tests.rs",
+        "codex-rs/tools/src/dynamic_tool_tests.rs",
+        "codex-rs/tools/src/mcp_tool.rs",
+        "codex-rs/tools/src/mcp_tool_tests.rs",
+        "codex-rs/tools/src/responses_api.rs",
+        "codex-rs/tools/src/responses_api_tests.rs",
+        "codex-rs/tools/examples/schema_wire.rs"
+      ],
+      "symbols": [
+        "parse_mcp_input_schema",
+        "additional_keywords"
+      ],
+      "tests": [
+        "json_schema_roundtrips_unknown_constraints_and_raw_conditional_children",
+        "mcp_tool_preserves_unknown_constraints_and_conditional_schemas_exactly",
+        "mcp_tool_rejects_invalid_or_lossy_shapes_instead_of_advertising_fallbacks",
+        "mcp_schema_max_bytes_rejects_overflow_without_modifying_the_contract",
+        "mcp_tool_requires_explicit_bytes_for_a_large_complete_schema"
+      ],
+      "expectedDiffSha256": "cc0d38955f417b3617e1e557cc423750788bb1bb81af36256a42fdb494fc5b52",
+      "upstreamTracking": null,
+      "removalCondition": "Remove after upstream preserves equivalent MCP schema constraints and the real Native-to-Core-to-Engine contract tests pass without this patch."
+    },
+    {
+      "id": "unique-state-migration-identities-v1",
+      "status": "active",
+      "motivation": "Test-only assertion that embedded database migration versions are unique. The production migration fix is now included unchanged through the full official upstream merge, not a local backport.",
+      "upstreamBaseline": "82883da25e3be5883e905afa02c3a639d02a97aa",
+      "paths": [
+        "codex-rs/state/src/migrations_tests.rs"
+      ],
+      "symbols": [
+        "migration_versions_are_unique_per_database"
+      ],
+      "tests": [
+        "migration_versions_are_unique_per_database"
+      ],
+      "expectedDiffSha256": "57132a2cf74e044ff74559455c7ce203f52724caef5da140534d68df432164d1",
+      "upstreamTracking": "https://github.com/openai/codex/commit/0ada5d8806cdad498230d5b1b2924091e04c8feb",
+      "removalCondition": "Remove this test-only patch when upstream includes an equivalent embedded migration uniqueness assertion; retain the product-side build gate. No local migration backport remains."
     }
   ]
 }

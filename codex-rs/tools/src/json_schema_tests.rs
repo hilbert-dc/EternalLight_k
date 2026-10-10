@@ -15,12 +15,9 @@ fn parse_tool_input_schema_coerces_boolean_schemas() {
     // Example schema shape:
     // true
     //
-    // Expected normalization behavior:
-    // - JSON Schema boolean forms are coerced to `{ "type": "string" }`
-    //   because the baseline enum model cannot represent boolean-schema
-    //   semantics directly.
+    // Keep normalization for non-MCP callers. MCP declarations bypass this
+    // helper and reject forms that cannot be represented without loss.
     let schema = parse_tool_input_schema(&serde_json::json!(true)).expect("parse schema");
-
     assert_eq!(schema, JsonSchema::string(/*description*/ None));
 }
 
@@ -35,8 +32,7 @@ fn parse_tool_input_schema_infers_object_shape_and_defaults_properties() {
     //
     // Expected normalization behavior:
     // - `properties` implies an object schema when `type` is omitted.
-    // - The child property has no recognized schema hints, so it is coerced to
-    //   an empty permissive schema.
+    // - The child property has no type constraints; its annotation is retained.
     let schema = parse_tool_input_schema(&serde_json::json!({
         "properties": {
             "query": {"description": "search query"}
@@ -47,7 +43,13 @@ fn parse_tool_input_schema_infers_object_shape_and_defaults_properties() {
     assert_eq!(
         schema,
         JsonSchema::object(
-            BTreeMap::from([("query".to_string(), JsonSchema::default())]),
+            BTreeMap::from([(
+                "query".to_string(),
+                JsonSchema {
+                    description: Some("search query".to_string()),
+                    ..Default::default()
+                },
+            )]),
             /*required*/ None,
             /*additional_properties*/ None
         )
@@ -55,23 +57,24 @@ fn parse_tool_input_schema_infers_object_shape_and_defaults_properties() {
 }
 
 #[test]
-fn parse_tool_input_schema_coerces_unrecognized_object_schema_to_empty_schema() {
+fn parse_tool_input_schema_preserves_annotation_only_objects() {
     // Example schema shape:
     // {
     //   "description": "Ticket identifier",
     //   "title": "Ticket ID"
     // }
     //
-    // Expected normalization behavior:
-    // - Object schemas with no recognized schema hints are treated as
-    //   malformed and coerced to the empty permissive schema.
+    // Annotation-only schemas are valid declarations and need no invented type.
     let schema = parse_tool_input_schema(&serde_json::json!({
         "description": "Ticket identifier",
         "title": "Ticket ID"
     }))
     .expect("parse schema");
 
-    assert_eq!(schema, JsonSchema::default());
+    assert_eq!(
+        serde_json::to_value(schema).expect("original annotations"),
+        serde_json::json!({"description":"Ticket identifier","title":"Ticket ID"})
+    );
 }
 
 #[test]
@@ -210,7 +213,10 @@ fn parse_tool_input_schema_infers_number_from_numeric_keywords() {
     }))
     .expect("parse schema");
 
-    assert_eq!(schema, JsonSchema::number(/*description*/ None));
+    assert_eq!(
+        serde_json::to_value(schema).expect("retained numeric constraint"),
+        serde_json::json!({"type":"number","minimum":1})
+    );
 }
 
 #[test]
@@ -228,7 +234,10 @@ fn parse_tool_input_schema_infers_number_from_multiple_of() {
     }))
     .expect("parse schema");
 
-    assert_eq!(schema, JsonSchema::number(/*description*/ None));
+    assert_eq!(
+        serde_json::to_value(schema).expect("retained numeric constraint"),
+        serde_json::json!({"type":"number","multipleOf":5})
+    );
 }
 
 #[test]
@@ -240,7 +249,7 @@ fn parse_tool_input_schema_infers_string_from_enum_const_and_format_keywords() {
     //
     // Expected normalization behavior:
     // - `enum` and `const` normalize into explicit string-enum schemas.
-    // - `format` still falls back to a plain string schema.
+    // - `format` remains attached to the inferred string schema.
     let enum_schema = parse_tool_input_schema(&serde_json::json!({
         "enum": ["fast", "safe"]
     }))
@@ -265,7 +274,10 @@ fn parse_tool_input_schema_infers_string_from_enum_const_and_format_keywords() {
         const_schema,
         JsonSchema::string_enum(vec![serde_json::json!("file")], /*description*/ None)
     );
-    assert_eq!(format_schema, JsonSchema::string(/*description*/ None));
+    assert_eq!(
+        serde_json::to_value(format_schema).expect("retained format"),
+        serde_json::json!({"type":"string","format":"date-time"})
+    );
 }
 
 #[test]
@@ -338,8 +350,7 @@ fn parse_tool_input_schema_infers_array_from_prefix_items() {
     //
     // Expected normalization behavior:
     // - `prefixItems` implies an array schema when `type` is omitted.
-    // - The normalized result is stored as a regular array schema with string
-    //   items.
+    // - The inferred array has default string items and retains prefixItems.
     let schema = parse_tool_input_schema(&serde_json::json!({
         "prefixItems": [
             {"type": "string"}
@@ -348,11 +359,12 @@ fn parse_tool_input_schema_infers_array_from_prefix_items() {
     .expect("parse schema");
 
     assert_eq!(
-        schema,
-        JsonSchema::array(
-            JsonSchema::string(/*description*/ None),
-            /*description*/ None,
-        )
+        serde_json::to_value(schema).expect("retained tuple declaration"),
+        serde_json::json!({
+            "type": "array",
+            "items": {"type": "string"},
+            "prefixItems": [{"type": "string"}],
+        })
     );
 }
 
@@ -806,7 +818,10 @@ fn parse_tool_input_schema_preserves_nested_all_of_property() {
                 JsonSchema::all_of(
                     vec![
                         JsonSchema::string(/*description*/ None),
-                        JsonSchema::default(),
+                        JsonSchema {
+                            description: Some("unrecognized by itself".to_string()),
+                            ..Default::default()
+                        },
                     ],
                     /*description*/ None,
                 ),
@@ -952,7 +967,7 @@ fn parse_large_tool_input_schema_compacts_descriptions_only_on_default_path() {
 }
 
 #[test]
-fn parse_large_tool_input_schema_ignores_dropped_metadata_for_budget() {
+fn parse_large_tool_input_schema_keeps_unknown_metadata_in_size_accounting() {
     let schema = parse_tool_input_schema(&serde_json::json!({
         "type": "object",
         "properties": {
@@ -987,12 +1002,15 @@ fn parse_large_tool_input_schema_ignores_dropped_metadata_for_budget() {
             "properties": {
                 "event": {
                     "type": "object",
+                    "title": "Calendar event",
                     "properties": {
                         "recurrence": {
                             "type": "object",
+                            "examples": [{"payload":"x".repeat(5_500)}],
                             "properties": {
                                 "pattern": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "title": "Recurrence pattern"
                                 }
                             }
                         }

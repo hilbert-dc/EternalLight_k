@@ -14,6 +14,23 @@ use crate::PINNED_THREAD_SECTION_NAME;
 
 const CUSTOM_THREAD_SECTION_ID: &str = "01984de2-8f74-7c91-a3b2-5c5e937cf317";
 
+#[test]
+fn migration_versions_are_unique_per_database() {
+    for migrator in [
+        &super::STATE_MIGRATOR,
+        &super::LOGS_MIGRATOR,
+        &super::GOALS_MIGRATOR,
+        &super::MEMORIES_MIGRATOR,
+        &super::QUEUE_MIGRATOR,
+        &super::THREAD_HISTORY_MIGRATOR,
+    ] {
+        let mut versions = std::collections::BTreeSet::new();
+        for migration in migrator.iter() {
+            assert!(versions.insert(migration.version), "duplicate migration version {}: {}", migration.version, migration.description);
+        }
+    }
+}
+
 fn migrator_through(version: i64) -> Migrator {
     Migrator {
         migrations: Cow::Owned(
