@@ -803,6 +803,9 @@
             "code_mode_host": {
               "$ref": "#/definitions/FeatureToml_for_CodeModeHostConfigToml"
             },
+            "code_mode_host_grpc": {
+              "type": "boolean"
+            },
             "code_mode_interrupt": {
               "type": "boolean"
             },
@@ -1176,6 +1179,9 @@
               "type": "boolean"
             },
             "step_model_switching": {
+              "type": "boolean"
+            },
+            "subagent_default_context_limits": {
               "type": "boolean"
             },
             "system_proxy_fallback": {
@@ -2948,6 +2954,10 @@
           "type": "string"
         },
         "non_code_mode_only": {
+          "type": "boolean"
+        },
+        "preserve_fork_prefix": {
+          "description": "Preserve the parent's model-visible history on full forks and append child instructions. Defaults to false. Legacy compaction without a reusable context baseline still rebuilds.",
           "type": "boolean"
         },
         "root_agent_usage_hint_text": {
@@ -7093,6 +7103,9 @@
         "code_mode_host": {
           "$ref": "#/definitions/FeatureToml_for_CodeModeHostConfigToml"
         },
+        "code_mode_host_grpc": {
+          "type": "boolean"
+        },
         "code_mode_interrupt": {
           "type": "boolean"
         },
@@ -7466,6 +7479,9 @@
           "type": "boolean"
         },
         "step_model_switching": {
+          "type": "boolean"
+        },
+        "subagent_default_context_limits": {
           "type": "boolean"
         },
         "system_proxy_fallback": {

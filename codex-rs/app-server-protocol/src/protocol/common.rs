@@ -860,6 +860,12 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadReadResponse,
     },
+    #[experimental("thread/readState/update")]
+    ThreadReadStateUpdate => "thread/readState/update" {
+        params: v2::ThreadReadStateUpdateParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadReadStateUpdateResponse,
+    },
     ThreadTurnsList => "thread/turns/list" {
         params: v2::ThreadTurnsListParams,
         // Explicitly concurrent: this primarily reads append-only rollout storage.
@@ -871,6 +877,13 @@ client_request_definitions! {
         // Explicitly concurrent: this primarily reads append-only rollout storage.
         serialization: None,
         response: v2::ThreadItemsListResponse,
+    },
+    #[experimental("thread/items/read")]
+    ThreadItemsRead => "thread/items/read" {
+        params: v2::ThreadItemsReadParams,
+        // Explicitly concurrent: this primarily reads append-only rollout storage.
+        serialization: None,
+        response: v2::ThreadItemsReadResponse,
     },
     /// Append raw Responses API items to the thread history without starting a user turn.
     ThreadInjectItems => "thread/inject_items" {
