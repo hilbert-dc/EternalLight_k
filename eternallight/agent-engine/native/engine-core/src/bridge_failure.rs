@@ -1,0 +1,279 @@
+use serde_json::Value;
+
+pub(super) struct Failure {
+    pub(super) message: String,
+    pub(super) status: u16,
+    pub(super) auth: bool,
+    pub(super) downstream: Value,
+    pub(super) budget_code: Option<&'static str>,
+    pub(super) stream_code: Option<&'static str>,
+    pub(super) validation_code: Option<&'static str>,
+    pub(super) retryable: bool,
+}
+
+impl Failure {
+    pub(super) fn context_capacity(&self) -> Option<Value> {
+        if !self.downstream.is_null() { return None; }
+        crate::context_capacity::diagnostic(&self.message)
+    }
+
+    pub(super) fn item_limit_code(&self) -> Option<&'static str> {
+        if !self.downstream.is_null() {
+            return None;
+        }
+        if self.message == "tool parameter schema exceeds the 40000-byte schema limit" {
+            return Some("context_item_limit");
+        }
+        let output_diagnostic = self.message.split_once("; outputItem=");
+        let message = if let Some((message, diagnostic)) = output_diagnostic {
+            serde_json::from_str::<Value>(diagnostic).ok()?;
+            message
+        } else {
+            self.message.as_str()
+        };
+        let label = message
+            .strip_suffix(" exceeds the 256KiB item byte limit")?;
+        if label == "provider output item" && output_diagnostic.is_some() {
+            Some("provider_output_item_limit")
+        } else if label == "instructions"
+            || label.strip_prefix("input item ").is_some_and(|index| {
+                !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
+            })
+        {
+            Some("context_item_limit")
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn codec(message: String) -> Self {
+        let invalid = super::output_failure::is_invalid_arguments(&message);
+        let unauthorized = message.starts_with("tool is not authorized for this request: ");
+        let invalid_output = message.starts_with("duplicate tool call id: ")
+            || message.starts_with("unsupported executable Responses item")
+            || message == "native Responses tool call id is required"
+            || message == "provider returned a tool call while tool_choice is none"
+            || (message.starts_with("provider returned ") && message.ends_with(" while another tool was required"))
+            || message == "Responses stream tool output differs from terminal output";
+        let mut failure = Self::from(message);
+        if unauthorized {
+            failure.status = 400;
+            failure.retryable = false;
+            let tool = failure.message.strip_prefix("tool is not authorized for this request: ").unwrap_or("");
+            failure.message = if !tool.is_empty() && tool.len() <= 64
+                && tool.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+                format!("unauthorized_tool_call; toolValidation={}", serde_json::json!({"tool":tool,"reason":"not_in_current_request","schemaPath":"/tools"}))
+            } else { "unauthorized_tool_call".into() };
+            failure.validation_code = Some("unauthorized_tool_call");
+        } else if invalid_output {
+            failure.status = 400;
+            failure.retryable = false;
+            failure.message = "invalid_tool_output".into();
+            failure.validation_code = Some("invalid_tool_output");
+        } else if invalid {
+            failure.status = 400;
+            failure.retryable = false;
+            failure.message = crate::tool_validation::diagnostic_message(&failure.message)
+                .unwrap_or_else(|| "invalid_tool_arguments".into());
+            failure.validation_code = Some("invalid_tool_arguments");
+        }
+        failure
+    }
+
+    pub(super) fn diagnostic_code(&self) -> &'static str {
+        if let Some(code) = self.validation_code {
+            return code;
+        }
+        if let Some(code) = self.budget_code {
+            return code;
+        }
+        if let Some(code) = self.stream_code {
+            return code;
+        }
+        if !self.downstream.is_null() {
+            return "provider_http_error";
+        }
+        if let Some(code) = self.item_limit_code() {
+            return code;
+        }
+        if self.context_capacity().is_some() {
+            return "context_input_budget_exceeded";
+        }
+        match self.message.as_str() {
+            "engine HTTP connection failed" => "provider_connection_failed",
+            "Responses stream tool output differs from terminal output" => "stream_tool_mismatch",
+            "Responses output did not complete successfully"
+            | "Responses stream did not complete successfully" => "response_incomplete",
+            "Responses stream ended without completion" => "response_stream_disconnected",
+            message
+                if message.ends_with(" exceeds the 256KiB item byte limit") =>
+            {
+                "context_item_limit"
+            }
+            _ => "bridge_error",
+        }
+    }
+
+    pub(super) fn reservation(message: String) -> Self {
+        // Only classify the budget owner's exact, fixed diagnostics. Arbitrary
+        // host failures must not masquerade as an exhausted author allowance.
+        let code = match message.as_str() {
+            "task provider usage is unknown" => "task_provider_usage_unknown",
+            "task provider request already dispatched" => "task_provider_request_already_dispatched",
+            "task token budget exhausted" => "task_token_budget_exhausted",
+            "task request budget exhausted" => "task_request_budget_exhausted",
+            "task duration budget exhausted" => "task_duration_budget_exhausted",
+            _ => return message.into(),
+        };
+        Self {
+            message,
+            // Codex's sampling layer retries unexpected HTTP statuses even
+            // after the HTTP client stops retrying. 400 is its terminal
+            // InvalidRequest path; retain the specific budget code in the body.
+            status: 400,
+            auth: false,
+            downstream: Value::Null,
+            budget_code: Some(code),
+            stream_code: None,
+            validation_code: None,
+            retryable: false,
+        }
+    }
+
+    /// Translate a terminal provider failure, never its partially generated output.
+    pub(super) fn stream(event: &Value) -> Option<Self> {
+        let kind = event["type"].as_str();
+        if !matches!(
+            kind,
+            Some("response.failed" | "response.incomplete" | "error")
+        ) && event["error"].is_null()
+            && !matches!(event["status"].as_str(), Some("failed" | "incomplete"))
+        {
+            return None;
+        }
+        let response = event.get("response").unwrap_or(event);
+        let reason = response["incomplete_details"]["reason"].as_str();
+        let error = response.get("error").unwrap_or(event);
+        let (code, retryable) = match reason.or(error["code"].as_str()) {
+            Some("max_output_tokens") => ("provider_output_limit", false),
+            Some("content_filter") => ("provider_content_filter", false),
+            Some("context_length_exceeded") => ("provider_context_limit", false),
+            Some("insufficient_quota") => ("provider_quota_exhausted", false),
+            Some("invalid_prompt" | "invalid_request_error") => ("provider_invalid_request", false),
+            Some("rate_limit_exceeded" | "slow_down") => ("provider_rate_limited", true),
+            Some("server_error" | "server_overloaded") => ("provider_server_error", true),
+            _ => ("provider_stream_failed", false),
+        };
+        Some(Self {
+            message: format!("Provider response terminated: {code}"),
+            status: if retryable { 502 } else { 400 },
+            auth: false,
+            downstream: Value::Null,
+            budget_code: None,
+            stream_code: Some(code),
+            validation_code: None,
+            retryable,
+        })
+    }
+}
+
+impl From<String> for Failure {
+    fn from(message: String) -> Self {
+        let mut failure = Self {
+            message,
+            status: 502,
+            auth: false,
+            downstream: Value::Null,
+            budget_code: None,
+            stream_code: None,
+            validation_code: None,
+            retryable: true,
+        };
+        if failure.item_limit_code().is_some()
+            || failure.context_capacity().is_some()
+        {
+            failure.status = 400;
+            failure.retryable = false;
+        }
+        failure
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+
+pub(super) type Outcome<T> = std::result::Result<T, Failure>;
+
+pub(super) fn status(error: impl Into<String>, status: u16) -> Failure {
+    Failure {
+        status,
+        ..error.into().into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_resource_limit_is_local_terminal_and_has_an_exact_unit() {
+        let failure = Failure::from("tool parameter schema exceeds the 40000-byte schema limit");
+        assert_eq!(failure.status, 400);
+        assert!(!failure.retryable);
+        assert_eq!(failure.item_limit_code(), Some("context_item_limit"));
+        let mut provider = failure;
+        provider.downstream = serde_json::json!({"error":"provider message"});
+        assert_eq!(provider.item_limit_code(), None);
+    }
+
+    #[test]
+    fn unavailable_tool_retains_bounded_identity_without_granting_authority() {
+        let failure = Failure::codec("tool is not authorized for this request: n20__mcp__novel_workspace__read_revision_outcome".into());
+        assert_eq!(failure.validation_code, Some("unauthorized_tool_call"));
+        assert!(!failure.retryable);
+        let (_, detail) = failure.message.split_once("; toolValidation=").unwrap();
+        let detail: Value = serde_json::from_str(detail).unwrap();
+        assert_eq!(detail["tool"], "n20__mcp__novel_workspace__read_revision_outcome");
+        assert_eq!(detail["reason"], "not_in_current_request");
+        for name in ["secret\nvalue".to_owned(), "x".repeat(65), "https://private/path".to_owned()] {
+            assert_eq!(Failure::codec(format!("tool is not authorized for this request: {name}")).message, "unauthorized_tool_call");
+        }
+    }
+
+    #[test]
+    fn input_budget_rejection_is_terminal_and_distinct_from_task_allowance() {
+        let failure = Failure::codec(crate::context_capacity::check(11, 10, crate::context_capacity::Boundary::Route).unwrap_err());
+        assert_eq!(failure.status, 400);
+        assert!(!failure.retryable);
+        assert_eq!(failure.diagnostic_code(), "context_input_budget_exceeded");
+        assert!(failure.budget_code.is_none());
+        let downstream = Failure { downstream: serde_json::json!({"error":"provider prose"}), ..failure };
+        assert!(downstream.context_capacity().is_none());
+        assert_eq!(downstream.diagnostic_code(), "provider_http_error");
+        let other = Failure::from("unrelated provider failure");
+        assert!(other.retryable);
+        assert_eq!(other.diagnostic_code(), "bridge_error");
+    }
+
+    #[test]
+    fn unknown_usage_is_a_distinct_terminal_budget_owner_failure() {
+        let failure = Failure::reservation("task provider usage is unknown".into());
+        assert_eq!(failure.status, 400);
+        assert!(!failure.retryable);
+        assert_eq!(failure.budget_code, Some("task_provider_usage_unknown"));
+        assert_eq!(failure.diagnostic_code(), "task_provider_usage_unknown");
+        // Provider prose and arbitrary Host errors cannot acquire this code.
+        assert_eq!(
+            Failure::from("task provider usage is unknown").diagnostic_code(),
+            "bridge_error"
+        );
+        assert_eq!(
+            Failure::reservation("task provider usage is unknown: unrelated host error".into())
+                .diagnostic_code(),
+            "bridge_error"
+        );
+    }
+}

@@ -1,0 +1,300 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+import { AgentEngineHost, CAPABILITIES, CodexAppServerClient, CodexSessionRuntime, defineConnection, resolveSessionPlan } from "../src/index.mjs";
+import { trustedTestEvidence, verifiedBaselineEvidence } from "../src/testing/index.mjs";
+
+const fixture = fileURLToPath(new URL("./fixture-app-server.mjs", import.meta.url));
+const connection = defineConnection({ id: "fixture", provider: "Fixture", endpoint: "https://fixture.invalid", model: "fixture", credentialRef: "FIXTURE_API_KEY", protocol: "responses", capabilitySupport: { text: "native", structuredToolCalls: "native" }, declaredLimits: { contextTokens: 32_000, outputTokens: 2_000 } });
+const evidence = verifiedBaselineEvidence(connection, { capabilities: [CAPABILITIES.TEXT, CAPABILITIES.STRUCTURED_TOOL_CALLS, CAPABILITIES.TOOL_LOOP] });
+
+function appServerRuntime() {
+  return new CodexAppServerClient({ command: [process.execPath, fixture], model: "fixture" });
+}
+
+function host(runtimeFactory = async () => appServerRuntime()) {
+  return new AgentEngineHost({ connections: [connection], evidenceProvider: async () => trustedTestEvidence(evidence), qualifier: async (request) => ({ request, status: "qualified" }), runtimeFactory });
+}
+
+test("engine host refuses raw evidence records at its production boundary", async () => {
+  const engine = new AgentEngineHost({ connections: [connection], evidenceProvider: async () => evidence, runtimeFactory: async () => appServerRuntime() });
+  await assert.rejects(engine.resolveSession({ policy: { defaultConnectionId: "fixture", capabilityProfileId: "text-v1" } }), /trusted evidence snapshot/);
+});
+
+async function session(engine, profile = "base-tools-v1", sessionId = "session-1") {
+  const plan = await engine.resolveSession({ policy: { defaultConnectionId: "fixture", capabilityProfileId: profile } });
+  return { plan, started: await engine.startSession({ sessionPlan: plan, sessionId }) };
+}
+
+test("engine host reuses a session across independently leased runs", async () => {
+  const engine = host();
+  const inspected = await engine.inspectConnection({ connectionId: "fixture", policy: { credentialScopes: { fixture: "FIXTURE_API_KEY" } } });
+  assert.equal(inspected.status, "available");
+  const { started } = await session(engine);
+  for (const runId of ["run-1", "run-2"]) {
+    const run = await engine.startRun({ sessionId: started.sessionId, input: [{ type: "text", text: runId }], budgetId: `budget-${runId}`, runId });
+    assert.equal((await run.completion).status, "completed");
+    assert.equal(engine.runStatus(runId).sessionId, started.sessionId);
+    engine.closeRun(runId);
+  }
+  assert.equal(engine.sessionStatus(started.sessionId).state, "idle");
+  await engine.closeSession(started.sessionId);
+});
+
+test("host completion retains the native runtime machine failure after cleanup also fails", async () => {
+  const calls = [];
+  const appServer = {
+    subscribeEvents: () => () => {}, ensureSession: async () => "thread-failure", resumeSession: async id => id,
+    bindExecution: async () => {},
+    sendTurn: async () => { throw Object.assign(new Error("tool correction limit"), { code: "tool_argument_correction_limit" }); },
+    revokeExecution: async ({ revokedEpoch }) => ({ revokedEpoch }), interruptTurn: async () => true,
+    endExecution: async () => calls.push("app:end"), close: async () => calls.push("app:close"),
+  };
+  const bridge = {
+    start: async () => {}, beginTaskBudget: async () => {}, beginExecutionLease: async () => {},
+    cancelActiveRequests: async () => 0,
+    endExecutionLease: async () => {
+      calls.push("lease:end");
+      throw Object.assign(new Error("lease drain failed"), { code: "LEASE_DRAIN_FAILED" });
+    },
+    endTaskBudget: async () => { calls.push("budget:end"); return true; }, close: async () => calls.push("bridge:close"),
+  };
+  const runtime = new CodexSessionRuntime({ appServer, bridge, budgetFactory: async () => ({ complete: status => calls.push(`budget:${status}`) }) });
+  const engine = host(async () => runtime);
+  const { started } = await session(engine, "text-v1", "native-failure-session");
+  const run = await engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "native-failure-budget", runId: "native-failure-run" });
+  await assert.rejects(run.completion, error => {
+    assert.equal(error.code, "tool_argument_correction_limit");
+    assert.equal(error.message, "tool correction limit");
+    return true;
+  });
+  assert.equal(engine.runStatus(run.runId).state, "failed");
+  assert.deepEqual(calls, ["lease:end", "budget:end", "budget:failed", "app:end"]);
+  await assert.rejects(runtime.bindExecution({ lease: run.lease, sessionPlan: {} }), /cleanup is unresolved/);
+  engine.closeRun(run.runId);
+  await engine.closeSession(started.sessionId);
+  assert.deepEqual(calls.slice(-2), ["app:close", "bridge:close"]);
+});
+
+test("host respects null machine code when a plain runtime error mentions the cancellation prefix", async () => {
+  const message = "TASK_CANCELLED:plain text is not cancellation";
+  const calls = [];
+  const appServer = {
+    subscribeEvents: () => () => {}, ensureSession: async () => "thread-plain-failure", resumeSession: async id => id,
+    bindExecution: async () => {}, sendTurn: async () => { throw new Error(message); },
+    revokeExecution: async ({ revokedEpoch }) => ({ revokedEpoch }), interruptTurn: async () => true,
+    endExecution: async () => calls.push("app:end"), close: async () => calls.push("app:close"),
+  };
+  const bridge = {
+    start: async () => {}, beginTaskBudget: async () => {}, beginExecutionLease: async () => {},
+    cancelActiveRequests: async () => 0,
+    endExecutionLease: async () => { calls.push("lease:end"); return true; },
+    endTaskBudget: async () => { calls.push("budget:end"); return true; }, close: async () => calls.push("bridge:close"),
+  };
+  const runtime = new CodexSessionRuntime({ appServer, bridge, budgetFactory: async () => ({ complete: status => calls.push(`budget:${status}`) }) });
+  const engine = host(async () => runtime);
+  const { started } = await session(engine, "text-v1", "native-plain-failure-session");
+  const run = await engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "native-plain-failure-budget", runId: "native-plain-failure-run" });
+  await assert.rejects(run.completion, error => {
+    assert.equal(error.code, null);
+    assert.equal(error.message, message);
+    return true;
+  });
+  assert.equal(engine.runStatus(run.runId).state, "failed");
+  assert.deepEqual(calls, ["lease:end", "budget:end", "budget:failed", "app:end"]);
+  engine.closeRun(run.runId);
+  await engine.closeSession(started.sessionId);
+  assert.deepEqual(calls.slice(-2), ["app:close", "bridge:close"]);
+});
+
+test("engine host caps an execution lease at the caller's absolute deadline", async () => {
+  const runtime = appServerRuntime();
+  const bind = runtime.bindExecution.bind(runtime);
+  let issuedLease;
+  runtime.bindExecution = async (params) => {
+    issuedLease = params.lease;
+    return bind(params);
+  };
+  const engine = host(async () => runtime);
+  const { started } = await session(engine, "text-v1", "absolute-deadline-session");
+  const deadlineAtMs = Date.now() + 10_000;
+  const run = await engine.startRun({ sessionId: started.sessionId, input: [{ type: "text", text: "deadline" }],
+    budgetId: "budget-deadline", runId: "absolute-deadline-run", maxDurationMs: 60_000, deadlineAtMs });
+  assert.ok(Date.parse(issuedLease.deadline) <= deadlineAtMs);
+  assert.equal((await run.completion).status, "completed");
+  engine.closeRun("absolute-deadline-run");
+  await assert.rejects(engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "budget-expired",
+    runId: "expired-deadline-run", maxDurationMs: 60_000, deadlineAtMs: Date.now() - 1_000 }), /expired/);
+  await assert.rejects(engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "budget-invalid",
+    runId: "invalid-deadline-run", maxDurationMs: 60_000, deadlineAtMs: "tomorrow" }), /invalid/);
+  await engine.closeSession(started.sessionId);
+});
+
+test("engine host revokes a run before interrupting its active turn", async () => {
+  const engine = host();
+  const { started } = await session(engine);
+  const run = await engine.startRun({ sessionId: started.sessionId, input: [{ type: "text", text: "interrupt" }], budgetId: "budget-2", runId: "run-2" });
+  await new Promise((resolve) => engine.subscribeEvents({ runId: "run-2" }, (event) => { if (event.method === "turn/started") resolve(); }));
+  const cancelled = await engine.cancelRun("run-2", "test-cancel");
+  assert.equal(cancelled.revoked, true);
+  assert.equal((await run.completion).status, "cancelled");
+  assert.equal(engine.runStatus("run-2").state, "cancelled");
+  engine.closeRun("run-2");
+  await engine.closeSession(started.sessionId);
+});
+
+test("engine host resumes a session, reconciles first, and can start a new run", async () => {
+  const engine = host();
+  const plan = resolveSessionPlan({ connections: [connection], evidence, policy: { defaultConnectionId: "fixture", capabilityProfileId: "text-v1" } });
+  let reconciled = false;
+  const resumed = await engine.resumeSession({ sessionPlan: plan, threadId: "thread-existing", sessionId: "resumed", recovery: { reconcile: async () => { reconciled = true; return { canContinue: true, unresolvedRequests: [] }; } } });
+  assert.equal(reconciled, true);
+  const run = await engine.startRun({ sessionId: resumed.sessionId, input: [{ type: "text", text: "continue" }], budgetId: "budget-3", runId: "run-3" });
+  assert.equal((await run.completion).status, "completed");
+  assert.equal((await engine.qualifyCapabilities({ connectionId: "fixture" })).status, "qualified");
+  engine.closeRun("run-3");
+  await engine.closeSession(resumed.sessionId);
+});
+
+test("engine host reserves a run id before binding execution", async () => {
+  let releaseBinding;
+  const barrier = new Promise((resolve) => { releaseBinding = resolve; });
+  let bindings = 0;
+  const runtime = appServerRuntime();
+  runtime.bindExecution = async () => { bindings += 1; await barrier; };
+  const engine = host(async () => runtime);
+  const { started } = await session(engine, "text-v1", "reserved-session");
+  const first = engine.startRun({ sessionId: started.sessionId, input: [{ type: "text", text: "hello" }], budgetId: "budget", runId: "reserved" });
+  await assert.rejects(engine.startRun({ sessionId: started.sessionId, input: [{ type: "text", text: "duplicate" }], budgetId: "budget", runId: "reserved" }), /already exists/);
+  releaseBinding();
+  const run = await first;
+  await run.completion;
+  assert.equal(bindings, 1);
+  engine.closeRun("reserved");
+  await engine.closeSession(started.sessionId);
+});
+
+test("cancelling while binding execution prevents the turn from being sent", async () => {
+  let releaseBinding;
+  let bindingStarted;
+  const barrier = new Promise((resolve) => { releaseBinding = resolve; });
+  const ready = new Promise((resolve) => { bindingStarted = resolve; });
+  let sends = 0;
+  let revocations = 0;
+  const runtime = {
+    subscribeEvents: () => () => {}, ensureSession: async () => "thread", resumeSession: async (id) => id,
+    bindExecution: async () => { bindingStarted(); await barrier; },
+    sendTurn: async () => { sends += 1; return { turn: { id: "turn", status: "completed" } }; },
+    revokeExecution: async ({ expectedEpoch }) => { revocations += 1; return { revokedEpoch: expectedEpoch + 1 }; },
+    interruptTurn: async () => false, close: async () => {},
+  };
+  const engine = host(async () => runtime);
+  const { started } = await session(engine, "text-v1", "preparing-session");
+  const pending = engine.startRun({ sessionId: started.sessionId, input: [{ type: "text", text: "hello" }], budgetId: "budget", runId: "preparing" });
+  await ready;
+  const cancellation = engine.cancelRun("preparing");
+  releaseBinding();
+  await assert.rejects(pending, (error) => error.code === "TASK_CANCELLED");
+  await cancellation;
+  assert.equal(sends, 0);
+  assert.equal(revocations, 1);
+  assert.equal(engine.runStatus("preparing").state, "cancelled");
+  engine.closeRun("preparing");
+  await engine.closeSession(started.sessionId);
+});
+
+test("recovery blocks a session with unresolved writes", async () => {
+  let factoryCalls = 0;
+  const engine = host(async () => { factoryCalls += 1; return appServerRuntime(); });
+  const plan = resolveSessionPlan({ connections: [connection], evidence, policy: { defaultConnectionId: "fixture", capabilityProfileId: "text-v1" } });
+  const result = await engine.resumeSession({ sessionPlan: plan, threadId: "thread", sessionId: "blocked", recovery: { reconcile: async () => ({ canContinue: false, unresolvedRequests: [{ requestId: "write-1", status: "unknown" }] }) } });
+  assert.equal(result.recovery.canContinue, false);
+  assert.equal(engine.sessionStatus("blocked").state, "recovery-blocked");
+  assert.equal(factoryCalls, 0);
+});
+
+test("closing a session while its runtime factory is pending closes the late runtime", async () => {
+  let releaseFactory;
+  const barrier = new Promise((resolve) => { releaseFactory = resolve; });
+  let ensures = 0;
+  let closes = 0;
+  const runtime = {
+    subscribeEvents: () => () => {},
+    ensureSession: async () => { ensures += 1; return "thread"; },
+    resumeSession: async (id) => id,
+    bindExecution: async () => {}, sendTurn: async () => ({ turn: { status: "completed" } }),
+    revokeExecution: async ({ revokedEpoch }) => ({ revokedEpoch }), interruptTurn: async () => false,
+    close: async () => { closes += 1; },
+  };
+  const engine = host(async () => { await barrier; return runtime; });
+  const plan = resolveSessionPlan({ connections: [connection], evidence, policy: { defaultConnectionId: "fixture", capabilityProfileId: "text-v1" } });
+  const starting = engine.startSession({ sessionPlan: plan, sessionId: "closing-during-factory" });
+  await engine.closeSession("closing-during-factory");
+  releaseFactory();
+  await assert.rejects(starting, (error) => error.code === "TASK_CANCELLED");
+  assert.equal(ensures, 0);
+  assert.equal(closes, 1);
+});
+
+test("outcome-unknown blocks the session from starting another run", async () => {
+  const runtime = {
+    subscribeEvents: () => () => {}, ensureSession: async () => "thread", resumeSession: async (id) => id,
+    bindExecution: async () => {}, sendTurn: async () => new Promise(() => {}),
+    revokeExecution: async ({ revokedEpoch }) => ({ revokedEpoch }), interruptTurn: async () => true,
+    reconcileRun: async () => ({ outcome: "outcome-unknown", unresolvedOperations: [{ id: "write" }] }), close: async () => {},
+  };
+  const engine = host(async () => runtime);
+  const { started } = await session(engine, "text-v1", "unknown-session");
+  await engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "budget-1", runId: "unknown-run" });
+  await engine.cancelRun("unknown-run");
+  assert.equal(engine.sessionStatus(started.sessionId).state, "recovery-blocked");
+  await assert.rejects(engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "budget-2", runId: "blocked-run" }), /not idle/);
+});
+
+test("host native event state isolates child events and keeps replay snapshots immutable", async () => {
+  let emit;
+  let finish;
+  const runtime = {
+    subscribeEvents: callback => { emit = callback; return () => {}; },
+    ensureSession: async () => "root", resumeSession: async id => id, bindExecution: async () => {},
+    sendTurn: () => new Promise(resolve => { finish = resolve; }),
+    revokeExecution: async ({ revokedEpoch }) => ({ revokedEpoch }), interruptTurn: async () => false, close: async () => {},
+  };
+  const engine = host(async () => runtime);
+  const { started } = await session(engine);
+  const run = await engine.startRun({ sessionId: started.sessionId, input: [], budgetId: "budget", runId: "event-run" });
+  emit({ method: "item/started", params: { threadId: "child", item: { id: "tool", type: "mcpToolCall" } } });
+  assert.equal(engine.runStatus(run.runId).state, "running");
+  emit({ method: "item/started", params: { threadId: "root", item: { id: "delegate", type: "collabAgentToolCall" } } });
+  assert.equal(engine.runStatus(run.runId).state, "waiting-child");
+  const replay = [];
+  const unsubscribe = engine.subscribeEvents({ runId: run.runId }, event => replay.push(event));
+  assert.throws(() => { replay[1].params.threadId = "root"; }, TypeError);
+  finish({ turn: { id: "turn", status: "completed" } });
+  await run.completion;
+  emit({ method: "turn/started", params: { threadId: "root" } });
+  assert.equal(engine.runStatus(run.runId).state, "completed");
+  unsubscribe();
+  engine.closeRun(run.runId);
+  await engine.closeSession(started.sessionId);
+});
+
+test("steerRun dispatches only to the original session, run, epoch and Core turn", async () => {
+  const runtime = appServerRuntime(), engine = host(async () => runtime);
+  const {started} = await session(engine);
+  const run = await engine.startRun({sessionId:started.sessionId,runId:'steer-run',budgetId:'steer-budget',input:[{type:'text',text:'interrupt'}]});
+  try {
+    for (let i=0; i<500 && !runtime.turnId; i++) await new Promise(r=>setTimeout(r,10));
+    assert.equal(runtime.turnId,'turn-engine');
+    const state = engine.runStatus(run.runId);
+    const request = {...state,turnId:runtime.turnId,input:[{type:'text',text:'only this turn'}]};
+    for (const wrong of [{runId:'missing-run'},{sessionId:'other'},{epoch:state.epoch+1},{threadId:'other'},{leaseId:'other'},{turnId:'previous'}]) {
+      if (wrong.turnId) await assert.rejects(engine.steerRun({...request,...wrong}), /target|turn/);
+      else assert.equal((await engine.steerRun({...request,...wrong})).delivery, "notSent");
+    }
+    assert.deepEqual(await engine.steerRun(request), {steered:true});
+    assert.equal((await run.completion).message,'only this turn');
+    assert.equal((await engine.steerRun(request)).delivery, "notSent");
+  } finally { await engine.closeSession(started.sessionId); }
+});

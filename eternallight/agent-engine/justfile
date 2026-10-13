@@ -1,0 +1,8 @@
+test:
+    cargo test --locked --workspace
+
+build:
+    cargo build --locked --release --workspace
+
+fmt:
+    cargo fmt --all
