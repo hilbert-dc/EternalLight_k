@@ -1,0 +1,200 @@
+exports[`production revision UI shows criteria before approval and isolates lazy candidate judgments 1`] = `
+{
+  "proposal": "待确认的候选修改模型建议不会自行修改作品第 2 章 · 修改选定场景只修改密函与守卫场景。只修改密函与守卫场景。模型提出的修改标准批准操作或确认范围时，将一并冻结以下标准与适用场景。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard拒绝建议设置本轮范围批准生成候选批准只允许生成可审阅候选，不会正式采用正文或事实。",
+  "scope": {
+    "proposed": "模型提出的修改标准批准操作或确认范围时，将一并冻结以下标准与适用场景。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard",
+    "frozen": "模型提出的修改标准批准操作或确认范围时，将一并冻结以下标准与适用场景。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard",
+    "exactTarget": [
+      {
+        "operation": "generateChapter",
+        "target": {
+          "chapterId": "chapter-2",
+          "chapterNumber": 2,
+          "scope": {
+            "type": "selectedScenes",
+            "sourceRevisionId": "original-2",
+            "groupIds": [
+              "letter",
+              "guard"
+            ]
+          },
+          "chapterAcceptance": {
+            "requirements": [
+              {
+                "id": "acceptance-1",
+                "text": "保留整章上下文与既有故事规则。"
+              }
+            ],
+            "length": {
+              "requirement": "本次保持原有篇幅。",
+              "minCharacters": null,
+              "maxCharacters": null
+            }
+          },
+          "desiredOutcomes": [
+            {
+              "id": "hide_letter",
+              "criterion": "把烧信改为藏信，保留密函。",
+              "groupIds": [
+                "letter"
+              ]
+            },
+            {
+              "id": "keep_secret",
+              "criterion": "主角不向守卫泄露密函的位置。",
+              "groupIds": [
+                "letter",
+                "guard"
+              ]
+            },
+            {
+              "id": "wait_signal",
+              "criterion": "主角等待白塔亮灯后再离开。",
+              "groupIds": [
+                "guard"
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "workPanel": {
+    "judgments": 3,
+    "adjacentToReply": true,
+    "executionList": false
+  },
+  "loading": {
+    "summary": "查看检查结果",
+    "criteria": "已批准的修改标准以下标准来自已冻结的任务目标。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard",
+    "chapterCriteria": "章节标准保留整章上下文与既有故事规则。篇幅要求：本次保持原有篇幅。",
+    "paragraphs": [
+      "模型对本次候选正文的判断，不是创作目标达成认证，也不会采用正文或事实。",
+      "读取修改结果中…"
+    ],
+    "status": "读取修改结果中…",
+    "alert": null,
+    "sources": null,
+    "outcomes": [],
+    "buttons": []
+  },
+  "readError": {
+    "summary": "查看检查结果",
+    "criteria": "已批准的修改标准以下标准来自已冻结的任务目标。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard",
+    "chapterCriteria": "章节标准保留整章上下文与既有故事规则。篇幅要求：本次保持原有篇幅。",
+    "paragraphs": [
+      "模型对本次候选正文的判断，不是创作目标达成认证，也不会采用正文或事实。"
+    ],
+    "status": null,
+    "alert": "分析结果暂时不可读重试读取修改结果",
+    "sources": null,
+    "outcomes": [],
+    "buttons": [
+      "重试读取修改结果"
+    ]
+  },
+  "current": {
+    "summary": "查看检查结果",
+    "criteria": "已批准的修改标准以下标准来自已冻结的任务目标。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard",
+    "chapterCriteria": "章节标准保留整章上下文与既有故事规则。篇幅要求：本次保持原有篇幅。",
+    "paragraphs": [
+      "模型对本次候选正文的判断，不是创作目标达成认证，也不会采用正文或事实。",
+      "当前来源 · 候选判断"
+    ],
+    "status": "当前来源 · 候选判断",
+    "alert": null,
+    "sources": "原正文版本original-2候选正文版本draft-2知识批次modeling-2判断记录revision-outcome-report-2",
+    "outcomes": [
+      "保留整章上下文与既有故事规则。 · 有证据支持未改动的开场仍明确白塔的规则。白塔熄灯前，不可出城。场景 opening · Unicode 字符区间 [0, 11)（候选场景正文）",
+      "把烧信改为藏信，保留密函。 · 有证据支持新正文写明主角藏起密函。他藏好密函。🔒场景 letter · Unicode 字符区间 [0, 7)（候选场景正文）",
+      "主角不向守卫泄露密函的位置。 · 未满足主角仍向守卫透露藏信位置。查看相关问题信就在我的袖里。场景 guard · Unicode 字符区间 [0, 8)（候选场景正文）",
+      "主角等待白塔亮灯后再离开。 · 证据不足允许修改的正文没有亮灯后的行动证据。查看相关问题没有可定位的正文证据。"
+    ],
+    "buttons": [
+      "查看相关问题",
+      "查看相关问题",
+      "作为后继创作依据",
+      "还需改稿",
+      "暂缓",
+      "重新读取修改结果"
+    ]
+  },
+  "stale": {
+    "summary": "查看检查结果",
+    "criteria": "已批准的修改标准以下标准来自已冻结的任务目标。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard",
+    "chapterCriteria": "章节标准保留整章上下文与既有故事规则。篇幅要求：本次保持原有篇幅。",
+    "paragraphs": [
+      "模型对本次候选正文的判断，不是创作目标达成认证，也不会采用正文或事实。",
+      "已过期 · 来源已变化，以下判断不能代表当前正文"
+    ],
+    "status": "已过期 · 来源已变化，以下判断不能代表当前正文",
+    "alert": null,
+    "sources": "原正文版本original-2候选正文版本draft-2知识批次modeling-2判断记录revision-outcome-report-2",
+    "outcomes": [
+      "保留整章上下文与既有故事规则。 · 有证据支持未改动的开场仍明确白塔的规则。白塔熄灯前，不可出城。场景 opening · Unicode 字符区间 [0, 11)（候选场景正文）",
+      "把烧信改为藏信，保留密函。 · 有证据支持新正文写明主角藏起密函。他藏好密函。🔒场景 letter · Unicode 字符区间 [0, 7)（候选场景正文）",
+      "主角不向守卫泄露密函的位置。 · 未满足主角仍向守卫透露藏信位置。查看相关问题信就在我的袖里。场景 guard · Unicode 字符区间 [0, 8)（候选场景正文）",
+      "主角等待白塔亮灯后再离开。 · 证据不足允许修改的正文没有亮灯后的行动证据。查看相关问题没有可定位的正文证据。"
+    ],
+    "buttons": [
+      "查看相关问题",
+      "查看相关问题",
+      "作为后继创作依据",
+      "还需改稿",
+      "暂缓",
+      "重新读取修改结果"
+    ]
+  },
+  "missing": {
+    "summary": "查看检查结果",
+    "criteria": "已批准的修改标准以下标准来自已冻结的任务目标。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard",
+    "chapterCriteria": "章节标准保留整章上下文与既有故事规则。篇幅要求：本次保持原有篇幅。",
+    "paragraphs": [
+      "模型对本次候选正文的判断，不是创作目标达成认证，也不会采用正文或事实。",
+      "尚无修改结果判断；写作或知识分析结束不代表标准已满足。"
+    ],
+    "status": "尚无修改结果判断；写作或知识分析结束不代表标准已满足。",
+    "alert": null,
+    "sources": null,
+    "outcomes": [],
+    "buttons": [
+      "重新读取修改结果"
+    ]
+  },
+  "mismatch": {
+    "summary": "查看检查结果",
+    "criteria": "已批准的修改标准以下标准来自已冻结的任务目标。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard",
+    "chapterCriteria": "章节标准保留整章上下文与既有故事规则。篇幅要求：本次保持原有篇幅。",
+    "paragraphs": [
+      "模型对本次候选正文的判断，不是创作目标达成认证，也不会采用正文或事实。"
+    ],
+    "status": null,
+    "alert": "判断与当前写作任务、章节或已批准标准不匹配重试读取修改结果",
+    "sources": null,
+    "outcomes": [],
+    "buttons": [
+      "重试读取修改结果"
+    ]
+  },
+  "unavailable": {
+    "summary": "查看检查结果",
+    "criteria": "已批准的修改标准以下标准来自已冻结的任务目标。把烧信改为藏信，保留密函。标准 hide_letter · 场景 letter主角不向守卫泄露密函的位置。标准 keep_secret · 场景 letter、guard主角等待白塔亮灯后再离开。标准 wait_signal · 场景 guard",
+    "chapterCriteria": "章节标准保留整章上下文与既有故事规则。篇幅要求：本次保持原有篇幅。",
+    "paragraphs": [
+      "模型对本次候选正文的判断，不是创作目标达成认证，也不会采用正文或事实。"
+    ],
+    "status": null,
+    "alert": "修改结果读取接口不可用重试读取修改结果",
+    "sources": null,
+    "outcomes": [],
+    "buttons": [
+      "重试读取修改结果"
+    ]
+  },
+  "approvalMessages": {
+    "savedFailure": "✦候选后续处理未完成：修改效果检查尚未完成；没有生成检查结论。",
+    "failure": "✦候选后续处理未完成：修改效果检查尚未完成；没有生成检查结论。",
+    "recorded": "✦本轮候选处理已完成，尚未正式采用。"
+  }
+}
+`;

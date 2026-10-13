@@ -1,0 +1,31 @@
+exports[`desktop scope confirmation freezes intent and limits, isolates stale previews and reconciles lost responses 1`] = `
+{
+  "heading": "确认本轮创作范围",
+  "author": "港城：将烧信改为藏信，保留其他正文。",
+  "limits": {
+    "actionIds": [
+      "action-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    "maxActions": 1,
+    "maxTaskAttempts": 10,
+    "expectedIntentRevision": 0
+  },
+  "targets": [
+    {
+      "operation": "generateChapter",
+      "target": {
+        "chapterId": "chapter-2",
+        "chapterNumber": 2,
+        "scope": {
+          "type": "selectedScenes",
+          "sourceRevisionId": "revision-letter",
+          "groupIds": [
+            "letter"
+          ]
+        }
+      }
+    }
+  ],
+  "warning": "仅覆盖本次对话的精确操作与目标。保存后可按实际需要继续检查；后续精确匹配的目标可在名额内执行，范围外修改仍需要你确认。分析也消耗原预算和累计尝试，不会正式采用正文、解锁场景或增加模型额度。关闭窗口不会停止已提交任务；执行中可返回对话查看进度、暂停或停止。"
+}
+`;

@@ -1,0 +1,22 @@
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { ConversationExecutionStatus } from "../../../src/ConversationExecutionStatus";
+const root = createRoot(document.getElementById("root")!);
+const tick = () => new Promise(resolve => setTimeout(resolve, 30));
+const check = (ok, message) => { if (!ok) throw Error(message); };
+const attempt = {id:"a",threadId:"writer",turnId:"turn",startedAt:Math.floor(Date.now()/1000)-10};
+const step = {status:"running",operation:"generateChapter",target:{chapterNumber:14,scope:{type:"wholeChapter"}},currentAttemptId:"a",attempts:[attempt]};
+const props:any = {run:{state:"running",taskId:"a",threadId:"writer",turnId:"turn",steps:[],answer:""},busy:true,connection:"ready",works:[{status:"running",steps:[step]}],health:[{state:"waiting"}]};
+const render=async()=>{root.render(<ConversationExecutionStatus {...props}/>);await tick();};
+(async()=>{try{
+ await render();check(document.body.textContent.includes("第 14 章"),"chapter hidden by recovery warning");
+ const before=document.querySelector(".conversation-live-time")!.textContent;
+ await new Promise(resolve=>setTimeout(resolve,1150));check(document.querySelector(".conversation-live-time")!.textContent!==before,"elapsed time did not update");
+ props.run.steps=[{id:"message",kind:"system",title:"Agent 进度",status:"completed",messagePhase:"commentary",text:"正在核对县库号簿。"}];await render();
+ check(document.body.textContent.includes("正在核对县库号簿。"),"stream update missing");
+ props.run.taskId="other";await render();check(!document.body.textContent.includes("县库号簿"),"foreign attempt leaked");
+ props.busy=false;props.run.state="completed";props.health=[];step.status="queued";await render();
+ check(document.body.textContent.includes("等待执行"),"queue hidden");check(!document.querySelector(".conversation-live-time"),"queued timer pretended to execute");
+ props.works=[];props.run.state="idle";await render();check(!document.querySelector(".conversation-live-status"),"idle conversation inherited progress");
+ window.testResult={passed:true};
+}catch(error){window.testResult={passed:false,error:error.stack??String(error)};}})();

@@ -1,0 +1,387 @@
+exports[`catalog reads and writes isolate owners and reconcile uncertain receipts without replay 1`] = `
+{
+  "reads": 11,
+  "writes": 3,
+  "requests": [
+    {
+      "project": "a",
+      "expectedRevision": 5,
+      "operation": {
+        "type": "createVolume",
+        "title": "明确创建"
+      }
+    },
+    {
+      "project": "b",
+      "expectedRevision": 1,
+      "operation": {
+        "type": "createVolume",
+        "title": "明确创建"
+      }
+    },
+    {
+      "project": "b",
+      "expectedRevision": 2,
+      "operation": {
+        "type": "createVolume",
+        "title": "明确创建"
+      }
+    }
+  ],
+  "current": {
+    "revision": 6,
+    "volumes": [
+      {
+        "id": "volume-a",
+        "title": "a",
+        "position": 0,
+        "source": null,
+        "outlineStatus": "independent"
+      }
+    ],
+    "placements": []
+  },
+  "error": null,
+  "busy": false
+}
+`;
+
+exports[`work directory preserves authoritative volume identities, mutations and editor state 1`] = `
+[
+  {
+    "label": "single-column-current",
+    "summary": "作品目录 · 2 卷 · 3 章",
+    "tree": [
+      {
+        "title": "第一卷0 章",
+        "open": false,
+        "chapters": []
+      },
+      {
+        "title": "第一卷1 章",
+        "open": true,
+        "chapters": [
+          "第 1 章同名来信"
+        ]
+      }
+    ],
+    "chapters": [
+      {
+        "id": "chapter-1",
+        "current": "page"
+      },
+      {
+        "id": "chapter-2",
+        "current": null
+      },
+      {
+        "id": "chapter-3",
+        "current": null
+      }
+    ],
+    "error": null
+  },
+  {
+    "label": "create-failure",
+    "summary": "作品目录 · 2 卷 · 3 章",
+    "tree": [
+      {
+        "title": "第一卷0 章",
+        "open": false,
+        "chapters": []
+      },
+      {
+        "title": "第一卷1 章",
+        "open": true,
+        "chapters": [
+          "第 1 章同名来信"
+        ]
+      }
+    ],
+    "chapters": [
+      {
+        "id": "chapter-1",
+        "current": "page"
+      },
+      {
+        "id": "chapter-2",
+        "current": null
+      },
+      {
+        "id": "chapter-3",
+        "current": null
+      }
+    ],
+    "error": "目录来源已变化，请重新读取后核对。"
+  },
+  {
+    "label": "unpartitioned-chapters",
+    "summary": "作品目录 · 3 章",
+    "tree": [],
+    "chapters": [
+      {
+        "id": "chapter-1",
+        "current": "page"
+      },
+      {
+        "id": "chapter-2",
+        "current": null
+      },
+      {
+        "id": "chapter-3",
+        "current": null
+      }
+    ],
+    "error": null
+  },
+  {
+    "label": "chapter-columns-light-330",
+    "numberOffsets": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "titleOffsets": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "numbersVisible": true
+  },
+  {
+    "label": "light-330",
+    "summary": "作品目录 · 1 卷 · 4 章",
+    "tree": [
+      {
+        "title": "卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长1 章",
+        "open": true,
+        "chapters": [
+          "第 10 章章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长"
+        ]
+      }
+    ],
+    "chapters": [
+      {
+        "id": "chapter-2",
+        "current": "page"
+      },
+      {
+        "id": "chapter-1",
+        "current": null
+      },
+      {
+        "id": "chapter-3",
+        "current": null
+      },
+      {
+        "id": "chapter-4",
+        "current": null
+      }
+    ],
+    "error": null
+  },
+  {
+    "label": "chapter-columns-light-740",
+    "numberOffsets": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "titleOffsets": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "numbersVisible": true
+  },
+  {
+    "label": "light-740",
+    "summary": "作品目录 · 1 卷 · 4 章",
+    "tree": [
+      {
+        "title": "卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长1 章",
+        "open": true,
+        "chapters": [
+          "第 10 章章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长"
+        ]
+      }
+    ],
+    "chapters": [
+      {
+        "id": "chapter-2",
+        "current": "page"
+      },
+      {
+        "id": "chapter-1",
+        "current": null
+      },
+      {
+        "id": "chapter-3",
+        "current": null
+      },
+      {
+        "id": "chapter-4",
+        "current": null
+      }
+    ],
+    "error": null
+  },
+  {
+    "label": "chapter-columns-dark-330",
+    "numberOffsets": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "titleOffsets": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "numbersVisible": true
+  },
+  {
+    "label": "dark-330",
+    "summary": "作品目录 · 1 卷 · 4 章",
+    "tree": [
+      {
+        "title": "卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长1 章",
+        "open": true,
+        "chapters": [
+          "第 10 章章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长"
+        ]
+      }
+    ],
+    "chapters": [
+      {
+        "id": "chapter-2",
+        "current": "page"
+      },
+      {
+        "id": "chapter-1",
+        "current": null
+      },
+      {
+        "id": "chapter-3",
+        "current": null
+      },
+      {
+        "id": "chapter-4",
+        "current": null
+      }
+    ],
+    "error": null
+  },
+  {
+    "label": "chapter-columns-dark-740",
+    "numberOffsets": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "titleOffsets": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "numbersVisible": true
+  },
+  {
+    "label": "dark-740",
+    "summary": "作品目录 · 1 卷 · 4 章",
+    "tree": [
+      {
+        "title": "卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长卷名称很长1 章",
+        "open": true,
+        "chapters": [
+          "第 10 章章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长章节标题很长"
+        ]
+      }
+    ],
+    "chapters": [
+      {
+        "id": "chapter-2",
+        "current": "page"
+      },
+      {
+        "id": "chapter-1",
+        "current": null
+      },
+      {
+        "id": "chapter-3",
+        "current": null
+      },
+      {
+        "id": "chapter-4",
+        "current": null
+      }
+    ],
+    "error": null
+  },
+  {
+    "label": "empty-directory",
+    "summary": "作品目录 · 0 章",
+    "tree": [],
+    "chapters": [],
+    "error": null
+  }
+]
+`;
+
+exports[`workspace creates a source-bound volume chapter and recovers its receipt without repeating writes 1`] = `
+[
+  {
+    "predictedNumber": 5,
+    "submittedTitle": "",
+    "actualTitle": "第 5 章",
+    "directory": "›作品目录1 卷 · 2 章",
+    "volume": {
+      "id": "volume-exact",
+      "title": "潮汐卷",
+      "position": 0,
+      "outlineStatus": "linked",
+      "source": {
+        "outlineRevisionId": "outline-exact",
+        "nodeId": "stable-volume"
+      }
+    },
+    "placement": {
+      "chapterId": "new-chapter",
+      "volumeId": "volume-exact"
+    },
+    "calls": [
+      {
+        "type": "createVolume",
+        "title": "潮汐卷",
+        "source": {
+          "outlineRevisionId": "outline-exact",
+          "nodeId": "stable-volume"
+        }
+      },
+      {
+        "chapter": "",
+        "volumeId": "volume-exact"
+      }
+    ],
+    "body": "",
+    "writes": 2,
+    "models": 0
+  },
+  {
+    "customTitle": "作者手输的章节名",
+    "predictedNumberAfterRefresh": 7,
+    "sameInputAndSelection": true,
+    "rejectedWithoutWrite": true,
+    "writes": 2,
+    "models": 0
+  }
+]
+`;

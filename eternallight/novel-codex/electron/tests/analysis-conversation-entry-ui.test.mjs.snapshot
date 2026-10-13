@@ -1,0 +1,17 @@
+exports[`planning discussion preserves the author draft and explicit multi-role review 1`] = `
+[
+  {
+    "planning": "在对话中讨论这份规划",
+    "multiRole": "指定规划检查视角",
+    "draftPreserved": true,
+    "manualFieldsMounted": true,
+    "structuredStarts": 1,
+    "runtimeReads": 0,
+    "collapsedStop": {
+      "attempts": 2,
+      "state": "评审已停止",
+      "reportOpen": false
+    }
+  }
+]
+`;

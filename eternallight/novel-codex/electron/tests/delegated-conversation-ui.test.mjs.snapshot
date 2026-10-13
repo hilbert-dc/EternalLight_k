@@ -1,0 +1,394 @@
+exports[`delegated conversation keeps public progress visible and preserves reading and failures 1`] = `
+[
+  {
+    "name": "successful current delegation",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "查看结果说明",
+    "authorCount": 1,
+    "description": true,
+    "descriptionOpen": false,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "same work refresh keeps reading",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "查看结果说明 · 三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": true,
+    "descriptionOpen": true,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "successful history delegation",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "查看结果说明 · 三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": true,
+    "descriptionOpen": true,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "mixed historical replacement stays folded",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "查看结果说明 · 三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": true,
+    "descriptionOpen": true,
+    "delivery": "结果已保存，后续已有更新"
+  },
+  {
+    "name": "all historical outputs replaced",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "查看结果说明 · 三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": true,
+    "descriptionOpen": true,
+    "delivery": "结果已保存，后续已有更新"
+  },
+  {
+    "name": "pure discussion",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": null,
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "proposed child only",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": null,
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "进行中"
+  },
+  {
+    "name": "partial unresolved output",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "已保存部分内容"
+  },
+  {
+    "name": "partial without replacement",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "已保存部分内容"
+  },
+  {
+    "name": "replacement with missing output",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "已保存部分内容"
+  },
+  {
+    "name": "replacement with pending approval",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "已保存部分内容"
+  },
+  {
+    "name": "replacement with unsettled usage",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "已保存部分内容"
+  },
+  {
+    "name": "missing saved output evidence",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "failed discussion",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "已登记生成大纲；内部行动编号仅留在原始讨论记录，不代表保存成功。 · 复制回复",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "需处理"
+  },
+  {
+    "name": "cancelled discussion",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "已登记生成大纲；内部行动编号仅留在原始讨论记录，不代表保存成功。 · 复制回复",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "已取消"
+  },
+  {
+    "name": "repair approval",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "foreign child source",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "查看结果说明 · 三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": true,
+    "descriptionOpen": true,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "conflicting thread",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": null,
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": null
+  },
+  {
+    "name": "conflicting turn",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": null,
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": null
+  },
+  {
+    "name": "child failed",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "未能保存大纲候选，原内容保持。 · 复制回复",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "需处理"
+  },
+  {
+    "name": "saved reply error",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "原始读取失败，请稍后重新读取 · 重新读取回复",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "saved reply read-only retry",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "查看结果说明",
+    "authorCount": 1,
+    "description": true,
+    "descriptionOpen": false,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "saved reply null",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "本轮尚无回复。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "saved reply absent",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "本轮执行已结束，没有最终文本回复。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "saved reply truncated",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "保存的回复超过上限，以下为部分内容。 · 三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "saved reply binding-truncated",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "保存的回复超过上限，以下为部分内容。 · 三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "saved reply foreign",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "回复归属不匹配，请重新读取 · 重新读取回复",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "historical replaced reply error",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "原始读取失败，请稍后重新读取 · 重新读取回复",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存，后续已有更新"
+  },
+  {
+    "name": "historical replaced reply absent",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "本轮执行已结束，没有最终文本回复。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存，后续已有更新"
+  },
+  {
+    "name": "historical replaced reply truncated",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "保存的回复超过上限，以下为部分内容。 · 三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存，后续已有更新"
+  },
+  {
+    "name": "read analysis remains public",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "local current writer explanation",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": null,
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "local history writer explanation",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": null,
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "local history replacement stays folded",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": null,
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存，后续已有更新"
+  },
+  {
+    "name": "history error remains public",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": null,
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "large local reply remains public",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": null,
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "foreign project cannot fold local reply",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": null,
+    "authorCount": 1,
+    "description": false,
+    "descriptionOpen": null,
+    "delivery": null
+  },
+  {
+    "name": "late saved reply remains isolated",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "查看结果说明 · 三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": true,
+    "descriptionOpen": true,
+    "delivery": "结果已保存"
+  },
+  {
+    "name": "dark narrow successful result",
+    "intermediateInFlow": false,
+    "flowOpen": null,
+    "mainResult": "查看结果说明 · 三卷大纲候选已保存，尚未采用。 · 第一卷围绕来信展开，第二卷检验信任，第三卷收束选择。",
+    "authorCount": 1,
+    "description": true,
+    "descriptionOpen": true,
+    "delivery": "结果已保存"
+  }
+]
+`;

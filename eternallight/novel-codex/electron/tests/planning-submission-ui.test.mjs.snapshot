@@ -1,0 +1,81 @@
+exports[`actual App saves planning before original conversation submission and isolates pending sources 1`] = `
+[
+  {
+    "case": "dirty brief direct submit",
+    "saves": 1,
+    "sends": 1,
+    "input": "下一条未发送构想",
+    "formalWrites": 0
+  },
+  {
+    "case": "dirty outline direct submit",
+    "saves": 2,
+    "sends": 2,
+    "input": "下一条未发送构想",
+    "formalWrites": 0
+  },
+  {
+    "case": "dirty plans direct submit",
+    "saves": 3,
+    "sends": 3,
+    "input": "下一条未发送构想",
+    "formalWrites": 0
+  },
+  {
+    "case": "save rejection preserves input",
+    "saves": 4,
+    "sends": 3,
+    "input": "保存后再起草简报",
+    "formalWrites": 0
+  },
+  {
+    "case": "readback failure retries only the receipt",
+    "saves": 6,
+    "sends": 5,
+    "input": "基于这一版继续调整",
+    "formalWrites": 0
+  },
+  {
+    "case": "local validation returns false",
+    "saves": 6,
+    "sends": 5,
+    "input": "根据当前大纲检查结构",
+    "formalWrites": 0
+  },
+  {
+    "case": "changed input during preparation",
+    "saves": 7,
+    "sends": 5,
+    "input": "等待时输入的新要求",
+    "formalWrites": 0
+  },
+  {
+    "case": "cleared input during preparation",
+    "saves": 8,
+    "sends": 5,
+    "input": "",
+    "formalWrites": 0
+  },
+  {
+    "case": "view incarnation A-B-A",
+    "saves": 9,
+    "sends": 5,
+    "input": "页面离开后不得发送",
+    "formalWrites": 0
+  },
+  {
+    "case": "project incarnation A-B-A",
+    "saves": 10,
+    "sends": 5,
+    "input": "作品离开后不得发送",
+    "formalWrites": 0
+  },
+  {
+    "case": "exact discussion source survives planning preparation",
+    "saves": 11,
+    "sends": 6,
+    "input": "请讨论这封未拆开的信如何影响人物选择。",
+    "formalWrites": 0
+  }
+]
+`;

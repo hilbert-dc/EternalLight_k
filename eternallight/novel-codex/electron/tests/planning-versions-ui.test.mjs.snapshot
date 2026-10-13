@@ -1,0 +1,230 @@
+exports[`planning versions verify receipts, isolate scopes and recover by reading without replay 1`] = `
+{
+  "snapshots": [
+    {
+      "theme": "light",
+      "width": 330,
+      "defaultText": "当前内容已保存 · 尚未采用\\n\\n这里只查看本卷内容；写作设置中的后续依据与锁定操作作用于整份大纲。\\n\\n后续创作使用另一份作者指定的内容，不是当前已保存稿；这不会正式采用该内容。\\n\\n卷同名卷\\n本卷推动什么\\n新的第一卷阶段\\n本卷事件与变化\\n起因\\n转折\\n结局\\n单元同名卷\\n当前已保存内容与已采用内容\\n查看后续创作参考内容\\n写作设置",
+      "settingsOpen": false,
+      "comparisonLabel": "当前已保存内容与已采用内容",
+      "controls": [
+        {
+          "text": "×",
+          "disabled": false
+        },
+        {
+          "text": "",
+          "disabled": false
+        },
+        {
+          "text": "将已保存稿用于后续创作",
+          "disabled": false
+        },
+        {
+          "text": "取消指定依据",
+          "disabled": false
+        },
+        {
+          "text": "锁定已采用内容",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "theme": "light",
+      "width": 740,
+      "defaultText": "当前内容已保存 · 尚未采用\\n\\n这里只查看本卷内容；写作设置中的后续依据与锁定操作作用于整份大纲。\\n\\n后续创作使用另一份作者指定的内容，不是当前已保存稿；这不会正式采用该内容。\\n\\n卷同名卷\\n本卷推动什么\\n新的第一卷阶段\\n本卷事件与变化\\n起因\\n转折\\n结局\\n单元同名卷\\n当前已保存内容与已采用内容\\n查看后续创作参考内容\\n写作设置",
+      "settingsOpen": false,
+      "comparisonLabel": "当前已保存内容与已采用内容",
+      "controls": [
+        {
+          "text": "×",
+          "disabled": false
+        },
+        {
+          "text": "",
+          "disabled": false
+        },
+        {
+          "text": "将已保存稿用于后续创作",
+          "disabled": false
+        },
+        {
+          "text": "取消指定依据",
+          "disabled": false
+        },
+        {
+          "text": "锁定已采用内容",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "theme": "dark",
+      "width": 330,
+      "defaultText": "当前内容已保存 · 尚未采用\\n\\n这里只查看本卷内容；写作设置中的后续依据与锁定操作作用于整份大纲。\\n\\n后续创作使用另一份作者指定的内容，不是当前已保存稿；这不会正式采用该内容。\\n\\n卷同名卷\\n本卷推动什么\\n新的第一卷阶段\\n本卷事件与变化\\n起因\\n转折\\n结局\\n单元同名卷\\n当前已保存内容与已采用内容\\n查看后续创作参考内容\\n写作设置",
+      "settingsOpen": false,
+      "comparisonLabel": "当前已保存内容与已采用内容",
+      "controls": [
+        {
+          "text": "×",
+          "disabled": false
+        },
+        {
+          "text": "",
+          "disabled": false
+        },
+        {
+          "text": "将已保存稿用于后续创作",
+          "disabled": false
+        },
+        {
+          "text": "取消指定依据",
+          "disabled": false
+        },
+        {
+          "text": "锁定已采用内容",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "theme": "dark",
+      "width": 740,
+      "defaultText": "当前内容已保存 · 尚未采用\\n\\n这里只查看本卷内容；写作设置中的后续依据与锁定操作作用于整份大纲。\\n\\n后续创作使用另一份作者指定的内容，不是当前已保存稿；这不会正式采用该内容。\\n\\n卷同名卷\\n本卷推动什么\\n新的第一卷阶段\\n本卷事件与变化\\n起因\\n转折\\n结局\\n单元同名卷\\n当前已保存内容与已采用内容\\n查看后续创作参考内容\\n写作设置",
+      "settingsOpen": false,
+      "comparisonLabel": "当前已保存内容与已采用内容",
+      "controls": [
+        {
+          "text": "×",
+          "disabled": false
+        },
+        {
+          "text": "",
+          "disabled": false
+        },
+        {
+          "text": "将已保存稿用于后续创作",
+          "disabled": false
+        },
+        {
+          "text": "取消指定依据",
+          "disabled": false
+        },
+        {
+          "text": "锁定已采用内容",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "scopedSnapshots": [
+    {
+      "outlineNodeId": "volume-first",
+      "text": "当前内容已保存 · 尚未采用\\n\\n这里只查看本卷内容；写作设置中的后续依据与锁定操作作用于整份大纲。\\n\\n后续创作使用另一份作者指定的内容，不是当前已保存稿；这不会正式采用该内容。\\n\\n卷同名卷\\n本卷推动什么\\n第一卷阶段\\n本卷事件与变化\\n起因\\n转折\\n结局\\n单元同名卷\\n故事目标\\n第一卷独有单元\\n故事安排\\n起因\\n转折\\n结局\\n当前已保存内容与已采用内容\\n\\n分别展示两份完整内容，不是增量修改或逐行差异，也不包含编辑器中未保存的修改。\\n\\n当前已保存内容\\n卷同名卷\\n本卷推动什么\\n第一卷阶段\\n本卷事件与变化\\n起因\\n转折\\n结局\\n单元同名卷\\n故事目标\\n第一卷独有单元\\n故事安排\\n起因\\n转折\\n结局\\n已采用内容\\n\\n这份已保存内容不包含可唯一定位的本卷；未替换为其他卷或全书内容。\\n\\n查看后续创作参考内容\\n\\n这份已保存内容不包含可唯一定位的本卷；未替换为其他卷或全书内容。\\n\\n写作设置\\n已采用内容\\n已采用\\nv1 · b-outline-accepted\\n已保存稿\\n已有已保存稿\\nv3 · b-outline-candidate\\n后续创作依据\\n使用作者指定的已保存版本\\nv2 · b-outline-historical\\n将已保存稿用于后续创作\\n取消指定依据\\n锁定已采用内容",
+      "writes": 0
+    },
+    {
+      "outlineNodeId": "volume-second",
+      "text": "当前内容已保存 · 尚未采用\\n\\n这里只查看本卷内容；写作设置中的后续依据与锁定操作作用于整份大纲。\\n\\n后续创作使用另一份作者指定的内容，不是当前已保存稿；这不会正式采用该内容。\\n\\n卷同名卷\\n本卷推动什么\\n第二卷阶段\\n本卷事件与变化\\n起因\\n转折\\n结局\\n当前已保存内容与已采用内容\\n\\n分别展示两份完整内容，不是增量修改或逐行差异，也不包含编辑器中未保存的修改。\\n\\n当前已保存内容\\n卷同名卷\\n本卷推动什么\\n第二卷阶段\\n本卷事件与变化\\n起因\\n转折\\n结局\\n已采用内容\\n卷同名卷\\n本卷推动什么\\n第二卷阶段\\n本卷事件与变化\\n起因\\n转折\\n结局\\n查看后续创作参考内容\\n\\n这份已保存内容不包含可唯一定位的本卷；未替换为其他卷或全书内容。\\n\\n写作设置\\n已采用内容\\n已采用\\nv1 · b-outline-accepted\\n已保存稿\\n已有已保存稿\\nv3 · b-outline-candidate\\n后续创作依据\\n使用作者指定的已保存版本\\nv2 · b-outline-historical\\n将已保存稿用于后续创作\\n取消指定依据\\n锁定已采用内容"
+    },
+    {
+      "outlineNodeId": "volume-second",
+      "kindChanged": true,
+      "text": "当前内容已保存 · 尚未采用\\n\\n这里只查看本卷内容；写作设置中的后续依据与锁定操作作用于整份大纲。\\n\\n当前保存内容中无法唯一定位本卷，请返回全书大纲核对；写作设置暂不可修改。\\n\\n后续创作使用另一份作者指定的内容，不是当前已保存稿；这不会正式采用该内容。\\n\\n这份已保存内容不包含可唯一定位的本卷；未替换为其他卷或全书内容。\\n\\n当前已保存内容与已采用内容\\n\\n分别展示两份完整内容，不是增量修改或逐行差异，也不包含编辑器中未保存的修改。\\n\\n当前已保存内容\\n\\n这份已保存内容不包含可唯一定位的本卷；未替换为其他卷或全书内容。\\n\\n已采用内容\\n卷同名卷\\n本卷推动什么\\n第二卷阶段\\n本卷事件与变化\\n起因\\n转折\\n结局\\n查看后续创作参考内容\\n\\n这份已保存内容不包含可唯一定位的本卷；未替换为其他卷或全书内容。\\n\\n写作设置\\n已采用内容\\n已采用\\nv1 · b-outline-accepted\\n已保存稿\\n已有已保存稿\\nv3 · b-outline-candidate\\n后续创作依据\\n使用作者指定的已保存版本\\nv2 · b-outline-historical\\n将已保存稿用于后续创作\\n取消指定依据\\n锁定已采用内容",
+      "settingsDisabled": true
+    },
+    {
+      "outlineNodeId": "missing-volume",
+      "text": "当前内容已保存 · 尚未采用\\n\\n这里只查看本卷内容；写作设置中的后续依据与锁定操作作用于整份大纲。\\n\\n当前保存内容中无法唯一定位本卷，请返回全书大纲核对；写作设置暂不可修改。\\n\\n后续创作使用另一份作者指定的内容，不是当前已保存稿；这不会正式采用该内容。\\n\\n这份已保存内容不包含可唯一定位的本卷；未替换为其他卷或全书内容。\\n\\n当前已保存内容与已采用内容\\n\\n分别展示两份完整内容，不是增量修改或逐行差异，也不包含编辑器中未保存的修改。\\n\\n当前已保存内容\\n\\n这份已保存内容不包含可唯一定位的本卷；未替换为其他卷或全书内容。\\n\\n已采用内容\\n\\n这份已保存内容不包含可唯一定位的本卷；未替换为其他卷或全书内容。\\n\\n查看后续创作参考内容\\n\\n这份已保存内容不包含可唯一定位的本卷；未替换为其他卷或全书内容。\\n\\n写作设置\\n已采用内容\\n已采用\\nv1 · b-outline-accepted\\n已保存稿\\n已有已保存稿\\nv3 · b-outline-candidate\\n后续创作依据\\n使用作者指定的已保存版本\\nv2 · b-outline-historical\\n将已保存稿用于后续创作\\n取消指定依据\\n锁定已采用内容",
+      "settingsDisabled": true
+    }
+  ],
+  "calls": [
+    {
+      "operation": "select",
+      "id": "a",
+      "kind": "brief",
+      "objectId": "brief",
+      "revisionId": "a-brief-candidate",
+      "expectedSelectionRevision": 4
+    },
+    {
+      "operation": "clear",
+      "id": "a",
+      "kind": "brief",
+      "objectId": "brief",
+      "expectedSelectionRevision": 5
+    },
+    {
+      "operation": "lock",
+      "id": "a",
+      "kind": "brief",
+      "locked": true,
+      "expectedRevision": 7
+    },
+    {
+      "operation": "lock",
+      "id": "a",
+      "kind": "brief",
+      "locked": false,
+      "expectedRevision": 8
+    },
+    {
+      "operation": "select",
+      "id": "a",
+      "kind": "brief",
+      "objectId": "brief",
+      "revisionId": "a-brief-candidate",
+      "expectedSelectionRevision": 6
+    },
+    {
+      "operation": "select",
+      "id": "a",
+      "kind": "brief",
+      "objectId": "brief",
+      "revisionId": "a-brief-candidate",
+      "expectedSelectionRevision": 6
+    },
+    {
+      "operation": "clear",
+      "id": "a",
+      "kind": "brief",
+      "objectId": "brief",
+      "expectedSelectionRevision": 7
+    },
+    {
+      "operation": "select",
+      "id": "a",
+      "kind": "brief",
+      "objectId": "brief",
+      "revisionId": "a-brief-candidate",
+      "expectedSelectionRevision": 8
+    },
+    {
+      "operation": "clear",
+      "id": "a",
+      "kind": "brief",
+      "objectId": "brief",
+      "expectedSelectionRevision": 9
+    },
+    {
+      "operation": "select",
+      "id": "a",
+      "kind": "brief",
+      "objectId": "brief",
+      "revisionId": "a-brief-candidate",
+      "expectedSelectionRevision": 10
+    },
+    {
+      "operation": "select",
+      "id": "a",
+      "kind": "outline",
+      "objectId": "outline",
+      "revisionId": "a-outline-candidate",
+      "expectedSelectionRevision": 4
+    }
+  ],
+  "refreshes": 7
+}
+`;

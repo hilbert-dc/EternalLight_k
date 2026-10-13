@@ -1,0 +1,51 @@
+exports[`workspace rebind continues through modeling and next-chapter planning across Runtime restart 1`] = `
+"自动创作：0/1 章 · 章纲已更新，需要根据当前内容重新规划。"
+`;
+
+exports[`workspace rebind continues through modeling and next-chapter planning across Runtime restart 2`] = `
+"本轮遇到问题，尚未完成。请查看错误详情和任务恢复安排。查看原始错误重规划已保存，但刷新失败：测试刷新连接中断。请重新打开作品概况读取持久状态，无需再次提交。"
+`;
+
+exports[`workspace rebind continues through modeling and next-chapter planning across Runtime restart 3`] = `
+{
+  "planTitle": "焚信",
+  "guidance": "主角焚烧密函。",
+  "position": {
+    "povCharacterId": "linxi",
+    "readingChapter": 1,
+    "sceneOrder": 1,
+    "storyTime": 10
+  },
+  "currentDraft": {
+    "chapterNumber": 1,
+    "authority": "candidate",
+    "sourceRevisionId": "<当前候选修订>"
+  },
+  "coverage": {
+    "complete": false,
+    "semanticCompleteness": "unknown"
+  }
+}
+`;
+
+exports[`workspace rebind continues through modeling and next-chapter planning across Runtime restart 4`] = `
+{
+  "planTitle": "藏信",
+  "guidance": "保留作者藏信稿，记录证词。",
+  "position": {
+    "povCharacterId": "zhangheng",
+    "readingChapter": 1,
+    "sceneOrder": 1,
+    "storyTime": 20
+  },
+  "currentDraft": {
+    "chapterNumber": 1,
+    "authority": "candidate",
+    "sourceRevisionId": "<当前候选修订>"
+  },
+  "coverage": {
+    "complete": false,
+    "semanticCompleteness": "unknown"
+  }
+}
+`;

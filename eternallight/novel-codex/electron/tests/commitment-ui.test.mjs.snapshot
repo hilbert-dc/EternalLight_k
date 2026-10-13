@@ -1,0 +1,16 @@
+exports[`commitment proposals preserve source, author decisions and unknown write recovery 1`] = `
+{
+  "established": "伏笔\\n白塔只亮四十七秒\\n\\n兑现标准：揭示灯时的原因\\n\\n查看原文依据\\n白塔亮了四十七秒\\n查看确认状态\\n调整后再决定",
+  "confirmed": "伏笔\\n白塔只亮四十七秒\\n\\n兑现标准：揭示灯时的原因\\n\\n查看原文依据\\n白塔亮了四十七秒\\n作者已确认\\n调整后再决定\\n白塔只亮四十七秒\\n作者已确认 · 开放\\n\\n兑现标准：揭示灯时的原因\\n\\n来源与记录\\n调整这份承诺\\n确认这份承诺\\n撤销当前确认",
+  "ownerIsolation": {
+    "autoOpened": true,
+    "writes": 1,
+    "confirmed": false
+  },
+  "direct": "伏笔\\n白塔只亮四十七秒\\n\\n兑现标准：揭示灯时的原因\\n\\n查看原文依据\\n作者已确认\\n调整后再决定",
+  "blockedReview": {
+    "accepted": 0,
+    "error": "Error: 当前任务正在执行，伏笔尚未确认；请结束后再次确认。。请刷新核对当前状态后重试。"
+  }
+}
+`;

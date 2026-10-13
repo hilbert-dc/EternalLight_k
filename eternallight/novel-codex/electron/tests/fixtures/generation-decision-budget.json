@@ -1,0 +1,57 @@
+{
+  "id": "task-2ec117731e174c849f6a5aa14523633e",
+  "projectId": "project-6b85f4c87b4a4562a329decaa5cfffe7",
+  "threadId": "01a113a0-e38f-7301-8885-234b3b3217d0",
+  "operation": "advisory",
+  "inputRevision": 6,
+  "target": {
+    "intentGeneration": 3,
+    "resumeStepId": "decision-985c265b6eba4876abbbc11351ae2f65",
+    "runId": "generation-74aa519d38424615834d6ce059d4b645",
+    "runVersion": 65,
+    "stepToken": "de8b2405dd6a4592a6572a811e1a2034",
+    "workDecision": {
+      "fingerprint": "520a9754e240237e69615ca56c1280dd47b46c3471a675f6def4ebfb2c3aba81",
+      "originTaskId": "task-0878a6afc9ceaf0713036347810d069b",
+      "sourceTaskId": "task-ac38c33eac7a496d89948bfe2140aea9",
+      "workTaskId": "work-generation-74aa519d38424615834d6ce059d4b645"
+    }
+  },
+  "inputManifest": {
+    "authorIntent": "[要求版本 0] 继续《万城灯火》的长篇创作。全书目标300万字，约1000章，10卷，每章约3000字。本次目标是完成前100章；已完整保存的第1章《不该存在的家灯》保持原文，从第2章到第100章共99章新正文，连续写作并逐章保存完整工作稿，不发布、不自动采用。请先提交99章的连续生成范围提案，待批准后在同一范围持续执行，不创建占位章节。故事承诺：东方幻想悬疑，修灯匠沈照为找回被全城遗忘的姐姐沈霁，循家灯—灯税—夜航路—万城秩序逐层推进；灯、光、名与记忆的规则自洽，挽回名字要付出记忆代价，不靠巧合解题。十卷顺序与边界：1失名之城（1—100章，雾津地方失名案与灯税阴谋，结尾揭开沈霁主动进入无名航路的线索并踏上夜航；不解决全书终局）；2夜航路的灯标（扩展多城航路，追索足迹）；3灯税之国（跨城制度与账目）；4织名之海（名与记忆的编织机制）；5遗忘之境（中盘揭明姐姐主动自我抹除的动机与主角记忆危机）；6掌灯人的棋局（政治博弈）；7失落的灯籍（历史源头与伏笔回收）；8万城长夜（秩序崩溃与同盟）；9灯火之外（终局前不可逆代价）；10万城灯火（记忆、秩序、自由的最终抉择及姐弟重逢结果）。第一卷沿用三日后三两纹银期限、灯籍第七卷家灯第三十七条空归属、磨去编号的铜牌、三年前冬月十六码头夜航票根等原第一章线索。先取得真实的99章范围，后续准备方向、大纲及滚动近章规划后持续生成第2—100章；以真实保存回执和目标章数判断完成，不以一章或一段回复代替任务。\n[要求版本 1] 补充后续创作要求，原创作范围与十卷边界继续有效，同一任务推进到第100章。先完善第一卷大纲与滚动近章规划，在应用中保存并核对回执后再续写，避免只凭最近几章临时接续。重点校对故事时间：第1章提出三日后三两纹银；第2章结尾只剩两日；第3、4章均写到翌日，却仍把期限写成两日，这是前文待校正的问题。请建立清晰的日次和灯税期限，后续不再重置倒计时；标记已有稿的具体矛盾供后续修订。目录标题须与实际章节标题一致（第2章正文是《磨平的编号》，目录却写成第一章续）。每章约3000字，以实际保存稿统计篇幅，重要线索和名字记忆代价须有因果推进；第100章抵达第一卷边界而非全书结局。逐章核对完整保存、连续性和章纲兑现后再确认本章完成；不发布、不自动采用、不改第1章、不编造完成回执。\n[要求版本 2] 继续原任务到第100章，保留原范围、预算和第1章全文，不发布、不自动采用。第6章尚无保存正文，请重新起草，不能把上次失败回复中的约3000字当成已保存成果。时间线以现有正文跨夜为准：第1章为第1日，三日后即第4日缴税；第2章第2日，第3章第3日，第4章第4日，第5章第5日，第6章承接同一第5日下午，灯税已经逾期。此要求替代此前将第3、4章合并为第3日的错误判断，不再重置倒计时；通过实际催缴、凭证或行政动作交代逾期后果与尚未强收原因，不靠巧合。承接第5章失忆、明纸楼存稿和城西周家同号灯，稳步推进雾津地方谜案。第6章完整保存并确认后，第7章之前必须实际生成并保存创作简报、全书十卷大纲和近章规划；不可只在回复里承诺已规划。以原十卷边界和第1—5章实际故事为依据，第一卷到第100章才揭开沈霁主动进入无名航路，不能提前全书终局。规划写明1—5章已有事实、第6章回执、7—15章目标和全卷阶段、日次、税期及伏笔收放；滚动更新近章规划。第2章目录标题与正文不符、3—5章税期用语矛盾记录为后续局部修订事项，保护第1章。每章约3000字，以真实正文保存回执为完成依据，失败时先核验已保存内容再恢复。\n[要求版本 3] 按原作者要求和原范围继续，沿用原预算；基于当前已保存资料决定后续工作，保留已有章节，不重复生成，不自动采用或发布。",
+    "authorMessageId": "author-message-5359eabcc6414012b531c93a850e998c",
+    "branchContext": null,
+    "candidateInstruction": "Read the current Work status and its bounded receipts. Decide which authorized ready action is necessary for the author goal, or finish when all mandatory requirements are satisfied. Optional checks are choices; do not claim an unperformed check.",
+    "expectedCandidateRevisionId": null,
+    "generationAuthorIntentBinding": {
+      "authorMessageId": "author-message-5359eabcc6414012b531c93a850e998c",
+      "chapterNumber": 7,
+      "intentGeneration": 3,
+      "runId": "generation-74aa519d38424615834d6ce059d4b645"
+    },
+    "operation": "advisory",
+    "projectId": "project-6b85f4c87b4a4562a329decaa5cfffe7",
+    "projectRevision": 6,
+    "target": {
+      "intentGeneration": 3,
+      "resumeStepId": "decision-985c265b6eba4876abbbc11351ae2f65",
+      "runId": "generation-74aa519d38424615834d6ce059d4b645",
+      "runVersion": 65,
+      "stepToken": "de8b2405dd6a4592a6572a811e1a2034",
+      "workDecision": {
+        "fingerprint": "520a9754e240237e69615ca56c1280dd47b46c3471a675f6def4ebfb2c3aba81",
+        "originTaskId": "task-0878a6afc9ceaf0713036347810d069b",
+        "sourceTaskId": "task-ac38c33eac7a496d89948bfe2140aea9",
+        "workTaskId": "work-generation-74aa519d38424615834d6ce059d4b645"
+      }
+    },
+    "workDecision": {
+      "decisionStepId": "decision-985c265b6eba4876abbbc11351ae2f65",
+      "decisionTaskId": "task-2ec117731e174c849f6a5aa14523633e",
+      "originTaskId": "task-0878a6afc9ceaf0713036347810d069b",
+      "rootThreadId": "01a113a0-e38f-7301-8885-234b3b3217d0",
+      "sourceTaskId": "task-ac38c33eac7a496d89948bfe2140aea9",
+      "workTaskId": "work-generation-74aa519d38424615834d6ce059d4b645"
+    }
+  }
+}

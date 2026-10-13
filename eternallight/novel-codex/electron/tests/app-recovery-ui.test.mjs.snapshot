@@ -1,0 +1,264 @@
+exports[`App retains execution results and restores isolated thread history with read-only recovery 1`] = `
+[
+  {
+    "operation": "work",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "continue",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "retry",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "feedbackContinue",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "feedbackRepair",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "chapter",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "review",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  },
+  {
+    "operation": "stopReview",
+    "retainedResult": true,
+    "retry": "重新读取工作区"
+  }
+]
+`;
+
+exports[`App retains execution results and restores isolated thread history with read-only recovery 2`] = `
+{
+  "isolatedThreads": true,
+  "readonlyHistoryRetry": true,
+  "zeroHostSelection": true,
+  "isolatedProjects": true,
+  "pendingSaves": {
+    "singleDialog": true,
+    "hiddenUntilRequested": true,
+    "currentConversationWarning": true,
+    "title": "保存记录",
+    "viewingDoesNotChangeCurrentThread": true,
+    "narrowDialog": "300px",
+    "publicReadOnlyPreview": true,
+    "zeroResume": true,
+    "busyControlsDisabled": true,
+    "failedReconciliationRetained": true,
+    "unknownRetained": true,
+    "authoritativeReconciliation": true,
+    "tasksRefreshedReadOnly": true,
+    "projectIsolated": true
+  }
+}
+`;
+
+exports[`actual App uses one composer for chapter writing with fresh edits and safe input ownership 1`] = `
+[
+  {
+    "case": "startup refresh retains selected chapter",
+    "selectedChapterPreserved": true
+  },
+  {
+    "case": "document layout light",
+    "mainOnlyScroll": true,
+    "continuousSurface": true,
+    "footerReachable": true
+  },
+  {
+    "case": "document layout dark",
+    "mainOnlyScroll": true,
+    "continuousSurface": true,
+    "footerReachable": true
+  },
+  {
+    "case": "existing chapter ordinary conversation",
+    "noForcedWritingMode": true,
+    "draftPreserved": true,
+    "implicitChapterContext": true
+  },
+  {
+    "case": "fresh discussion single flight",
+    "saves": 1,
+    "discussionCalls": 1,
+    "writerCalls": 0,
+    "conversationFocus": {
+      "view": "chapters",
+      "chapterId": "chapter-01",
+      "chapterNumber": 1
+    },
+    "nextDraftRetained": true
+  },
+  {
+    "case": "failed prepare preserves input",
+    "modelNotStarted": true,
+    "inputAndBodyRetained": true
+  },
+  {
+    "case": "new chapter natural goal delegation",
+    "naturalGoalDelegated": true,
+    "noAutomaticStart": true,
+    "noOriginalGoalReplay": true
+  },
+  {
+    "case": "writer buffers next input",
+    "stopAvailable": true,
+    "writerSteerCalls": 0,
+    "nextDraftRetained": true,
+    "clearedDraftNotRestored": true
+  },
+  {
+    "case": "edited default becomes discussion",
+    "writerCalls": 3,
+    "discussionCalls": 6,
+    "conversationFocus": {
+      "view": "chapters",
+      "chapterId": "chapter-02",
+      "chapterNumber": 2
+    },
+    "nextChapterInstructionPreserved": true
+  },
+  {
+    "case": "delayed preparation project isolation",
+    "lateWriterCalls": 0,
+    "isolatedDraft": "B作品独立草稿"
+  },
+  {
+    "case": "success preserves new draft",
+    "nextDraftRetained": true,
+    "savedBodyVisible": true
+  }
+]
+`;
+
+exports[`real App routes failed domain operations to source-bound task recovery and preserves chapter publication authority 1`] = `
+{
+  "currentError": "本次执行额度已用完，后续处理已暂停。",
+  "approvedCalls": 1,
+  "noNewPrompt": true,
+  "draftPreserved": "下一条尚未发送的构想"
+}
+`;
+
+exports[`real App routes failed domain operations to source-bound task recovery and preserves chapter publication authority 2`] = `
+{
+  "savedText": "真实回执对应的已保存修订",
+  "error": "本轮自动处理已达到上限，后续处理已暂停。",
+  "recovery": "work-original-coordination",
+  "originalPromptCalls": 1,
+  "modelCallsOnRecovery": 0,
+  "draft": "下一条尚未发送的构想",
+  "selection": [
+    3,
+    7
+  ]
+}
+`;
+
+exports[`real App routes failed domain operations to source-bound task recovery and preserves chapter publication authority 3`] = `
+{
+  "currentReply": "第一章已修改并保存。",
+  "currentFailure": false,
+  "priorFailureRetained": true,
+  "authorMessages": 1,
+  "draft": "成功后仍保留的下一条草稿",
+  "sourceSendCalls": 1,
+  "automaticUiTransitions": [
+    "调整步骤",
+    "重新执行",
+    "知识分析",
+    "修改核对",
+    "完成"
+  ]
+}
+`;
+
+exports[`real App routes failed domain operations to source-bound task recovery and preserves chapter publication authority 4`] = `
+[
+  {
+    "operation": "generateBrief",
+    "action": "重试当前任务",
+    "view": "角色",
+    "modelCallsOnRetry": 0
+  },
+  {
+    "operation": "generateOutline",
+    "action": "重试当前任务",
+    "view": "角色",
+    "modelCallsOnRetry": 0
+  },
+  {
+    "operation": "generatePlan",
+    "action": "重试当前任务",
+    "view": "角色",
+    "modelCallsOnRetry": 0
+  },
+  {
+    "operation": "generateChapter",
+    "action": "重试当前任务",
+    "view": "作品目录",
+    "modelCallsOnRetry": 0
+  },
+  {
+    "operation": "modelKnowledge",
+    "action": "重试当前任务",
+    "view": "作品目录",
+    "modelCallsOnRetry": 0
+  }
+]
+`;
+
+exports[`real App routes failed domain operations to source-bound task recovery and preserves chapter publication authority 5`] = `
+[
+  {
+    "status": "未发布",
+    "title": "雾港第一章",
+    "scenes": [
+      "候选第一场",
+      "候选第二场",
+      "后续段落"
+    ]
+  },
+  {
+    "status": "已发布",
+    "title": "雾港第一章",
+    "scenes": [
+      "已采用的第一场",
+      "已采用的第二场",
+      "后续段落"
+    ]
+  },
+  {
+    "status": "未发布",
+    "title": "雾港第一章",
+    "scenes": [
+      ""
+    ]
+  }
+]
+`;
+
+exports[`real App routes failed domain operations to source-bound task recovery and preserves chapter publication authority 6`] = `
+{
+  "frozenTaskRecovery": true,
+  "doubleClickResumeCount": 5,
+  "staleRootBlocked": true,
+  "staleProjectBlocked": true,
+  "composerDraftRetained": true
+}
+`;

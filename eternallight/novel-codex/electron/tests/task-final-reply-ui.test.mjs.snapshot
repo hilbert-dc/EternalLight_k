@@ -1,0 +1,110 @@
+exports[`saved final reply UI renders Markdown, distinguishes receipts, retries and isolates late reads without executing models 1`] = `
+{
+  "loading": {
+    "summary": "查看回复",
+    "paragraphs": [
+      "读取最终回复中…"
+    ],
+    "status": "读取最终回复中…",
+    "alert": null,
+    "buttons": [],
+    "markdown": null
+  },
+  "readError": {
+    "summary": "查看回复",
+    "paragraphs": [
+      "保存的回复暂时无法读取"
+    ],
+    "status": null,
+    "alert": "保存的回复暂时无法读取重新读取回复",
+    "buttons": [
+      "重新读取回复"
+    ],
+    "markdown": null
+  },
+  "recorded": {
+    "summary": "查看回复",
+    "paragraphs": [],
+    "status": null,
+    "alert": null,
+    "buttons": [
+      "复制代码"
+    ],
+    "markdown": "<h2 class=\\"conversation-heading conversation-heading-1\\">已保存的最终回复</h2>\\n<p>仅修改 <strong>密函场景</strong>，保留 <em>其他正文</em>。</p>\\n<ul class=\\"conversation-list\\">\\n<li>保留密函</li>\\n<li>等待白塔亮灯</li>\\n</ul>\\n<div class=\\"conversation-table-scroll\\" tabindex=\\"0\\" role=\\"region\\" aria-label=\\"Markdown 表格\\"><table><thead><tr><th>场景</th><th>结果</th></tr></thead><tbody><tr><td>密函</td><td>已修改</td></tr></tbody></table></div>\\n<div class=\\"conversation-code-card\\"><div class=\\"conversation-code-toolbar\\"><span><span class=\\"conversation-code-icon\\" aria-hidden=\\"true\\">〈/〉</span>text</span><button class=\\"conversation-copy\\" type=\\"button\\" title=\\"复制代码\\" aria-label=\\"复制代码\\">▢</button></div><pre class=\\"conversation-code\\"><code class=\\"language-text\\">他藏好密函。\\n</code></pre></div>\\n<p><a href=\\"https://example.invalid/review\\" target=\\"_blank\\" rel=\\"noreferrer\\">审阅说明</a></p>\\n"
+  },
+  "noReceipt": {
+    "summary": "查看回复",
+    "paragraphs": [
+      "没有最终回复凭据；任务摘要不能代替最终回复。"
+    ],
+    "status": null,
+    "alert": null,
+    "buttons": [],
+    "markdown": null
+  },
+  "absent": {
+    "summary": "查看回复",
+    "paragraphs": [
+      "引擎回合结束，但没有最终文本回复。"
+    ],
+    "status": null,
+    "alert": null,
+    "buttons": [],
+    "markdown": null
+  },
+  "truncated": {
+    "summary": "查看回复",
+    "paragraphs": [
+      "回复超过保存上限，以下为部分内容，不是完整回复。"
+    ],
+    "status": null,
+    "alert": null,
+    "buttons": [],
+    "markdown": "<h3 class=\\"conversation-heading conversation-heading-2\\">部分回复</h3>\\n<p>已保存的<strong>开头</strong>。</p>"
+  },
+  "scopeError": {
+    "summary": "查看回复",
+    "paragraphs": [
+      "回复归属不匹配"
+    ],
+    "status": null,
+    "alert": "回复归属不匹配重新读取回复",
+    "buttons": [
+      "重新读取回复"
+    ],
+    "markdown": null
+  },
+  "unknownError": {
+    "summary": "查看回复",
+    "paragraphs": [
+      "读取最终回复失败"
+    ],
+    "status": null,
+    "alert": "读取最终回复失败重新读取回复",
+    "buttons": [
+      "重新读取回复"
+    ],
+    "markdown": null
+  },
+  "unavailableApi": {
+    "summary": "查看回复",
+    "paragraphs": [
+      "最终回复读取接口不可用"
+    ],
+    "status": null,
+    "alert": "最终回复读取接口不可用重新读取回复",
+    "buttons": [
+      "重新读取回复"
+    ],
+    "markdown": null
+  },
+  "reopened": {
+    "summary": "查看回复",
+    "paragraphs": [],
+    "status": null,
+    "alert": null,
+    "buttons": [],
+    "markdown": "<h3 class=\\"conversation-heading conversation-heading-2\\">从存储重新读取</h3>\\n<p>重新打开只读取已保存的最终回复。</p>"
+  }
+}
+`;

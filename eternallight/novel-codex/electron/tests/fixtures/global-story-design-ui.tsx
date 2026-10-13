@@ -1,0 +1,31 @@
+import "../../../src/styles.css";
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { GlobalStoryDesign } from "../../../src/GlobalStoryDesign";
+const tick=()=>new Promise(r=>setTimeout(r,30));
+const check=(v,m)=>{if(!v)throw Error(m)};
+const node=(title)=>({id:title,kind:"book",title,purpose:"主角为保护亲人付出代价",summary:"离开、追索、归来",certainty:"tentative",protection:"preserve-intent",writerGuidance:"保留主角的选择"});
+const rev=(id,payload)=>({id,payload,version:1});
+const current=rev("outline-working",{nodes:[node("当前全书主线")]}),newer=rev("outline-new",{nodes:[node("尚未作为依据的新主线")]});
+const empty={candidate:null,accepted:null,working:null,locked:false};
+const workspace={headSnapshotId:"fixed-snapshot",planLineageStatus:"stale",artifacts:{brief:empty,outline:{...empty,working:current,candidate:newer},plan:{...empty,candidate:rev("plan-candidate",{chapters:[{chapterNumber:3,goal:"抵达旧城",conflict:"同伴拒绝同行"}]})}}};
+const opened=[];const root=createRoot(document.getElementById("root"));
+async function render(dirty=false,blocked=false){root.render(<GlobalStoryDesign workspace={workspace as never} dirty={dirty} blocked={blocked} onOpen={kind=>opened.push(kind)} />);await tick();}
+const button=label=>[...document.querySelectorAll<HTMLButtonElement>("button")].find(b=>b.textContent===label);
+(async()=>{try{
+ await render();
+ const disclosure=document.querySelector<HTMLDetailsElement>('.global-story-design > details');
+ check(!disclosure.open,"Design summary forced into primary reading flow");
+ check(!document.querySelector('[role="status"]').closest('details'),"Stale planning warning hidden when collapsed");
+ check(!button("核对全局设计"),"Duplicate discussion shortcut retained");
+ disclosure.querySelector('summary').click();await tick();check(disclosure.open,"Design cannot be expanded");
+ window.testScreenshot="global-story-design"; for(let n=0;n<100 && window.testScreenshot;n++) await tick();
+ check(document.body.textContent.includes("当前全书主线")&&!document.body.textContent.includes("尚未作为依据的新主线"),"Candidate replaced working design");
+ check(document.body.textContent.includes("当前写作依据 · 尚未采用") && document.body.textContent.includes("另有未作为当前依据的新建议") && document.body.textContent.includes("大纲来源已变化"),"Source states flattened");
+ check(document.body.textContent.includes("抵达旧城"),"Near-term design missing");
+ button("查看和编辑全书设计").click();button("查看和编辑近章规划").click();check(opened.join()==="outline,plan","Design edits do not use existing editors");
+ await render(true);check([...document.querySelectorAll('button')].every(b=>b.disabled),"Unsaved design mixed with saved sources");
+ await render(false,true);check([...document.querySelectorAll('button')].every(b=>b.disabled),"Busy workspace actions allowed");
+ workspace.artifacts.outline={...empty,accepted:current};await render();check(document.querySelector('.global-design-source').textContent==="已采用","Adoption state not projected");
+ root.unmount();window.testResult={passed:true};
+}catch(e){window.testResult={passed:false,error:e.stack,dom:document.body.textContent};}})();

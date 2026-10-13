@@ -1,0 +1,26 @@
+exports[`actual App reads history without restoring archived writers or replacing the current execution 1`] = `
+{
+  "calls": {
+    "resume": 0,
+    "unarchive": 0,
+    "write": 0
+  },
+  "sendCount": 1,
+  "readonlyArchived": true,
+  "railOnlyAcrossThreePages": true,
+  "narrowThemesWithoutOverflow": true,
+  "liveScrollerPreserved": true,
+  "unconfiguredHistoryVisible": true,
+  "visibleLoadingErrorDetail": true,
+  "closedHistoryHidden": true,
+  "pendingTerminalPreserved": true,
+  "scopeABA": true,
+  "selectionABA": true,
+  "stoppedReadDoesNotReopen": true,
+  "composerSameNode": true,
+  "draftSelectionPreserved": true,
+  "focusReturned": true,
+  "realTurnStatus": "进行中",
+  "label": "只读对话记录"
+}
+`;

@@ -1,0 +1,181 @@
+exports[`actual conversation blocks duplicate Enter and retries transient failures 1`] = `
+{
+  "error": "本轮遇到问题，尚未完成。请查看错误详情和任务恢复安排。",
+  "inputDisabled": false,
+  "placeholder": "想如何继续这个故事……",
+  "retry": "重试当前任务"
+}
+`;
+
+exports[`actual conversation blocks duplicate Enter and retries transient failures 2`] = `
+{
+  "location": "右侧对话栏",
+  "presentation": "作者要求与执行过程",
+  "mainPanelHasTasks": false,
+  "resultVisible": true
+}
+`;
+
+exports[`actual conversation blocks duplicate Enter and retries transient failures 3`] = `
+{
+  "message": "回复已完成；工作区读取失败：fixture workspace read interrupted。重新读取不会再次调用模型。",
+  "action": "重新读取工作区",
+  "draft": "尚未发送的新草稿",
+  "modelRetry": false
+}
+`;
+
+exports[`actual conversation blocks duplicate Enter and retries transient failures 4`] = `
+{
+  "message": "回复已完成；中央文档有未保存修改，保存或放弃修改后会自动同步工作区。",
+  "actionDisabled": true,
+  "premise": "读取等待期间修改的故事命题",
+  "draft": "保存后再分析最新的故事命题",
+  "reason": "发送时先保存规划修改，再处理你的要求；不会自动采用。",
+  "afterSave": {
+    "saves": 1,
+    "readSyncs": 1,
+    "modelCalls": 3,
+    "draft": "保存后再分析最新的故事命题"
+  },
+  "afterDiscard": {
+    "readSyncs": 1,
+    "modelCalls": 4,
+    "draft": "放弃修改后仍保留的下一条要求"
+  }
+}
+`;
+
+exports[`actual conversation blocks duplicate Enter and retries transient failures 5`] = `
+{
+  "title": "开始你的第一部作品",
+  "composerDisabled": true,
+  "placeholder": "请先创建或打开作品……"
+}
+`;
+
+exports[`actual conversation blocks duplicate Enter and retries transient failures 6`] = `
+{
+  "message": "请先处理本轮需要回答的问题；可以先写下下一条指令。",
+  "draft": "等回答提交后再讨论人物动机",
+  "answer": "从人物误解开始",
+  "error": "fixture answer delivery interrupted",
+  "answerCalls": 1
+}
+`;
+
+exports[`actual conversation blocks duplicate Enter and retries transient failures 7`] = `
+{
+  "message": "衔接检查状态暂时无法读取。重新读取",
+  "waiting": true,
+  "answer": "从人物误解开始",
+  "draft": "等回答提交后再讨论人物动机",
+  "modelCalls": 3
+}
+`;
+
+exports[`actual workspace preserves scene identity, author intent, and save boundaries 1`] = `
+{
+  "label": "从已保存候选继续",
+  "disabled": false
+}
+`;
+
+exports[`actual workspace preserves scene identity, author intent, and save boundaries 2`] = `
+{
+  "history": "作者要求 → 执行过程 → 保存的回复",
+  "placement": "右侧对话时间线",
+  "processCollapsed": true,
+  "writingAuditReads": 0,
+  "diagnosticsEntry": "用户设置 · 当前作品诊断",
+  "attention": "待确认事项直接可见",
+  "chapterControls": {
+    "body": "正文已保存",
+    "settings": "页头 · 章节设置",
+    "technicalForms": false,
+    "manualToolbox": false
+  }
+}
+`;
+
+exports[`conversation unifies exact turns and reads durable replies without replaying execution 1`] = `
+{
+  "turns": 2,
+  "mainReply": "第二章已保存",
+  "processCollapsed": true,
+  "authorInput": "作者原话",
+  "chronological": true,
+  "duplicateLiveReply": false,
+  "analysisResult": "第二章已保存\\n雾中传来了第二个人的脚步。"
+}
+`;
+
+exports[`conversation unifies exact turns and reads durable replies without replaying execution 2`] = `
+[
+  {
+    "state": "truncated",
+    "visible": "保存的回复超过上限，以下为部分内容。 第二章已保存 雾中传来了第二个人的脚步。 复制已显示内容"
+  },
+  {
+    "state": "absent",
+    "visible": "本轮执行已结束，没有最终文本回复。"
+  },
+  {
+    "state": "missing",
+    "visible": "本轮尚无回复。"
+  }
+]
+`;
+
+exports[`project conversation persists across views and isolates reads without executing writes 1`] = `
+[
+  {
+    "view": "角色",
+    "records": 4,
+    "replyVisible": true,
+    "scroll": 90
+  },
+  {
+    "view": "近章规划",
+    "records": 4,
+    "replyVisible": true,
+    "scroll": 90
+  },
+  {
+    "view": "作品目录",
+    "records": 4,
+    "replyVisible": true,
+    "scroll": 90
+  },
+  {
+    "view": "first record in new project",
+    "records": 1,
+    "replyVisible": true,
+    "scroll": 90
+  }
+]
+`;
+
+exports[`task list serializes reads, preserves failures, and isolates project lifetimes 1`] = `
+"你的创作指令\\n局部交付\\n已保存部分内容\\n\\n有 1 项行动提案待确认；尚未执行。\\n\\n用量记录待核对。\\n\\n本轮尚无回复。"
+`;
+
+exports[`task list serializes reads, preserves failures, and isolates project lifetimes 2`] = `
+"你的创作指令\\n自动安排\\n进行中\\n\\n正在安排后续创作步骤…"
+`;
+
+exports[`task list serializes reads, preserves failures, and isolates project lifetimes 3`] = `
+"你的创作指令\\n恢复已保存结果\\n需处理"
+`;
+
+exports[`task list serializes reads, preserves failures, and isolates project lifetimes 4`] = `
+{
+  "first": "已结束历史 1",
+  "last": "需要保留的暂停任务",
+  "chronological": true,
+  "turns": 7,
+  "executionLists": 0,
+  "preservedUndo": true,
+  "failureVisible": true
+}
+`;

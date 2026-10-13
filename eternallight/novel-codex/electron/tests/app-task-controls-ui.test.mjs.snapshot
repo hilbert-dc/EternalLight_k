@@ -1,0 +1,86 @@
+exports[`actual App shares original task recovery across every page and isolates late control receipts 1`] = `
+[
+  {
+    "case": "shared-pending-across-pages",
+    "pages": [
+      "世界规则",
+      "角色"
+    ],
+    "originalWork": {
+      "projectId": "project-last-lamp",
+      "id": "work-rules-original"
+    },
+    "resumeCalls": 1,
+    "cancelCalls": 1,
+    "newTurns": 0,
+    "notice": "已确认暂停任务。"
+  },
+  {
+    "case": "visible-recovery-failure",
+    "error": "为本作品拟定人物状态规则，仅保存候选：原规则任务恢复失败，请核对已保存候选",
+    "newTurns": 0
+  },
+  {
+    "case": "late-owner-isolation",
+    "project": "另一作品",
+    "oldErrorVisible": false,
+    "oldTaskVisible": false
+  },
+  {
+    "case": "fresh-work-mismatch",
+    "resumeCalls": 3,
+    "newTurns": 0
+  },
+  {
+    "case": "host-proven-resume-not-started",
+    "originalWork": "work-rules-original",
+    "durableStatus": "paused",
+    "duplicateAuthorMessages": false,
+    "newConversationTurn": false,
+    "error": "原任务尚未启动：Core 对话启动超时",
+    "draftPreserved": true,
+    "retryOriginalAvailable": true
+  },
+  {
+    "case": "exact-native-recovery-stream",
+    "originalWork": "work-rules-original",
+    "rootThread": "rules-thread",
+    "draftPreserved": "恢复之后再讨论的草稿",
+    "newTurns": 0
+  },
+  {
+    "case": "saved-result-without-model",
+    "task": {
+      "projectId": "project-last-lamp",
+      "id": "work-rules-original"
+    },
+    "status": "结果已保存",
+    "modelCalls": 0,
+    "newTurns": 0
+  },
+  {
+    "case": "unstarted-generation-host-proof",
+    "rootThread": "",
+    "authorTurnInvented": false,
+    "originalWork": "work-first-generation",
+    "failure": "原任务尚未启动：MCP 启动超时",
+    "draftPreserved": "下一轮未发送草稿"
+  },
+  {
+    "case": "unstarted-generation-native-bind",
+    "actualRootThread": "first-real-root",
+    "draftPreserved": "下一轮未发送草稿",
+    "newAuthorCalls": 0
+  },
+  {
+    "case": "generation-entry-host-proof",
+    "originalRun": {
+      "projectId": "project-last-lamp",
+      "id": "generation-envelope"
+    },
+    "failure": "原任务尚未启动：Core 首回合未启动",
+    "newAuthorTurn": false,
+    "editorDomPreserved": true
+  }
+]
+`;

@@ -1,0 +1,52 @@
+exports[`actual App qualification failures preserve exact drafts without masking started task failures 1`] = `
+[
+  {
+    "name": "initial unavailable",
+    "status": "本地 Runtime模型需要重新验证，编辑内容仍可保存当前模型验证不可用或已失效，请重新验证并应用模型后再发送。查看原始错误Error invoking remote method 'agent:send-prompt': Error: MODEL_CONNECTION_UNAVAILABLE: 当前模型证据已过期\\n原始诊断：qualification expired",
+    "draft": "模型恢复后继续，先保留输入",
+    "source": null,
+    "sends": 0,
+    "saves": 0
+  },
+  {
+    "name": "saved planning then preflight rejected",
+    "status": "本地 Runtime模型需要重新验证，编辑内容仍可保存当前模型验证不可用或已失效，请重新验证并应用模型后再发送。查看原始错误Error invoking remote method 'agent:send-prompt': Error: MODEL_CONNECTION_UNAVAILABLE: 当前模型证据已过期\\n原始诊断：qualification expired",
+    "draft": "  依据刚改的简报生成大纲，先保存候选。  ",
+    "source": null,
+    "sends": 1,
+    "saves": 1
+  },
+  {
+    "name": "ordinary task failure keeps actual readiness",
+    "status": "fixture · fixture本轮任务未完成；创作引擎已连接。本轮遇到问题，尚未完成。请查看错误详情和任务恢复安排。查看原始错误provider_output_item_limit: 模型返回超限",
+    "draft": "",
+    "source": null,
+    "sends": 2,
+    "saves": 1
+  },
+  {
+    "name": "exact source restored on local rejection",
+    "status": "本地 Runtime模型需要重新验证，编辑内容仍可保存当前模型验证不可用或已失效，请重新验证并应用模型后再发送。查看原始错误Error invoking remote method 'agent:send-prompt': Error: MODEL_CONNECTION_UNAVAILABLE: 当前模型证据已过期\\n原始诊断：qualification expired",
+    "draft": "讨论这条记录的准确来源",
+    "source": "讨论来源：本作品资料 · 信件 · 他没有拆开那封信。移除",
+    "sends": 3,
+    "saves": 1
+  },
+  {
+    "name": "changed input survives rejection",
+    "status": "本地 Runtime模型需要重新验证，编辑内容仍可保存当前模型验证不可用或已失效，请重新验证并应用模型后再发送。查看原始错误Error invoking remote method 'agent:send-prompt': Error: MODEL_CONNECTION_UNAVAILABLE: 当前模型证据已过期\\n原始诊断：qualification expired",
+    "draft": "等待拒绝时新写的要求",
+    "source": null,
+    "sends": 4,
+    "saves": 1
+  },
+  {
+    "name": "cleared input stays cleared",
+    "status": "本地 Runtime模型需要重新验证，编辑内容仍可保存当前模型验证不可用或已失效，请重新验证并应用模型后再发送。查看原始错误Error invoking remote method 'agent:send-prompt': Error: MODEL_CONNECTION_UNAVAILABLE: 当前模型证据已过期\\n原始诊断：qualification expired",
+    "draft": "",
+    "source": null,
+    "sends": 5,
+    "saves": 1
+  }
+]
+`;

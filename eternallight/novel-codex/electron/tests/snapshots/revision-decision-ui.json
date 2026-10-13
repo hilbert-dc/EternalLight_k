@@ -1,0 +1,73 @@
+{
+  "styles": { "label": "grid", "textareaResize": "vertical", "actions": "flex", "actionsWrap": "wrap", "inheritedButtons": true },
+  "latestDefer": {
+    "statuses": ["最新作者决策：暂缓"],
+    "alerts": [],
+    "buttons": [
+      { "text": "作为后继创作依据", "disabled": false },
+      { "text": "还需改稿", "disabled": false },
+      { "text": "暂缓", "disabled": false }
+    ]
+  },
+  "history": {
+    "summary": "作者决策历史 · 20 条（最多 20 条）",
+    "count": 20,
+    "newest": "还需改稿",
+    "oldest": "作为后继创作依据"
+  },
+  "busy": {
+    "statuses": ["正在核对并保存…"],
+    "alerts": [],
+    "buttons": [
+      { "text": "作为后继创作依据", "disabled": true },
+      { "text": "还需改稿", "disabled": true },
+      { "text": "暂缓", "disabled": true }
+    ]
+  },
+  "accepted": {
+    "statuses": ["最新作者决策：作为后继创作依据"],
+    "alerts": [],
+    "buttons": [
+      { "text": "作为后继创作依据", "disabled": false },
+      { "text": "还需改稿", "disabled": false },
+      { "text": "暂缓", "disabled": false },
+      { "text": "准备后继创作", "disabled": false }
+    ]
+  },
+  "stalePreparation": {
+    "statuses": ["最新作者决策：作为后继创作依据"],
+    "alerts": ["修改结果或最新作者决策已变化，请重新读取后准备后继创作。"],
+    "buttons": [
+      { "text": "作为后继创作依据", "disabled": true },
+      { "text": "还需改稿", "disabled": true },
+      { "text": "暂缓", "disabled": true },
+      { "text": "准备后继创作", "disabled": true }
+    ]
+  },
+  "conflict": {
+    "statuses": ["最新作者决策：暂缓"],
+    "alerts": ["TASK_INPUT_STALE：决策已变化"],
+    "buttons": [
+      { "text": "作为后继创作依据", "disabled": true },
+      { "text": "还需改稿", "disabled": true },
+      { "text": "暂缓", "disabled": true },
+      { "text": "重试保存原决定", "disabled": false }
+    ]
+  },
+  "staleReport": {
+    "statuses": [],
+    "alerts": [],
+    "buttons": [
+      { "text": "作为后继创作依据", "disabled": true },
+      { "text": "还需改稿", "disabled": true },
+      { "text": "暂缓", "disabled": true }
+    ]
+  },
+  "confirmation": {
+    "title": "确认本轮自动创作",
+    "intent": "藏好密函，按原作者目标继续后续章节。",
+    "limits": [],
+    "scope": [],
+    "source": "后继创作来源：写作尝试 task-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa · 判断 assessment-2 · 作者决策 decision-1"
+  }
+}

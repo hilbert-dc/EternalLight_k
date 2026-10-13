@@ -1,0 +1,47 @@
+exports[`real story references preserve source authority, time unknowns and read scope 1`] = `
+[
+  {
+    "view": "timeline",
+    "events": [
+      "进门",
+      "点灯",
+      "藏信"
+    ],
+    "knownTimes": [
+      2,
+      10
+    ],
+    "unknown": "藏信",
+    "complete": false
+  },
+  {
+    "controls": "在对话中梳理时间这里只准备对话，发送后才会执行。全部时间已知未指定仅筛选已加载范围 · 显示 1 / 3 条",
+    "filter": "unknown",
+    "preparationOnly": true
+  },
+  {
+    "view": "world/timeline",
+    "staleReadPreserved": true,
+    "projectIsolated": true,
+    "snapshotRejected": true,
+    "empty": "已读取范围暂无事件或明确故事时刻"
+  },
+  {
+    "view": "plot-filter",
+    "controls": "在对话中梳理伏笔这里只准备对话，发送后才会执行。未兑现包含部分兑现；已放弃的条目可在全部中查看。全部未兑现已兑现仅筛选已加载范围 · 显示 0 / 1 条已加载范围内没有匹配条目；不代表作品没有相关资料。清除筛选",
+    "furtherPageAccessible": true
+  },
+  {
+    "view": "plot",
+    "candidates": 2,
+    "detailSource": "旧钟还没有停止。",
+    "pageReads": 1,
+    "executions": 0
+  },
+  {
+    "view": "plot-empty",
+    "action": "在对话中梳理伏笔",
+    "empty": "此快照尚无已建立伏笔或悬念可用上方对话入口提取已保存正文的伏笔建议；提取建议需在章节中确认后才进入目录。"
+  }
+]
+`;

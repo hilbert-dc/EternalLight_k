@@ -1,0 +1,21 @@
+exports[`chapter rebind UI requires fresh explicit confirmation and isolates late responses 1`] = `
+{
+  "title": "本章规划有更新",
+  "descriptions": [
+    "先核对新章纲，再决定是否替换本章的规划依据。已写正文保持不变。",
+    "焚信",
+    "主角焚烧密函，拒绝留下证词。",
+    "主角保留密函，在亮灯时记录证词。",
+    "他藏好密函，等待白塔亮灯。"
+  ],
+  "options": [
+    "藏信"
+  ],
+  "sources": "旧规划old-plan / plan-1新规划new-plan / plan-1当前正文draft-current作品版本2",
+  "acknowledgment": "我确认保留当前正文，替换规划关联并撤销旧任务的写入权限。"
+}
+`;
+
+exports[`chapter rebind UI requires fresh explicit confirmation and isolates late responses 2`] = `
+"关联已更新至作品版本 3，正文保留。新内容仍需单独生成和审阅。如需继续中断的创作，请在作品概况中重新预览运行，选择“基于当前章重写”。查看关联回执原规划：old-plan / plan-1新规划：changed-plan / plan-1保留正文来源：changed-draft重新读取作品"
+`;

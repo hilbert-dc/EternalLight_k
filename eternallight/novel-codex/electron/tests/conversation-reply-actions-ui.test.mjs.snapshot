@@ -1,0 +1,167 @@
+exports[`reply actions copy original text and isolate async feedback without duplicating saved result actions 1`] = `
+[
+  {
+    "name": "raw-markdown-success",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": "已复制",
+    "alert": null
+  },
+  {
+    "name": "clipboard-rejected",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": null,
+    "alert": "复制失败，请选中文字复制。"
+  },
+  {
+    "name": "clipboard-unavailable",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": null,
+    "alert": "复制失败，请选中文字复制。"
+  },
+  {
+    "name": "late-identity-ignored",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": null,
+    "alert": null
+  },
+  {
+    "name": "late-text-ignored",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": null,
+    "alert": null
+  },
+  {
+    "name": "late-ABA-ignored",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": null,
+    "alert": null
+  },
+  {
+    "name": "late-unmount-ignored",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": null,
+    "alert": null
+  },
+  {
+    "name": "generated-single-footer",
+    "buttons": [
+      "复制结果说明"
+    ],
+    "status": "已复制",
+    "alert": null
+  },
+  {
+    "name": "saved-ordinary",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": "已复制",
+    "alert": null
+  },
+  {
+    "name": "saved-folded",
+    "buttons": [
+      "复制结果说明"
+    ],
+    "status": "已复制",
+    "alert": null
+  },
+  {
+    "name": "saved-partial-state",
+    "buttons": [
+      "复制已显示内容"
+    ],
+    "status": "保存的回复超过上限，以下为部分内容。",
+    "alert": null
+  },
+  {
+    "name": "saved-partial-binding",
+    "buttons": [
+      "复制已显示内容"
+    ],
+    "status": "保存的回复超过上限，以下为部分内容。",
+    "alert": null
+  },
+  {
+    "name": "saved-null",
+    "buttons": [],
+    "status": null,
+    "alert": null
+  },
+  {
+    "name": "saved-absent",
+    "buttons": [],
+    "status": null,
+    "alert": null
+  },
+  {
+    "name": "saved-read-error",
+    "buttons": [],
+    "status": null,
+    "alert": "夹具读取失败重新读取回复"
+  },
+  {
+    "name": "saved-foreign",
+    "buttons": [],
+    "status": null,
+    "alert": "回复归属不匹配，请重新读取重新读取回复"
+  },
+  {
+    "name": "timeline-states",
+    "headlines": [
+      "正在处理 · 1秒",
+      "等待你的回答 · 1秒",
+      "本轮未完成 · 1秒",
+      "已停止 · 1秒",
+      "已处理 · 1秒"
+    ],
+    "reducedMotion": true
+  },
+  {
+    "name": "light-330",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": "已复制",
+    "alert": null
+  },
+  {
+    "name": "dark-330",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": "已复制",
+    "alert": null
+  },
+  {
+    "name": "light-740",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": "已复制",
+    "alert": null
+  },
+  {
+    "name": "dark-740",
+    "buttons": [
+      "复制回复"
+    ],
+    "status": "已复制",
+    "alert": null
+  }
+]
+`;

@@ -1,0 +1,484 @@
+exports[`actual App pages remain reachable across themes and viewport sizes without model or write calls 1`] = `
+[
+  {
+    "mode": "light",
+    "width": 1400,
+    "height": 1000,
+    "canvas": "rgb(243, 245, 248)",
+    "documentScroll": 0,
+    "pages": [
+      {
+        "view": "chapters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "characters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "brief",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "outline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plans",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plot",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "timeline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "world",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "account",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      }
+    ],
+    "emptyReferencePages": 2,
+    "moduleRecords": {
+      "chapterBound": true,
+      "retry": true,
+      "foreignLateReadRejected": true,
+      "absentTimePreserved": true,
+      "editorPreserved": true,
+      "exactTriggerFocus": true
+    },
+    "conversation": {
+      "inspectorMountedHidden": true,
+      "detailsRestoredSpace": true,
+      "shortInputHeight": 48,
+      "longInputHeight": 144,
+      "inputCaretAndScrollPreserved": true,
+      "imeDidNotSend": true,
+      "userAndProposalFullText": true,
+      "stableDisclosure": true,
+      "stopReachable": true,
+      "currentAndHistoryOriginalCopy": true,
+      "localDiscussionSends": 2,
+      "localStopCalls": 2,
+      "providerRequests": 0
+    },
+    "modelCalls": 0,
+    "writeCalls": 0
+  },
+  {
+    "mode": "dark",
+    "width": 1400,
+    "height": 1000,
+    "canvas": "rgb(17, 19, 23)",
+    "documentScroll": 0,
+    "pages": [
+      {
+        "view": "chapters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "characters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "brief",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "outline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plans",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plot",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "timeline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "world",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "account",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      }
+    ],
+    "emptyReferencePages": 2,
+    "moduleRecords": {
+      "chapterBound": true,
+      "retry": true,
+      "foreignLateReadRejected": true,
+      "absentTimePreserved": true,
+      "editorPreserved": true,
+      "exactTriggerFocus": true
+    },
+    "conversation": {
+      "inspectorMountedHidden": true,
+      "detailsRestoredSpace": true,
+      "shortInputHeight": 48,
+      "longInputHeight": 144,
+      "inputCaretAndScrollPreserved": true,
+      "imeDidNotSend": true,
+      "userAndProposalFullText": true,
+      "stableDisclosure": true,
+      "stopReachable": true,
+      "currentAndHistoryOriginalCopy": true,
+      "localDiscussionSends": 2,
+      "localStopCalls": 2,
+      "providerRequests": 0
+    },
+    "modelCalls": 0,
+    "writeCalls": 0
+  },
+  {
+    "mode": "light",
+    "width": 1100,
+    "height": 760,
+    "canvas": "rgb(243, 245, 248)",
+    "documentScroll": 0,
+    "pages": [
+      {
+        "view": "chapters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "characters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "brief",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "outline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plans",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plot",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "timeline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "world",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "account",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      }
+    ],
+    "emptyReferencePages": 2,
+    "moduleRecords": {
+      "chapterBound": true,
+      "retry": true,
+      "foreignLateReadRejected": true,
+      "absentTimePreserved": true,
+      "editorPreserved": true,
+      "exactTriggerFocus": true
+    },
+    "conversation": {
+      "inspectorMountedHidden": true,
+      "detailsRestoredSpace": true,
+      "shortInputHeight": 48,
+      "longInputHeight": 144,
+      "inputCaretAndScrollPreserved": true,
+      "imeDidNotSend": true,
+      "userAndProposalFullText": true,
+      "stableDisclosure": true,
+      "stopReachable": true,
+      "currentAndHistoryOriginalCopy": true,
+      "localDiscussionSends": 2,
+      "localStopCalls": 2,
+      "providerRequests": 0
+    },
+    "modelCalls": 0,
+    "writeCalls": 0
+  },
+  {
+    "mode": "dark",
+    "width": 1100,
+    "height": 760,
+    "canvas": "rgb(17, 19, 23)",
+    "documentScroll": 0,
+    "pages": [
+      {
+        "view": "chapters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "characters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "brief",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "outline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plans",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plot",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "timeline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "world",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "account",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      }
+    ],
+    "emptyReferencePages": 2,
+    "moduleRecords": {
+      "chapterBound": true,
+      "retry": true,
+      "foreignLateReadRejected": true,
+      "absentTimePreserved": true,
+      "editorPreserved": true,
+      "exactTriggerFocus": true
+    },
+    "conversation": {
+      "inspectorMountedHidden": true,
+      "detailsRestoredSpace": true,
+      "shortInputHeight": 48,
+      "longInputHeight": 144,
+      "inputCaretAndScrollPreserved": true,
+      "imeDidNotSend": true,
+      "userAndProposalFullText": true,
+      "stableDisclosure": true,
+      "stopReachable": true,
+      "currentAndHistoryOriginalCopy": true,
+      "localDiscussionSends": 2,
+      "localStopCalls": 2,
+      "providerRequests": 0
+    },
+    "modelCalls": 0,
+    "writeCalls": 0
+  },
+  {
+    "mode": "light",
+    "width": 900,
+    "height": 600,
+    "canvas": "rgb(243, 245, 248)",
+    "documentScroll": 0,
+    "pages": [
+      {
+        "view": "chapters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "characters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "brief",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "outline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plans",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plot",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "timeline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "world",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "account",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      }
+    ],
+    "emptyReferencePages": 2,
+    "moduleRecords": {
+      "chapterBound": true,
+      "retry": true,
+      "foreignLateReadRejected": true,
+      "absentTimePreserved": true,
+      "editorPreserved": true,
+      "exactTriggerFocus": true
+    },
+    "conversation": {
+      "inspectorMountedHidden": true,
+      "detailsRestoredSpace": true,
+      "shortInputHeight": 48,
+      "longInputHeight": 144,
+      "inputCaretAndScrollPreserved": true,
+      "imeDidNotSend": true,
+      "userAndProposalFullText": true,
+      "stableDisclosure": true,
+      "stopReachable": true,
+      "currentAndHistoryOriginalCopy": true,
+      "localDiscussionSends": 2,
+      "localStopCalls": 2,
+      "providerRequests": 0
+    },
+    "modelCalls": 0,
+    "writeCalls": 0
+  },
+  {
+    "mode": "dark",
+    "width": 900,
+    "height": 600,
+    "canvas": "rgb(17, 19, 23)",
+    "documentScroll": 0,
+    "pages": [
+      {
+        "view": "chapters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "characters",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "brief",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "outline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plans",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "plot",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "timeline",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "world",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      },
+      {
+        "view": "account",
+        "fitsHorizontally": true,
+        "finalContentReachable": true
+      }
+    ],
+    "emptyReferencePages": 2,
+    "moduleRecords": {
+      "chapterBound": true,
+      "retry": true,
+      "foreignLateReadRejected": true,
+      "absentTimePreserved": true,
+      "editorPreserved": true,
+      "exactTriggerFocus": true
+    },
+    "conversation": {
+      "inspectorMountedHidden": true,
+      "detailsRestoredSpace": true,
+      "shortInputHeight": 48,
+      "longInputHeight": 144,
+      "inputCaretAndScrollPreserved": true,
+      "imeDidNotSend": true,
+      "userAndProposalFullText": true,
+      "stableDisclosure": true,
+      "stopReachable": true,
+      "currentAndHistoryOriginalCopy": true,
+      "localDiscussionSends": 2,
+      "localStopCalls": 2,
+      "providerRequests": 0
+    },
+    "modelCalls": 0,
+    "writeCalls": 0
+  }
+]
+`;

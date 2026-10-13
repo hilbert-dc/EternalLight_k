@@ -1,0 +1,45 @@
+exports[`actual App synchronizes saved and live chapter titles without changing writing authority 1`] = `
+[
+  {
+    "case": "saved precedence",
+    "directory": [
+      "候选章名",
+      "已发布章名2",
+      "正式底层旧名3"
+    ],
+    "switcher": [
+      "候选章名",
+      "已发布章名2",
+      "正式底层旧名3"
+    ],
+    "workingIgnored": true
+  },
+  {
+    "case": "live preview preserves editor",
+    "emptyPreview": true,
+    "sameEditorAndCaret": true,
+    "writes": 0,
+    "modelCalls": 0
+  },
+  {
+    "case": "save failure and discard",
+    "failureRetained": true,
+    "cancelledNavigationRetained": true,
+    "discardedTitle": "候选章名",
+    "writes": 0
+  },
+  {
+    "case": "saved candidate survives navigation and App remount",
+    "savedTitle": "作者保存的新章名",
+    "formalTitle": "正式底层旧名1",
+    "knownReceiptRecoveryWrites": 1,
+    "modelCalls": 0
+  },
+  {
+    "case": "late workspace project ABA",
+    "title": "A后续已保存名称",
+    "oldResponsesIgnored": true,
+    "modelCalls": 0
+  }
+]
+`;
