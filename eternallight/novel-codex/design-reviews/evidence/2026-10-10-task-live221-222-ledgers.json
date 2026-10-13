@@ -1,0 +1,1030 @@
+{
+  "native": {
+    "story_work_tasks_v1": [
+      {
+        "id": "work-task-883532f7d1395e77a412c087d0d393fa",
+        "project_id": "project-91f9d17e9360458aba8cbfc1d884b550",
+        "thread_id": "01a12464-212e-72a0-958b-ab1d94a26998",
+        "goal": "为这个虚构故事创作一段约100字的开场，林夕在港城藏起密函。实际保存候选正文，不采用，不发布；根据实际保存回执说明完成情况。",
+        "kind": "conversation",
+        "status": "completed",
+        "version": 4,
+        "control_revision": 0,
+        "input_revision": 0,
+        "error": null
+      },
+      {
+        "id": "work-generation-a7457ea31be445d18810e7f4a66b1392",
+        "project_id": "project-91f9d17e9360458aba8cbfc1d884b550",
+        "thread_id": "01a12464-212e-72a0-958b-ab1d94a26998",
+        "goal": "为这个虚构故事创作一段约100字的开场，林夕在港城藏起密函。实际保存候选正文，不采用，不发布；根据实际保存回执说明完成情况。",
+        "kind": "generation",
+        "status": "paused",
+        "version": 16,
+        "control_revision": 1,
+        "input_revision": 1,
+        "error": null
+      },
+      {
+        "id": "work-task-c6cc0aaf6534aa2a29a679effd24257d",
+        "project_id": "project-3d6f359cb35b409ea1684ee2fb9e83a9",
+        "thread_id": "01a12466-c814-71f3-9170-53098338b99d",
+        "goal": "请读取已有第1章候选正文，将它改写成约100字的悬疑开场，林夕继续保留密函，加入港城雨夜与钟声。实际保存修改后的候选正文，不采用、不发布。",
+        "kind": "conversation",
+        "status": "completed",
+        "version": 9,
+        "control_revision": 0,
+        "input_revision": 0,
+        "error": null
+      },
+      {
+        "id": "work-task-6346453110d255dbb232b63eac6a3505",
+        "project_id": "project-0aa0c2ca86c34433b5e79b9ef94fe99f",
+        "thread_id": "01a12468-7011-7530-a585-f8c1041e7b71",
+        "goal": "请读取已有第1章候选正文，将它改写成约100字的开场，林夕在港城烧掉密函。实际保存修改后的候选正文，不采用、不发布。",
+        "kind": "conversation",
+        "status": "paused",
+        "version": 10,
+        "control_revision": 1,
+        "input_revision": 0,
+        "error": null
+      }
+    ],
+    "story_work_steps_v1": [
+      {
+        "id": "step-task-883532f7d1395e77a412c087d0d393fa",
+        "work_task_id": "work-task-883532f7d1395e77a412c087d0d393fa",
+        "ordinal": 1,
+        "operation": "advisory",
+        "target_json": "{\"type\":\"project\"}",
+        "input_revision": 0,
+        "depends_on_step_id": null,
+        "status": "completed",
+        "current_attempt_id": "task-883532f7d1395e77a412c087d0d393fa"
+      },
+      {
+        "id": "decision-91aa0bb8539c42acab54bc5d3c1b094c",
+        "work_task_id": "work-generation-a7457ea31be445d18810e7f4a66b1392",
+        "ordinal": 1,
+        "operation": "advisory",
+        "target_json": "{\"intentGeneration\":0,\"runId\":\"generation-a7457ea31be445d18810e7f4a66b1392\",\"runVersion\":0,\"stepToken\":\"6dc38e8a4a554375bea1113ac5e331f4\",\"workDecision\":{\"fingerprint\":\"8c5f5a6573b7af7354de3fde04a7ae7f97627be4b4b906444472eedf0cbcc6e2\",\"originTaskId\":\"task-883532f7d1395e77a412c087d0d393fa\",\"sourceTaskId\":null,\"workTaskId\":\"work-generation-a7457ea31be445d18810e7f4a66b1392\"}}",
+        "input_revision": 0,
+        "depends_on_step_id": null,
+        "status": "completed",
+        "current_attempt_id": "task-831fad31a02a4b5c98fa62df36e958f2"
+      },
+      {
+        "id": "action-52cfffd78d524e42b51c3bafe2bc141f",
+        "work_task_id": "work-generation-a7457ea31be445d18810e7f4a66b1392",
+        "ordinal": 2,
+        "operation": "generateChapter",
+        "target_json": "{\"chapterAcceptance\":{\"length\":{\"maxCharacters\":130,\"minCharacters\":80,\"requirement\":\"作者要求约100字的开场\"},\"requirements\":[{\"id\":\"c1-person-place\",\"text\":\"开场中明确出现人物林夕与地点港城。\"},{\"id\":\"c2-hide-letter-act\",\"text\":\"正文落到“藏起密函”这一具体动作：密函由林夕藏匿，藏处可辨。\"},{\"id\":\"c3-opening-form\",\"text\":\"以简体中文写成凝练、有画面感的开场片段，不作背景说明书式罗列，不延伸到后续情节。\"}],\"verification\":{\"method\":\"independent\",\"reason\":\"这是新作品第1章的全新正文，须独立核验；作者要求依据真实保存回执核对字数与要素落实。\"}},\"chapterId\":\"chapter-ffe86d83-e9ca-428c-99c6-fa9439c911c9\",\"chapterNumber\":1,\"intentGeneration\":0,\"povCharacterId\":null,\"readingChapter\":1,\"runId\":\"generation-a7457ea31be445d18810e7f4a66b1392\",\"runVersion\":4,\"sceneOrder\":1,\"scope\":{\"type\":\"wholeChapter\"},\"stepToken\":\"f1ec58ba8e5448e6abc8137d2d9c51e9\",\"storyTime\":null,\"type\":\"chapter\",\"workDecisionAction\":{\"actionKey\":\"action-f94dc033cefafacc56a4372cac535b2344ff62e0989f1dac6c7a914e04c4c104\",\"decisionStepId\":\"decision-91aa0bb8539c42acab54bc5d3c1b094c\",\"decisionTaskId\":\"task-831fad31a02a4b5c98fa62df36e958f2\",\"workTaskId\":\"work-generation-a7457ea31be445d18810e7f4a66b1392\"}}",
+        "input_revision": 1,
+        "depends_on_step_id": "decision-91aa0bb8539c42acab54bc5d3c1b094c",
+        "status": "completed",
+        "current_attempt_id": "task-d42be837d4d04e028c455da86fcd775a"
+      },
+      {
+        "id": "decision-4c39e18a2d8548d382a40622ccab9777",
+        "work_task_id": "work-generation-a7457ea31be445d18810e7f4a66b1392",
+        "ordinal": 3,
+        "operation": "advisory",
+        "target_json": "{\"intentGeneration\":0,\"runId\":\"generation-a7457ea31be445d18810e7f4a66b1392\",\"runVersion\":7,\"stepToken\":\"dd85e4651bf34061a119fa3258b9629a\",\"workDecision\":{\"fingerprint\":\"8c5f5a6573b7af7354de3fde04a7ae7f97627be4b4b906444472eedf0cbcc6e2\",\"originTaskId\":\"task-883532f7d1395e77a412c087d0d393fa\",\"sourceTaskId\":\"task-d42be837d4d04e028c455da86fcd775a\",\"workTaskId\":\"work-generation-a7457ea31be445d18810e7f4a66b1392\"}}",
+        "input_revision": 1,
+        "depends_on_step_id": null,
+        "status": "blocked",
+        "current_attempt_id": "task-b00127bb4fd543b3b3006a962f188e5d"
+      },
+      {
+        "id": "action-18354eb18799465d9c4d517fc046629e",
+        "work_task_id": "work-generation-a7457ea31be445d18810e7f4a66b1392",
+        "ordinal": 4,
+        "operation": "assessRevisionOutcome",
+        "target_json": "{\"chapterId\":\"chapter-ffe86d83-e9ca-428c-99c6-fa9439c911c9\",\"chapterNumber\":1,\"draftRevisionId\":\"draft-fd3589c0eb724d6ca3a33fec3cfd9460\",\"intentGeneration\":0,\"knowledgeBatchId\":null,\"originalRevisionId\":null,\"runId\":\"generation-a7457ea31be445d18810e7f4a66b1392\",\"runVersion\":8,\"stepToken\":\"dd85e4651bf34061a119fa3258b9629a\",\"workDecisionAction\":{\"actionKey\":\"action-e00b03be93259d97fbb0b1103ac5b9160b75845e1070583c6846ac407ccea725\",\"decisionStepId\":\"decision-4c39e18a2d8548d382a40622ccab9777\",\"decisionTaskId\":\"task-b00127bb4fd543b3b3006a962f188e5d\",\"workTaskId\":\"work-generation-a7457ea31be445d18810e7f4a66b1392\"},\"writerTaskId\":\"task-d42be837d4d04e028c455da86fcd775a\"}",
+        "input_revision": 1,
+        "depends_on_step_id": "decision-4c39e18a2d8548d382a40622ccab9777",
+        "status": "queued",
+        "current_attempt_id": null
+      },
+      {
+        "id": "step-task-c6cc0aaf6534aa2a29a679effd24257d",
+        "work_task_id": "work-task-c6cc0aaf6534aa2a29a679effd24257d",
+        "ordinal": 1,
+        "operation": "advisory",
+        "target_json": "{\"type\":\"project\"}",
+        "input_revision": 0,
+        "depends_on_step_id": null,
+        "status": "completed",
+        "current_attempt_id": "task-c6cc0aaf6534aa2a29a679effd24257d"
+      },
+      {
+        "id": "interlude-bd2b1d53-d36b-4810-a5de-0564515bbe08",
+        "work_task_id": "work-task-c6cc0aaf6534aa2a29a679effd24257d",
+        "ordinal": 2,
+        "operation": "advisory",
+        "target_json": "{\"conversationFocus\":{\"readOnly\":true,\"view\":\"brief\"},\"interludeId\":\"bd2b1d53-d36b-4810-a5de-0564515bbe08\",\"type\":\"project\"}",
+        "input_revision": 0,
+        "depends_on_step_id": null,
+        "status": "completed",
+        "current_attempt_id": "task-72ae69a0487f41cbb782cbaba60f04e2"
+      },
+      {
+        "id": "step-task-6346453110d255dbb232b63eac6a3505",
+        "work_task_id": "work-task-6346453110d255dbb232b63eac6a3505",
+        "ordinal": 1,
+        "operation": "advisory",
+        "target_json": "{\"type\":\"project\"}",
+        "input_revision": 0,
+        "depends_on_step_id": null,
+        "status": "superseded",
+        "current_attempt_id": "task-6346453110d255dbb232b63eac6a3505"
+      },
+      {
+        "id": "decision-cbfeb14d745446a38bffbd4e6429ce53",
+        "work_task_id": "work-task-6346453110d255dbb232b63eac6a3505",
+        "ordinal": 2,
+        "operation": "advisory",
+        "target_json": "{\"workDecision\":{\"fingerprint\":\"4eb87ebfe068ce8efba0f12b642264bb4ed2794d9b43930e12d3bc1038f4076b\",\"originTaskId\":\"task-6346453110d255dbb232b63eac6a3505\",\"sourceTaskId\":\"task-6346453110d255dbb232b63eac6a3505\",\"workTaskId\":\"work-task-6346453110d255dbb232b63eac6a3505\"}}",
+        "input_revision": 0,
+        "depends_on_step_id": null,
+        "status": "blocked",
+        "current_attempt_id": "task-d705f26205d34fa987311fd9c56aa220"
+      }
+    ],
+    "story_work_attempts_v1": [
+      {
+        "sequence": 1,
+        "attempt_id": "task-883532f7d1395e77a412c087d0d393fa",
+        "step_id": "step-task-883532f7d1395e77a412c087d0d393fa",
+        "attempt_number": 1,
+        "started_at": 1791611905,
+        "completed_at": 1791611934
+      },
+      {
+        "sequence": 2,
+        "attempt_id": "task-831fad31a02a4b5c98fa62df36e958f2",
+        "step_id": "decision-91aa0bb8539c42acab54bc5d3c1b094c",
+        "attempt_number": 1,
+        "started_at": 1791611940,
+        "completed_at": 1791611962
+      },
+      {
+        "sequence": 3,
+        "attempt_id": "task-d42be837d4d04e028c455da86fcd775a",
+        "step_id": "action-52cfffd78d524e42b51c3bafe2bc141f",
+        "attempt_number": 1,
+        "started_at": 1791611966,
+        "completed_at": 1791611991
+      },
+      {
+        "sequence": 4,
+        "attempt_id": "task-b00127bb4fd543b3b3006a962f188e5d",
+        "step_id": "decision-4c39e18a2d8548d382a40622ccab9777",
+        "attempt_number": 1,
+        "started_at": 1791611994,
+        "completed_at": 1791612040
+      },
+      {
+        "sequence": 5,
+        "attempt_id": "task-c6cc0aaf6534aa2a29a679effd24257d",
+        "step_id": "step-task-c6cc0aaf6534aa2a29a679effd24257d",
+        "attempt_number": 1,
+        "started_at": 1791612078,
+        "completed_at": 1791612125
+      },
+      {
+        "sequence": 6,
+        "attempt_id": "task-72ae69a0487f41cbb782cbaba60f04e2",
+        "step_id": "interlude-bd2b1d53-d36b-4810-a5de-0564515bbe08",
+        "attempt_number": 1,
+        "started_at": 1791612129,
+        "completed_at": 1791612130
+      },
+      {
+        "sequence": 7,
+        "attempt_id": "task-6346453110d255dbb232b63eac6a3505",
+        "step_id": "step-task-6346453110d255dbb232b63eac6a3505",
+        "attempt_number": 1,
+        "started_at": 1791612187,
+        "completed_at": 1791612190
+      },
+      {
+        "sequence": 8,
+        "attempt_id": "task-d705f26205d34fa987311fd9c56aa220",
+        "step_id": "decision-cbfeb14d745446a38bffbd4e6429ce53",
+        "attempt_number": 1,
+        "started_at": 1791612190,
+        "completed_at": 1791612340
+      }
+    ],
+    "story_work_interludes_v1": [
+      {
+        "id": "bd2b1d53-d36b-4810-a5de-0564515bbe08",
+        "work_id": "work-task-c6cc0aaf6534aa2a29a679effd24257d",
+        "parent_id": null,
+        "message_id": "bd2b1d53-d36b-4810-a5de-0564515bbe08",
+        "step_id": "interlude-bd2b1d53-d36b-4810-a5de-0564515bbe08",
+        "control_revision": 0,
+        "revision": 1,
+        "auto_return": 1,
+        "state": "returned",
+        "request_json": "{\"id\":\"bd2b1d53-d36b-4810-a5de-0564515bbe08\",\"threadId\":\"01a12466-c814-71f3-9170-53098338b99d\",\"expectedControlRevision\":0,\"parentId\":null,\"autoReturn\":true,\"message\":{\"messageId\":\"bd2b1d53-d36b-4810-a5de-0564515bbe08\",\"input\":{\"text\":\"先临时回答：主人公叫什么？不要修改作品。\",\"focus\":{\"readOnly\":true,\"view\":\"brief\"},\"connectionId\":\"deepseek-flash\",\"media\":null},\"trigger\":{\"kind\":\"interlude\",\"interludeId\":\"bd2b1d53-d36b-4810-a5de-0564515bbe08\",\"workTaskId\":\"work-task-c6cc0aaf6534aa2a29a679effd24257d\"},\"sessionId\":\"d2ab8643-cfac-437e-b336-4dfc240e342a\"}}",
+        "return_command_id": "bd2b1d53-d36b-4810-a5de-0564515bbe08",
+        "return_request_json": "{\"commandId\":\"bd2b1d53-d36b-4810-a5de-0564515bbe08\",\"interludeId\":\"bd2b1d53-d36b-4810-a5de-0564515bbe08\",\"threadId\":\"01a12466-c814-71f3-9170-53098338b99d\",\"expectedControlRevision\":0,\"expectedRevision\":0,\"automatic\":true}",
+        "created_at": 1791612081
+      }
+    ],
+    "story_task_intents_v1": [
+      {
+        "task_id": "task-6346453110d255dbb232b63eac6a3505",
+        "intent_revision": 1,
+        "author_message_id": "author-message-bcb13decc0e8449090fe4f58dc94b7ff",
+        "author_text": "修改要求：林夕必须保留密函，绝不能烧掉。后续创作请采用这项新要求。",
+        "status": "delivered",
+        "created_at": 1791612189,
+        "delivered_at": 1791612189
+      }
+    ],
+    "story_task_final_replies_v1": [
+      {
+        "task_id": "task-883532f7d1395e77a412c087d0d393fa",
+        "receipt_json": "{\"taskId\":\"task-883532f7d1395e77a412c087d0d393fa\",\"projectId\":\"project-91f9d17e9360458aba8cbfc1d884b550\",\"binding\":{\"threadId\":\"01a12464-212e-72a0-958b-ab1d94a26998\",\"turnId\":\"01a12464-27b2-7cc2-b555-03bc69157dd9\",\"intentRevision\":0,\"itemId\":\"d0e4d30e-a65c-45ff-8096-7d4b90853165\",\"text\":\"任务已完结，如实汇报：**没有保存任何候选正文**。\\n\\n**实际核查**\\n- 作品目前没有章节，工作区里也没有任何已保存稿件或规划成果可挂靠（目录返回 0 条记录），只有目标里的一句话定位：\\\"虚构港城里，抄写员林夕保留一封密函。\\\"\\n- 本轮任务没有正文写入授权。我查过能力清单：`save_draft_checkpoint`、`save_delegated_draft`、`read_delegated_draft` 这类候选正文工具在当前任务都标记为\\\"无调用权\\\"。所以本轮无法由我落盘候选稿，自然也不存在任何保存回执可以引用——没有回执就不报告\\\"已保存\\\"。\\n- 我按新作品的正确入口登记了 **1 章生成交接提案**（状态：待批准）。它只登记范围，未创建章节、未创建任务、未占用预算。需要你确认范围与额度后，才会由系统启动生成；届时正文候选会真正保存，我才能凭真实回执核对字数、人物与\\\"藏密函\\\"动作是否落实。\\n\\n**未持久化的开场草稿（仅供你看方向，尚未保存）**\\n> 港城的雨落在货栈铁皮上，像有人在数钱。林夕把密函折成三折，塞进刚修好的钟壳里，再拧上后盖。指针重新走动时，她听见巷口有人问路——问的是她住的这条。她垂下眼，把油灯挑亮，让钟摆的声音盖过心跳。\\n\\n约 95 字（含标点），港城、林夕、\\\"藏起密函\\\"三个要素都落在动作里。\\n\\n**需要你定的一件事**\\n是否批准这 1 章的生成范围与预算？批准后即可开写候选正文；若你更想把它收得更紧（例如限定为纯开场片段、不要任何后续铺垫），告诉我，我据此调整交接说明再启动。\",\"truncated\":false},\"state\":\"recorded\",\"sourceDigest\":\"56c2a2ed5328c1f8fd1d367c19cf167e59bd4f7bd8f242b93489b7703bea119c\",\"receiptDigest\":\"a17539ef26587bce775f1ffe8f64cfba4848719cd7e264f1b722262e2040acfb\",\"recordedAt\":1791611937}"
+      },
+      {
+        "task_id": "task-831fad31a02a4b5c98fa62df36e958f2",
+        "receipt_json": "{\"taskId\":\"task-831fad31a02a4b5c98fa62df36e958f2\",\"projectId\":\"project-91f9d17e9360458aba8cbfc1d884b550\",\"binding\":{\"threadId\":\"01a12464-212e-72a0-958b-ab1d94a26998\",\"turnId\":\"01a12464-b1e1-7e51-931d-adc2225a80d6\",\"intentRevision\":0,\"itemId\":\"30144994-4c7f-4288-b079-e443cf0d2abc\",\"text\":\"本轮决策已完成，进展如下。\\n\\n**已完成**\\n- 读回 Work 状态与作者要求原文：约100字开场，林夕在港城藏起密函；候选正文保存、不采用、不发布；按真实保存回执汇报。\\n- 识别出唯一必做项——第 1 章正文（`writeNextChapter`），已登记并进入执行队列；同时出现的可选\\\"生成规划\\\"未采纳，避免扩大范围。\\n- 起草前冻结了验收标准：明确出现林夕与港城；\\\"藏起密函\\\"落到具体动作且藏处可辨；简体中文、凝练有画面感、不作设定罗列、不延伸后续情节；篇幅 80—130 字。验收走**独立核验**，因为这是全新章节，且你要的是凭真实回执核对字数与要素。\\n\\n**尚未发生的事**\\n本轮只登记了写作任务，**没有任何候选正文被保存，因而也没有可引用的保存回执**。我不会把\\\"已排队\\\"说成\\\"已保存\\\"。\\n\\n**下一步**\\n第 1 章候选稿真正保存后，我会读实际稿与真实回执，取得独立的评估报告，逐条核对上述三项标准与字数，再把结果报给你。若哪条未达标，就如实登记并定向修订后复评；采用与发布仍由你决定。\",\"truncated\":false},\"state\":\"recorded\",\"sourceDigest\":\"ef1f5785afdc454ee31659450aa1f7cf723adebf43335cb833403dd9b7d96d63\",\"receiptDigest\":\"4a9886597843797362054648b660c5ab7be96cf4720c6bf87a8084a4eaeb6509\",\"recordedAt\":1791611965}"
+      },
+      {
+        "task_id": "task-d42be837d4d04e028c455da86fcd775a",
+        "receipt_json": "{\"taskId\":\"task-d42be837d4d04e028c455da86fcd775a\",\"projectId\":\"project-91f9d17e9360458aba8cbfc1d884b550\",\"binding\":{\"threadId\":\"01a12465-10d5-7ac0-939c-8561faf0f1e2\",\"turnId\":\"01a12465-13a8-7182-a3c9-c994219fa339\",\"intentRevision\":0,\"itemId\":\"20d28bea-8b2e-4b14-9b0d-1e1bd60ad5a6\",\"text\":\"已完成第1章开场，并以候选正文保存；未采用、未发布。\\n\\n**保存结果**\\n- 第1章《藏》，候选正文版本 1，`saved=true`，状态为已提交（`checkpoint draft-fd3589c0eb724d6ca3a33fec3cfd9460`）。\\n\\n**保存的正文**\\n> 港城入夜，雨把石板路泡得发亮。林夕灭了楼下的灯，独自摸上旧宅阁楼，把那封还带体温的密函折成窄条，塞进墙缝最深处的砖后，又推回松动的砖块，抹平浮灰。退开两步，她数了一遍自己的呼吸，才吹熄灯芯。\\n\\n**写作方自查（非独立核验）**\\n- 95字（含标点），在作者要求的约100字、80—130字区间内。\\n- 开场即落到“藏密函”的动作：密函折成窄条塞入墙缝砖后，藏处可辨；人物林夕、地点港城明确出现；单段三句，未作背景罗列，也未延伸到后续情节。\\n\\n**未完成事项**\\n- 验收标准指定以 independent 方式核验，这不由写作方自查代替；独立核验与最终采用仍需另行进行。\\n- 任务来源中除本条作者要求外没有既有正文或已确认设定，因此本次开篇未与既有内容对撞，但这一点未经独立确认。\",\"truncated\":false},\"state\":\"recorded\",\"sourceDigest\":\"832a89e77e8066ddfe7f2de4b8ea71d729dd22213722af59972a380886290f2b\",\"receiptDigest\":\"5c94662b273b4ce9e5727e608d874c26ba45e0b40db65a32a721af394ccc4a64\",\"recordedAt\":1791611994}"
+      },
+      {
+        "task_id": "task-c6cc0aaf6534aa2a29a679effd24257d",
+        "receipt_json": "{\"taskId\":\"task-c6cc0aaf6534aa2a29a679effd24257d\",\"projectId\":\"project-3d6f359cb35b409ea1684ee2fb9e83a9\",\"binding\":{\"threadId\":\"01a12466-c814-71f3-9170-53098338b99d\",\"turnId\":\"01a12466-cb33-70b0-87d8-e7876ac98ddc\",\"intentRevision\":0,\"itemId\":\"91d8f010-d859-4c15-a07e-db9c6f6e4e9a\",\"text\":\"**结果：未能保存，第1章候选正文保持原样**\\n\\n- 已读到的现状：第1章（`chapter-live`，《港城密函》，作者来源）正文共 25 字——“夜幕落在港城。抄写员林夕把密函藏进衣袋，走向钟楼。”\\n- 我按作者要求登记了两次章节改写（整章改写、场景组精改两种范围形式），运行时两次都以“任务不可写”拒绝；本任务绑定为只读的咨询/规划任务，`save_draft_checkpoint` 一类写入能力也标注为当前任务无调用权限。\\n- 因此没有任何修改被写入，原候选未采用、未发布，也没有替身稿或半截稿被保存。\\n\\n**可直接落库的改写方案（约 90 字，待授权后保存）**\\n\\n> 港城的雨整夜没停。抄写员林夕把密函收进贴身的衣袋，隔着湿透的布料按了按——还在。午夜，钟楼传来钟声：一下，两下……数到第十三下，林夕停住——那座钟，向来只敲十二下。\\n\\n保留项：林夕（抄写员）、港城、密函仍在林夕身上、钟楼；新增项：雨夜、钟声、悬疑收束。\\n\\n需要作者判断的一处新拟细节：“那座钟向来只敲十二下”是原稿没有的设定，用来做开场悬念。若不想新增这条设定，可换成不引入新规则的收束（例如只停在“多敲出的那一记”）。\\n\\n**下一步**：需要你授权一个可写的章节编辑任务（针对第1章这份现有候选），我才能实际保存；授权后我会保存上述（或你修订后的）文本，并只做候选保存、不采用、不发布。\",\"truncated\":false},\"state\":\"recorded\",\"sourceDigest\":\"90c6129d9d19e891c68d2c3edbef6b74617aca2b5faaf9017d974c057afa561b\",\"receiptDigest\":\"d08fe36c6089b635b0101fb453bbeaad6e89d46369b9b5891091d35c0e383617\",\"recordedAt\":1791612128}"
+      },
+      {
+        "task_id": "task-72ae69a0487f41cbb782cbaba60f04e2",
+        "receipt_json": "{\"taskId\":\"task-72ae69a0487f41cbb782cbaba60f04e2\",\"projectId\":\"project-3d6f359cb35b409ea1684ee2fb9e83a9\",\"binding\":{\"threadId\":\"01a12466-c814-71f3-9170-53098338b99d\",\"turnId\":\"01a12467-90b4-7490-8e19-5d9b90f04c67\",\"intentRevision\":0,\"itemId\":\"a4cd92cf-f7ef-49b9-b2b6-1c28bd2b9ad3\",\"text\":\"主人公叫**林夕**，在《港城密函》里是港城的抄写员。\\n\\n本轮只回答，没有修改任何作品，第1章候选正文保持原样。\",\"truncated\":false},\"state\":\"recorded\",\"sourceDigest\":\"54730b677ffe2c6c0a48d2165f5537b3ac0a90a88c1cdc9a15bdc7d8899260a4\",\"receiptDigest\":\"477ea57fd0514f819a5b8f41cb8937bc24d94bd0d5c94b57d46f7c29342f69f2\",\"recordedAt\":1791612130}"
+      }
+    ],
+    "story_revisions_v2": [
+      {
+        "revision_id": "draft-fd3589c0eb724d6ca3a33fec3cfd9460",
+        "project_id": "project-91f9d17e9360458aba8cbfc1d884b550",
+        "object_id": "draft-chapter-ffe86d83-e9ca-428c-99c6-fa9439c911c9",
+        "object_kind": "draft",
+        "parent_revision_id": null,
+        "content_digest": "f504c9d574f75ffaf3939e3041401abe14962235daf342920943c5f5412a3ea4",
+        "content_json": "{\"baseProjectRevision\":1,\"body\":\"港城入夜，雨把石板路泡得发亮。林夕灭了楼下的灯，独自摸上旧宅阁楼，把那封还带体温的密函折成窄条，塞进墙缝最深处的砖后，又推回松动的砖块，抹平浮灰。退开两步，她数了一遍自己的呼吸，才吹熄灯芯。\",\"chapterId\":\"chapter-ffe86d83-e9ca-428c-99c6-fa9439c911c9\",\"chapterNumber\":1,\"completeness\":\"chapterComplete\",\"sceneGroups\":[{\"body\":\"港城入夜，雨把石板路泡得发亮。林夕灭了楼下的灯，独自摸上旧宅阁楼，把那封还带体温的密函折成窄条，塞进墙缝最深处的砖后，又推回松动的砖块，抹平浮灰。退开两步，她数了一遍自己的呼吸，才吹熄灯芯。\",\"id\":\"scene-group-chapter-ffe86d83-e9ca-428c-99c6-fa9439c911c9\",\"locked\":false,\"sceneId\":null}],\"source\":\"agent\",\"sourcePlanRefs\":{\"lineageStatus\":\"historical\",\"localOnly\":true},\"title\":\"藏\",\"version\":1}"
+      },
+      {
+        "revision_id": "draft-fa17db7aad4d4fdeaab1303bee2abcf8",
+        "project_id": "project-3d6f359cb35b409ea1684ee2fb9e83a9",
+        "object_id": "draft-chapter-live",
+        "object_kind": "draft",
+        "parent_revision_id": null,
+        "content_digest": "1d34e60128d770de442507f9c18b9cc48f83c3a348d9e6339cfaac0bdc60bd2a",
+        "content_json": "{\"baseProjectRevision\":0,\"body\":\"夜幕落在港城。抄写员林夕把密函藏进衣袋，走向钟楼。\",\"chapterId\":\"chapter-live\",\"chapterNumber\":1,\"completeness\":\"chapterComplete\",\"sceneGroups\":[{\"body\":\"夜幕落在港城。抄写员林夕把密函藏进衣袋，走向钟楼。\",\"id\":\"scene-group-chapter-live\",\"locked\":false,\"sceneId\":null}],\"source\":\"author\",\"sourcePlanRefs\":{\"lineageStatus\":\"historical\",\"localOnly\":true},\"title\":\"港城密函\",\"version\":1}"
+      },
+      {
+        "revision_id": "draft-374d0b83ab4e4272b5446e2d9a76bf41",
+        "project_id": "project-0aa0c2ca86c34433b5e79b9ef94fe99f",
+        "object_id": "draft-chapter-live-3e79b113-9047-456e-bb73-e754ff43ebc6",
+        "object_kind": "draft",
+        "parent_revision_id": null,
+        "content_digest": "46c0a2c130c6fd65f8688b4a9bbe844a480083de2c56de77a208ad8894562fc0",
+        "content_json": "{\"baseProjectRevision\":0,\"body\":\"夜幕落在港城。抄写员林夕把密函藏进衣袋，走向钟楼。\",\"chapterId\":\"chapter-live-3e79b113-9047-456e-bb73-e754ff43ebc6\",\"chapterNumber\":1,\"completeness\":\"chapterComplete\",\"sceneGroups\":[{\"body\":\"夜幕落在港城。抄写员林夕把密函藏进衣袋，走向钟楼。\",\"id\":\"scene-group-chapter-live-3e79b113-9047-456e-bb73-e754ff43ebc6\",\"locked\":false,\"sceneId\":null}],\"source\":\"author\",\"sourcePlanRefs\":{\"lineageStatus\":\"historical\",\"localOnly\":true},\"title\":\"港城密函\",\"version\":1}"
+      }
+    ],
+    "story_task_action_requests_v1": [],
+    "story_work_budgets_v1": [
+      {
+        "work_task_id": "work-task-883532f7d1395e77a412c087d0d393fa",
+        "ledger_json": "{\"maxRequests\":30,\"maxTokens\":null,\"usedRequests\":7,\"usedTokens\":224995,\"unknownTokens\":0,\"overrun\":false,\"charges\":[{\"taskId\":\"task-883532f7d1395e77a412c087d0d393fa\",\"budgetId\":\"budget-task-883532f7d1395e77a412c087d0d393fa\",\"status\":\"completed\",\"requests\":7,\"tokens\":224995,\"unknownTokens\":0,\"overrun\":false}]}"
+      },
+      {
+        "work_task_id": "work-generation-a7457ea31be445d18810e7f4a66b1392",
+        "ledger_json": "{\"maxRequests\":23,\"maxTokens\":null,\"usedRequests\":23,\"usedTokens\":832555,\"unknownTokens\":0,\"overrun\":false,\"charges\":[{\"taskId\":\"task-831fad31a02a4b5c98fa62df36e958f2\",\"budgetId\":\"budget-task-831fad31a02a4b5c98fa62df36e958f2\",\"status\":\"completed\",\"requests\":5,\"tokens\":250503,\"unknownTokens\":0,\"overrun\":false},{\"taskId\":\"task-d42be837d4d04e028c455da86fcd775a\",\"budgetId\":\"budget-task-d42be837d4d04e028c455da86fcd775a\",\"status\":\"completed\",\"requests\":8,\"tokens\":212053,\"unknownTokens\":0,\"overrun\":false},{\"failureObservations\":[{\"connectionId\":\"deepseek-flash\",\"errorCategory\":\"budget\",\"errorCode\":\"task_request_budget_exhausted\",\"errorStatusCode\":400,\"issuer\":\"engine\",\"logicalModel\":\"deepseek-flash\",\"phase\":\"modelRequest\",\"requestId\":\"task-b00127bb4fd543b3b3006a962f188e5d:24\",\"retryable\":false,\"runId\":\"task-b00127bb4fd543b3b3006a962f188e5d\"}],\"taskId\":\"task-b00127bb4fd543b3b3006a962f188e5d\",\"budgetId\":\"budget-task-b00127bb4fd543b3b3006a962f188e5d\",\"status\":\"failed\",\"requests\":10,\"tokens\":369999,\"unknownTokens\":0,\"overrun\":false}]}"
+      },
+      {
+        "work_task_id": "work-task-c6cc0aaf6534aa2a29a679effd24257d",
+        "ledger_json": "{\"maxRequests\":30,\"maxTokens\":null,\"usedRequests\":11,\"usedTokens\":393780,\"unknownTokens\":0,\"overrun\":false,\"charges\":[{\"taskId\":\"task-c6cc0aaf6534aa2a29a679effd24257d\",\"budgetId\":\"budget-task-c6cc0aaf6534aa2a29a679effd24257d\",\"status\":\"completed\",\"requests\":10,\"tokens\":346017,\"unknownTokens\":0,\"overrun\":false},{\"taskId\":\"task-72ae69a0487f41cbb782cbaba60f04e2\",\"budgetId\":\"budget-task-72ae69a0487f41cbb782cbaba60f04e2\",\"status\":\"completed\",\"requests\":1,\"tokens\":47763,\"unknownTokens\":0,\"overrun\":false}]}"
+      },
+      {
+        "work_task_id": "work-task-6346453110d255dbb232b63eac6a3505",
+        "ledger_json": "{\"maxRequests\":30,\"maxTokens\":null,\"usedRequests\":25,\"usedTokens\":1040931,\"unknownTokens\":85145,\"overrun\":false,\"charges\":[{\"failureObservations\":[{\"connectionId\":\"deepseek-flash\",\"errorCategory\":\"bridge\",\"errorCode\":\"bridge_error\",\"errorStatusCode\":502,\"issuer\":\"engine\",\"logicalModel\":\"deepseek-flash\",\"phase\":\"modelRequest\",\"requestId\":\"task-6346453110d255dbb232b63eac6a3505:2\",\"retryable\":true,\"runId\":\"task-6346453110d255dbb232b63eac6a3505\"},{\"connectionId\":\"deepseek-flash\",\"errorCategory\":\"budget\",\"errorCode\":\"task_provider_usage_unknown\",\"errorStatusCode\":400,\"issuer\":\"engine\",\"logicalModel\":\"deepseek-flash\",\"phase\":\"modelRequest\",\"requestId\":\"task-6346453110d255dbb232b63eac6a3505:3\",\"retryable\":false,\"runId\":\"task-6346453110d255dbb232b63eac6a3505\"}],\"taskId\":\"task-6346453110d255dbb232b63eac6a3505\",\"budgetId\":\"budget-task-6346453110d255dbb232b63eac6a3505\",\"status\":\"failed\",\"requests\":2,\"tokens\":23837,\"unknownTokens\":35555,\"overrun\":false},{\"failureObservations\":[{\"connectionId\":\"deepseek-flash\",\"errorCategory\":\"cancelled\",\"errorCode\":\"bridge_error\",\"errorStatusCode\":502,\"issuer\":\"engine\",\"logicalModel\":\"deepseek-flash\",\"phase\":\"modelRequest\",\"requestId\":\"task-d705f26205d34fa987311fd9c56aa220:23\",\"retryable\":true,\"runId\":\"task-d705f26205d34fa987311fd9c56aa220\"}],\"taskId\":\"task-d705f26205d34fa987311fd9c56aa220\",\"budgetId\":\"budget-task-d705f26205d34fa987311fd9c56aa220\",\"status\":\"cancelled\",\"requests\":23,\"tokens\":1017094,\"unknownTokens\":49590,\"overrun\":false}]}"
+      }
+    ]
+  },
+  "engine": [
+    {
+      "budget_id": "budget-task-883532f7d1395e77a412c087d0d393fa",
+      "run_id": "task-883532f7d1395e77a412c087d0d393fa",
+      "status": "completed",
+      "state_json": {
+        "id": "budget-task-883532f7d1395e77a412c087d0d393fa",
+        "maxDurationMs": null,
+        "maxRequests": 30.0,
+        "maxTokens": null,
+        "overrun": false,
+        "requests": 7,
+        "reservationDefinitions": {},
+        "reservations": {},
+        "reservedTokens": 0.0,
+        "settlements": {
+          "1d92a4b3-472a-4bfe-ac17-066cf466a2d1": {
+            "overrun": false,
+            "reportedTokens": 28120.0,
+            "reservationId": "1d92a4b3-472a-4bfe-ac17-066cf466a2d1",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "44856e6b-23ae-447d-84a7-02a22f494ab8": {
+            "overrun": false,
+            "reportedTokens": 38229.0,
+            "reservationId": "44856e6b-23ae-447d-84a7-02a22f494ab8",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "4e05fcfb-985f-4b08-8811-50534e3198e8": {
+            "overrun": false,
+            "reportedTokens": 36946.0,
+            "reservationId": "4e05fcfb-985f-4b08-8811-50534e3198e8",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "5728edb6-1e40-40e7-b51a-6c2afef8e6e3": {
+            "overrun": false,
+            "reportedTokens": 29177.0,
+            "reservationId": "5728edb6-1e40-40e7-b51a-6c2afef8e6e3",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "5febf87c-e301-4721-b73a-327db4a7267b": {
+            "overrun": false,
+            "reportedTokens": 32540.0,
+            "reservationId": "5febf87c-e301-4721-b73a-327db4a7267b",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "8a9728e0-2392-403f-9419-f5607a663297": {
+            "overrun": false,
+            "reportedTokens": 23913.0,
+            "reservationId": "8a9728e0-2392-403f-9419-f5607a663297",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "9b104230-670c-42cc-9d4e-69ced2c63be8": {
+            "overrun": false,
+            "reportedTokens": 36070.0,
+            "reservationId": "9b104230-670c-42cc-9d4e-69ced2c63be8",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          }
+        },
+        "startedAt": 1791611905492.0,
+        "tokens": 224995.0,
+        "unknownTokens": 0.0
+      },
+      "updated_at": 1791611937871
+    },
+    {
+      "budget_id": "budget-task-831fad31a02a4b5c98fa62df36e958f2",
+      "run_id": "task-831fad31a02a4b5c98fa62df36e958f2",
+      "status": "completed",
+      "state_json": {
+        "id": "budget-task-831fad31a02a4b5c98fa62df36e958f2",
+        "maxDurationMs": null,
+        "maxRequests": 23.0,
+        "maxTokens": null,
+        "overrun": false,
+        "requests": 5,
+        "reservationDefinitions": {},
+        "reservations": {},
+        "reservedTokens": 0.0,
+        "settlements": {
+          "000da529-9aa7-4e89-8833-13f16c6924d1": {
+            "overrun": false,
+            "reportedTokens": 48999.0,
+            "reservationId": "000da529-9aa7-4e89-8833-13f16c6924d1",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "0d6549be-20fd-4780-a468-7816cee1a117": {
+            "overrun": false,
+            "reportedTokens": 54251.0,
+            "reservationId": "0d6549be-20fd-4780-a468-7816cee1a117",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "b3743829-cb26-4e97-85cc-279e05ebdb9e": {
+            "overrun": false,
+            "reportedTokens": 51252.0,
+            "reservationId": "b3743829-cb26-4e97-85cc-279e05ebdb9e",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "d4bc776d-8da4-4ffd-aa57-dbacba240013": {
+            "overrun": false,
+            "reportedTokens": 53072.0,
+            "reservationId": "d4bc776d-8da4-4ffd-aa57-dbacba240013",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "e1547cb9-c546-4162-b74d-79471b03b771": {
+            "overrun": false,
+            "reportedTokens": 42929.0,
+            "reservationId": "e1547cb9-c546-4162-b74d-79471b03b771",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          }
+        },
+        "startedAt": 1791611940954.0,
+        "tokens": 250503.0,
+        "unknownTokens": 0.0
+      },
+      "updated_at": 1791611965197
+    },
+    {
+      "budget_id": "budget-task-d42be837d4d04e028c455da86fcd775a",
+      "run_id": "task-d42be837d4d04e028c455da86fcd775a",
+      "status": "completed",
+      "state_json": {
+        "id": "budget-task-d42be837d4d04e028c455da86fcd775a",
+        "maxDurationMs": null,
+        "maxRequests": 18.0,
+        "maxTokens": null,
+        "overrun": false,
+        "requests": 8,
+        "reservationDefinitions": {},
+        "reservations": {},
+        "reservedTokens": 0.0,
+        "settlements": {
+          "1389d1b1-f6cb-4eb3-b1fc-cef9cc23d2bd": {
+            "overrun": false,
+            "reportedTokens": 24453.0,
+            "reservationId": "1389d1b1-f6cb-4eb3-b1fc-cef9cc23d2bd",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "202052f6-aa17-4b20-91e0-4f2d8e65513b": {
+            "overrun": false,
+            "reportedTokens": 32101.0,
+            "reservationId": "202052f6-aa17-4b20-91e0-4f2d8e65513b",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "4d04ad9e-945e-4d80-bf8b-f6222472df16": {
+            "overrun": false,
+            "reportedTokens": 17277.0,
+            "reservationId": "4d04ad9e-945e-4d80-bf8b-f6222472df16",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "59396ff8-0347-40e8-a7bc-393010427a55": {
+            "overrun": false,
+            "reportedTokens": 23292.0,
+            "reservationId": "59396ff8-0347-40e8-a7bc-393010427a55",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "603d7cf4-a1cf-4026-9006-015540e69ff0": {
+            "overrun": false,
+            "reportedTokens": 22062.0,
+            "reservationId": "603d7cf4-a1cf-4026-9006-015540e69ff0",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "9329b19c-72ca-4872-92b1-34daa586b372": {
+            "overrun": false,
+            "reportedTokens": 29549.0,
+            "reservationId": "9329b19c-72ca-4872-92b1-34daa586b372",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "d684f750-1ad1-4d57-9a59-9f7d265c98e2": {
+            "overrun": false,
+            "reportedTokens": 30049.0,
+            "reservationId": "d684f750-1ad1-4d57-9a59-9f7d265c98e2",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "fd61c19a-562d-4129-9092-2fc7f6e46c06": {
+            "overrun": false,
+            "reportedTokens": 33270.0,
+            "reservationId": "fd61c19a-562d-4129-9092-2fc7f6e46c06",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          }
+        },
+        "startedAt": 1791611966126.0,
+        "tokens": 212053.0,
+        "unknownTokens": 0.0
+      },
+      "updated_at": 1791611994240
+    },
+    {
+      "budget_id": "budget-task-b00127bb4fd543b3b3006a962f188e5d",
+      "run_id": "task-b00127bb4fd543b3b3006a962f188e5d",
+      "status": "failed",
+      "state_json": {
+        "id": "budget-task-b00127bb4fd543b3b3006a962f188e5d",
+        "maxDurationMs": null,
+        "maxRequests": 10.0,
+        "maxTokens": null,
+        "overrun": false,
+        "requests": 10,
+        "reservationDefinitions": {},
+        "reservations": {},
+        "reservedTokens": 0.0,
+        "settlements": {
+          "0babed05-2797-4053-a547-407c11a7f17f": {
+            "overrun": false,
+            "reportedTokens": 33987.0,
+            "reservationId": "0babed05-2797-4053-a547-407c11a7f17f",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "0f484c11-28aa-448a-a10b-81efc64cf54a": {
+            "overrun": false,
+            "reportedTokens": 59650.0,
+            "reservationId": "0f484c11-28aa-448a-a10b-81efc64cf54a",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "1369f93c-fbeb-4a15-bda0-926d03cc2dfc": {
+            "overrun": false,
+            "reportedTokens": 31192.0,
+            "reservationId": "1369f93c-fbeb-4a15-bda0-926d03cc2dfc",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "707e6130-2dc3-4960-b891-70f93c0484cf": {
+            "overrun": false,
+            "reportedTokens": 26933.0,
+            "reservationId": "707e6130-2dc3-4960-b891-70f93c0484cf",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "74849516-182a-4937-bdec-da2aa939687a": {
+            "overrun": false,
+            "reportedTokens": 25287.0,
+            "reservationId": "74849516-182a-4937-bdec-da2aa939687a",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "7eb432e1-281e-4173-9fb2-ec44b143c8fc": {
+            "overrun": false,
+            "reportedTokens": 37010.0,
+            "reservationId": "7eb432e1-281e-4173-9fb2-ec44b143c8fc",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "89823f10-451e-46d5-803c-2b20ded4ee82": {
+            "overrun": false,
+            "reportedTokens": 22656.0,
+            "reservationId": "89823f10-451e-46d5-803c-2b20ded4ee82",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "a558d4dc-889f-4f25-9c12-1d00b110eba4": {
+            "overrun": false,
+            "reportedTokens": 45663.0,
+            "reservationId": "a558d4dc-889f-4f25-9c12-1d00b110eba4",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "b8d62b9c-c952-47f7-a919-0f3f56d48dc1": {
+            "overrun": false,
+            "reportedTokens": 29847.0,
+            "reservationId": "b8d62b9c-c952-47f7-a919-0f3f56d48dc1",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "b9ae5b56-0126-4aba-9a05-f395e0421062": {
+            "overrun": false,
+            "reportedTokens": 57774.0,
+            "reservationId": "b9ae5b56-0126-4aba-9a05-f395e0421062",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          }
+        },
+        "startedAt": 1791611994883.0,
+        "tokens": 369999.0,
+        "unknownTokens": 0.0
+      },
+      "updated_at": 1791612040008
+    },
+    {
+      "budget_id": "budget-task-c6cc0aaf6534aa2a29a679effd24257d",
+      "run_id": "task-c6cc0aaf6534aa2a29a679effd24257d",
+      "status": "completed",
+      "state_json": {
+        "id": "budget-task-c6cc0aaf6534aa2a29a679effd24257d",
+        "maxDurationMs": null,
+        "maxRequests": 30.0,
+        "maxTokens": null,
+        "overrun": false,
+        "requests": 10,
+        "reservationDefinitions": {},
+        "reservations": {},
+        "reservedTokens": 0.0,
+        "settlements": {
+          "17e96a74-87bf-4bca-afab-101d4569ca61": {
+            "overrun": false,
+            "reportedTokens": 42459.0,
+            "reservationId": "17e96a74-87bf-4bca-afab-101d4569ca61",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "29c64693-a169-4e91-9c06-8f4c0426576b": {
+            "overrun": false,
+            "reportedTokens": 34873.0,
+            "reservationId": "29c64693-a169-4e91-9c06-8f4c0426576b",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "4413d92d-a0ce-4759-a31c-b9d04719c069": {
+            "overrun": false,
+            "reportedTokens": 32989.0,
+            "reservationId": "4413d92d-a0ce-4759-a31c-b9d04719c069",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "493f9c38-b0bf-4039-9fd4-ca52dbbc56d7": {
+            "overrun": false,
+            "reportedTokens": 37736.0,
+            "reservationId": "493f9c38-b0bf-4039-9fd4-ca52dbbc56d7",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "50aa7702-570d-4ed2-8339-f9158c9bbfb2": {
+            "overrun": false,
+            "reportedTokens": 38801.0,
+            "reservationId": "50aa7702-570d-4ed2-8339-f9158c9bbfb2",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "a65153f3-f300-4db1-8899-c917cc728c50": {
+            "overrun": false,
+            "reportedTokens": 43592.0,
+            "reservationId": "a65153f3-f300-4db1-8899-c917cc728c50",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "e3a3bd2e-4d9c-43fb-84f7-9f8c67aa9384": {
+            "overrun": false,
+            "reportedTokens": 32491.0,
+            "reservationId": "e3a3bd2e-4d9c-43fb-84f7-9f8c67aa9384",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "e908e148-f017-47da-b1d1-5a2bbcdd06c6": {
+            "overrun": false,
+            "reportedTokens": 30426.0,
+            "reservationId": "e908e148-f017-47da-b1d1-5a2bbcdd06c6",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "ee1e29f1-7ee4-4125-be2d-13ea63915614": {
+            "overrun": false,
+            "reportedTokens": 23851.0,
+            "reservationId": "ee1e29f1-7ee4-4125-be2d-13ea63915614",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "f2abde17-6f4d-416f-ba1d-a79e7194f8f8": {
+            "overrun": false,
+            "reportedTokens": 28799.0,
+            "reservationId": "f2abde17-6f4d-416f-ba1d-a79e7194f8f8",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          }
+        },
+        "startedAt": 1791612078629.0,
+        "tokens": 346017.0,
+        "unknownTokens": 0.0
+      },
+      "updated_at": 1791612128443
+    },
+    {
+      "budget_id": "budget-task-72ae69a0487f41cbb782cbaba60f04e2",
+      "run_id": "task-72ae69a0487f41cbb782cbaba60f04e2",
+      "status": "completed",
+      "state_json": {
+        "id": "budget-task-72ae69a0487f41cbb782cbaba60f04e2",
+        "maxDurationMs": null,
+        "maxRequests": 20.0,
+        "maxTokens": null,
+        "overrun": false,
+        "requests": 1,
+        "reservationDefinitions": {},
+        "reservations": {},
+        "reservedTokens": 0.0,
+        "settlements": {
+          "9630c913-a7ff-4e8e-8320-f4bf812b43ab": {
+            "overrun": false,
+            "reportedTokens": 47763.0,
+            "reservationId": "9630c913-a7ff-4e8e-8320-f4bf812b43ab",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          }
+        },
+        "startedAt": 1791612129181.0,
+        "tokens": 47763.0,
+        "unknownTokens": 0.0
+      },
+      "updated_at": 1791612130745
+    },
+    {
+      "budget_id": "budget-task-6346453110d255dbb232b63eac6a3505",
+      "run_id": "task-6346453110d255dbb232b63eac6a3505",
+      "status": "failed",
+      "state_json": {
+        "id": "budget-task-6346453110d255dbb232b63eac6a3505",
+        "maxDurationMs": null,
+        "maxRequests": 30.0,
+        "maxTokens": null,
+        "overrun": false,
+        "requests": 2,
+        "reservationDefinitions": {},
+        "reservations": {},
+        "reservedTokens": 0.0,
+        "settlements": {
+          "aa6a11e3-cd9b-416e-a734-6c8b5a22650c": {
+            "overrun": false,
+            "reportedTokens": null,
+            "reservationId": "aa6a11e3-cd9b-416e-a734-6c8b5a22650c",
+            "status": "settled",
+            "unknownTokens": 35555.0,
+            "usageState": "unknown"
+          },
+          "acfb070b-b7eb-4d44-b45c-1a667fbe9d66": {
+            "overrun": false,
+            "reportedTokens": 23837.0,
+            "reservationId": "acfb070b-b7eb-4d44-b45c-1a667fbe9d66",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          }
+        },
+        "startedAt": 1791612187284.0,
+        "tokens": 23837.0,
+        "unknownTokens": 35555.0
+      },
+      "updated_at": 1791612190098
+    },
+    {
+      "budget_id": "budget-task-d705f26205d34fa987311fd9c56aa220",
+      "run_id": "task-d705f26205d34fa987311fd9c56aa220",
+      "status": "cancelled",
+      "state_json": {
+        "id": "budget-task-d705f26205d34fa987311fd9c56aa220",
+        "maxDurationMs": null,
+        "maxRequests": 28.0,
+        "maxTokens": null,
+        "overrun": false,
+        "requests": 23,
+        "reservationDefinitions": {},
+        "reservations": {},
+        "reservedTokens": 0.0,
+        "settlements": {
+          "05801cb5-ae27-4050-89ac-07f17a778b75": {
+            "overrun": false,
+            "reportedTokens": 33409.0,
+            "reservationId": "05801cb5-ae27-4050-89ac-07f17a778b75",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "11e68e95-a240-424f-ab47-adebcfdc255f": {
+            "overrun": false,
+            "reportedTokens": 62552.0,
+            "reservationId": "11e68e95-a240-424f-ab47-adebcfdc255f",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "27f4b926-6e1f-4e11-8fe8-762880685ec9": {
+            "overrun": false,
+            "reportedTokens": 31382.0,
+            "reservationId": "27f4b926-6e1f-4e11-8fe8-762880685ec9",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "58bfa223-049c-4d67-9535-079b0abeef21": {
+            "overrun": false,
+            "reportedTokens": 40597.0,
+            "reservationId": "58bfa223-049c-4d67-9535-079b0abeef21",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "59d37251-5bae-4b96-8530-a2e57751bd8a": {
+            "overrun": false,
+            "reportedTokens": 63134.0,
+            "reservationId": "59d37251-5bae-4b96-8530-a2e57751bd8a",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "5c3cfdf8-a079-4ad7-8da5-f463bfc7c230": {
+            "overrun": false,
+            "reportedTokens": 34716.0,
+            "reservationId": "5c3cfdf8-a079-4ad7-8da5-f463bfc7c230",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "6db9030b-fa11-4d04-b16b-cbae272b7e7d": {
+            "overrun": false,
+            "reportedTokens": 35610.0,
+            "reservationId": "6db9030b-fa11-4d04-b16b-cbae272b7e7d",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "6dbbc05b-591b-4dff-9532-51378980e182": {
+            "overrun": false,
+            "reportedTokens": 51304.0,
+            "reservationId": "6dbbc05b-591b-4dff-9532-51378980e182",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "8348a490-55fc-4bb9-b4b8-e2d6670f6c70": {
+            "overrun": false,
+            "reportedTokens": 24260.0,
+            "reservationId": "8348a490-55fc-4bb9-b4b8-e2d6670f6c70",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "85240abc-9642-4ae8-8e3b-05c6552a1bef": {
+            "overrun": false,
+            "reportedTokens": 64110.0,
+            "reservationId": "85240abc-9642-4ae8-8e3b-05c6552a1bef",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "884f51ff-cccf-4908-a6bd-f67b2b06254c": {
+            "overrun": false,
+            "reportedTokens": 39015.0,
+            "reservationId": "884f51ff-cccf-4908-a6bd-f67b2b06254c",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "91632707-9ebf-4aba-8889-a2bb06bcd986": {
+            "overrun": false,
+            "reportedTokens": null,
+            "reservationId": "91632707-9ebf-4aba-8889-a2bb06bcd986",
+            "status": "settled",
+            "unknownTokens": 49590.0,
+            "usageState": "unknown"
+          },
+          "94886871-f5fd-49fe-a4e1-e674987477cf": {
+            "overrun": false,
+            "reportedTokens": 39544.0,
+            "reservationId": "94886871-f5fd-49fe-a4e1-e674987477cf",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "97a97808-d8fa-4968-bd9b-bf8ca8c312dc": {
+            "overrun": false,
+            "reportedTokens": 58996.0,
+            "reservationId": "97a97808-d8fa-4968-bd9b-bf8ca8c312dc",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "9b35bef3-2522-4fb4-b4c6-096bd25973bd": {
+            "overrun": false,
+            "reportedTokens": 38688.0,
+            "reservationId": "9b35bef3-2522-4fb4-b4c6-096bd25973bd",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "9f943209-59ca-4f3d-bb63-085e02cf8e51": {
+            "overrun": false,
+            "reportedTokens": 41502.0,
+            "reservationId": "9f943209-59ca-4f3d-bb63-085e02cf8e51",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "a8680449-05b7-4008-9655-9d437dbe2ae7": {
+            "overrun": false,
+            "reportedTokens": 61550.0,
+            "reservationId": "a8680449-05b7-4008-9655-9d437dbe2ae7",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "ac23f0d8-961d-4692-baf4-6d62e5504db7": {
+            "overrun": false,
+            "reportedTokens": 34043.0,
+            "reservationId": "ac23f0d8-961d-4692-baf4-6d62e5504db7",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "af19d691-a4d4-482c-a095-214319d87993": {
+            "overrun": false,
+            "reportedTokens": 56599.0,
+            "reservationId": "af19d691-a4d4-482c-a095-214319d87993",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "b5a5f9a5-a914-4184-9c24-ddc16f19161c": {
+            "overrun": false,
+            "reportedTokens": 52648.0,
+            "reservationId": "b5a5f9a5-a914-4184-9c24-ddc16f19161c",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "e10972c6-9358-4d55-8811-d410d7f9510e": {
+            "overrun": false,
+            "reportedTokens": 49007.0,
+            "reservationId": "e10972c6-9358-4d55-8811-d410d7f9510e",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "f189e1f9-4fef-4cb1-8f76-1f56e787733f": {
+            "overrun": false,
+            "reportedTokens": 50175.0,
+            "reservationId": "f189e1f9-4fef-4cb1-8f76-1f56e787733f",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          },
+          "f82327b1-9959-4774-b07d-51b50e9ed629": {
+            "overrun": false,
+            "reportedTokens": 54253.0,
+            "reservationId": "f82327b1-9959-4774-b07d-51b50e9ed629",
+            "status": "settled",
+            "unknownTokens": 0.0,
+            "usageState": "known"
+          }
+        },
+        "startedAt": 1791612191018.0,
+        "tokens": 1017094.0,
+        "unknownTokens": 49590.0
+      },
+      "updated_at": 1791612340909
+    }
+  ],
+  "usage": {
+    "requests": 66,
+    "tokens": 2492261.0,
+    "unknownTokens": 85145.0
+  }
+}

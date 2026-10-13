@@ -1,0 +1,1728 @@
+{
+  "purpose": "working-tree inventory, not an assertion that all changes belong to this task or have been reviewed",
+  "files": [
+    {
+      "status": " M",
+      "path": "ARCHITECTURE.md",
+      "area": "ARCHITECTURE.md"
+    },
+    {
+      "status": " M",
+      "path": "CODEX_CREATIVE_EVOLUTION_ROADMAP.md",
+      "area": "CODEX_CREATIVE_EVOLUTION_ROADMAP.md"
+    },
+    {
+      "status": " M",
+      "path": "CONVERSATION_TASK_CONTROL_IMPLEMENTATION.md",
+      "area": "CONVERSATION_TASK_CONTROL_IMPLEMENTATION.md"
+    },
+    {
+      "status": " M",
+      "path": "DESIGN_REVIEW_TEMPLATE.md",
+      "area": "DESIGN_REVIEW_TEMPLATE.md"
+    },
+    {
+      "status": " M",
+      "path": "LONG_CREATION_RELIABILITY_DESIGN.md",
+      "area": "LONG_CREATION_RELIABILITY_DESIGN.md"
+    },
+    {
+      "status": " M",
+      "path": "TASK_MANAGEMENT_ARCHITECTURE.md",
+      "area": "TASK_MANAGEMENT_ARCHITECTURE.md"
+    },
+    {
+      "status": " M",
+      "path": "codex-runtime/skills/novel-workflow/SKILL.md",
+      "area": "codex-runtime"
+    },
+    {
+      "status": " M",
+      "path": "codex-runtime/supported-cli.json",
+      "area": "codex-runtime"
+    },
+    {
+      "status": " M",
+      "path": "codex-runtime/upstream-patches.json",
+      "area": "codex-runtime"
+    },
+    {
+      "status": " M",
+      "path": "electron/action-permission-handlers.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/active-turn-recovery.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/advisory-prompt.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/advisory-sessions.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/agent-availability.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/agent-configuration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/agent-final-reply.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/author-language.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/author-session-store.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/author-steer.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/bootstrap.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/bounded-output-correction.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/chapter-deletion.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/chapter-rebind-handlers.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/chapter-structure-prompt.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/codex-adapter.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/codex-conformance-runner.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/codex-core-integration-runner.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/codex-runtime.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/commitment-handlers.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/committed-generation-control.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/condition-evaluation-handlers.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/conformance-mcp.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/context-reading-contract.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/conversation-analysis.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/conversation-planning-reviews.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/core-conformance-mcp.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/creative-mission.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/creative-strategy-policy.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/creative-task-contract.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/development-credentials.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/development-server.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/discussion-reference.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/engine-process-lifecycle.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/execution-authority-renewal.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/execution-condition.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/execution-requests.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/execution-scope-handlers.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/executor-validated-tools.json",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/executor-validation-policy.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/generation-duration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/generation-replan-handlers.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/generation-usage-status.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/main.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/media-conversation.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/media-host.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/media-html-renderer.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/media-render.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/media-subtitles.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/model-connection-gate.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/model-evidence-cache.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/model-failure-diagnostic.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/model-reasoning.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/model-selection-store.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/navigation-policy.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/novel-agent-roles.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/novel-recovery-contract.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/operation-requirements.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/planning-review-resumption.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/preload.cjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/quality-notebook.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/revision-outcome-handlers.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/revision-repair-handlers.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/runtime-request-error.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/semantic-work-continuation.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/structure-discussion.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/task-budget-grant.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/task-capability-renewal.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/task-output-capacity.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/agent-configuration.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/autonomous-creation-engine.integration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/chapter-structure-engine.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/codex-adapter.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/codex-runtime.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/conversation-analysis.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/conversation-execution-events.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/delegated-candidate-native.integration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/draft-correction-engine.integration.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/engine-startup.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/fixture-delayed-engine.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/fixture-recovery-crash.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/fixtures/creative-workspace-harness.tsx",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/fixtures/creative-workspace-ui.tsx",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/fixtures/media-application-ui.tsx",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/fixtures/multi-conversation-ui.tsx",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/fixtures/multimedia-workspace-ui.tsx",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/fixtures/production-desktop-main.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/fixtures/runtime-connection-ui.tsx",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/generation-feedback.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/helpers/production-desktop.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/knowledge-correction-engine.integration.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/knowledge-resumption.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/knowledge-schema-integration.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/managed-collaboration.integration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/media-application-ui.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/media-draft-merge.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/media-draft-native.integration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/media-messages-native.integration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/media-runtime-host.integration.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/novel-recovery-contract.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/planning-review-budget.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/portable-discovery-compaction.integration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/production-desktop-integration.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/property-rule-input-engine.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/query-correction-engine.integration.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/recovery-reconciliation.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/revision-outcome-handoff.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/revision-repair-handlers.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/scoped-revision-engine-integration.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/task-budget-grant.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/task-output-capacity.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/tool-output-policy.integration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/turn-lifecycle.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/work-decision-runtime.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/work-execution-events-native.integration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/work-interludes-native.integration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/work-task-resumption.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/workflow-handoff.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tests/workspace-edit-context.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/thread-history-presentation.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/tool-validation-recovery.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/unsent-structure-task.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/webcontents-safety.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/work-budget-authorization.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/work-catalog.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/work-control-commands.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/work-delivery-protocol.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/work-execution-binding.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/work-resume-not-started.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/workflow-handoff.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "electron/workspace-edit-context.mjs",
+      "area": "electron"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/direct_verification.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/lib.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/recovery_operation_reconcile.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/task_action_queue.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/task_actions.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/task_sources.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/task_sources_author_requirements_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/tasks.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/work_decision_actions.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/work_decision_recovery.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/work_execution_events.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/work_execution_events_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/work_interludes.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/src/work_pause_barrier.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/tests/work_delivery_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-core/tests/work_interlude_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/argument_validation.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/brief_schema_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/capability_discovery.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/chapter_plan_schema_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/chapter_structure_tool_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/conversation_analysis_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/creative_strategy.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/delivery_review_schema.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/draft_checkpoint_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/draft_schema.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/evidence_tool_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/extraction_schema_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/hypothesis_tool_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/main.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/main_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/model_work_plan_tool.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/planning_schema_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/publication_gate_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/quality_tools.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/query_plan_schema_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/query_plan_validation_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/read_progress.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/recovery_proof.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/task_source_tools.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/task_source_tools_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-mcp/src/tool_result_contract_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/src/lib.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/src/server.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/src/task_source_api.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/tests/authoring_run_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/tests/chapter_structure_http_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/tests/commitment_extraction_http_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/tests/context_scope_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/tests/direct_verification_http_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/tests/planned_scene_mapping_http_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/tests/recovery_ledger_http_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/tests/revision_outcome/fixture.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/tests/task_sources_http_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/tests/work_budget/unknown_usage_admission_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "native/story-runtime/tests/workspace_revision_reports_http_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": " M",
+      "path": "package.json",
+      "area": "package.json"
+    },
+    {
+      "status": " M",
+      "path": "scripts/build-provenance.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": " M",
+      "path": "scripts/probe-live-revision.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": " M",
+      "path": "scripts/probe-live-story.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": " M",
+      "path": "scripts/tests/probe-extraction-lifecycle.integration.test.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": " M",
+      "path": "scripts/tests/probe-revision-scope.integration.test.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": " M",
+      "path": "shared/author-input-budget.mjs",
+      "area": "shared"
+    },
+    {
+      "status": " M",
+      "path": "shared/chapter-writing-policy.mjs",
+      "area": "shared"
+    },
+    {
+      "status": " M",
+      "path": "shared/discussion-excerpts.mjs",
+      "area": "shared"
+    },
+    {
+      "status": " M",
+      "path": "shared/execution-event-journal.mjs",
+      "area": "shared"
+    },
+    {
+      "status": " M",
+      "path": "shared/generation-permit.mjs",
+      "area": "shared"
+    },
+    {
+      "status": " M",
+      "path": "shared/media-subtitle-font.mjs",
+      "area": "shared"
+    },
+    {
+      "status": " M",
+      "path": "shared/media-subtitle-layout.mjs",
+      "area": "shared"
+    },
+    {
+      "status": " M",
+      "path": "shared/multimedia-types.ts",
+      "area": "shared"
+    },
+    {
+      "status": " M",
+      "path": "shared/novel-operation-digest.rs",
+      "area": "shared"
+    },
+    {
+      "status": " M",
+      "path": "shared/novel-recovery-read-tools.json",
+      "area": "shared"
+    },
+    {
+      "status": " M",
+      "path": "shared/work-recovery-presentation.mjs",
+      "area": "shared"
+    },
+    {
+      "status": " M",
+      "path": "src/App.tsx",
+      "area": "src"
+    },
+    {
+      "status": " M",
+      "path": "src/CreativeWorkspaceView.tsx",
+      "area": "src"
+    },
+    {
+      "status": " M",
+      "path": "src/author-draft-storage.ts",
+      "area": "src"
+    },
+    {
+      "status": " M",
+      "path": "src/multimedia/MediaApplication.tsx",
+      "area": "src"
+    },
+    {
+      "status": " M",
+      "path": "src/multimedia/MultimediaWorkspaceView.tsx",
+      "area": "src"
+    },
+    {
+      "status": " M",
+      "path": "src/multimedia/merge-media-draft.ts",
+      "area": "src"
+    },
+    {
+      "status": " M",
+      "path": "src/multimedia/multimedia.css",
+      "area": "src"
+    },
+    {
+      "status": " M",
+      "path": "src/operation-presentation.ts",
+      "area": "src"
+    },
+    {
+      "status": " M",
+      "path": "src/types.ts",
+      "area": "src"
+    },
+    {
+      "status": "??",
+      "path": "AGENT_CAPABILITY_OPTIMIZATION_PLAN.md",
+      "area": "AGENT_CAPABILITY_OPTIMIZATION_PLAN.md"
+    },
+    {
+      "status": "??",
+      "path": "codex-runtime/model-certifications-66826767b00aa816220cfb353ffd9d9f202407fea10c32fcf91235e0ea9d1906.json",
+      "area": "codex-runtime"
+    },
+    {
+      "status": "??",
+      "path": "codex-runtime/model-certifications-7dc61e79638e4e394e02b91715179087cd161c72389776fd9b590734d27b38f6.json",
+      "area": "codex-runtime"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-agent-full-acceptance.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-agent-optimization-implementation.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-agent-quality-review-packet.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-fix-root-cause-classification.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-host-runtime-ipc-split.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-host-type-check.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-interlude-action-continuation.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-task-experience-acceptance.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-task-experience-repair.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-task-live-acceptance.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-task-live-followup.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-task-live-loop.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-task-live221.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-tool-contract-implementation.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-tool-contract-review.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-tool-evaluation-and-locators.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/2026-10-10-tool-reliability-and-evaluation.md",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-desktop-ledgers.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-desktop-overhead.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-desktop-provider-tokens.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-desktop-trace.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-desktop.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-live-tools-expanded-2.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-live-tools-expanded.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-live-tools.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-long-retry.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-quality-checks.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-quality-long-retry.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-quality.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-revision.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-acceptance-verification-lifecycle.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-live.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-tool-replay.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-validation.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-overhead-attribution.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-agent-overhead-reproducible.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-interlude225-results.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-live-tool-comparison.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-live-tool-qualification.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-followup220-results.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-ideal198-results.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-ideal198-source.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live216-ledgers.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live216-raw.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live217-raw.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live221-222-ledgers.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live221-222-tool-trace.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live221-raw.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live221-source.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live222-raw.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live226-raw.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live226-source.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live228-raw.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live228-source.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live229-raw.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live231-raw.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live231-source.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live231-verdict.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live233-raw.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live233-source.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live235-source.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live236-raw.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-live236-source.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-readonly-live197.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-task-repair214-results.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-tool-efficiency.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/2026-10-10-tool-locator-efficiency.json",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/task-live217-probe-live-task-experience.mjs.txt",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/task-live217-task-live-desktop.mjs.txt",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/task-live221-probe-live-task-experience.mjs.txt",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/task-live221-task-live-desktop.mjs.txt",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/task-live221-task-live-lifecycle.mjs.txt",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/task-live222-task-live-desktop.mjs.txt",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/task-live226-probe-live-task-experience.mjs.txt",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/task-live226-task-live-desktop.mjs.txt",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "design-reviews/evidence/task-live226-task-live-lifecycle.mjs.txt",
+      "area": "design-reviews"
+    },
+    {
+      "status": "??",
+      "path": "electron/context-fragments.mjs",
+      "area": "electron"
+    },
+    {
+      "status": "??",
+      "path": "electron/index-audit-handlers.mjs",
+      "area": "electron"
+    },
+    {
+      "status": "??",
+      "path": "electron/knowledge-proposal-handlers.mjs",
+      "area": "electron"
+    },
+    {
+      "status": "??",
+      "path": "electron/project-artifact-handlers.mjs",
+      "area": "electron"
+    },
+    {
+      "status": "??",
+      "path": "electron/tests/chapter-draft-merge.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": "??",
+      "path": "electron/tests/chapter-draft-native.integration.mjs",
+      "area": "electron"
+    },
+    {
+      "status": "??",
+      "path": "electron/tests/chapter-draft-storage.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": "??",
+      "path": "electron/tests/context-fragments.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": "??",
+      "path": "electron/tests/novel-tool-presentation.test.mjs",
+      "area": "electron"
+    },
+    {
+      "status": "??",
+      "path": "native/story-core/src/chapter_history.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "native/story-core/src/draft_patch.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "native/story-core/src/source_edit_anchors.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "native/story-mcp/src/source_navigation.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "native/story-mcp/src/tool_binding.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "native/story-mcp/src/tool_contract_review_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "native/story-mcp/src/tool_guidance.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "native/story-mcp/src/transport_fixture.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "native/story-runtime/src/context_read_api.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "native/story-runtime/src/repository_diagnostics.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "native/story-runtime/src/tool_binding_api.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "native/story-runtime/tests/verification_lifecycle_http_tests.rs",
+      "area": "native"
+    },
+    {
+      "status": "??",
+      "path": "scripts/agent-overhead-report.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/creative-quality-evaluation.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/evaluate-live-novel-tools.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/evaluate-novel-tools.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/fixtures/creative-quality-suite.json",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/fixtures/task-live-desktop.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/probe-live-task-experience.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/task-live-lifecycle.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/tests/agent-quality-evaluation.test.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/tests/probe-live-story.test.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/tests/task-live-lifecycle.test.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/tests/tool-evaluation-core.integration.test.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/tests/tool-evaluation.test.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/tool-evaluation-live.example.json",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/tool-evaluation-report.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "scripts/tool-evaluation-runtime.mjs",
+      "area": "scripts"
+    },
+    {
+      "status": "??",
+      "path": "src/chapter-draft-storage.ts",
+      "area": "src"
+    },
+    {
+      "status": "??",
+      "path": "src/merge-chapter-draft.ts",
+      "area": "src"
+    },
+    {
+      "status": "??",
+      "path": "tsconfig.electron.json",
+      "area": "tsconfig.electron.json"
+    }
+  ],
+  "byArea": {
+    "ARCHITECTURE.md": 1,
+    "CODEX_CREATIVE_EVOLUTION_ROADMAP.md": 1,
+    "CONVERSATION_TASK_CONTROL_IMPLEMENTATION.md": 1,
+    "DESIGN_REVIEW_TEMPLATE.md": 1,
+    "LONG_CREATION_RELIABILITY_DESIGN.md": 1,
+    "TASK_MANAGEMENT_ARCHITECTURE.md": 1,
+    "codex-runtime": 5,
+    "electron": 140,
+    "native": 68,
+    "package.json": 1,
+    "scripts": 21,
+    "shared": 11,
+    "src": 11,
+    "AGENT_CAPABILITY_OPTIMIZATION_PLAN.md": 1,
+    "design-reviews": 76,
+    "tsconfig.electron.json": 1
+  }
+}

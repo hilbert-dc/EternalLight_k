@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "evidence": "liveModelToolComparison",
+  "status": "failed",
+  "cases": [
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "full",
+      "responses": [
+        {
+          "status": "completed",
+          "errorCode": null
+        }
+      ],
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "discover_creative_capabilities",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 1,
+        "tokens": 15999,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": false,
+      "corrections": 0,
+      "mcpSessionStartupMs": 477.97108300000036,
+      "modelElapsedMs": 9332.584667,
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed"
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 9983.043208
+    }
+  ],
+  "providerUsage": null,
+  "limitations": [
+    "Exact-edit synthetic cases measure tool use and content preservation, not literary quality.",
+    "Provider usage comes from Engine receipts; unknown usage stays unknown. No qualification is fabricated."
+  ],
+  "configuration": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "repeats": 1,
+    "limitsPerCase": {
+      "requests": 30,
+      "tokens": 800000,
+      "seconds": 180
+    },
+    "plannedCases": 1,
+    "caseSelection": [
+      {
+        "size": "long",
+        "mode": "full"
+      }
+    ]
+  },
+  "build": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "qualificationContextDigest": "cf78bc2336408018283a460115c5a93e6dab493aa6ad0de14d7fca7fa86a964b",
+    "native": {
+      "runtime": "0deb45ce178ab1e9f1a3363e260aa03f3e556d475893d7ec87dfc9898c2a42aa",
+      "mcp": "40136d202de19e5b1ab2ba3ac0416fa243810676987cbd00bfbe968584805081"
+    }
+  },
+  "runtimeStartupMs": 3000.948042,
+  "summaries": [
+    {
+      "mode": "full",
+      "cases": 1,
+      "passed": 0,
+      "firstAttemptSuccessRate": 0,
+      "contentPreservationRate": 0,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 1,
+        "tokens": 15999
+      }
+    },
+    {
+      "mode": "patch",
+      "cases": 0,
+      "passed": 0,
+      "firstAttemptSuccessRate": null,
+      "contentPreservationRate": null,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 0,
+        "tokens": 0
+      }
+    }
+  ]
+}

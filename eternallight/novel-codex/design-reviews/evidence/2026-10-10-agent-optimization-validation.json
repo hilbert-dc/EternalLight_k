@@ -1,0 +1,130 @@
+{
+  "generatedAt": "2026-10-10T07:12:47.750107+00:00",
+  "scope": "Relevant current workspace files, not a complete repository snapshot; other uncommitted changes exist.",
+  "sources": [
+    {
+      "path": "electron/context-fragments.mjs",
+      "sha256": "644041b58cd9719e282896476701791f574829c1af2348c55da2f6bf3a797426"
+    },
+    {
+      "path": "electron/codex-adapter.mjs",
+      "sha256": "442f863e13747ace42510e9fee5f8a7cca5750e61ee5e0e849a2725211a98cd9"
+    },
+    {
+      "path": "electron/creative-mission.mjs",
+      "sha256": "9330cdfda23a96f36f7364a214f711fed7e3b5d86486c8031ae33884512f4d60"
+    },
+    {
+      "path": "native/story-mcp/src/tool_guidance.rs",
+      "sha256": "66ddb3f982fc06ba064ddd73f13396a21929887a98308e6b32651408eae66075"
+    },
+    {
+      "path": "native/story-mcp/src/main.rs",
+      "sha256": "b2f300eff8601efa48fa2a31644b5f763c1123f58fdd1ccfc883b8dc53d2447f"
+    },
+    {
+      "path": "native/story-mcp/src/argument_validation.rs",
+      "sha256": "fa4ae1320c10d64f8b8c7bd1de8e711961d27b7570d67defea89ab886228f3a0"
+    },
+    {
+      "path": "native/story-mcp/src/tool_binding.rs",
+      "sha256": "09d5c10e3892917a328b1528eccc356c976da8105e0a296927bc51c00ba93c83"
+    },
+    {
+      "path": "scripts/evaluate-live-novel-tools.mjs",
+      "sha256": "67833d0834ebf32d1d7b7bfc6efe5a6f986f400d3b27c7de0391045396f5ffff"
+    },
+    {
+      "path": "scripts/tool-evaluation-report.mjs",
+      "sha256": "deda84b4868ddcab460d76bc1f7214e93ec2f130f04745cdf520246e318a2fd0"
+    },
+    {
+      "path": "scripts/agent-overhead-report.mjs",
+      "sha256": "c3580ab75ca34ee529c0a9668f12bbe26b870aca2af2d44b09b4a29dd78d4a95"
+    },
+    {
+      "path": "scripts/creative-quality-evaluation.mjs",
+      "sha256": "0f92263810e456ac68020a743f7cc9ec40d03c1f64db0ec02ae4418d2f4ceb4d"
+    },
+    {
+      "path": "scripts/fixtures/creative-quality-suite.json",
+      "sha256": "8e53e545005d4522c9d50599e37c10c07ac0a0afb927eab3dd01a200bfc6f73e"
+    },
+    {
+      "path": "scripts/tests/agent-quality-evaluation.test.mjs",
+      "sha256": "164c7b8d0ff5139f9a84e67fce690a49287baee09c9c1baae8cda6e24577d749"
+    },
+    {
+      "path": "scripts/tests/tool-evaluation-core.integration.test.mjs",
+      "sha256": "5a0710fe87b9a051f3ce5e8aa38dba56bf6b14fef61e2116abedfab38debb0e2"
+    },
+    {
+      "path": "electron/tests/portable-discovery-compaction.integration.mjs",
+      "sha256": "415288a62b74e60fad9240413908df132257ac589265d3dc70d00462a9049223"
+    },
+    {
+      "path": "electron/tests/context-fragments.test.mjs",
+      "sha256": "9b08efaea8f57c5126d8a7a769b16ca2d910dbe0f2dfa493c8068f44395d3170"
+    },
+    {
+      "path": "codex-runtime/skills/novel-workflow/SKILL.md",
+      "sha256": "7703986ec665a70a24decd31f6585e9720846d99494dc5a160927784265ef2b1"
+    },
+    {
+      "path": "package.json",
+      "sha256": "ba1fcb08b086d185ebb1d5d13968e18b18aa8774ffaf64b384cb4b378e7bd35b"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-local-regression.log",
+      "sha256": "2ede288bd30c1343b5a1eb85d35b966f1f6d53e06cad4c039197bb55a20b04b3"
+    },
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-mcp-contract.log",
+      "sha256": "def202a8a598abd1b70146084a04ff110e9441a318fb61261b660e4d32204b20"
+    },
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-core-integration.log",
+      "sha256": "dee33fb6ce9b0977dd8732779b264558a7284afbb8998bc88418efeabb2852c2"
+    },
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-production-config-integration.log",
+      "sha256": "9c030bd6fb90519c4e8e0bdc60b49d466bbaa60d18578536ec4dc6ccf4fff771"
+    },
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-quality-lifecycle.log",
+      "sha256": "df2841efa145a94007345221382ac4a96c8ff89c40692d1c25f0944a77b6694d"
+    },
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-quality-gate.log",
+      "sha256": "d582c5db9fe66781b5244566feb23a3ac016f814abf9f76cee2a58b31a31694b"
+    },
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-build.log",
+      "sha256": "c2669c17cca6c717e5e692396f34b78d9f795600e26c4272c8041041ab8610d8"
+    },
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-architecture.log",
+      "sha256": "6fce2a17e6a7433e2117a80b8549c98608e3f4bce3af70562cbcd2501f45a5fa"
+    },
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-compaction-method-loss-observation.log",
+      "sha256": "d7b2f6c613ae90f5ab8a5cda101c443256e654e76d8ddf3c4b7d8af0c6e7211b"
+    },
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-pre-fix-readback-failure.log",
+      "sha256": "effe23efc9a9263e95251e88e87f4a7c8f2f49c4b0515f495428243805f7c17a"
+    },
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-mcp-build.log",
+      "sha256": "1564a98541994f8f665292fa32d090e479998726644a8214d51df21e28bcf72a"
+    },
+    {
+      "path": "design-reviews/evidence/2026-10-10-agent-optimization-final-mission.log",
+      "sha256": "4e56727109e9ffa615a5607a09126a33f1ef5dd20d52e2889dd913107e1b718b"
+    }
+  ],
+  "qualityStatus": "pending_real_paired_runs_and_human_review",
+  "liveStatus": "blocked_by_connection_qualification_before_model_requests"
+}

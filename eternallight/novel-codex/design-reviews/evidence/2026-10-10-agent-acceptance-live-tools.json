@@ -1,0 +1,235 @@
+{
+  "version": 1,
+  "evidence": "liveModelToolComparison",
+  "status": "failed",
+  "cases": [
+    {
+      "repeat": 0,
+      "size": "short",
+      "mode": "full",
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 33690,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": false,
+      "corrections": 0,
+      "mcpSessionStartupMs": 478.10795800000005,
+      "modelElapsedMs": 5085.3532079999995,
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed"
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 5697.4545419999995
+    },
+    {
+      "repeat": 0,
+      "size": "short",
+      "mode": "patch",
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 33483,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": false,
+      "corrections": 0,
+      "mcpSessionStartupMs": 446.44141599999966,
+      "modelElapsedMs": 3623.1285829999997,
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed"
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 4173.1962920000005
+    },
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "full",
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 33703,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": false,
+      "corrections": 0,
+      "mcpSessionStartupMs": 432.309792,
+      "modelElapsedMs": 3052.538457999999,
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed"
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 3614.1782920000023
+    },
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "patch",
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 33420,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": false,
+      "corrections": 0,
+      "mcpSessionStartupMs": 426.984292000001,
+      "modelElapsedMs": 2635.2877499999995,
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed"
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 3168.7298330000012
+    }
+  ],
+  "providerUsage": null,
+  "limitations": [
+    "Exact-edit synthetic cases measure tool use and content preservation, not literary quality.",
+    "Provider usage comes from Engine receipts; unknown usage stays unknown. No qualification is fabricated."
+  ],
+  "configuration": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "repeats": 1,
+    "limitsPerCase": {
+      "requests": 10,
+      "tokens": 50000,
+      "seconds": 90
+    },
+    "plannedCases": 4
+  },
+  "build": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "qualificationContextDigest": "f2a2e211dbc9b3224480ef7dd7a6e44ee58e10af48c6238759a88bc94df29c5a",
+    "native": {
+      "runtime": "6badef8d35ea88640bf71851e502dffbc036fa2d35183d54741ea0b46868951f",
+      "mcp": "658922d5ccade879171b1426900f0e42517a6cf58f0abbcae433baae3ba1f482"
+    }
+  },
+  "runtimeStartupMs": 435.84420800000044,
+  "summaries": [
+    {
+      "mode": "full",
+      "cases": 2,
+      "passed": 0,
+      "firstAttemptSuccessRate": 0,
+      "contentPreservationRate": 0,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 4,
+        "tokens": 67393
+      }
+    },
+    {
+      "mode": "patch",
+      "cases": 2,
+      "passed": 0,
+      "firstAttemptSuccessRate": 0,
+      "contentPreservationRate": 0,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 4,
+        "tokens": 66903
+      }
+    }
+  ]
+}

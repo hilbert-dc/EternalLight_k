@@ -1,0 +1,401 @@
+{
+  "version": 1,
+  "evidence": "liveModelToolComparison",
+  "status": "failed",
+  "cases": [
+    {
+      "repeat": 0,
+      "size": "short",
+      "mode": "full",
+      "status": "passed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "discover_creative_capabilities",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "save_draft_checkpoint",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": "full"
+        },
+        {
+          "name": "complete_task",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 6,
+        "tokens": 128233,
+        "unknownTokens": 0
+      },
+      "contentPreserved": true,
+      "firstAttemptSucceeded": true,
+      "corrections": 0,
+      "mcpSessionStartupMs": 460.2971670000002,
+      "modelElapsedMs": 14748.437791,
+      "readback": {
+        "expectedBodyHash": "64b5ba1eae3c3065ff9f20326192ad475989a05745086b224aa892e6f1956001",
+        "actualBodyHash": "64b5ba1eae3c3065ff9f20326192ad475989a05745086b224aa892e6f1956001",
+        "expectedCharacters": 26,
+        "actualCharacters": 26
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 15378.433667000001
+    },
+    {
+      "repeat": 0,
+      "size": "short",
+      "mode": "patch",
+      "status": "passed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "discover_creative_capabilities",
+          "status": "failed",
+          "error": true,
+          "reason": "invalid_tool_arguments",
+          "requestedMode": null
+        },
+        {
+          "name": "discover_creative_capabilities",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "save_draft_checkpoint",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": "patch"
+        },
+        {
+          "name": "complete_task",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 7,
+        "tokens": 145556,
+        "unknownTokens": 0
+      },
+      "contentPreserved": true,
+      "firstAttemptSucceeded": true,
+      "corrections": 0,
+      "mcpSessionStartupMs": 455.89979200000016,
+      "modelElapsedMs": 11109.560000000001,
+      "readback": {
+        "expectedBodyHash": "64b5ba1eae3c3065ff9f20326192ad475989a05745086b224aa892e6f1956001",
+        "actualBodyHash": "64b5ba1eae3c3065ff9f20326192ad475989a05745086b224aa892e6f1956001",
+        "expectedCharacters": 26,
+        "actualCharacters": 26
+      },
+      "toolErrorCount": 1,
+      "elapsedMs": 11715.440290999999
+    },
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "full",
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_tool_guide",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "discover_creative_capabilities",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 8,
+        "tokens": 191368,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": false,
+      "corrections": 0,
+      "mcpSessionStartupMs": 424.353916,
+      "modelElapsedMs": 51926.853791999994,
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed"
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 52475.487125
+    },
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "patch",
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "discover_creative_capabilities",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "save_draft_checkpoint",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": "patch"
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 10,
+        "tokens": 234459,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": true,
+      "corrections": 0,
+      "mcpSessionStartupMs": 435.614625000002,
+      "modelElapsedMs": 24055.459625000003,
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed",
+        "reportedHint": "task request budget exhausted"
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 24672.147624999998
+    }
+  ],
+  "providerUsage": null,
+  "limitations": [
+    "Exact-edit synthetic cases measure tool use and content preservation, not literary quality.",
+    "Provider usage comes from Engine receipts; unknown usage stays unknown. No qualification is fabricated."
+  ],
+  "configuration": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "repeats": 1,
+    "limitsPerCase": {
+      "requests": 10,
+      "tokens": 250000,
+      "seconds": 120
+    },
+    "plannedCases": 4
+  },
+  "build": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "qualificationContextDigest": "cf78bc2336408018283a460115c5a93e6dab493aa6ad0de14d7fca7fa86a964b",
+    "native": {
+      "runtime": "6badef8d35ea88640bf71851e502dffbc036fa2d35183d54741ea0b46868951f",
+      "mcp": "658922d5ccade879171b1426900f0e42517a6cf58f0abbcae433baae3ba1f482"
+    }
+  },
+  "runtimeStartupMs": 127.74870800000008,
+  "summaries": [
+    {
+      "mode": "full",
+      "cases": 2,
+      "passed": 1,
+      "firstAttemptSuccessRate": 0.5,
+      "contentPreservationRate": 0.5,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 14,
+        "tokens": 319601
+      }
+    },
+    {
+      "mode": "patch",
+      "cases": 2,
+      "passed": 1,
+      "firstAttemptSuccessRate": 1,
+      "contentPreservationRate": 0.5,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 17,
+        "tokens": 380015
+      }
+    }
+  ]
+}

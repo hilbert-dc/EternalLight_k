@@ -1,0 +1,311 @@
+{
+  "sourceReport": "2026-10-10-readback-long-full-warm.json",
+  "usage": {
+    "overrun": false,
+    "requests": 20,
+    "tokens": 728552,
+    "unknownTokens": 0
+  },
+  "executionStatus": "failed",
+  "domainTaskStatusBeforeCleanup": "running",
+  "contentPreserved": true,
+  "readSummary": {
+    "successfulReads": 17,
+    "repeatedExactResults": 0,
+    "interpretation": "Identical request and result observations; repetition alone does not establish waste."
+  },
+  "finalRevision": "ref-7",
+  "steps": [
+    {
+      "step": 1,
+      "tool": "read_context",
+      "error": null
+    },
+    {
+      "step": 2,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-1",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 0,
+        "toEntry": 6,
+        "totalEntries": 26
+      },
+      "revisions": [
+        "None",
+        "ref-2"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 3,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-1",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 6,
+        "toEntry": 7,
+        "totalEntries": 26
+      },
+      "revisions": [
+        "ref-2"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 4,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-1",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 7,
+        "toEntry": 8,
+        "totalEntries": 26
+      },
+      "revisions": [
+        "ref-2"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 5,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-1",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 8,
+        "toEntry": 20,
+        "totalEntries": 26
+      },
+      "revisions": [
+        "None",
+        "ref-2"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 6,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-1",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 20,
+        "toEntry": 26,
+        "totalEntries": 26
+      },
+      "revisions": [
+        "None"
+      ],
+      "hasMore": false
+    },
+    {
+      "step": 7,
+      "tool": "save_draft_checkpoint",
+      "error": null,
+      "mode": "full",
+      "revision": "ref-3",
+      "expectedCandidate": "ref-2",
+      "payload": "ref-4"
+    },
+    {
+      "step": 8,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-5",
+      "view": "workspace",
+      "coverage": {},
+      "revisions": [],
+      "hasMore": false
+    },
+    {
+      "step": 9,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-6",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 0,
+        "toEntry": 3,
+        "totalEntries": 32
+      },
+      "revisions": [
+        "None"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 10,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-6",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 3,
+        "toEntry": 4,
+        "totalEntries": 32
+      },
+      "revisions": [
+        "None"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 11,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-6",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 4,
+        "toEntry": 5,
+        "totalEntries": 32
+      },
+      "revisions": [
+        "None"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 12,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-6",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 5,
+        "toEntry": 9,
+        "totalEntries": 32
+      },
+      "revisions": [
+        "None"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 13,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-6",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 9,
+        "toEntry": 10,
+        "totalEntries": 32
+      },
+      "revisions": [
+        "ref-3"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 14,
+      "tool": "save_draft_checkpoint",
+      "error": null,
+      "mode": "patch",
+      "revision": "ref-7",
+      "expectedCandidate": "ref-3",
+      "payload": "ref-8"
+    },
+    {
+      "step": 15,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-5",
+      "view": "workspace",
+      "coverage": {},
+      "revisions": [],
+      "hasMore": false
+    },
+    {
+      "step": 16,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-9",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 0,
+        "toEntry": 3,
+        "totalEntries": 34
+      },
+      "revisions": [
+        "None"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 17,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-9",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 3,
+        "toEntry": 4,
+        "totalEntries": 34
+      },
+      "revisions": [
+        "None"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 18,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-9",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 4,
+        "toEntry": 5,
+        "totalEntries": 34
+      },
+      "revisions": [
+        "None"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 19,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-9",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 5,
+        "toEntry": 10,
+        "totalEntries": 34
+      },
+      "revisions": [
+        "None"
+      ],
+      "hasMore": true
+    },
+    {
+      "step": 20,
+      "tool": "read_source_content",
+      "error": null,
+      "source": "ref-9",
+      "view": "content",
+      "coverage": {
+        "fromEntry": 10,
+        "toEntry": 11,
+        "totalEntries": 34
+      },
+      "revisions": [
+        "ref-7"
+      ],
+      "hasMore": true
+    }
+  ],
+  "limitations": [
+    "One current-build sample; not a frozen causal comparison.",
+    "Full-mode instruction was followed by a patch save; not a pure full-versus-patch result.",
+    "Intermediate saved content was not independently checked; necessity of the patch remains unknown.",
+    "Qualification usage is outside this sample receipt."
+  ]
+}

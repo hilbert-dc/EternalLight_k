@@ -1,0 +1,19 @@
+{
+  "protocolRequests": [
+    {
+      "outputLimit": 512,
+      "status": 200,
+      "usage": {
+        "input_tokens": 425,
+        "output_tokens": 54,
+        "total_tokens": 479
+      }
+    },
+    {
+      "outputLimit": 512,
+      "status": 200,
+      "usage": null
+    }
+  ],
+  "coreMetrics": {}
+}

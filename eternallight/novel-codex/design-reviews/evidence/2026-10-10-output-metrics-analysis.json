@@ -1,0 +1,67 @@
+{
+  "source": "2026-10-10-output-metrics-long-full-qualified.json",
+  "sha256": "f8020f1019d949fe5c53a52c6354c744d68c81b483803dfcbdbcfda49014256e",
+  "status": "failed",
+  "executionStatus": "completed",
+  "domainTaskStatus": "completed",
+  "contentPreserved": true,
+  "comparisonModeHonored": false,
+  "requestCount": 13,
+  "uniqueRequestIds": true,
+  "receipt": {
+    "overrun": false,
+    "requests": 13,
+    "tokens": 408571,
+    "unknownTokens": 0
+  },
+  "normalizedUsage": {
+    "inputTokens": 398324,
+    "outputTokens": 10247,
+    "totalTokens": 408571,
+    "cachedTokens": 370176,
+    "reasoningTokens": 6360
+  },
+  "normalizedInputFraction": 0.9749199037621368,
+  "normalizedCachedInputFraction": 0.9293339090790412,
+  "normalizedUncachedInputTokens": 28148,
+  "firstRequest": {
+    "request": "c6ad5472065bb51accf3d20513db627119d94ac4b23d926ec8c0b8d05e741a08",
+    "maxOutputTokens": 8192,
+    "maxTokens": null,
+    "maxCompletionTokens": null,
+    "generationMaxOutputTokens": null,
+    "bodyBytes": 74284,
+    "toolsBytes": 17153,
+    "inputBytes": 24358,
+    "messagesBytes": 0,
+    "instructionsBytes": 31341
+  },
+  "lastRequest": {
+    "request": "e5387223b2e04f6734d7d24b41fc3268ed105f3ee89b44fb9a8eaa5cd40e2b8c",
+    "maxOutputTokens": 8192,
+    "maxTokens": null,
+    "maxCompletionTokens": null,
+    "generationMaxOutputTokens": null,
+    "bodyBytes": 179025,
+    "toolsBytes": 17153,
+    "inputBytes": 129099,
+    "messagesBytes": 0,
+    "instructionsBytes": 31341
+  },
+  "outputCaps": [
+    8192
+  ],
+  "peakNormalizedOutputTokens": 4650,
+  "saveModes": [
+    "full",
+    "patch"
+  ],
+  "caveats": [
+    "Input/output counts do not classify literary work versus wasted search.",
+    "Bytes by request component are not token counts; cached tokens are not billed like uncached tokens. No money estimate.",
+    "Normalized detail fields may be supplied by the protocol codec; not evidence of raw provider field presence.",
+    "Intermediate full saved draft was not independently checked; later patch cannot be called unnecessary.",
+    "No output-limit failure this run; does not erase earlier provider_output_limit.",
+    "Qualification usage excluded from this case receipt; not a full cost total."
+  ]
+}

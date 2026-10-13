@@ -1,0 +1,1985 @@
+{
+  "scope": "Fixed complete original and final reading; synthetic exact edits, not literary quality. First batch six-tool experimental catalog had a discovery conflict; second batch uses actual 17-tool Native admission, not a cross-build A/B pair.",
+  "batches": [
+    {
+      "report": "2026-10-10-comparable-live.json",
+      "status": "failed",
+      "buildStable": true,
+      "build": {
+        "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+        "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+        "engineContractHash": "a584044a337961c2a14fa467e1ec3add05b69ed277147a37e2186f32136d1e85",
+        "qualificationContextDigest": "2a1e084ac1ba0a54a4f7ae791620d4d817dd16a28c2ff2b3057ab2f92f6b3a05",
+        "native": {
+          "runtime": "4eb9a43e837018d68edd63f7390b72e3e56b24b215f280489d7990b15b386c24",
+          "mcp": "2b4a8ffc76ce0666d9516c0d5eb6dd200568d9d04c4dec3547ae415ef630d68d"
+        }
+      },
+      "comparisonIdentity": {
+        "files": {
+          "runtime": "4eb9a43e837018d68edd63f7390b72e3e56b24b215f280489d7990b15b386c24",
+          "mcp": "2b4a8ffc76ce0666d9516c0d5eb6dd200568d9d04c4dec3547ae415ef630d68d",
+          "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+          "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+          "scripts/evaluate-live-novel-tools.mjs": "0b5f5c2ec722f310067fa894c7e01661e8718e53d401f316fb5731bddc4ca65d",
+          "scripts/tool-evaluation-comparison.mjs": "6cab1fcd5f3a58fd63602f7548fec1146e91a0883895fd56489a15642f803b28",
+          "scripts/tool-evaluation-observations.mjs": "d64afe672323a50fa4d560ff5696418d64a47939eb2ea8034ad28ca0bfa1c92b",
+          "scripts/tool-evaluation-runtime.mjs": "e02490eccd099f27e6bafea376bf9e9ae43eadc0eae4ffd7ff9137f1396b244b",
+          "electron/workflow-handoff.mjs": "c1fdfb0bd7852d0103f437be5aa60231533a558e826ce5f2f7ddd94d163c94ef",
+          "electron/codex-adapter.mjs": "acca395c62da99d711cced75e256844cd2e9d7c656f80cbfdc81b7b98f12f6bc",
+          "electron/codex-runtime.mjs": "274a8d08497b463f7663811e15f8ec4580be59df3a7ab59450cf5e68e5ce53d9"
+        },
+        "baseInstructions": "ebfcbdce4a6c353e85d6cde37e508b89c77a902bd27771c91caba5fd494bdb83",
+        "sessionPlan": "b6d831155b688ae093ba78b30b1b8c1d352783b2a9cd6b4cd2c360dd7d3fef58",
+        "configuration": "5561c65a46466982800713e9c06551e8a2547726c113861aa5dc1452dbeefa53"
+      },
+      "comparison": {
+        "pairs": [
+          {
+            "repeat": 0,
+            "size": "long",
+            "eligible": false,
+            "reasons": [
+              "case_failed_or_reading_incomplete"
+            ],
+            "fullTokens": 225260,
+            "patchTokens": 213398,
+            "patchToFullTokenRatio": null
+          },
+          {
+            "repeat": 1,
+            "size": "long",
+            "eligible": false,
+            "reasons": [
+              "case_failed_or_reading_incomplete"
+            ],
+            "fullTokens": 15738,
+            "patchTokens": 215302,
+            "patchToFullTokenRatio": null
+          }
+        ],
+        "eligiblePairs": 0,
+        "interpretation": "Same-run full versus patch comparison under verified reading obligations; not an A/B test of earlier code or literary quality."
+      },
+      "cases": [
+        {
+          "repeat": 0,
+          "size": "long",
+          "mode": "full",
+          "status": "failed",
+          "usage": {
+            "overrun": false,
+            "requests": 9,
+            "tokens": 225260,
+            "unknownTokens": 0
+          },
+          "executionStatus": "failed",
+          "domainTaskStatus": "running",
+          "comparisonModeHonored": true,
+          "reading": {
+            "policy": "completeOriginalAndFinal",
+            "honored": false,
+            "originalCompleteBeforeSave": true,
+            "finalCompleteBeforeCompletion": false
+          },
+          "contentPreserved": false,
+          "toolErrorCount": 0,
+          "modelElapsedMs": 33110.988042,
+          "mcpSessionStartupMs": 554.4935419999997,
+          "error": {
+            "phase": "modelTurn",
+            "code": "execution_failed",
+            "reportedHint": "task token budget exhausted"
+          },
+          "normalizedUsage": {
+            "inputTokens": 218032,
+            "outputTokens": 7228,
+            "totalTokens": 225260,
+            "cachedTokens": 196096,
+            "reasoningTokens": 3043
+          },
+          "readback": {
+            "status": "mismatched",
+            "checks": {
+              "body": false,
+              "title": true,
+              "chapterIdentity": true,
+              "groupStructure": true,
+              "protectedGroups": true
+            },
+            "revision": "2c9bf8e80b838fd48c2bbb49cb04b3c49666a4f62cfe6c9dbe69cf1c9bdb937a",
+            "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+            "actualBodyHash": "6fdbd18ece8c7527e2904ea8754b8fd32f51c05dbe0335f6982ea83ddb0b2a0f",
+            "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+            "bodyUnchanged": false,
+            "expectedCharacters": 2406,
+            "actualCharacters": 2356
+          },
+          "toolSequence": [
+            {
+              "name": "read_context",
+              "view": null,
+              "coverage": null,
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 26
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 7,
+                "toEntry": 26,
+                "totalEntries": 26
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 3,
+                "totalEntries": 3
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "workspace",
+              "coverage": {},
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 27
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "save_draft_checkpoint",
+              "view": null,
+              "coverage": null,
+              "savedVersion": 2,
+              "saveMode": "full"
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 29
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "save_draft_checkpoint",
+              "view": null,
+              "coverage": null,
+              "savedVersion": 3,
+              "saveMode": "full"
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 29
+              },
+              "savedVersion": null,
+              "saveMode": null
+            }
+          ],
+          "payloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "sourceReading": {
+                "calls": 6,
+                "resultBytes": 28346,
+                "unknownSizeCalls": 0
+              },
+              "sourceDirectory": {
+                "calls": 1,
+                "resultBytes": 1331,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 2,
+                "resultBytes": 4152,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24688
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 35455
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 41638
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 49014
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 53217
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 59847
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 75803
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 82274
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 98527
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 104760
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          },
+          "derivedPayloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "originalSourceReading": {
+                "calls": 2,
+                "resultBytes": 11592,
+                "unknownSizeCalls": 0
+              },
+              "otherSourceReading": {
+                "calls": 2,
+                "resultBytes": 6002,
+                "unknownSizeCalls": 0
+              },
+              "sourceDirectory": {
+                "calls": 1,
+                "resultBytes": 1331,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 2,
+                "resultBytes": 4152,
+                "unknownSizeCalls": 0
+              },
+              "savedCandidateReading": {
+                "calls": 2,
+                "resultBytes": 10752,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24688
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 35455
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 41638
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 49014
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 53217
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 59847
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 75803
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 82274
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 98527
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 104760
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          }
+        },
+        {
+          "repeat": 0,
+          "size": "long",
+          "mode": "patch",
+          "status": "passed",
+          "usage": {
+            "overrun": false,
+            "requests": 9,
+            "tokens": 213398,
+            "unknownTokens": 0
+          },
+          "executionStatus": "completed",
+          "domainTaskStatus": "completed",
+          "comparisonModeHonored": true,
+          "reading": {
+            "policy": "completeOriginalAndFinal",
+            "honored": true,
+            "originalCompleteBeforeSave": true,
+            "finalCompleteBeforeCompletion": true
+          },
+          "contentPreserved": true,
+          "toolErrorCount": 0,
+          "modelElapsedMs": 16263.5265,
+          "mcpSessionStartupMs": 467.7280830000018,
+          "error": null,
+          "normalizedUsage": {
+            "inputTokens": 211195,
+            "outputTokens": 2203,
+            "totalTokens": 213398,
+            "cachedTokens": 189312,
+            "reasoningTokens": 903
+          },
+          "readback": {
+            "status": "matched",
+            "checks": {
+              "body": true,
+              "title": true,
+              "chapterIdentity": true,
+              "groupStructure": true,
+              "protectedGroups": true
+            },
+            "revision": "da673bad019141ad4ae15138b498188652c0bd2da8d02259a2ea96c08e785107",
+            "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+            "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+            "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+            "bodyUnchanged": false,
+            "expectedCharacters": 2406,
+            "actualCharacters": 2406
+          },
+          "toolSequence": [
+            {
+              "name": "read_context",
+              "view": null,
+              "coverage": null,
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 26
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 7,
+                "toEntry": 26,
+                "totalEntries": 26
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "save_draft_checkpoint",
+              "view": null,
+              "coverage": null,
+              "savedVersion": 2,
+              "saveMode": "patch"
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 7,
+                "toEntry": 27,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 27,
+                "toEntry": 30,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "complete_task",
+              "view": null,
+              "coverage": null,
+              "savedVersion": null,
+              "saveMode": null
+            }
+          ],
+          "payloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "sourceReading": {
+                "calls": 5,
+                "resultBytes": 24400,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 1,
+                "resultBytes": 2076,
+                "unknownSizeCalls": 0
+              },
+              "completionOrOther": {
+                "calls": 1,
+                "resultBytes": 1766,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24735
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 35677
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 41942
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 49944
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 55347
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 61912
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 69734
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 71246
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 74482
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          },
+          "derivedPayloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "originalSourceReading": {
+                "calls": 2,
+                "resultBytes": 11592,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 1,
+                "resultBytes": 2076,
+                "unknownSizeCalls": 0
+              },
+              "savedCandidateReading": {
+                "calls": 3,
+                "resultBytes": 12808,
+                "unknownSizeCalls": 0
+              },
+              "completionOrOther": {
+                "calls": 1,
+                "resultBytes": 1766,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24735
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 35677
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 41942
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 49944
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 55347
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 61912
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 69734
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 71246
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 74482
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          }
+        },
+        {
+          "repeat": 1,
+          "size": "long",
+          "mode": "patch",
+          "status": "passed",
+          "usage": {
+            "overrun": false,
+            "requests": 9,
+            "tokens": 215302,
+            "unknownTokens": 0
+          },
+          "executionStatus": "completed",
+          "domainTaskStatus": "completed",
+          "comparisonModeHonored": true,
+          "reading": {
+            "policy": "completeOriginalAndFinal",
+            "honored": true,
+            "originalCompleteBeforeSave": true,
+            "finalCompleteBeforeCompletion": true
+          },
+          "contentPreserved": true,
+          "toolErrorCount": 0,
+          "modelElapsedMs": 16915.790417000004,
+          "mcpSessionStartupMs": 470.19558400000096,
+          "error": null,
+          "normalizedUsage": {
+            "inputTokens": 212923,
+            "outputTokens": 2379,
+            "totalTokens": 215302,
+            "cachedTokens": 190720,
+            "reasoningTokens": 808
+          },
+          "readback": {
+            "status": "matched",
+            "checks": {
+              "body": true,
+              "title": true,
+              "chapterIdentity": true,
+              "groupStructure": true,
+              "protectedGroups": true
+            },
+            "revision": "28b15f0279c5df5b2a2cedf883e30117cf0a3beaca90322fbc7c9b930802beb7",
+            "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+            "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+            "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+            "bodyUnchanged": false,
+            "expectedCharacters": 2406,
+            "actualCharacters": 2406
+          },
+          "toolSequence": [
+            {
+              "name": "read_context",
+              "view": null,
+              "coverage": null,
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 26
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 3,
+                "totalEntries": 3
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 7,
+                "toEntry": 26,
+                "totalEntries": 26
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "save_draft_checkpoint",
+              "view": null,
+              "coverage": null,
+              "savedVersion": 2,
+              "saveMode": "patch"
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 7,
+                "toEntry": 27,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 27,
+                "toEntry": 30,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "complete_task",
+              "view": null,
+              "coverage": null,
+              "savedVersion": null,
+              "saveMode": null
+            }
+          ],
+          "payloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "sourceReading": {
+                "calls": 6,
+                "resultBytes": 25074,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 1,
+                "resultBytes": 2076,
+                "unknownSizeCalls": 0
+              },
+              "completionOrOther": {
+                "calls": 1,
+                "resultBytes": 2009,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24735
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 35686
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 43479
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 51141
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 56745
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 63272
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 71089
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 72599
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 76577
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          },
+          "derivedPayloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "originalSourceReading": {
+                "calls": 2,
+                "resultBytes": 11592,
+                "unknownSizeCalls": 0
+              },
+              "otherSourceReading": {
+                "calls": 1,
+                "resultBytes": 674,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 1,
+                "resultBytes": 2076,
+                "unknownSizeCalls": 0
+              },
+              "savedCandidateReading": {
+                "calls": 3,
+                "resultBytes": 12808,
+                "unknownSizeCalls": 0
+              },
+              "completionOrOther": {
+                "calls": 1,
+                "resultBytes": 2009,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24735
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 35686
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 43479
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 51141
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 56745
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 63272
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 71089
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 72599
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 76577
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          }
+        },
+        {
+          "repeat": 1,
+          "size": "long",
+          "mode": "full",
+          "status": "failed",
+          "usage": {
+            "overrun": false,
+            "requests": 1,
+            "tokens": 15738,
+            "unknownTokens": 0
+          },
+          "executionStatus": "failed",
+          "domainTaskStatus": "queued",
+          "comparisonModeHonored": false,
+          "reading": {
+            "policy": "completeOriginalAndFinal",
+            "honored": false,
+            "originalCompleteBeforeSave": false,
+            "finalCompleteBeforeCompletion": false
+          },
+          "contentPreserved": false,
+          "toolErrorCount": 0,
+          "modelElapsedMs": 8332.211416999999,
+          "mcpSessionStartupMs": 471.3518330000079,
+          "error": {
+            "phase": "modelTurn",
+            "code": "execution_failed"
+          },
+          "normalizedUsage": {
+            "inputTokens": 15561,
+            "outputTokens": 177,
+            "totalTokens": 15738,
+            "cachedTokens": 5376,
+            "reasoningTokens": 87
+          },
+          "readback": {
+            "status": "mismatched",
+            "checks": {
+              "body": false,
+              "title": true,
+              "chapterIdentity": true,
+              "groupStructure": true,
+              "protectedGroups": true
+            },
+            "revision": "cca4e1b4b874555527f8db7a75189647e9c492e13ba5c84744c41681cd097447",
+            "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+            "actualBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+            "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+            "bodyUnchanged": true,
+            "expectedCharacters": 2406,
+            "actualCharacters": 2406
+          },
+          "toolSequence": [
+            {
+              "name": "read_context",
+              "view": null,
+              "coverage": null,
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "discover_creative_capabilities",
+              "view": null,
+              "coverage": null,
+              "savedVersion": null,
+              "saveMode": null
+            }
+          ],
+          "payloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "toolGuidance": {
+                "calls": 1,
+                "resultBytes": 3419,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24688
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          },
+          "derivedPayloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "toolGuidance": {
+                "calls": 1,
+                "resultBytes": 3419,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24688
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          }
+        }
+      ]
+    },
+    {
+      "report": "2026-10-10-comparable-catalog-live.json",
+      "status": "failed",
+      "buildStable": true,
+      "build": {
+        "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+        "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+        "engineContractHash": "a584044a337961c2a14fa467e1ec3add05b69ed277147a37e2186f32136d1e85",
+        "qualificationContextDigest": "2a1e084ac1ba0a54a4f7ae791620d4d817dd16a28c2ff2b3057ab2f92f6b3a05",
+        "native": {
+          "runtime": "4eb9a43e837018d68edd63f7390b72e3e56b24b215f280489d7990b15b386c24",
+          "mcp": "2b4a8ffc76ce0666d9516c0d5eb6dd200568d9d04c4dec3547ae415ef630d68d"
+        }
+      },
+      "comparisonIdentity": {
+        "files": {
+          "runtime": "4eb9a43e837018d68edd63f7390b72e3e56b24b215f280489d7990b15b386c24",
+          "mcp": "2b4a8ffc76ce0666d9516c0d5eb6dd200568d9d04c4dec3547ae415ef630d68d",
+          "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+          "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+          "scripts/evaluate-live-novel-tools.mjs": "9a029d29dd296ec4f998c97bb26f08fb0da1ea45da201ccf1afc5d91ee5eaa38",
+          "scripts/tool-evaluation-comparison.mjs": "586bebe0b5dcb01fb4a188e6246f63a6abfe91596f4f0f6e95d84a4628581dc9",
+          "scripts/tool-evaluation-observations.mjs": "d64afe672323a50fa4d560ff5696418d64a47939eb2ea8034ad28ca0bfa1c92b",
+          "scripts/tool-evaluation-runtime.mjs": "e02490eccd099f27e6bafea376bf9e9ae43eadc0eae4ffd7ff9137f1396b244b",
+          "electron/workflow-handoff.mjs": "c1fdfb0bd7852d0103f437be5aa60231533a558e826ce5f2f7ddd94d163c94ef",
+          "electron/codex-adapter.mjs": "acca395c62da99d711cced75e256844cd2e9d7c656f80cbfdc81b7b98f12f6bc",
+          "electron/codex-runtime.mjs": "274a8d08497b463f7663811e15f8ec4580be59df3a7ab59450cf5e68e5ce53d9"
+        },
+        "baseInstructions": "ebfcbdce4a6c353e85d6cde37e508b89c77a902bd27771c91caba5fd494bdb83",
+        "sessionPlan": "b6d831155b688ae093ba78b30b1b8c1d352783b2a9cd6b4cd2c360dd7d3fef58",
+        "configuration": "0d04d982aa201cc57f2fcb66fd71221a73e284c6884a2c18d6c1731226316386"
+      },
+      "comparison": {
+        "pairs": [
+          {
+            "repeat": 0,
+            "size": "long",
+            "eligible": false,
+            "reasons": [
+              "case_failed_or_reading_incomplete"
+            ],
+            "fullTokens": 211121,
+            "patchTokens": 213590,
+            "patchToFullTokenRatio": null
+          }
+        ],
+        "eligiblePairs": 0,
+        "interpretation": "Same-run full versus patch comparison under verified reading obligations; not an A/B test of earlier code or literary quality."
+      },
+      "cases": [
+        {
+          "repeat": 0,
+          "size": "long",
+          "mode": "full",
+          "status": "failed",
+          "usage": {
+            "overrun": false,
+            "requests": 9,
+            "tokens": 211121,
+            "unknownTokens": 0
+          },
+          "executionStatus": "completed",
+          "domainTaskStatus": "completed",
+          "comparisonModeHonored": false,
+          "reading": {
+            "policy": "completeOriginalAndFinal",
+            "honored": true,
+            "originalCompleteBeforeSave": true,
+            "finalCompleteBeforeCompletion": true
+          },
+          "contentPreserved": true,
+          "toolErrorCount": 0,
+          "modelElapsedMs": 15193.205374999998,
+          "mcpSessionStartupMs": 465.2191670000002,
+          "error": {
+            "phase": "validation",
+            "code": "assertion_failed"
+          },
+          "normalizedUsage": {
+            "inputTokens": 209236,
+            "outputTokens": 1885,
+            "totalTokens": 211121,
+            "cachedTokens": 187264,
+            "reasoningTokens": 513
+          },
+          "readback": {
+            "status": "matched",
+            "checks": {
+              "body": true,
+              "title": true,
+              "chapterIdentity": true,
+              "groupStructure": true,
+              "protectedGroups": true
+            },
+            "revision": "c0359878d40289295c81bdea9d64036fec4b7f50df2d2de4f0d180aa79949f8c",
+            "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+            "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+            "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+            "bodyUnchanged": false,
+            "expectedCharacters": 2406,
+            "actualCharacters": 2406
+          },
+          "toolSequence": [
+            {
+              "name": "read_context",
+              "view": null,
+              "coverage": null,
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 26
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 7,
+                "toEntry": 26,
+                "totalEntries": 26
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "save_draft_checkpoint",
+              "view": null,
+              "coverage": null,
+              "savedVersion": 2,
+              "saveMode": "patch"
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 7,
+                "toEntry": 27,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 27,
+                "toEntry": 30,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "complete_task",
+              "view": null,
+              "coverage": null,
+              "savedVersion": null,
+              "saveMode": null
+            }
+          ],
+          "payloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "sourceReading": {
+                "calls": 5,
+                "resultBytes": 24400,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 1,
+                "resultBytes": 2076,
+                "unknownSizeCalls": 0
+              },
+              "completionOrOther": {
+                "calls": 1,
+                "resultBytes": 1858,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24688
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 35618
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 41917
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 49522
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 53696
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 60324
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 68152
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 69661
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 72936
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          },
+          "derivedPayloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "originalSourceReading": {
+                "calls": 2,
+                "resultBytes": 11592,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 1,
+                "resultBytes": 2076,
+                "unknownSizeCalls": 0
+              },
+              "savedCandidateReading": {
+                "calls": 3,
+                "resultBytes": 12808,
+                "unknownSizeCalls": 0
+              },
+              "completionOrOther": {
+                "calls": 1,
+                "resultBytes": 1858,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24688
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 35618
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 41917
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 49522
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 53696
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 60324
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 68152
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 69661
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 72936
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          }
+        },
+        {
+          "repeat": 0,
+          "size": "long",
+          "mode": "patch",
+          "status": "passed",
+          "usage": {
+            "overrun": false,
+            "requests": 9,
+            "tokens": 213590,
+            "unknownTokens": 0
+          },
+          "executionStatus": "completed",
+          "domainTaskStatus": "completed",
+          "comparisonModeHonored": true,
+          "reading": {
+            "policy": "completeOriginalAndFinal",
+            "honored": true,
+            "originalCompleteBeforeSave": true,
+            "finalCompleteBeforeCompletion": true
+          },
+          "contentPreserved": true,
+          "toolErrorCount": 0,
+          "modelElapsedMs": 13572.613250000002,
+          "mcpSessionStartupMs": 450.3924159999988,
+          "error": null,
+          "normalizedUsage": {
+            "inputTokens": 211442,
+            "outputTokens": 2148,
+            "totalTokens": 213590,
+            "cachedTokens": 189312,
+            "reasoningTokens": 577
+          },
+          "readback": {
+            "status": "matched",
+            "checks": {
+              "body": true,
+              "title": true,
+              "chapterIdentity": true,
+              "groupStructure": true,
+              "protectedGroups": true
+            },
+            "revision": "4db5cb5a4ab2a4cd0ba2e9c80542dbcbed314bcb3bda052de0ac20ac0e8526fc",
+            "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+            "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+            "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+            "bodyUnchanged": false,
+            "expectedCharacters": 2406,
+            "actualCharacters": 2406
+          },
+          "toolSequence": [
+            {
+              "name": "read_context",
+              "view": null,
+              "coverage": null,
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 26
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 3,
+                "totalEntries": 3
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 7,
+                "toEntry": 26,
+                "totalEntries": 26
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "save_draft_checkpoint",
+              "view": null,
+              "coverage": null,
+              "savedVersion": 2,
+              "saveMode": "patch"
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 0,
+                "toEntry": 7,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 7,
+                "toEntry": 27,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "read_source_content",
+              "view": "content",
+              "coverage": {
+                "fromEntry": 27,
+                "toEntry": 30,
+                "totalEntries": 30
+              },
+              "savedVersion": null,
+              "saveMode": null
+            },
+            {
+              "name": "complete_task",
+              "view": null,
+              "coverage": null,
+              "savedVersion": null,
+              "saveMode": null
+            }
+          ],
+          "payloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "sourceReading": {
+                "calls": 6,
+                "resultBytes": 25074,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 1,
+                "resultBytes": 2076,
+                "unknownSizeCalls": 0
+              },
+              "completionOrOther": {
+                "calls": 1,
+                "resultBytes": 1886,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24735
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 35807
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 43504
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 51082
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 55703
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 62119
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 69986
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 71324
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 74928
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          },
+          "derivedPayloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9401,
+                "unknownSizeCalls": 0
+              },
+              "originalSourceReading": {
+                "calls": 2,
+                "resultBytes": 11592,
+                "unknownSizeCalls": 0
+              },
+              "otherSourceReading": {
+                "calls": 1,
+                "resultBytes": 674,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 1,
+                "resultBytes": 2076,
+                "unknownSizeCalls": 0
+              },
+              "savedCandidateReading": {
+                "calls": 3,
+                "resultBytes": 12808,
+                "unknownSizeCalls": 0
+              },
+              "completionOrOther": {
+                "calls": 1,
+                "resultBytes": 1886,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24735
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 35807
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 43504
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 51082
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 55703
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 62119
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 69986
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 71324
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 74928
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          }
+        }
+      ]
+    },
+    {
+      "report": "2026-10-10-comparable-short-live.json",
+      "status": "completed",
+      "buildStable": true,
+      "build": {
+        "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+        "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+        "engineContractHash": "a584044a337961c2a14fa467e1ec3add05b69ed277147a37e2186f32136d1e85",
+        "qualificationContextDigest": "2a1e084ac1ba0a54a4f7ae791620d4d817dd16a28c2ff2b3057ab2f92f6b3a05",
+        "native": {
+          "runtime": "ec4d9bcddc14fd9cb9ea1136afec05784222c8208bf57b4ba84c2fc924d64c3e",
+          "mcp": "2b4a8ffc76ce0666d9516c0d5eb6dd200568d9d04c4dec3547ae415ef630d68d"
+        }
+      },
+      "comparisonIdentity": {
+        "files": {
+          "runtime": "ec4d9bcddc14fd9cb9ea1136afec05784222c8208bf57b4ba84c2fc924d64c3e",
+          "mcp": "2b4a8ffc76ce0666d9516c0d5eb6dd200568d9d04c4dec3547ae415ef630d68d",
+          "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+          "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+          "scripts/evaluate-live-novel-tools.mjs": "d43c325898d47a5a04f7f8671827d80da236c5dcf3d47129f5938444ace1ca36",
+          "scripts/tool-evaluation-comparison.mjs": "b0ac2a75a0d74dfc81d2e39b51fbc0f6d203f60926a195f66897ff9f90b833bf",
+          "scripts/tool-evaluation-observations.mjs": "d64afe672323a50fa4d560ff5696418d64a47939eb2ea8034ad28ca0bfa1c92b",
+          "scripts/tool-evaluation-runtime.mjs": "e02490eccd099f27e6bafea376bf9e9ae43eadc0eae4ffd7ff9137f1396b244b",
+          "electron/workflow-handoff.mjs": "c1fdfb0bd7852d0103f437be5aa60231533a558e826ce5f2f7ddd94d163c94ef",
+          "electron/codex-adapter.mjs": "acca395c62da99d711cced75e256844cd2e9d7c656f80cbfdc81b7b98f12f6bc",
+          "electron/codex-runtime.mjs": "274a8d08497b463f7663811e15f8ec4580be59df3a7ab59450cf5e68e5ce53d9"
+        },
+        "baseInstructions": "ebfcbdce4a6c353e85d6cde37e508b89c77a902bd27771c91caba5fd494bdb83",
+        "sessionPlan": "b6d831155b688ae093ba78b30b1b8c1d352783b2a9cd6b4cd2c360dd7d3fef58",
+        "configuration": "3d42ea5262bc7b4c07ccf09d0a52fdbbfa214fe69bb4fce399c98e75968f982c"
+      },
+      "comparison": {
+        "pairs": [
+          {
+            "repeat": 0,
+            "size": "short",
+            "eligible": true,
+            "reasons": [],
+            "fullTokens": 123649,
+            "patchTokens": 122288,
+            "patchToFullTokenRatio": 0.9889930367410977
+          }
+        ],
+        "eligiblePairs": 1,
+        "interpretation": "Same-run full versus patch comparison under verified reading obligations; not an A/B test of earlier code or literary quality."
+      },
+      "cases": [
+        {
+          "repeat": 0,
+          "size": "short",
+          "mode": "full",
+          "status": "passed",
+          "usage": {
+            "overrun": false,
+            "requests": 6,
+            "tokens": 123649,
+            "unknownTokens": 0
+          },
+          "executionStatus": "completed",
+          "domainTaskStatus": "completed",
+          "comparisonModeHonored": true,
+          "reading": {
+            "policy": "completeOriginalAndFinal",
+            "honored": true,
+            "originalCompleteBeforeSave": true,
+            "finalCompleteBeforeCompletion": true
+          },
+          "contentPreserved": true,
+          "toolErrorCount": 0,
+          "modelElapsedMs": 15311.271458000001,
+          "mcpSessionStartupMs": 745.7270000000008,
+          "error": null,
+          "firstSaveAccepted": true,
+          "firstAttemptSucceeded": true,
+          "normalizedUsage": {
+            "inputTokens": 122180,
+            "outputTokens": 1469,
+            "totalTokens": 123649,
+            "cachedTokens": 105216,
+            "reasoningTokens": 525
+          },
+          "readback": {
+            "status": "matched",
+            "checks": {
+              "body": true,
+              "title": true,
+              "chapterIdentity": true,
+              "groupStructure": true,
+              "protectedGroups": true
+            },
+            "revision": "e187422b98a3ce19b8385059fff4604e3de421d12845b71455bf11e3dd1a8ac3",
+            "expectedBodyHash": "4be7a29637e41abc303db848440e55674b4e12909d635d31c765666f5c5200f1",
+            "actualBodyHash": "4be7a29637e41abc303db848440e55674b4e12909d635d31c765666f5c5200f1",
+            "originalBodyHash": "ddaa33a802525aeb02806fcad3277c13482344834cb2d0621e597684ba873fc1",
+            "bodyUnchanged": false,
+            "expectedCharacters": 26,
+            "actualCharacters": 26
+          },
+          "derivedPayloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9400,
+                "unknownSizeCalls": 0
+              },
+              "originalSourceReading": {
+                "calls": 1,
+                "resultBytes": 2336,
+                "unknownSizeCalls": 0
+              },
+              "otherSourceReading": {
+                "calls": 1,
+                "resultBytes": 674,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 1,
+                "resultBytes": 2076,
+                "unknownSizeCalls": 0
+              },
+              "savedCandidateReading": {
+                "calls": 1,
+                "resultBytes": 2659,
+                "unknownSizeCalls": 0
+              },
+              "completionOrOther": {
+                "calls": 1,
+                "resultBytes": 1796,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24688
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 36121
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 40952
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 45643
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 49439
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 52519
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          }
+        },
+        {
+          "repeat": 0,
+          "size": "short",
+          "mode": "patch",
+          "status": "passed",
+          "usage": {
+            "overrun": false,
+            "requests": 6,
+            "tokens": 122288,
+            "unknownTokens": 0
+          },
+          "executionStatus": "completed",
+          "domainTaskStatus": "completed",
+          "comparisonModeHonored": true,
+          "reading": {
+            "policy": "completeOriginalAndFinal",
+            "honored": true,
+            "originalCompleteBeforeSave": true,
+            "finalCompleteBeforeCompletion": true
+          },
+          "contentPreserved": true,
+          "toolErrorCount": 0,
+          "modelElapsedMs": 11018.629625000001,
+          "mcpSessionStartupMs": 612.7402079999993,
+          "error": null,
+          "firstSaveAccepted": true,
+          "firstAttemptSucceeded": true,
+          "normalizedUsage": {
+            "inputTokens": 120982,
+            "outputTokens": 1306,
+            "totalTokens": 122288,
+            "cachedTokens": 104064,
+            "reasoningTokens": 526
+          },
+          "readback": {
+            "status": "matched",
+            "checks": {
+              "body": true,
+              "title": true,
+              "chapterIdentity": true,
+              "groupStructure": true,
+              "protectedGroups": true
+            },
+            "revision": "95a1aaa8486ef8b197d8713486aadafdc04defa374d8ece122415dc76cca2368",
+            "expectedBodyHash": "4be7a29637e41abc303db848440e55674b4e12909d635d31c765666f5c5200f1",
+            "actualBodyHash": "4be7a29637e41abc303db848440e55674b4e12909d635d31c765666f5c5200f1",
+            "originalBodyHash": "ddaa33a802525aeb02806fcad3277c13482344834cb2d0621e597684ba873fc1",
+            "bodyUnchanged": false,
+            "expectedCharacters": 26,
+            "actualCharacters": 26
+          },
+          "derivedPayloadCost": {
+            "toolResults": {
+              "taskContext": {
+                "calls": 1,
+                "resultBytes": 9400,
+                "unknownSizeCalls": 0
+              },
+              "originalSourceReading": {
+                "calls": 1,
+                "resultBytes": 2336,
+                "unknownSizeCalls": 0
+              },
+              "saveReceipt": {
+                "calls": 1,
+                "resultBytes": 2076,
+                "unknownSizeCalls": 0
+              },
+              "savedCandidateReading": {
+                "calls": 1,
+                "resultBytes": 2659,
+                "unknownSizeCalls": 0
+              },
+              "completionOrOther": {
+                "calls": 1,
+                "resultBytes": 1739,
+                "unknownSizeCalls": 0
+              }
+            },
+            "requestPayloads": [
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 24735
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 35693
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 39367
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 43717
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 47501
+              },
+              {
+                "instructionsBytes": 31341,
+                "toolsBytes": 15740,
+                "inputBytes": 50585
+              }
+            ],
+            "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+          }
+        }
+      ]
+    }
+  ],
+  "totalPaidUsage": {
+    "requests": 58,
+    "knownTokens": 1340346,
+    "unknownTokens": 0
+  },
+  "limitations": [
+    "One valid short pure full/patch pair, zero valid long pairs. A single short pair is not a stable efficiency estimate or a cross-build optimization A/B test.",
+    "Byte categories are not provider token attribution; cached inputs must not be priced as uncached by assumption.",
+    "Historical firstAttemptSucceeded in these runs measured first accepted save. Final evaluator now separately requires passed end-to-end validation, one save and zero tool errors; old reports are not rewritten.",
+    "Pure full pressure and 50k target remain unmet; human literary review deferred."
+  ],
+  "analysisModuleSha256": "b0ac2a75a0d74dfc81d2e39b51fbc0f6d203f60926a195f66897ff9f90b833bf"
+}

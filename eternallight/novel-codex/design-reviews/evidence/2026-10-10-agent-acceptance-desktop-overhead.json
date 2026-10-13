@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "evidence": "existingTraceAttribution",
+  "providerByOperation": {
+    "advisory": {
+      "requests": 69,
+      "knownTokens": 2666757,
+      "unknownReservedTokens": 117310,
+      "attempts": 10
+    },
+    "generateChapter": {
+      "requests": 24,
+      "knownTokens": 710825,
+      "unknownReservedTokens": 0,
+      "attempts": 3
+    }
+  },
+  "providerByWork": {
+    "work-task-77cacad73bdcfdf27002c7ebdfd1ff65": {
+      "requests": 8,
+      "knownTokens": 283884,
+      "unknownReservedTokens": 0,
+      "attempts": 1
+    },
+    "work-generation-bae8c7f5aff8435782409bbdfe805fb0": {
+      "requests": 22,
+      "knownTokens": 850882,
+      "unknownReservedTokens": 0,
+      "attempts": 3
+    },
+    "work-task-3c094e9fad36ad0e045ac18199502d09": {
+      "requests": 2,
+      "knownTokens": 26970,
+      "unknownReservedTokens": 39027,
+      "attempts": 1
+    },
+    "work-task-e2eaf17ed64ff05667fc01acfec5274a": {
+      "requests": 30,
+      "knownTokens": 1120506,
+      "unknownReservedTokens": 0,
+      "attempts": 4
+    },
+    "work-task-22c33461b8ae9381d7e82bcedbf77350": {
+      "requests": 29,
+      "knownTokens": 1068527,
+      "unknownReservedTokens": 39457,
+      "attempts": 3
+    },
+    "work-task-b237fcc45b863f0e8f58fa1c89c41a0b": {
+      "requests": 2,
+      "knownTokens": 26813,
+      "unknownReservedTokens": 38826,
+      "attempts": 1
+    }
+  },
+  "toolTotals": {
+    "read_context": {
+      "calls": 16,
+      "outputs": 16,
+      "inputLocalTokens": 112,
+      "outputLocalTokens": 64718,
+      "repeatedArguments": 6,
+      "identicalRepeatOutputTokens": 8813
+    },
+    "read_source_content": {
+      "calls": 37,
+      "outputs": 37,
+      "inputLocalTokens": 1965,
+      "outputLocalTokens": 21986,
+      "repeatedArguments": 3,
+      "identicalRepeatOutputTokens": 0
+    },
+    "read_tool_guide": {
+      "calls": 7,
+      "outputs": 7,
+      "inputLocalTokens": 76,
+      "outputLocalTokens": 3752,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    },
+    "request_candidate_task": {
+      "calls": 2,
+      "outputs": 2,
+      "inputLocalTokens": 895,
+      "outputLocalTokens": 1516,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    },
+    "complete_task": {
+      "calls": 12,
+      "outputs": 12,
+      "inputLocalTokens": 5802,
+      "outputLocalTokens": 8144,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    },
+    "read_work_status": {
+      "calls": 12,
+      "outputs": 12,
+      "inputLocalTokens": 130,
+      "outputLocalTokens": 12720,
+      "repeatedArguments": 6,
+      "identicalRepeatOutputTokens": 3799
+    },
+    "request_work_action": {
+      "calls": 6,
+      "outputs": 6,
+      "inputLocalTokens": 4929,
+      "outputLocalTokens": 2948,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    },
+    "discover_creative_capabilities": {
+      "calls": 6,
+      "outputs": 6,
+      "inputLocalTokens": 51,
+      "outputLocalTokens": 4001,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    },
+    "save_draft_checkpoint": {
+      "calls": 3,
+      "outputs": 3,
+      "inputLocalTokens": 942,
+      "outputLocalTokens": 1649,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    },
+    "request_generation_handoff": {
+      "calls": 1,
+      "outputs": 1,
+      "inputLocalTokens": 112,
+      "outputLocalTokens": 390,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    }
+  },
+  "coverage": {
+    "sessions": 8,
+    "calls": 102,
+    "outputs": 102,
+    "duplicateEvents": 0,
+    "missingOutputs": 0,
+    "orphanOutputs": 0
+  },
+  "limitations": [
+    "Selected trace coverage is not a complete provider prompt capture.",
+    "Local tool tokens exclude schemas, history replay, reasoning and cache effects; never add them to Engine usage.",
+    "Operation is not cognitive activity: advisory includes useful creative work and verification.",
+    "Repeated arguments or identical outputs do not prove waste; versions, intervening writes and recovery matter.",
+    "Unknown reservations are not actual billed tokens. Unmapped usage remains in the report."
+  ],
+  "localEncoding": "cl100k_base",
+  "sources": [
+    {
+      "path": "2026-10-10-agent-acceptance-desktop-trace.json",
+      "sha256": "1c1ebb882b28d6c6b2df4825beb9c3c7e115f8b0f5630e4e40655a3c23346be1"
+    },
+    {
+      "path": "2026-10-10-agent-acceptance-desktop-ledgers.json",
+      "sha256": "209ae394b692dc05d01d7b8fdb2202cb5153d9fda90ecf9baa3c23961d26eb08"
+    }
+  ]
+}

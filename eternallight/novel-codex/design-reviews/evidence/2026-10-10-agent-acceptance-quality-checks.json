@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "evidence": "single_variant_real_desktop",
+  "literaryQuality": "human_review_pending",
+  "baseline": "missing_frozen_runnable_baseline",
+  "cases": [
+    {
+      "caseId": "short-suspense",
+      "status": "structural_delivery_passed_human_pending",
+      "workStates": [
+        "completed"
+      ],
+      "domainReceiptMatched": true,
+      "structuralFailures": [],
+      "usage": {
+        "requests": 29,
+        "tokens": 1078711,
+        "unknownTokens": 0
+      },
+      "attempts": 1,
+      "fixtureError": null,
+      "candidateRevisionId": "draft-7141d4b7f52b404f8138ab8f908456e6",
+      "humanRating": null
+    },
+    {
+      "caseId": "long-local-voice",
+      "status": "not_passed",
+      "workStates": [
+        "blocked"
+      ],
+      "domainReceiptMatched": true,
+      "structuralFailures": [],
+      "usage": {
+        "requests": 30,
+        "tokens": 1207675,
+        "unknownTokens": 0
+      },
+      "attempts": 2,
+      "fixtureError": null,
+      "candidateRevisionId": "draft-56166cf92c7c457faf2240be32412f23",
+      "humanRating": null
+    },
+    {
+      "caseId": "duplicate-quote",
+      "status": "not_passed",
+      "workStates": [
+        "blocked"
+      ],
+      "domainReceiptMatched": true,
+      "structuralFailures": [],
+      "usage": {
+        "requests": 30,
+        "tokens": 1159601,
+        "unknownTokens": 0
+      },
+      "attempts": 1,
+      "fixtureError": null,
+      "candidateRevisionId": "draft-8a282c4b93e34d58b1a2782bdfd9c2c3",
+      "humanRating": null
+    },
+    {
+      "caseId": "unicode-lock",
+      "status": "structural_delivery_passed_human_pending",
+      "workStates": [
+        "completed"
+      ],
+      "domainReceiptMatched": true,
+      "structuralFailures": [],
+      "usage": {
+        "requests": 30,
+        "tokens": 1046497,
+        "unknownTokens": 0
+      },
+      "attempts": 1,
+      "fixtureError": null,
+      "candidateRevisionId": "draft-873a9083307c40958804ebe57152c986",
+      "humanRating": null
+    },
+    {
+      "caseId": "chapter-continuation",
+      "status": "not_passed",
+      "workStates": [],
+      "domainReceiptMatched": false,
+      "structuralFailures": [
+        "no_candidate_readback"
+      ],
+      "usage": {
+        "requests": 0,
+        "tokens": 0,
+        "unknownTokens": 0
+      },
+      "attempts": 1,
+      "fixtureError": "Error: Draft body and scene groups differ",
+      "candidateRevisionId": null,
+      "humanRating": null
+    },
+    {
+      "caseId": "cross-chapter",
+      "status": "not_passed",
+      "workStates": [],
+      "domainReceiptMatched": false,
+      "structuralFailures": [
+        "no_candidate_readback"
+      ],
+      "usage": {
+        "requests": 0,
+        "tokens": 0,
+        "unknownTokens": 0
+      },
+      "attempts": 1,
+      "fixtureError": "Error: Draft body and scene groups differ",
+      "candidateRevisionId": null,
+      "humanRating": null
+    },
+    {
+      "caseId": "inconsistent-clues",
+      "status": "structural_delivery_passed_human_pending",
+      "workStates": [
+        "completed"
+      ],
+      "domainReceiptMatched": true,
+      "structuralFailures": [],
+      "usage": {
+        "requests": 5,
+        "tokens": 151475,
+        "unknownTokens": 0
+      },
+      "attempts": 1,
+      "fixtureError": null,
+      "candidateRevisionId": "draft-29b6eeea177f458d8d569871eb8c471f",
+      "humanRating": null
+    },
+    {
+      "caseId": "insufficient-evidence",
+      "status": "structural_delivery_passed_human_pending",
+      "workStates": [
+        "completed"
+      ],
+      "domainReceiptMatched": true,
+      "structuralFailures": [],
+      "usage": {
+        "requests": 5,
+        "tokens": 149767,
+        "unknownTokens": 0
+      },
+      "attempts": 1,
+      "fixtureError": null,
+      "candidateRevisionId": "draft-9b4537a8ccd143c18eed6875ae37274f",
+      "humanRating": null
+    }
+  ]
+}

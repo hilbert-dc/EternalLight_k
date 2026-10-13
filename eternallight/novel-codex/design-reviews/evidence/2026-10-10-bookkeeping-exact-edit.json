@@ -1,0 +1,282 @@
+{
+  "version": 1,
+  "evidence": "liveModelToolComparison",
+  "status": "failed",
+  "cases": [
+    {
+      "repeat": 0,
+      "size": "short",
+      "mode": "full",
+      "responses": [
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "failed",
+          "errorCode": "task_token_budget_exhausted"
+        }
+      ],
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 35374,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": false,
+      "corrections": 0,
+      "mcpSessionStartupMs": 449.6968750000001,
+      "modelElapsedMs": 3464.2102079999995,
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed",
+        "reportedHint": "task token budget exhausted"
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 4063.6399590000005
+    },
+    {
+      "repeat": 0,
+      "size": "short",
+      "mode": "patch",
+      "responses": [
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "failed",
+          "errorCode": "task_token_budget_exhausted"
+        }
+      ],
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 35500,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": false,
+      "corrections": 0,
+      "mcpSessionStartupMs": 431.8820000000005,
+      "modelElapsedMs": 3031.5890419999996,
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed",
+        "reportedHint": "task token budget exhausted"
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 3611.470458
+    },
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "full",
+      "responses": [
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "failed",
+          "errorCode": "task_token_budget_exhausted"
+        }
+      ],
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 35906,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": false,
+      "corrections": 0,
+      "mcpSessionStartupMs": 439.14137499999924,
+      "modelElapsedMs": 3956.709208,
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed",
+        "reportedHint": "task token budget exhausted"
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 4504.865750000001
+    },
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "patch",
+      "responses": [
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "failed",
+          "errorCode": "task_token_budget_exhausted"
+        }
+      ],
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 35338,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": false,
+      "corrections": 0,
+      "mcpSessionStartupMs": 433.64687499999854,
+      "modelElapsedMs": 3090.912875,
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed",
+        "reportedHint": "task token budget exhausted"
+      },
+      "toolErrorCount": 0,
+      "elapsedMs": 3705.715415999999
+    }
+  ],
+  "providerUsage": null,
+  "limitations": [
+    "Exact-edit synthetic cases measure tool use and content preservation, not literary quality.",
+    "Provider usage comes from Engine receipts; unknown usage stays unknown. No qualification is fabricated."
+  ],
+  "configuration": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "repeats": 1,
+    "limitsPerCase": {
+      "requests": 10,
+      "tokens": 50000,
+      "seconds": 90
+    },
+    "plannedCases": 4,
+    "caseSelection": null
+  },
+  "build": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "qualificationContextDigest": "cf78bc2336408018283a460115c5a93e6dab493aa6ad0de14d7fca7fa86a964b",
+    "native": {
+      "runtime": "0deb45ce178ab1e9f1a3363e260aa03f3e556d475893d7ec87dfc9898c2a42aa",
+      "mcp": "40136d202de19e5b1ab2ba3ac0416fa243810676987cbd00bfbe968584805081"
+    }
+  },
+  "runtimeStartupMs": 109.03462500000023,
+  "summaries": [
+    {
+      "mode": "full",
+      "cases": 2,
+      "passed": 0,
+      "firstAttemptSuccessRate": 0,
+      "contentPreservationRate": 0,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 4,
+        "tokens": 71280
+      }
+    },
+    {
+      "mode": "patch",
+      "cases": 2,
+      "passed": 0,
+      "firstAttemptSuccessRate": 0,
+      "contentPreservationRate": 0,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 4,
+        "tokens": 70838
+      }
+    }
+  ]
+}

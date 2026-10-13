@@ -1,0 +1,1894 @@
+{
+  "version": 2,
+  "evidence": "liveModelToolComparison",
+  "status": "failed",
+  "cases": [
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "full",
+      "requests": [
+        {
+          "request": "5d3ebe3a742891a225faa63719f7cec0b53e103172bc949386f5b0f09cabc744",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 73201,
+          "toolsBytes": 15740,
+          "inputBytes": 24688,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "1db7dc5c4ab0b67cfb96b45c48a3ca3a82eb58b038a1a1e1402008bfd13d7595",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 84131,
+          "toolsBytes": 15740,
+          "inputBytes": 35618,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "8d214874b263f951ca8d9864943f8a3961c2a78b0d17552fdacbee10ab04f358",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 90430,
+          "toolsBytes": 15740,
+          "inputBytes": 41917,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "aaadb3e1c4ff858f900b6811b8b0ec022f7c44e64ce041c12db0eec78a14da9e",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 98035,
+          "toolsBytes": 15740,
+          "inputBytes": 49522,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "58089f43b692b1fa466b819b2d72b909a2a4c0b1a084179d0a5a3d611d5aba18",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 102209,
+          "toolsBytes": 15740,
+          "inputBytes": 53696,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "7325ccddb597033108dfa42eb03fbf95b7cba435759d5e13cd649f29bbb25cee",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 108837,
+          "toolsBytes": 15740,
+          "inputBytes": 60324,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "8af4a2a003aa64005a822dd9b5f8ee2be02b9b595705fc418e302e68f4f8f211",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 116665,
+          "toolsBytes": 15740,
+          "inputBytes": 68152,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "d213b56891623b8ed69e8e56dc0e1b998600d6a72d067681123d85c4b24c00b9",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 118174,
+          "toolsBytes": 15740,
+          "inputBytes": 69661,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "f017c42197d04585ac311ccbfcb981d4591fb7e202cc494fe7f4794ab437c6c7",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 121449,
+          "toolsBytes": 15740,
+          "inputBytes": 72936,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        }
+      ],
+      "responses": [
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "5d3ebe3a742891a225faa63719f7cec0b53e103172bc949386f5b0f09cabc744",
+          "normalizedUsage": {
+            "inputTokens": 15570,
+            "outputTokens": 93,
+            "totalTokens": 15663,
+            "cachedTokens": 5376,
+            "reasoningTokens": 42
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "1db7dc5c4ab0b67cfb96b45c48a3ca3a82eb58b038a1a1e1402008bfd13d7595",
+          "normalizedUsage": {
+            "inputTokens": 18890,
+            "outputTokens": 152,
+            "totalTokens": 19042,
+            "cachedTokens": 15616,
+            "reasoningTokens": 45
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "8d214874b263f951ca8d9864943f8a3961c2a78b0d17552fdacbee10ab04f358",
+          "normalizedUsage": {
+            "inputTokens": 20428,
+            "outputTokens": 228,
+            "totalTokens": 20656,
+            "cachedTokens": 18944,
+            "reasoningTokens": 59
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "aaadb3e1c4ff858f900b6811b8b0ec022f7c44e64ce041c12db0eec78a14da9e",
+          "normalizedUsage": {
+            "inputTokens": 22328,
+            "outputTokens": 447,
+            "totalTokens": 22775,
+            "cachedTokens": 20608,
+            "reasoningTokens": 228
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "58089f43b692b1fa466b819b2d72b909a2a4c0b1a084179d0a5a3d611d5aba18",
+          "normalizedUsage": {
+            "inputTokens": 23506,
+            "outputTokens": 199,
+            "totalTokens": 23705,
+            "cachedTokens": 22656,
+            "reasoningTokens": 76
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "7325ccddb597033108dfa42eb03fbf95b7cba435759d5e13cd649f29bbb25cee",
+          "normalizedUsage": {
+            "inputTokens": 25128,
+            "outputTokens": 167,
+            "totalTokens": 25295,
+            "cachedTokens": 23680,
+            "reasoningTokens": 6
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "8af4a2a003aa64005a822dd9b5f8ee2be02b9b595705fc418e302e68f4f8f211",
+          "normalizedUsage": {
+            "inputTokens": 27173,
+            "outputTokens": 171,
+            "totalTokens": 27344,
+            "cachedTokens": 25216,
+            "reasoningTokens": 10
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "d213b56891623b8ed69e8e56dc0e1b998600d6a72d067681123d85c4b24c00b9",
+          "normalizedUsage": {
+            "inputTokens": 27631,
+            "outputTokens": 283,
+            "totalTokens": 27914,
+            "cachedTokens": 27264,
+            "reasoningTokens": 47
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "f017c42197d04585ac311ccbfcb981d4591fb7e202cc494fe7f4794ab437c6c7",
+          "normalizedUsage": {
+            "inputTokens": 28582,
+            "outputTokens": 145,
+            "totalTokens": 28727,
+            "cachedTokens": 27904,
+            "reasoningTokens": 0
+          }
+        }
+      ],
+      "turns": [
+        {
+          "status": "completed",
+          "errorKind": null,
+          "httpStatus": null
+        }
+      ],
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 9401,
+          "reason": null,
+          "context": {
+            "originalSource": "d7c56acaa4637d04ccf8402c8d052567c3b469b216d99556bf1ec5554c10003b"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 5282,
+          "reason": null,
+          "read": {
+            "source": "d7c56acaa4637d04ccf8402c8d052567c3b469b216d99556bf1ec5554c10003b",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "d7c56acaa4637d04ccf8402c8d052567c3b469b216d99556bf1ec5554c10003b",
+            "contentHash": "83db3226127c944e122da813e74571aa709499c601084c4099df2dbc567471d8",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 7,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": "2dec281d3dcb5aec14a6dcbd5d1b39b1c93479cdcb9ccf61d820c5edc3a9068a",
+            "entries": [
+              {
+                "path": "4d01a2fffad9442b4f5ec6e535edcb79d1960e6e22cd1cd9825a2e8f6276cd78",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "87ae6ab6cb06d8bcf0fe2157c1d29559b0f72202af148ad9ca7cff5c55d0f1ce",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "41cce05da967ed948e50a450b5030b6423625d668c643957095c334c1df55a15",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "9f9ca834c9ce76164c5237e210efadee3264adb89683dfd53baf155c69043cf2",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "576e9570f0a9be1c9ee7eee178c28514200b8c2866b7c6731ce4b237fe1e878d",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2406
+                },
+                "revision": "c34a5ac1f6ee7ce43798a99e5e12725e0ad878b4bf88159f4a802be2a3c21fec"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 600,
+                  "end": 1200,
+                  "total": 2406
+                },
+                "revision": "c34a5ac1f6ee7ce43798a99e5e12725e0ad878b4bf88159f4a802be2a3c21fec"
+              }
+            ],
+            "resultDigest": "ada8bb2ab41e8eb1f3f4d1cd2210bb6d9508a4087a606057e17c348ab30d7c93"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 6310,
+          "reason": null,
+          "read": {
+            "source": "d7c56acaa4637d04ccf8402c8d052567c3b469b216d99556bf1ec5554c10003b",
+            "cursor": "2dec281d3dcb5aec14a6dcbd5d1b39b1c93479cdcb9ccf61d820c5edc3a9068a",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "d7c56acaa4637d04ccf8402c8d052567c3b469b216d99556bf1ec5554c10003b",
+            "contentHash": "83db3226127c944e122da813e74571aa709499c601084c4099df2dbc567471d8",
+            "coverage": {
+              "fromEntry": 7,
+              "toEntry": 26,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 1200,
+                  "end": 1800,
+                  "total": 2406
+                },
+                "revision": "c34a5ac1f6ee7ce43798a99e5e12725e0ad878b4bf88159f4a802be2a3c21fec"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 1800,
+                  "end": 2400,
+                  "total": 2406
+                },
+                "revision": "c34a5ac1f6ee7ce43798a99e5e12725e0ad878b4bf88159f4a802be2a3c21fec"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 2400,
+                  "end": 2406,
+                  "total": 2406
+                },
+                "revision": "c34a5ac1f6ee7ce43798a99e5e12725e0ad878b4bf88159f4a802be2a3c21fec"
+              },
+              {
+                "path": "df7e2bc60373a43519c7c0815fa1c1f05f43a391c45d850a1c522bf3feb318c1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "e24eeb7f8dfd1ca0d2ed88ac5841f516a66105fc8e8ffccf37b725c8e14dd7c0",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "318d59eff5b09da3908f275ff99e901bc21bb7352c55fd8c28786d9bf2fcaea6",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "9a5c4ae0e35b4e3a215f97c3b98a93d33d506ad11623747b10414a839b07ceb7",
+                "range": {
+                  "start": 0,
+                  "end": 5,
+                  "total": 5
+                },
+                "revision": "c34a5ac1f6ee7ce43798a99e5e12725e0ad878b4bf88159f4a802be2a3c21fec"
+              },
+              {
+                "path": "e4aad6b8e566d4976b31e8d79b1e141ba7be08377b49544717fc3819e1861f5b",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "236be81dc7662101564caecf825c054a21650076a9a21786fa07bf9d527905fb",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "38863ba849d1fbbcbc7142a1f2d9c623d976bbc9739afcea69a462f638ae5cd1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fc6c851920a7b3ee2f86e04fcce031cb6a7d5423616afa61614ec549d8f9fd5f",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "eea5dfcec15684e2aa627a43e0717bfc6d255ffcdb71f0d50a229bcd75671aec",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "37e6e85295fc4202c3521c3347dc6070b8824e51e9af2a40e94c0d5474f25502",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2cbd2a8b00a9a3cfe1fbd220c273133896adb03e3bfc15e33f18467ba3641abe",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fde3ad758d945d909c62e5f60fca53adc5091896a03db57b6f93716c1e1c09a6",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "481a5418520714120d2e3900811900b21fea3b01ee7ea4f8cff410dfb8ab8278",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "8285b066cb28f289e60240f5bb8c4f1515e6b568afb7b11c90a7eb0f3a727483",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "881b2531067fda3bf22301a7d317878a17749916f85da8fbd270d1b4319651b7",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "7cc7070de6f1a451f4a88f6924cf0e5428711f20641a04fa1e307f5812e4b431",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "866e37ae4ea9b438b77dde16549f3231e149abfe3e086ea320128ae591e62783"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "save_draft_checkpoint",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 2076,
+          "reason": null,
+          "save": {
+            "submittedContentDigest": "bcd6c723d4e41a517fdcc992497a5d7236e94f40567c095fca1ec61d0b9ef2f9",
+            "expectedCandidate": null,
+            "patchSource": "c34a5ac1f6ee7ce43798a99e5e12725e0ad878b4bf88159f4a802be2a3c21fec",
+            "saved": true,
+            "revision": "c0359878d40289295c81bdea9d64036fec4b7f50df2d2de4f0d180aa79949f8c",
+            "checkpoint": "29e93ad6e4f111e9bca187416b9d31e316fb367e0b1a2f18dbb7d680546dab93",
+            "version": 2,
+            "source": "373acffceb71c39f420966f33c9e015649a16f44277ad59577dd8bdf13e50988"
+          },
+          "requestedMode": "patch"
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 5376,
+          "reason": null,
+          "read": {
+            "source": "373acffceb71c39f420966f33c9e015649a16f44277ad59577dd8bdf13e50988",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "373acffceb71c39f420966f33c9e015649a16f44277ad59577dd8bdf13e50988",
+            "contentHash": "234ff0b7a3912b46c03c9a67f81656137724d7abd73761f3986c426a127a5615",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 7,
+              "totalEntries": 30
+            },
+            "byteRange": null,
+            "nextCursor": "85e320e7340e74ca04812f8b3796b3ffa7ad23f3649156efe93e13e4eb3a594c",
+            "entries": [
+              {
+                "path": "820facaf6f51ecc891fce19acdab901a15a8f063b1b6130da123beb3c8206c39",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "045fa915d619cf91677fabe0b022110cbdbda9db4bf36df60692e35b8a0d1666",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "b00d882ad099b8ee94d453f845d3b869eb27f3b2242de0f2ec608973d3dace83",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "4d71fd933ef1954917f1652eda46363afb031376e8667f5a7fa80c62ebaceec8",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "d6015af43f4935fc8d416fe950761a13ff06f823a6c72ebc04051c3e447072df",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2406
+                },
+                "revision": "c0359878d40289295c81bdea9d64036fec4b7f50df2d2de4f0d180aa79949f8c"
+              },
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 600,
+                  "end": 1200,
+                  "total": 2406
+                },
+                "revision": "c0359878d40289295c81bdea9d64036fec4b7f50df2d2de4f0d180aa79949f8c"
+              }
+            ],
+            "resultDigest": "64ddf8af4b954fe3025bf8ffa981f8e3cf7c9c703b3e81e96653bcec3ca00409"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 6736,
+          "reason": null,
+          "read": {
+            "source": "373acffceb71c39f420966f33c9e015649a16f44277ad59577dd8bdf13e50988",
+            "cursor": "85e320e7340e74ca04812f8b3796b3ffa7ad23f3649156efe93e13e4eb3a594c",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "373acffceb71c39f420966f33c9e015649a16f44277ad59577dd8bdf13e50988",
+            "contentHash": "234ff0b7a3912b46c03c9a67f81656137724d7abd73761f3986c426a127a5615",
+            "coverage": {
+              "fromEntry": 7,
+              "toEntry": 27,
+              "totalEntries": 30
+            },
+            "byteRange": null,
+            "nextCursor": "786856e1792396357c9250771b117f571e3ee14503169de04d4ba7531de996e6",
+            "entries": [
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 1200,
+                  "end": 1800,
+                  "total": 2406
+                },
+                "revision": "c0359878d40289295c81bdea9d64036fec4b7f50df2d2de4f0d180aa79949f8c"
+              },
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 1800,
+                  "end": 2400,
+                  "total": 2406
+                },
+                "revision": "c0359878d40289295c81bdea9d64036fec4b7f50df2d2de4f0d180aa79949f8c"
+              },
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 2400,
+                  "end": 2406,
+                  "total": 2406
+                },
+                "revision": "c0359878d40289295c81bdea9d64036fec4b7f50df2d2de4f0d180aa79949f8c"
+              },
+              {
+                "path": "e844e0cab0a8f3d9f6296b093d83ff78bb1dee3ea9ddcfa893a56e58939675c2",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "1a5e29e4b4641a5940b6b119e02a387160b7ac8684661ceb85e9d4279fe14e03",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "1c66f0ed6234a4252d98f5b7673b39500949e8651c61c157e0f8cad651e1d5a3",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "4e1c0142257c07e0c3c76d1ebdfc2a3b8996f768b84f3b2a21dd180b32161bdd",
+                "range": {
+                  "start": 0,
+                  "end": 5,
+                  "total": 5
+                },
+                "revision": "c0359878d40289295c81bdea9d64036fec4b7f50df2d2de4f0d180aa79949f8c"
+              },
+              {
+                "path": "b56a3e7abdc3530a4c299a2f68864543e477ceed24ffbb92c955221285f96e79",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "8439d0f39c80d593fb5264c4d9416843ba431f6a1a557c6074474f406d65a717",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "e4aa9db0b5e7f44fd9b3accfb068e41ad551d36a413474d458ec4baaacd52e78",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "7d3edff4ac3a7d8afdce4c1d0a355d6bfdd62e95fec54855a13b4a1994ec077e",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "6fb9c9acb4366f409f18e9d4b4d82dbf404903f1420fcc5b59d7e0b5da41df4e",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2fc46242420d3989fe3b2b702561e05227aa0aae0347bf49e0c119968e3c63ec",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "5e82c33bccca6776071028006ee59e7d603b0dd2c1a5f4b8bcf85964ad60d83c",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "00552dd2f782c0673648e76a048a1bf693e2e99fe11fc18ac0300a34a8db0cb4",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "57f9dd5e6a7d8d740f08707c295c46d891abbf91edf9121ad7c3d407490576de",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "79320cd3f9254346e4f28a00d8ac5986d4c4d2d337a376324544b1465886cb35",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "4cf69d980975fe722e7fae9b190b20364a27c93b30e3c388a776ec8be8516ba5",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "f7a8df195a01c4daddd08963fa118ac0be685451612277b42b5e30e7f31d0d0a",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fee4b28c8d5e4e871cba08aa56dd4caee634ed85f20bddb6e04714c30593a0c8",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "484f1d6afa4316bfb59ef207e4f714ab610303891a4d7282e0e2e384cf1eac8b"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 696,
+          "reason": null,
+          "read": {
+            "source": "373acffceb71c39f420966f33c9e015649a16f44277ad59577dd8bdf13e50988",
+            "cursor": "786856e1792396357c9250771b117f571e3ee14503169de04d4ba7531de996e6",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "373acffceb71c39f420966f33c9e015649a16f44277ad59577dd8bdf13e50988",
+            "contentHash": "234ff0b7a3912b46c03c9a67f81656137724d7abd73761f3986c426a127a5615",
+            "coverage": {
+              "fromEntry": 27,
+              "toEntry": 30,
+              "totalEntries": 30
+            },
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [
+              {
+                "path": "8cbc435ffa38d0048fed5f7e8b440240476f5df2b75e0d2bb110bef25c7fba19",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2bd3f1a64d27c85575fdb0e1c45f69064dddd8a214779628228a505ea26d31d1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "bf0c6828f2deefcbd54eee78b46f6dcef8a32e6849c2881eee6f013602dcfb47",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "8d16799444540e14e1452e58de0b8fa92543c87f3f400968104978789b1b5245"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "complete_task",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 1858,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 9,
+        "tokens": 211121,
+        "unknownTokens": 0
+      },
+      "contentPreserved": true,
+      "firstAttemptSucceeded": true,
+      "corrections": 0,
+      "fixtureDigest": "11b9da32b57e2e718de7f628e141d860ed5922dc9bfbf03ba6ef5c6513fab04c",
+      "admittedCatalogDigest": "a6167fb0e67fd605506621ec3fdc8b4c33a47e8463be6d97bc743e1c41932e89",
+      "admittedTools": [
+        "read_context",
+        "search_story",
+        "query_story",
+        "search_relations",
+        "save_draft_checkpoint",
+        "complete_task",
+        "read_creative_strategy",
+        "read_tool_guide",
+        "discover_creative_capabilities",
+        "read_quality_notebook",
+        "authorize_delegated_writer",
+        "save_delegated_draft",
+        "read_delegated_draft",
+        "read_work_issues",
+        "read_source_content",
+        "read_reading_progress",
+        "checkpoint_reading"
+      ],
+      "mcpSessionStartupMs": 465.2191670000002,
+      "modelElapsedMs": 15193.205374999998,
+      "executionStatus": "completed",
+      "comparisonModeHonored": false,
+      "toolErrorCount": 0,
+      "readSummary": {
+        "successfulReads": 5,
+        "repeatedExactResults": 0,
+        "interpretation": "Identical request and result observations; repetition alone does not establish waste."
+      },
+      "reading": {
+        "policy": "completeOriginalAndFinal",
+        "honored": true,
+        "originalCompleteBeforeSave": true,
+        "finalCompleteBeforeCompletion": true
+      },
+      "payloadCost": {
+        "toolResults": {
+          "taskContext": {
+            "calls": 1,
+            "resultBytes": 9401,
+            "unknownSizeCalls": 0
+          },
+          "sourceReading": {
+            "calls": 5,
+            "resultBytes": 24400,
+            "unknownSizeCalls": 0
+          },
+          "saveReceipt": {
+            "calls": 1,
+            "resultBytes": 2076,
+            "unknownSizeCalls": 0
+          },
+          "completionOrOther": {
+            "calls": 1,
+            "resultBytes": 1858,
+            "unknownSizeCalls": 0
+          }
+        },
+        "requestPayloads": [
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 24688
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 35618
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 41917
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 49522
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 53696
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 60324
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 68152
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 69661
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 72936
+          }
+        ],
+        "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+      },
+      "quiescent": true,
+      "readback": {
+        "status": "matched",
+        "checks": {
+          "body": true,
+          "title": true,
+          "chapterIdentity": true,
+          "groupStructure": true,
+          "protectedGroups": true
+        },
+        "revision": "c0359878d40289295c81bdea9d64036fec4b7f50df2d2de4f0d180aa79949f8c",
+        "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+        "bodyUnchanged": false,
+        "expectedCharacters": 2406,
+        "actualCharacters": 2406
+      },
+      "domainTaskStatus": "completed",
+      "error": {
+        "phase": "validation",
+        "code": "assertion_failed"
+      },
+      "elapsedMs": 15877.579041
+    },
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "patch",
+      "requests": [
+        {
+          "request": "e77849e25c6c95a275a956d50e9a53aa8fdafde764621b5e01bef2211245051c",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 73248,
+          "toolsBytes": 15740,
+          "inputBytes": 24735,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "58c169e781c59906b4cae0eb443b323cedc713f8981e717d97102a9762573ab1",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 84320,
+          "toolsBytes": 15740,
+          "inputBytes": 35807,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "9a583419fd9a83031d4e52d515b08c51b86a0fcefa17aa1edc0695f51470f17b",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 92017,
+          "toolsBytes": 15740,
+          "inputBytes": 43504,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "4e25ff8218e154567e5d350c44669f5f975c326f9a69e76ab538ae8af849f743",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 99595,
+          "toolsBytes": 15740,
+          "inputBytes": 51082,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "f25492d7a4fdf12089da182d0a2b91174bf4c6180cf7f36c12f6dc919e1cc76b",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 104216,
+          "toolsBytes": 15740,
+          "inputBytes": 55703,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "326cf3a8f7e5ac1c49e95726f3d7abfc9b77410f112828a0ec9755ef6e13c01f",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 110632,
+          "toolsBytes": 15740,
+          "inputBytes": 62119,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "35b0e04de4544f4b497d8b6d65b425e7d1a8d0b19eef437cbc259ce0810ee7bf",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 118499,
+          "toolsBytes": 15740,
+          "inputBytes": 69986,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "83848b225e45d81443b9ebc63e458d5560ad7fb7bcda913b2c41db020e99f5fd",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 119837,
+          "toolsBytes": 15740,
+          "inputBytes": 71324,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "fba533a323483f31ec8ee62a4b32f848a28e1de9cdc18d3103204eb786636089",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 123441,
+          "toolsBytes": 15740,
+          "inputBytes": 74928,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        }
+      ],
+      "responses": [
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "e77849e25c6c95a275a956d50e9a53aa8fdafde764621b5e01bef2211245051c",
+          "normalizedUsage": {
+            "inputTokens": 15573,
+            "outputTokens": 86,
+            "totalTokens": 15659,
+            "cachedTokens": 5376,
+            "reasoningTokens": 41
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "58c169e781c59906b4cae0eb443b323cedc713f8981e717d97102a9762573ab1",
+          "normalizedUsage": {
+            "inputTokens": 18888,
+            "outputTokens": 287,
+            "totalTokens": 19175,
+            "cachedTokens": 15616,
+            "reasoningTokens": 69
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "9a583419fd9a83031d4e52d515b08c51b86a0fcefa17aa1edc0695f51470f17b",
+          "normalizedUsage": {
+            "inputTokens": 20778,
+            "outputTokens": 189,
+            "totalTokens": 20967,
+            "cachedTokens": 19072,
+            "reasoningTokens": 18
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "4e25ff8218e154567e5d350c44669f5f975c326f9a69e76ab538ae8af849f743",
+          "normalizedUsage": {
+            "inputTokens": 22633,
+            "outputTokens": 580,
+            "totalTokens": 23213,
+            "cachedTokens": 20864,
+            "reasoningTokens": 363
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "f25492d7a4fdf12089da182d0a2b91174bf4c6180cf7f36c12f6dc919e1cc76b",
+          "normalizedUsage": {
+            "inputTokens": 23908,
+            "outputTokens": 126,
+            "totalTokens": 24034,
+            "cachedTokens": 23168,
+            "reasoningTokens": 12
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "326cf3a8f7e5ac1c49e95726f3d7abfc9b77410f112828a0ec9755ef6e13c01f",
+          "normalizedUsage": {
+            "inputTokens": 25437,
+            "outputTokens": 173,
+            "totalTokens": 25610,
+            "cachedTokens": 23936,
+            "reasoningTokens": 17
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "35b0e04de4544f4b497d8b6d65b425e7d1a8d0b19eef437cbc259ce0810ee7bf",
+          "normalizedUsage": {
+            "inputTokens": 27461,
+            "outputTokens": 156,
+            "totalTokens": 27617,
+            "cachedTokens": 25600,
+            "reasoningTokens": 0
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "83848b225e45d81443b9ebc63e458d5560ad7fb7bcda913b2c41db020e99f5fd",
+          "normalizedUsage": {
+            "inputTokens": 27891,
+            "outputTokens": 330,
+            "totalTokens": 28221,
+            "cachedTokens": 27520,
+            "reasoningTokens": 57
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "fba533a323483f31ec8ee62a4b32f848a28e1de9cdc18d3103204eb786636089",
+          "normalizedUsage": {
+            "inputTokens": 28873,
+            "outputTokens": 221,
+            "totalTokens": 29094,
+            "cachedTokens": 28160,
+            "reasoningTokens": 0
+          }
+        }
+      ],
+      "turns": [
+        {
+          "status": "completed",
+          "errorKind": null,
+          "httpStatus": null
+        }
+      ],
+      "status": "passed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 9401,
+          "reason": null,
+          "context": {
+            "originalSource": "2e8904c687d2381b7b75c68bf1c7a00bec7e37deb6bed2d41e4cffe7f6e8f6eb"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 5282,
+          "reason": null,
+          "read": {
+            "source": "2e8904c687d2381b7b75c68bf1c7a00bec7e37deb6bed2d41e4cffe7f6e8f6eb",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "2e8904c687d2381b7b75c68bf1c7a00bec7e37deb6bed2d41e4cffe7f6e8f6eb",
+            "contentHash": "96b10ba70c0c951c9d164794b79c6d26979ea354a8eb0ef5102fbe84082bf180",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 7,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": "e23ab50ebb00650d7f7841520410d6596bd2114ec85165435af502f52a8bd1db",
+            "entries": [
+              {
+                "path": "4d01a2fffad9442b4f5ec6e535edcb79d1960e6e22cd1cd9825a2e8f6276cd78",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "87ae6ab6cb06d8bcf0fe2157c1d29559b0f72202af148ad9ca7cff5c55d0f1ce",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "41cce05da967ed948e50a450b5030b6423625d668c643957095c334c1df55a15",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "9f9ca834c9ce76164c5237e210efadee3264adb89683dfd53baf155c69043cf2",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "576e9570f0a9be1c9ee7eee178c28514200b8c2866b7c6731ce4b237fe1e878d",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2406
+                },
+                "revision": "3979531a1e08b4b75a8c17279165950bce0c45f2f73ae2d03dc3d4720f9afcbf"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 600,
+                  "end": 1200,
+                  "total": 2406
+                },
+                "revision": "3979531a1e08b4b75a8c17279165950bce0c45f2f73ae2d03dc3d4720f9afcbf"
+              }
+            ],
+            "resultDigest": "093e3ffae4c59731fc8f3d626949ada7925a97d5dc34741ed673fcbe509ee9c1"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 674,
+          "reason": null,
+          "read": {
+            "source": "3f8bc7be12ba1c7bce12c264fa232a31250479655d73ebf48ab2cfd8300b0b01",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "3f8bc7be12ba1c7bce12c264fa232a31250479655d73ebf48ab2cfd8300b0b01",
+            "contentHash": "ee1939452fe294bb211981fdbdeba08471d703961f2df509c13333404f1715a9",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 3,
+              "totalEntries": 3
+            },
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [
+              {
+                "path": "99f8e3bb59acd6f5cc5b8d16aa3a88ed53bc500d323e310d4c03123f1590281f",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "820facaf6f51ecc891fce19acdab901a15a8f063b1b6130da123beb3c8206c39",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "7ef0ea29d9ca75fb206ea5da2df613ce073f5275d7be7608b10279b928920470",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "63e46a2cf3ef59eb4579381de927cab6186ab7bfe4196e663c7f134287fd285a"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 6310,
+          "reason": null,
+          "read": {
+            "source": "2e8904c687d2381b7b75c68bf1c7a00bec7e37deb6bed2d41e4cffe7f6e8f6eb",
+            "cursor": "e23ab50ebb00650d7f7841520410d6596bd2114ec85165435af502f52a8bd1db",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "2e8904c687d2381b7b75c68bf1c7a00bec7e37deb6bed2d41e4cffe7f6e8f6eb",
+            "contentHash": "96b10ba70c0c951c9d164794b79c6d26979ea354a8eb0ef5102fbe84082bf180",
+            "coverage": {
+              "fromEntry": 7,
+              "toEntry": 26,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 1200,
+                  "end": 1800,
+                  "total": 2406
+                },
+                "revision": "3979531a1e08b4b75a8c17279165950bce0c45f2f73ae2d03dc3d4720f9afcbf"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 1800,
+                  "end": 2400,
+                  "total": 2406
+                },
+                "revision": "3979531a1e08b4b75a8c17279165950bce0c45f2f73ae2d03dc3d4720f9afcbf"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 2400,
+                  "end": 2406,
+                  "total": 2406
+                },
+                "revision": "3979531a1e08b4b75a8c17279165950bce0c45f2f73ae2d03dc3d4720f9afcbf"
+              },
+              {
+                "path": "df7e2bc60373a43519c7c0815fa1c1f05f43a391c45d850a1c522bf3feb318c1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "e24eeb7f8dfd1ca0d2ed88ac5841f516a66105fc8e8ffccf37b725c8e14dd7c0",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "318d59eff5b09da3908f275ff99e901bc21bb7352c55fd8c28786d9bf2fcaea6",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "9a5c4ae0e35b4e3a215f97c3b98a93d33d506ad11623747b10414a839b07ceb7",
+                "range": {
+                  "start": 0,
+                  "end": 5,
+                  "total": 5
+                },
+                "revision": "3979531a1e08b4b75a8c17279165950bce0c45f2f73ae2d03dc3d4720f9afcbf"
+              },
+              {
+                "path": "e4aad6b8e566d4976b31e8d79b1e141ba7be08377b49544717fc3819e1861f5b",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "236be81dc7662101564caecf825c054a21650076a9a21786fa07bf9d527905fb",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "38863ba849d1fbbcbc7142a1f2d9c623d976bbc9739afcea69a462f638ae5cd1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fc6c851920a7b3ee2f86e04fcce031cb6a7d5423616afa61614ec549d8f9fd5f",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "eea5dfcec15684e2aa627a43e0717bfc6d255ffcdb71f0d50a229bcd75671aec",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "37e6e85295fc4202c3521c3347dc6070b8824e51e9af2a40e94c0d5474f25502",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2cbd2a8b00a9a3cfe1fbd220c273133896adb03e3bfc15e33f18467ba3641abe",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fde3ad758d945d909c62e5f60fca53adc5091896a03db57b6f93716c1e1c09a6",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "481a5418520714120d2e3900811900b21fea3b01ee7ea4f8cff410dfb8ab8278",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "8285b066cb28f289e60240f5bb8c4f1515e6b568afb7b11c90a7eb0f3a727483",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "881b2531067fda3bf22301a7d317878a17749916f85da8fbd270d1b4319651b7",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "7cc7070de6f1a451f4a88f6924cf0e5428711f20641a04fa1e307f5812e4b431",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "7359337f9ed3f1909d98b00c6080c37ea1d68481ed6b40a38940e1010d54c78b"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "save_draft_checkpoint",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 2076,
+          "reason": null,
+          "save": {
+            "submittedContentDigest": "44ff376583352f6899790eefb237de1922144ad8ffbedb938b31d2484b948776",
+            "expectedCandidate": "3979531a1e08b4b75a8c17279165950bce0c45f2f73ae2d03dc3d4720f9afcbf",
+            "patchSource": "3979531a1e08b4b75a8c17279165950bce0c45f2f73ae2d03dc3d4720f9afcbf",
+            "saved": true,
+            "revision": "4db5cb5a4ab2a4cd0ba2e9c80542dbcbed314bcb3bda052de0ac20ac0e8526fc",
+            "checkpoint": "2e77bb546ff96d5d37f1d3f194280f5c578abd428296ee345012a2edd472cc24",
+            "version": 2,
+            "source": "257a61647f47a3fddfc4b0659662bfb3ae7589c2af09b0f3dccfd69984d361a1"
+          },
+          "requestedMode": "patch"
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 5376,
+          "reason": null,
+          "read": {
+            "source": "257a61647f47a3fddfc4b0659662bfb3ae7589c2af09b0f3dccfd69984d361a1",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "257a61647f47a3fddfc4b0659662bfb3ae7589c2af09b0f3dccfd69984d361a1",
+            "contentHash": "d86f66147ff225c1a499542f366ca4d0d6dca68dfe3b8ea1f35fe343049b5f74",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 7,
+              "totalEntries": 30
+            },
+            "byteRange": null,
+            "nextCursor": "b9c90d6f7643a4d3334855b4cbc73562541f39721d14291fd000bd5c8287047c",
+            "entries": [
+              {
+                "path": "820facaf6f51ecc891fce19acdab901a15a8f063b1b6130da123beb3c8206c39",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "045fa915d619cf91677fabe0b022110cbdbda9db4bf36df60692e35b8a0d1666",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "b00d882ad099b8ee94d453f845d3b869eb27f3b2242de0f2ec608973d3dace83",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "4d71fd933ef1954917f1652eda46363afb031376e8667f5a7fa80c62ebaceec8",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "d6015af43f4935fc8d416fe950761a13ff06f823a6c72ebc04051c3e447072df",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2406
+                },
+                "revision": "4db5cb5a4ab2a4cd0ba2e9c80542dbcbed314bcb3bda052de0ac20ac0e8526fc"
+              },
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 600,
+                  "end": 1200,
+                  "total": 2406
+                },
+                "revision": "4db5cb5a4ab2a4cd0ba2e9c80542dbcbed314bcb3bda052de0ac20ac0e8526fc"
+              }
+            ],
+            "resultDigest": "a2811079e626839b3e25c5e7000062724066b68f4c0601b1dd782e98d52c6059"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 6736,
+          "reason": null,
+          "read": {
+            "source": "257a61647f47a3fddfc4b0659662bfb3ae7589c2af09b0f3dccfd69984d361a1",
+            "cursor": "b9c90d6f7643a4d3334855b4cbc73562541f39721d14291fd000bd5c8287047c",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "257a61647f47a3fddfc4b0659662bfb3ae7589c2af09b0f3dccfd69984d361a1",
+            "contentHash": "d86f66147ff225c1a499542f366ca4d0d6dca68dfe3b8ea1f35fe343049b5f74",
+            "coverage": {
+              "fromEntry": 7,
+              "toEntry": 27,
+              "totalEntries": 30
+            },
+            "byteRange": null,
+            "nextCursor": "f73c3fd70e7285e0459fb5b4cf75e733760cf06fd26002d59c52de1430a94531",
+            "entries": [
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 1200,
+                  "end": 1800,
+                  "total": 2406
+                },
+                "revision": "4db5cb5a4ab2a4cd0ba2e9c80542dbcbed314bcb3bda052de0ac20ac0e8526fc"
+              },
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 1800,
+                  "end": 2400,
+                  "total": 2406
+                },
+                "revision": "4db5cb5a4ab2a4cd0ba2e9c80542dbcbed314bcb3bda052de0ac20ac0e8526fc"
+              },
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 2400,
+                  "end": 2406,
+                  "total": 2406
+                },
+                "revision": "4db5cb5a4ab2a4cd0ba2e9c80542dbcbed314bcb3bda052de0ac20ac0e8526fc"
+              },
+              {
+                "path": "e844e0cab0a8f3d9f6296b093d83ff78bb1dee3ea9ddcfa893a56e58939675c2",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "1a5e29e4b4641a5940b6b119e02a387160b7ac8684661ceb85e9d4279fe14e03",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "1c66f0ed6234a4252d98f5b7673b39500949e8651c61c157e0f8cad651e1d5a3",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "4e1c0142257c07e0c3c76d1ebdfc2a3b8996f768b84f3b2a21dd180b32161bdd",
+                "range": {
+                  "start": 0,
+                  "end": 5,
+                  "total": 5
+                },
+                "revision": "4db5cb5a4ab2a4cd0ba2e9c80542dbcbed314bcb3bda052de0ac20ac0e8526fc"
+              },
+              {
+                "path": "b56a3e7abdc3530a4c299a2f68864543e477ceed24ffbb92c955221285f96e79",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "8439d0f39c80d593fb5264c4d9416843ba431f6a1a557c6074474f406d65a717",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "e4aa9db0b5e7f44fd9b3accfb068e41ad551d36a413474d458ec4baaacd52e78",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "7d3edff4ac3a7d8afdce4c1d0a355d6bfdd62e95fec54855a13b4a1994ec077e",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "6fb9c9acb4366f409f18e9d4b4d82dbf404903f1420fcc5b59d7e0b5da41df4e",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2fc46242420d3989fe3b2b702561e05227aa0aae0347bf49e0c119968e3c63ec",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "5e82c33bccca6776071028006ee59e7d603b0dd2c1a5f4b8bcf85964ad60d83c",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "00552dd2f782c0673648e76a048a1bf693e2e99fe11fc18ac0300a34a8db0cb4",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "57f9dd5e6a7d8d740f08707c295c46d891abbf91edf9121ad7c3d407490576de",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "79320cd3f9254346e4f28a00d8ac5986d4c4d2d337a376324544b1465886cb35",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "4cf69d980975fe722e7fae9b190b20364a27c93b30e3c388a776ec8be8516ba5",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "f7a8df195a01c4daddd08963fa118ac0be685451612277b42b5e30e7f31d0d0a",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fee4b28c8d5e4e871cba08aa56dd4caee634ed85f20bddb6e04714c30593a0c8",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "509425526154535991d6b0f6a5e5d2a8016920fac3ac81d193b30b4c5af256ac"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 696,
+          "reason": null,
+          "read": {
+            "source": "257a61647f47a3fddfc4b0659662bfb3ae7589c2af09b0f3dccfd69984d361a1",
+            "cursor": "f73c3fd70e7285e0459fb5b4cf75e733760cf06fd26002d59c52de1430a94531",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "257a61647f47a3fddfc4b0659662bfb3ae7589c2af09b0f3dccfd69984d361a1",
+            "contentHash": "d86f66147ff225c1a499542f366ca4d0d6dca68dfe3b8ea1f35fe343049b5f74",
+            "coverage": {
+              "fromEntry": 27,
+              "toEntry": 30,
+              "totalEntries": 30
+            },
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [
+              {
+                "path": "8cbc435ffa38d0048fed5f7e8b440240476f5df2b75e0d2bb110bef25c7fba19",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2bd3f1a64d27c85575fdb0e1c45f69064dddd8a214779628228a505ea26d31d1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "bf0c6828f2deefcbd54eee78b46f6dcef8a32e6849c2881eee6f013602dcfb47",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "5682cdb1ae5082e8c534d63326b9f0d44dba64a9c3903433a961515431dda052"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "complete_task",
+          "status": "completed",
+          "error": false,
+          "resultBytes": 1886,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 9,
+        "tokens": 213590,
+        "unknownTokens": 0
+      },
+      "contentPreserved": true,
+      "firstAttemptSucceeded": true,
+      "corrections": 0,
+      "fixtureDigest": "11b9da32b57e2e718de7f628e141d860ed5922dc9bfbf03ba6ef5c6513fab04c",
+      "admittedCatalogDigest": "a6167fb0e67fd605506621ec3fdc8b4c33a47e8463be6d97bc743e1c41932e89",
+      "admittedTools": [
+        "read_context",
+        "search_story",
+        "query_story",
+        "search_relations",
+        "save_draft_checkpoint",
+        "complete_task",
+        "read_creative_strategy",
+        "read_tool_guide",
+        "discover_creative_capabilities",
+        "read_quality_notebook",
+        "authorize_delegated_writer",
+        "save_delegated_draft",
+        "read_delegated_draft",
+        "read_work_issues",
+        "read_source_content",
+        "read_reading_progress",
+        "checkpoint_reading"
+      ],
+      "mcpSessionStartupMs": 450.3924159999988,
+      "modelElapsedMs": 13572.613250000002,
+      "executionStatus": "completed",
+      "comparisonModeHonored": true,
+      "toolErrorCount": 0,
+      "readSummary": {
+        "successfulReads": 6,
+        "repeatedExactResults": 0,
+        "interpretation": "Identical request and result observations; repetition alone does not establish waste."
+      },
+      "reading": {
+        "policy": "completeOriginalAndFinal",
+        "honored": true,
+        "originalCompleteBeforeSave": true,
+        "finalCompleteBeforeCompletion": true
+      },
+      "payloadCost": {
+        "toolResults": {
+          "taskContext": {
+            "calls": 1,
+            "resultBytes": 9401,
+            "unknownSizeCalls": 0
+          },
+          "sourceReading": {
+            "calls": 6,
+            "resultBytes": 25074,
+            "unknownSizeCalls": 0
+          },
+          "saveReceipt": {
+            "calls": 1,
+            "resultBytes": 2076,
+            "unknownSizeCalls": 0
+          },
+          "completionOrOther": {
+            "calls": 1,
+            "resultBytes": 1886,
+            "unknownSizeCalls": 0
+          }
+        },
+        "requestPayloads": [
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 24735
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 35807
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 43504
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 51082
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 55703
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 62119
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 69986
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 71324
+          },
+          {
+            "instructionsBytes": 31341,
+            "toolsBytes": 15740,
+            "inputBytes": 74928
+          }
+        ],
+        "interpretation": "Serialized bytes, not tokens or prices. Input includes prior conversation; source reading and repetition are not automatically waste. Exact-edit cases do not isolate literary reasoning."
+      },
+      "quiescent": true,
+      "readback": {
+        "status": "matched",
+        "checks": {
+          "body": true,
+          "title": true,
+          "chapterIdentity": true,
+          "groupStructure": true,
+          "protectedGroups": true
+        },
+        "revision": "4db5cb5a4ab2a4cd0ba2e9c80542dbcbed314bcb3bda052de0ac20ac0e8526fc",
+        "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+        "bodyUnchanged": false,
+        "expectedCharacters": 2406,
+        "actualCharacters": 2406
+      },
+      "domainTaskStatus": "completed",
+      "elapsedMs": 14176.636375000002
+    }
+  ],
+  "providerUsage": null,
+  "limitations": [
+    "Exact-edit synthetic cases measure tool use and content preservation, not literary quality.",
+    "Provider usage comes from Engine receipts; unknown usage stays unknown. No qualification is fabricated."
+  ],
+  "configuration": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "repeats": 1,
+    "readingPolicy": "completeOriginalAndFinal",
+    "toolScope": "nativeOperationCatalog",
+    "limitsPerCase": {
+      "requests": 10,
+      "tokens": 250000,
+      "seconds": 180
+    },
+    "startupTimeoutMs": 600000,
+    "plannedCases": 2,
+    "caseSelection": [
+      {
+        "size": "long",
+        "mode": "full"
+      },
+      {
+        "size": "long",
+        "mode": "patch"
+      }
+    ]
+  },
+  "build": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+    "engineContractHash": "a584044a337961c2a14fa467e1ec3add05b69ed277147a37e2186f32136d1e85",
+    "qualificationContextDigest": "2a1e084ac1ba0a54a4f7ae791620d4d817dd16a28c2ff2b3057ab2f92f6b3a05",
+    "native": {
+      "runtime": "4eb9a43e837018d68edd63f7390b72e3e56b24b215f280489d7990b15b386c24",
+      "mcp": "2b4a8ffc76ce0666d9516c0d5eb6dd200568d9d04c4dec3547ae415ef630d68d"
+    }
+  },
+  "runtimeStartupMs": 186.02091699999983,
+  "comparisonIdentity": {
+    "files": {
+      "runtime": "4eb9a43e837018d68edd63f7390b72e3e56b24b215f280489d7990b15b386c24",
+      "mcp": "2b4a8ffc76ce0666d9516c0d5eb6dd200568d9d04c4dec3547ae415ef630d68d",
+      "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+      "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+      "scripts/evaluate-live-novel-tools.mjs": "9a029d29dd296ec4f998c97bb26f08fb0da1ea45da201ccf1afc5d91ee5eaa38",
+      "scripts/tool-evaluation-comparison.mjs": "586bebe0b5dcb01fb4a188e6246f63a6abfe91596f4f0f6e95d84a4628581dc9",
+      "scripts/tool-evaluation-observations.mjs": "d64afe672323a50fa4d560ff5696418d64a47939eb2ea8034ad28ca0bfa1c92b",
+      "scripts/tool-evaluation-runtime.mjs": "e02490eccd099f27e6bafea376bf9e9ae43eadc0eae4ffd7ff9137f1396b244b",
+      "electron/workflow-handoff.mjs": "c1fdfb0bd7852d0103f437be5aa60231533a558e826ce5f2f7ddd94d163c94ef",
+      "electron/codex-adapter.mjs": "acca395c62da99d711cced75e256844cd2e9d7c656f80cbfdc81b7b98f12f6bc",
+      "electron/codex-runtime.mjs": "274a8d08497b463f7663811e15f8ec4580be59df3a7ab59450cf5e68e5ce53d9"
+    },
+    "baseInstructions": "ebfcbdce4a6c353e85d6cde37e508b89c77a902bd27771c91caba5fd494bdb83",
+    "sessionPlan": "b6d831155b688ae093ba78b30b1b8c1d352783b2a9cd6b4cd2c360dd7d3fef58",
+    "configuration": "0d04d982aa201cc57f2fcb66fd71221a73e284c6884a2c18d6c1731226316386"
+  },
+  "summaries": [
+    {
+      "mode": "full",
+      "cases": 1,
+      "passed": 0,
+      "firstAttemptSuccessRate": 1,
+      "contentCheckedCases": 1,
+      "contentUnknownCases": 0,
+      "contentPreservationRate": 1,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 9,
+        "tokens": 211121
+      }
+    },
+    {
+      "mode": "patch",
+      "cases": 1,
+      "passed": 1,
+      "firstAttemptSuccessRate": 1,
+      "contentCheckedCases": 1,
+      "contentUnknownCases": 0,
+      "contentPreservationRate": 1,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 9,
+        "tokens": 213590
+      }
+    }
+  ],
+  "buildStable": true,
+  "comparison": {
+    "pairs": [
+      {
+        "repeat": 0,
+        "size": "long",
+        "eligible": false,
+        "reasons": [
+          "case_failed_or_reading_incomplete"
+        ],
+        "fullTokens": 211121,
+        "patchTokens": 213590,
+        "patchToFullTokenRatio": null
+      }
+    ],
+    "eligiblePairs": 0,
+    "interpretation": "Same-run full versus patch comparison under verified reading obligations; not an A/B test of earlier code or literary quality."
+  }
+}

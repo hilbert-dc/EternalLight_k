@@ -1,0 +1,28 @@
+{
+  "recordedAt": "2026-10-10T12:35:38.940204+00:00",
+  "scope": "Selected final files; shared workspace contains unrelated changes, not an exclusive authorship or frozen-source A/B claim.",
+  "files": {
+    "native/story-core/src/task_workspace.rs": "c55bccd4378d7e4b8ec8ff2ad49e869c6c3f7f35ad2de0f7d3ffa59af4669e53",
+    "native/story-core/src/task_workspace_output_tests.rs": "6f35774f87aa1815c68a9ef0f2ea7cb5989ec041d338fd73e83cf5ce87450095",
+    "native/story-runtime/src/server.rs": "c00b71c803753791c5e44ff4e4ad8d804503bd299e5c91ea8a262d4417bb4b4d",
+    "native/story-runtime/tests/workspace_saved_output_http_tests.rs": "16cbf95bb890b57fffa2ea3319f7e88dcb3fbb42b2297e433471b9978c161a76",
+    "native/story-mcp/src/draft_receipt.rs": "e2977e0dac8fd69ab39274753002d1b4409fc094d8c40bf60c3e6065dceb0df3",
+    "native/story-mcp/src/source_navigation.rs": "f56aeb07c4faf8d4e7d2cdbb0126340705100d5f23d687f7c57bb113f132de41",
+    "native/story-mcp/src/main.rs": "d84cc5337d04b506bfcebd9a86641ecd3e2375febcba5ead9b8125300f5e7ceb",
+    "scripts/tests/tool-evaluation-core.integration.test.mjs": "5964da9b8c665148ac81e4864ca37b4f46a6b7212193fb674dcc3033605c85bf",
+    "ARCHITECTURE.md": "e0c5636700a3ff5f062a1524f82eb2be68b1e37c607e56385833c8f880f80c39",
+    "AGENT_CAPABILITY_OPTIMIZATION_PLAN.md": "13e1ed621bd1534e1dcc2cb0b611bdc3730254cdff791ca7c2f77e67da2d3818",
+    "design-reviews/2026-10-10-agent-full-acceptance.md": "b74c6fa5c51e8567e553c7adb0a66e5e8dff4e682d48ac8bf63c788937320a1f",
+    "design-reviews/2026-10-10-agent-optimization-implementation.md": "19b5e28ca6f9f4dd345b696a498c6bac049905c4741285b3fe92316a9fb85a39"
+  },
+  "liveBuild": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+    "engineContractHash": "a584044a337961c2a14fa467e1ec3add05b69ed277147a37e2186f32136d1e85",
+    "qualificationContextDigest": "2a1e084ac1ba0a54a4f7ae791620d4d817dd16a28c2ff2b3057ab2f92f6b3a05",
+    "native": {
+      "runtime": "4eb9a43e837018d68edd63f7390b72e3e56b24b215f280489d7990b15b386c24",
+      "mcp": "486ecf08fcb64da912693b3c93974189b5944b6473d96c44e77674be39f11b92"
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "status": "local-repair-verified",
+  "paidProviderCalls": 0,
+  "committed": false,
+  "pushed": false,
+  "sourceSha256": {
+    "native/story-core/src/work_pause_barrier.rs": "79abe72bceaa8146807f9ca39543d7d3f7206c133379ae4321605d65ee395c44",
+    "native/story-core/src/task_actions.rs": "c97a5654003ce76af2c727b193cce4a66e4000abfde0a12e2ef3d471a9ba7dbd",
+    "native/story-core/src/task_action_queue.rs": "980836d328e716d4c1dce352ddd293007b20277b8784ca565b15b3c063b2235a",
+    "native/story-core/src/work_decision_actions.rs": "c4e71772e3af6f2ba653b0b13374ecbffe5ede91f76011f66ed46afe8a1a55a5",
+    "native/story-core/tests/work_interlude_tests.rs": "229f24cd1482a72f555ac485a06592a2df8c8563c8186333633387911d9b664b",
+    "native/story-mcp/src/tool_guidance.rs": "5ed01ffe8bda13c4c2f893d7a5a8502398fb1e42760809fbf5958735ae68ceb4",
+    "electron/tests/work-interludes-native.integration.mjs": "e84a416d29ef4fe9e974de334239539c2ae7fd3d7602f7563788834256728b40"
+  },
+  "tests": {
+    "actionBinding": 14,
+    "workDelivery": 5,
+    "interludes": 9,
+    "pauseControls": 12,
+    "javascript": 42,
+    "hostNativeIntegration": 2
+  },
+  "build": "passed",
+  "architecture": {
+    "files": 364,
+    "crates": 7,
+    "diagnostics": 0
+  },
+  "logs": [
+    "interlude223-native.log",
+    "interlude224-native.log",
+    "interlude225-native.log",
+    "interlude223-js.log",
+    "interlude224-integration.log",
+    "interlude224-build.log",
+    "interlude224-architecture.log"
+  ],
+  "limitations": [
+    "No paid model rerun; actual full creative delivery remains unverified.",
+    "Tool guide hint does not prove reduced provider usage.",
+    "Original failed fixture assertion retained in interlude224-native.log."
+  ]
+}

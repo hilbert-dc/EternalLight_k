@@ -1,0 +1,32 @@
+Analysis of sampling novel_codex_story_core-bfd03865f3ad6235 (pid 89184) every 1 millisecond
+Process:         novel_codex_story_core-bfd03865f3ad6235 [89184]
+Path:            /Users/USER/*/novel_codex_story_core-bfd03865f3ad6235
+Load Address:    0x102060000
+Identifier:      novel_codex_story_core-bfd03865f3ad6235
+Version:         ???
+Code Type:       ARM64
+Parent Process:  cargo [88786]
+Target Type:     live task
+
+Date/Time:       2026-10-10 22:50:49.314 +0800
+Launch Time:     2026-10-10 22:49:42.581 +0800
+OS Version:      macOS 26.5.1 (25F80)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         112K
+Physical footprint (peak):  112K
+Idle exit:                  untracked
+----
+
+Call graph:
+    882 Thread_5764849: Main Thread   DispatchQueue_<multiple>
+      882 _dyld_start  (in dyld) + 0  [0x1046209c0]
+
+Total number in stack (recursive counted multiple, when >=5):
+
+Sort by top of stack, same collapsed (when >= 5):
+        _dyld_start  (in dyld)        882
+
+Binary images description not available
+

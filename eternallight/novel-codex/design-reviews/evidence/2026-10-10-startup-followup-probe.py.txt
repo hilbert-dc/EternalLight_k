@@ -1,0 +1,42 @@
+import subprocess,tempfile,pathlib,json,time,secrets,selectors,hashlib,urllib.request,shutil
+root=pathlib.Path('/Users/hilbert/private/codex/eternallight/novel-codex')
+evidence=root/'design-reviews/evidence'
+binary=root/'native/target/debug/novel-codex-story-runtime'
+report={'binarySha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'diagnosticDeadlineSeconds':180,'productionDeadlineChanged':False,'stages':[]}
+directory=pathlib.Path(tempfile.mkdtemp(prefix='novel-startup-diagnostic-'))
+start=time.monotonic(); child=None
+try:
+ child=subprocess.Popen([str(binary),'--port','0','--db',str(directory/'story.sqlite3'),'--engine-budget-db',str(directory/'engine.sqlite3'),'--token-stdin'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+ child.stdin.write((json.dumps({'authorToken':secrets.token_hex(24),'candidateToken':secrets.token_hex(24)})+'\n').encode());child.stdin.close()
+ report['pid']=child.pid
+ selector=selectors.DefaultSelector();selector.register(child.stdout,selectors.EVENT_READ,'stdout');selector.register(child.stderr,selectors.EVENT_READ,'stderr')
+ sampled=False
+ while time.monotonic()-start < 180:
+  if not sampled and time.monotonic()-start>5:
+   sampled=True
+   sampled_path=evidence/'2026-10-10-startup-followup-runtime-loader.txt'
+   try:
+    sample=subprocess.run(['/usr/bin/sample',str(child.pid),'1','1','-file',str(sampled_path)],capture_output=True,timeout=10)
+    report['sampleExit']=sample.returncode
+   except subprocess.TimeoutExpired: report['sampleExit']='timeout'
+  for key,mask in selector.select(0.2):
+   line=key.fileobj.readline()
+   if not line:selector.unregister(key.fileobj);continue
+   text=line.decode(errors='replace').strip()
+   if text.startswith('Story Runtime listening on '):
+    report['stages'].append({'name':'listening','elapsedMs':(time.monotonic()-start)*1000})
+    response=urllib.request.urlopen(text.removeprefix('Story Runtime listening on ')+'/health',timeout=5)
+    report['healthStatus']=response.status;response.close();report['status']='ready';break
+  if report.get('status')=='ready':break
+  if child.poll() is not None:report['status']='exited';report['exitCode']=child.returncode;break
+ else:report['status']='timeout'
+except Exception as e:report['status']='error';report['errorType']=type(e).__name__
+finally:
+ report['elapsedMs']=(time.monotonic()-start)*1000
+ if child is not None and child.poll() is None:
+  child.terminate()
+  try:child.wait(timeout=5)
+  except subprocess.TimeoutExpired:child.kill();child.wait(timeout=5)
+ shutil.rmtree(directory)
+ (evidence/'2026-10-10-startup-followup-runtime-diagnostic.json').write_text(json.dumps(report,indent=2)+'\n')
+ print(json.dumps(report))

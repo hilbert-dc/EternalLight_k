@@ -1,0 +1,88 @@
+// Public desktop API orchestration only. Injected clocks are for local tests;
+// production runs use real time and never substitute provider or Native facts.
+export async function settleLiveProject(api, projectId, { timeoutMs = 150_000, quietMs = 2_000,
+  now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), onIdle = null } = {}) {
+  const end = now() + timeoutMs;
+  let quietSince = null, previous = null, snapshot;
+  while (now() < end) {
+    const executions = await api.agent.listExecutions(projectId);
+    const page = await api.runtime.listWorkTasks(projectId);
+    if (page.nextCursor) throw Error('Probe cannot certify a truncated Work listing');
+    const works = page.tasks;
+    if (onIdle && !executions.length && !works.some(work => work.interlude)) await onIdle();
+    const health = (await api.agent.status()).executionHealth;
+    if (!Array.isArray(health)) throw Error('Missing background execution health');
+    const scheduled = health.filter(entry => entry.state === 'waiting'
+      && (entry.projectId === projectId || entry.projectId === null)
+      && works.some(work => ['running','blocked'].includes(work.status)
+        && (!entry.workTaskId || entry.workTaskId === work.id)));
+    snapshot = { executions, works, scheduled };
+    const pending = executions.length || scheduled.length || works.some(work => work.status === 'running'
+      || work.deliveryReport?.unsettledAttemptIds?.length);
+    const fingerprint = JSON.stringify({works,scheduled});
+    if (pending || fingerprint !== previous) quietSince = null;
+    else quietSince ??= now();
+    if (!pending && quietSince !== null && now() - quietSince >= quietMs) return { settled: true, ...snapshot };
+    previous = fingerprint;
+    await sleep(100);
+  }
+  return { settled: false, reason: 'background execution or settlement did not reach a stable terminal state', ...snapshot };
+}
+
+export async function stopLiveProject(api, projectId, options) {
+  const before = await api.runtime.listWorkTasks(projectId);
+  if (before.nextCursor) throw Error('Probe cannot safely clean up a truncated Work listing');
+  const errors = [];
+  // Pause durable authority first, including work between two local requests.
+  for (const work of before.tasks) if (['running','blocked'].includes(work.status)) {
+    try { await api.agent.controlWorkTask(projectId, work.id, 'pause', work.controlRevision, work.threadId); }
+    catch (error) { errors.push(String(error?.message ?? error)); }
+  }
+  for (const execution of await api.agent.listExecutions(projectId)) {
+    if (!execution.requestId) { errors.push('Active execution has no stoppable request identity'); continue; }
+    try { await api.agent.interrupt({ projectId, requestId: execution.requestId }); }
+    catch (error) { errors.push(String(error?.message ?? error)); }
+  }
+  return { probeInitiatedStop: true, errors, ...await settleLiveProject(api, projectId, options) };
+}
+
+export async function executeLiveHandoff(api, projectId, proposal) {
+  if (!proposal || proposal.projectId !== projectId || proposal.state !== 'proposed'
+    || proposal.targetChapters !== 1 || proposal.resumeRun || !proposal.proposalId) {
+    throw Error('Proposal is outside the isolated one-chapter acceptance scope');
+  }
+  const source = await api.runtime.getCreativeWorkspace(projectId);
+  if (source.revision !== proposal.expectedRevision || source.headSnapshotId !== proposal.baseSnapshotId
+    || source.sourceDigest !== proposal.sourceDigest) throw Error('Proposal source changed before acceptance');
+  // This is the same explicit scope approval IPC the UI invokes; not adoption.
+  return api.agent.generateWork(projectId, proposal.authorIntent, proposal.targetChapters,
+    proposal.expectedRevision, proposal.baseSnapshotId, proposal.sourceDigest, null, proposal.proposalId);
+}
+
+export function liveRemainingRequests(limit, receipts) {
+  let used = 0;
+  const seen = new Set();
+  if (!Number.isSafeInteger(limit) || limit < 1) throw Error('Invalid request allowance');
+  for (const receipt of receipts) {
+    if (!receipt?.runId || seen.has(receipt.runId) || !Number.isSafeInteger(receipt.usage?.requests)
+      || receipt.usage.requests < 0 || !['completed','failed','cancelled','recovered_unknown','terminal'].includes(receipt.status)) {
+      throw Error('Incomplete or duplicate provider accounting');
+    }
+    seen.add(receipt.runId); used += receipt.usage.requests;
+  }
+  const remaining = limit - used;
+  if (remaining < 1) throw Error('Scenario request allowance exhausted before generation');
+  return remaining;
+}
+
+export async function approveLiveCandidate(api, projectId, chapterId, attempted) {
+  const {actions} = await api.agent.listProposedActions(projectId);
+  const action = actions.find(item => !attempted.has(item.id));
+  if (!action) return null;
+  if (!chapterId || action.status !== 'proposed' || action.operation !== 'generateChapter'
+    || action.target?.chapterId !== chapterId || !action.sourceTaskId || !action.id) {
+    throw Error('Candidate approval is outside the isolated chapter scope');
+  }
+  attempted.add(action.id);
+  return {actionId:action.id,result:await api.agent.approveAction(projectId,action.sourceTaskId,action.id)};
+}

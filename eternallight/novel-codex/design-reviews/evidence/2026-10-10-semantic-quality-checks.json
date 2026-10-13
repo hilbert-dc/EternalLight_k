@@ -1,0 +1,202 @@
+{
+  "source": "design-reviews/evidence/2026-10-10-semantic-quality-report.json",
+  "scope": "Structural preservation and domain completion only; no literary score or A/B comparison",
+  "cases": [
+    {
+      "case": "quality:short-suspense",
+      "probeStatus": "needsReview",
+      "workStates": [
+        {
+          "id": "work-task-b946078f89beca2d1fabfa57fdb4f624",
+          "status": "completed",
+          "deliveryStatus": "ready_for_review"
+        }
+      ],
+      "knownUsage": {
+        "requests": 19,
+        "tokens": 700875,
+        "unknownTokens": 0
+      },
+      "checks": {
+        "titleUnchanged": true,
+        "groupMetadataUnchanged": true,
+        "protectedTextUnchanged": true,
+        "noAdoption": true,
+        "domainCompleted": true,
+        "expectedSourceEffect": true
+      },
+      "structuralPass": true
+    },
+    {
+      "case": "quality:long-local-voice",
+      "probeStatus": "needsReview",
+      "workStates": [
+        {
+          "id": "work-task-2498f1b9494664bccb23479c9ec33ba2",
+          "status": "completed",
+          "deliveryStatus": "ready_for_review"
+        }
+      ],
+      "knownUsage": {
+        "requests": 51,
+        "tokens": 1966296,
+        "unknownTokens": 0
+      },
+      "checks": {
+        "titleUnchanged": true,
+        "groupMetadataUnchanged": true,
+        "protectedTextUnchanged": true,
+        "noAdoption": true,
+        "domainCompleted": true,
+        "expectedSourceEffect": true
+      },
+      "structuralPass": true
+    },
+    {
+      "case": "quality:duplicate-quote",
+      "probeStatus": "needsReview",
+      "workStates": [
+        {
+          "id": "work-task-ce30cc1de47e824c222b86ca9a20f6b9",
+          "status": "completed",
+          "deliveryStatus": "ready_for_review"
+        }
+      ],
+      "knownUsage": {
+        "requests": 19,
+        "tokens": 672528,
+        "unknownTokens": 0
+      },
+      "checks": {
+        "titleUnchanged": true,
+        "groupMetadataUnchanged": true,
+        "protectedTextUnchanged": true,
+        "noAdoption": true,
+        "domainCompleted": true,
+        "expectedSourceEffect": true
+      },
+      "structuralPass": true
+    },
+    {
+      "case": "quality:unicode-lock",
+      "probeStatus": "failed",
+      "workStates": [],
+      "knownUsage": {
+        "requests": 0,
+        "tokens": 0,
+        "unknownTokens": 0
+      },
+      "checks": {
+        "titleUnchanged": true,
+        "groupMetadataUnchanged": true,
+        "protectedTextUnchanged": true,
+        "noAdoption": true,
+        "domainCompleted": false,
+        "expectedSourceEffect": false
+      },
+      "structuralPass": false
+    },
+    {
+      "case": "quality:chapter-continuation",
+      "probeStatus": "needsReview",
+      "workStates": [
+        {
+          "id": "work-task-44c17f98a67942209805caec278026f9",
+          "status": "completed",
+          "deliveryStatus": "ready_for_review"
+        }
+      ],
+      "knownUsage": {
+        "requests": 24,
+        "tokens": 919139,
+        "unknownTokens": 0
+      },
+      "checks": {
+        "titleUnchanged": true,
+        "groupMetadataUnchanged": true,
+        "protectedTextUnchanged": true,
+        "noAdoption": true,
+        "domainCompleted": true,
+        "expectedSourceEffect": true
+      },
+      "structuralPass": true
+    },
+    {
+      "case": "quality:cross-chapter",
+      "probeStatus": "needsReview",
+      "workStates": [
+        {
+          "id": "work-task-537b65729523a80642219dec40b37231",
+          "status": "completed",
+          "deliveryStatus": "ready_for_review"
+        }
+      ],
+      "knownUsage": {
+        "requests": 22,
+        "tokens": 873756,
+        "unknownTokens": 0
+      },
+      "checks": {
+        "titleUnchanged": true,
+        "groupMetadataUnchanged": true,
+        "protectedTextUnchanged": true,
+        "noAdoption": true,
+        "domainCompleted": true,
+        "expectedSourceEffect": true
+      },
+      "structuralPass": true
+    },
+    {
+      "case": "quality:inconsistent-clues",
+      "probeStatus": "needsReview",
+      "workStates": [
+        {
+          "id": "work-task-b25477753cf82e5d5e7cea78e946cbaf",
+          "status": "completed",
+          "deliveryStatus": "discussion_ended"
+        }
+      ],
+      "knownUsage": {
+        "requests": 5,
+        "tokens": 143179,
+        "unknownTokens": 0
+      },
+      "checks": {
+        "titleUnchanged": true,
+        "groupMetadataUnchanged": true,
+        "protectedTextUnchanged": true,
+        "noAdoption": true,
+        "domainCompleted": true,
+        "expectedSourceEffect": true
+      },
+      "structuralPass": true
+    },
+    {
+      "case": "quality:insufficient-evidence",
+      "probeStatus": "needsReview",
+      "workStates": [
+        {
+          "id": "work-task-1e80a6be3e5960141da3bceda23fb330",
+          "status": "completed",
+          "deliveryStatus": "discussion_ended"
+        }
+      ],
+      "knownUsage": {
+        "requests": 5,
+        "tokens": 140373,
+        "unknownTokens": 0
+      },
+      "checks": {
+        "titleUnchanged": true,
+        "groupMetadataUnchanged": true,
+        "protectedTextUnchanged": true,
+        "noAdoption": true,
+        "domainCompleted": true,
+        "expectedSourceEffect": true
+      },
+      "structuralPass": true
+    }
+  ],
+  "passed": 7,
+  "planned": 8
+}

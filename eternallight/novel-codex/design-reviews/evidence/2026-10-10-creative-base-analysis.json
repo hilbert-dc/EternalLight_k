@@ -1,0 +1,133 @@
+{
+  "scope": "Product-owned creative base instructions; upstream Codex and Engine unchanged this slice",
+  "sources": {
+    "codex-runtime/engine-prompt.md": "7d66e96c93ee9b8e0de6a9046af40d007cad569025f8ec6917e63ff77b1f31b0",
+    "electron/main.mjs": "dc8d5c927eae8fdcbba1b5db5ae8fa6133953227bc5274f372fdaa38800dd824",
+    "scripts/certify-model.mjs": "0a700aae35ad5f5edfab8da8ca5aa18d117ed6a588f608768d9d5d4f1f351d73",
+    "scripts/probe-live-revision.mjs": "57bd980b8144474266af6c075dd232f2c088cfd881c7c42921668cd20645591a",
+    "scripts/stage-release-runtime.mjs": "da4bcfab30cbcee763ab3839a7b8909bfc3c19b977eefc30ff509096268b7374",
+    "scripts/probe-live-extraction.mjs": "445787a07d7eec0313f32aeaefb4ea3f17be3ead0beed45dd1b52af3182fbd2b",
+    "scripts/evaluate-live-novel-tools.mjs": "e10081eb3b5027991e3c82a59163750167fd132771a893aa595b6a82fcc29c9d",
+    "scripts/probe-live-chapter-structure.mjs": "d5ba9ecba5a797762e073dc70f5671983d5c81790a10f841ff956e9e97aa837a",
+    "electron/tests/codex-tool-schema.test.mjs": "7ec1e1612c63caa2044980edb5b22f3400e4f5414efc0eda9b199ed76af7105c",
+    "electron/tests/release-runtime.test.mjs": "fff1650606b5ad342ef7c60aeb6684de2121681bb1ced6ecf2d7e7e18c19b89c",
+    "scripts/tests/tool-evaluation-core.integration.test.mjs": "5bfb3a9d36b2add56ff3a293a5191fb9f408ca60d0eb91499832836863f45f46",
+    "electron/tests/codex-runtime.test.mjs": "179698e25df8a34f50d87cad6e63b896806875ed8e2772d837d144eae839da83"
+  },
+  "promptBytes": {
+    "before": 20903,
+    "after": 2791
+  },
+  "pairs": [
+    {
+      "size": "short",
+      "checks": {
+        "sameSizeMode": true,
+        "sameFixture": true,
+        "sameCatalog": true,
+        "sameNative": true,
+        "sameCodexEngine": true,
+        "sameLimits": true,
+        "stableBuilds": true,
+        "bothPassed": true,
+        "completeReading": true
+      },
+      "eligible": true,
+      "beforeUsage": {
+        "overrun": false,
+        "requests": 6,
+        "tokens": 121686,
+        "unknownTokens": 0
+      },
+      "afterUsage": {
+        "overrun": false,
+        "requests": 6,
+        "tokens": 99066,
+        "unknownTokens": 0
+      },
+      "tokenReduction": 0.18588826980918105,
+      "beforeInstructionsBytes": 31341,
+      "afterInstructionsBytes": 12936,
+      "toolsBytes": [
+        15740,
+        15740
+      ],
+      "firstInputBytes": [
+        24735,
+        24735
+      ]
+    },
+    {
+      "size": "long",
+      "checks": {
+        "sameSizeMode": true,
+        "sameFixture": true,
+        "sameCatalog": true,
+        "sameNative": true,
+        "sameCodexEngine": true,
+        "sameLimits": true,
+        "stableBuilds": true,
+        "bothPassed": false,
+        "completeReading": true
+      },
+      "eligible": false,
+      "beforeUsage": {
+        "overrun": false,
+        "requests": 9,
+        "tokens": 210915,
+        "unknownTokens": 0
+      },
+      "afterUsage": {
+        "overrun": false,
+        "requests": 10,
+        "tokens": 200102,
+        "unknownTokens": 0
+      },
+      "tokenReduction": null,
+      "beforeInstructionsBytes": 31341,
+      "afterInstructionsBytes": 12936,
+      "toolsBytes": [
+        15740,
+        15740
+      ],
+      "firstInputBytes": [
+        24735,
+        24735
+      ]
+    }
+  ],
+  "checks": {
+    "connectionAndRelease": "39/39",
+    "toolEvaluation": "17/17 including real Core",
+    "schemaAndPromptWire": "1/1",
+    "hostTypecheck": "passed",
+    "architecture": "365 files, 7 crates, no diagnostics",
+    "oldQualification": "rejected before any case",
+    "newQualification": "protocol and Core tool loop verified"
+  },
+  "syntheticEvaluationUsage": {
+    "requests": 31,
+    "tokens": 631769,
+    "unknownTokens": 0
+  },
+  "qualificationUsage": {
+    "reportedProtocolRequests": 2,
+    "reportedProtocolKnownTokens": 479,
+    "completeTotal": null,
+    "reason": "second streaming probe usage was not extracted; current Core qualification result omits its budget usage. This is not zero cost. Limits were 4 protocol calls (512 output tokens each) plus 16 Core calls/200000 tokens/60 seconds."
+  },
+  "limitations": [
+    "One eligible short-patch pair; not a stable benefit or literary-quality evaluation",
+    "Long baseline failed after correct delivery at next-request reservation; no successful-cost ratio",
+    "50k-token goal not met; pagination unchanged",
+    "macOS intermittent loader waiting remains unresolved",
+    "Model verification preceded final documentation only; no new deployment/restart of the user app",
+    "Initial automatic external-data approval rejection resolved by explicit user authorization; no blocked call executed"
+  ],
+  "reports": [
+    "2026-10-10-creative-base-before.json",
+    "2026-10-10-creative-base-after.json",
+    "2026-10-10-creative-base-qualification.jsonl",
+    "2026-10-10-creative-base-qualification-usage.json"
+  ]
+}

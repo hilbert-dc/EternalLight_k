@@ -1,0 +1,73 @@
+{
+  "binarySha256": "486ecf08fcb64da912693b3c93974189b5944b6473d96c44e77674be39f11b92",
+  "scope": "Actual MCP tools/list, synthetic environment, no HTTP call; JSON bytes, not token counts or provider encoded bytes",
+  "selectedBytes": 13613,
+  "tools": [
+    {
+      "name": "read_context",
+      "bytes": 2582,
+      "fields": {
+        "budget": 47,
+        "byteBudget": 49,
+        "expectedRevision": 187,
+        "povCharacterId": 17,
+        "queryPlan": 1700,
+        "readingChapter": 30,
+        "sceneOrder": 30,
+        "storyTime": 18
+      }
+    },
+    {
+      "name": "save_draft_checkpoint",
+      "bytes": 5495,
+      "fields": {
+        "delegatedCandidateId": 207,
+        "expectedCandidateRevisionId": 291,
+        "expectedRevision": 187,
+        "idempotencyKey": 202,
+        "patch": 1263,
+        "payload": 2492
+      }
+    },
+    {
+      "name": "complete_task",
+      "bytes": 623,
+      "fields": {
+        "expectedRevision": 187,
+        "summary": 34
+      }
+    },
+    {
+      "name": "read_tool_guide",
+      "bytes": 548,
+      "fields": {
+        "field": 174,
+        "toolName": 47
+      }
+    },
+    {
+      "name": "discover_creative_capabilities",
+      "bytes": 879,
+      "fields": {
+        "cursor": 47,
+        "query": 255,
+        "roleId": 46
+      }
+    },
+    {
+      "name": "read_source_content",
+      "bytes": 3479,
+      "fields": {
+        "chapterNumber": 174,
+        "cursor": 269,
+        "expectedRevision": 187,
+        "groupId": 114,
+        "objectKind": 432,
+        "query": 326,
+        "quote": 193,
+        "sourceId": 47,
+        "view": 1214
+      }
+    }
+  ]
+}

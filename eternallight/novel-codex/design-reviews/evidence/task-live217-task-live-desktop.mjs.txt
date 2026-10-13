@@ -1,0 +1,112 @@
+import { app, BrowserWindow, dialog } from 'electron';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const [appRoot, reportPath] = process.argv.slice(2);
+if (!process.env.NOVEL_CODEX_USER_DATA_DIR || process.env.NOVEL_TASK_LIVE_AUTHORIZED !== 'yes') throw Error('isolated authorization required');
+const report = { startedAt: new Date().toISOString(), model: 'deepseek-flash', limits: { maxRequestsPerScenario: Number(process.env.NOVEL_TASK_LIVE_REQUESTS || 6), maxTokens: null },
+  scope: 'production Electron preload/main, real Core/MCP/Native/provider; automated API driving, not visual/manual UX',
+  budgetInjection: 'tighten initial Native budget only; reject extra root budgets and topups', qualification: { status: 'notRun' }, scenarios: [] };
+let current = null;
+const clean = value => String(value?.stack ?? value?.message ?? value).replaceAll(process.env.DEEPSEEK_API_KEY || 'NO_KEY_TO_REDACT', '[REDACTED]').replace(/sk-[A-Za-z0-9_-]+/g,'[REDACTED]').slice(0,5000);
+const save = () => writeFileSync(reportPath, JSON.stringify(report,null,2), {mode:0o600});
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (input, options) => {
+  const url = new URL(typeof input === 'string' ? input : input.url);
+  const native = url.hostname === '127.0.0.1' && url.pathname.startsWith('/api/projects/');
+  if (native && options?.method === 'POST' && options.body) {
+    const body = JSON.parse(options.body);
+    if (url.pathname.endsWith('/budget-authorization')) throw Error('LIVE_PROBE_NO_BUDGET_TOPUP');
+    if (url.pathname.endsWith('/tasks') && body.initialBudget) {
+      if (!current || current.rootBudgetGranted) throw Error('LIVE_PROBE_NO_SECOND_ROOT_BUDGET');
+      current.rootBudgetGranted = true;
+      body.initialBudget = {...body.initialBudget, maxRequests:report.limits.maxRequestsPerScenario, maxTokens:null};
+      options = {...options, body:JSON.stringify(body)};
+    }
+  }
+  const response = await originalFetch(input,options);
+  if (native && current && options?.method === 'POST') {
+    const value = await response.clone().json().catch(()=>null);
+    if (url.pathname.endsWith('/tasks') && value?.id) current.tasks.push({id:value.id,operation:value.operation,threadId:value.threadId});
+    if (!response.ok) current.nativeFailures.push({path:url.pathname,status:response.status,error:value?.error});
+    save();
+  }
+  return response;
+};
+dialog.showMessageBox = async (_window, options) => { report.dialog = {title:options.title,buttons:options.buttons};save();return {response:0}; };
+let timer = setTimeout(()=>{report.fatal='overall timeout';save();app.exit(1);}, 900_000);
+process.on('uncaughtException',error=>{report.fatal=clean(error);save();app.exit(1);});
+app.once('browser-window-created',(_event,window)=>window.webContents.once('did-finish-load',async()=>{
+  const js = code => window.webContents.executeJavaScript(code);
+  try {
+    await js(`(async()=>{while(true){const s=await window.novelCodex.runtime.status();if(s.state==='online')return;if(s.state==='failed')throw Error(JSON.stringify(s));await new Promise(r=>setTimeout(r,100));}})()`);
+    report.qualification.status='running';save();console.log('LIVE_STAGE:qualification');
+    const existing = await js(`window.novelCodex.agent.status()`);
+    const qualification = existing.configured ? { reusedCurrentQualifiedConnection: true } : await js(`window.novelCodex.agent.verifyConnection('deepseek','deepseek-flash')`);
+    report.qualification={status:'returned',result:qualification};save();
+    const configured = await js(`window.novelCodex.agent.configure('deepseek','deepseek-flash')`);
+    report.configured=configured;save();
+    for (const scenario of (process.env.NOVEL_TASK_LIVE_SCENARIOS?.split(',') ?? ['delivery','stop','interlude','change','concurrentRecovery'])) {
+      current={name:scenario,status:'running',tasks:[],nativeFailures:[]};report.scenarios.push(current);save();console.log('LIVE_STAGE:'+scenario);
+      try {
+        const result = await js(`(${journey.toString()})(${JSON.stringify(scenario)})`);
+        Object.assign(current,result);
+      } catch(error) { current.status='failed';current.error=clean(error); }
+      save();
+      // Do not let an unsettled paid turn leak into the next scenario.
+      const active=await js(`window.novelCodex.agent.listExecutions(window.liveProjectId)`);
+      if(active.length){report.blocked='unsettled execution after scenario';save();break;}
+    }
+  } catch(error){report.fatal=clean(error);save();}
+  finally{clearTimeout(timer);report.finishedAt=new Date().toISOString();save();console.log('LIVE_REPORT:'+reportPath);window.destroy();app.quit();}
+}));
+
+async function journey(name) {
+  const api=window.novelCodex, sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const wait=async fn=>{const end=Date.now()+150000;while(Date.now()<end){const x=await fn();if(x)return x;await sleep(100);}throw Error('scenario wait timeout');};
+  const {project}=await api.runtime.createProject('真实任务验收 '+name,'虚构港城里，抄写员林夕保留一封密函。','novel',crypto.randomUUID());
+  window.liveProjectId=project.id;
+  const events=[];const unsubscribe=api.agent.onEvent(e=>events.push(e));
+  let requestId,settled=false,outcome;
+  const prompt=name==='interlude'?'只读回答这个虚构作品的主角叫什么、他保留了什么？不创作、不修改作品。':name==='delivery'?'为这个虚构故事创作一段约100字的开场，林夕在港城藏起密函。实际保存候选正文，不采用，不发布；根据实际保存回执说明完成情况。':
+    '请为这个虚构故事写一段约100字开场：林夕在港城烧掉密函。实际保存候选正文，不采用、不发布。先读取作品资料。';
+  const before=await api.runtime.getCreativeWorkspace(project.id);
+  const pending=api.agent.sendPrompt(project.id,prompt).then(value=>{settled=true;outcome={ok:true,value};},error=>{settled=true;outcome={ok:false,error:String(error?.message??error)};});
+  try {
+    requestId=await wait(()=>events.find(e=>e.method==='agent/execution-request')?.params.requestId);
+    let control=null;
+    if(name!=='delivery'){
+      await wait(()=>settled||events.some(e=>e.method==='item/completed'&&e.params?.item?.type==='mcpToolCall'));
+      if(settled)return {status:'blocked',reason:'turn settled before live intervention',outcome,events:events.map(e=>e.method)};
+      const works=await api.runtime.listWorkTasks(project.id);
+      const work=works.tasks.find(w=>w.status==='running');
+      if(!work)throw Error('No running Native Work for intervention');
+      if(name==='stop'||name==='concurrentRecovery'){
+        control=await api.agent.interrupt({projectId:project.id,requestId});
+        await wait(()=>settled);
+        const stopped=await api.runtime.getCreativeWorkspace(project.id);
+        await sleep(1500);
+        const later=await api.runtime.getCreativeWorkspace(project.id);
+        if(stopped.headSnapshotId!==later.headSnapshotId||stopped.sourceDigest!==later.sourceDigest)throw Error('write after acknowledged stop');
+        if(name==='stop')return {status:'passed',control,outcome,work:await api.runtime.getWorkTask(project.id,work.id),noPostStopWrites:true,eventMethods:[...new Set(events.map(e=>e.method))]};
+        const payload={chapterId:'chapter-live',chapterNumber:1,title:'作者修改',body:'作者并发标记：林夕保留密函，门外响起钟声。',sceneGroups:[]};
+        const saved=await api.runtime.saveDraftCheckpoint(project.id,payload,later.revision,null);
+        let resumed;
+        try{resumed={ok:true,value:await api.agent.resumeWorkTask(project.id,work.id)};}catch(error){resumed={ok:false,error:String(error?.message??error)};}
+        const after=await api.runtime.getCreativeWorkspace(project.id);
+        return {status:resumed.ok?'needsReview':'blocked',control,saved,resumed,after,work:await api.runtime.getWorkTask(project.id,work.id),limitation:'stop/resume with intervening author candidate, not actual network disconnect'};
+      }
+      if(name==='interlude')control=await api.agent.beginInterlude(project.id,work.id,{id:crypto.randomUUID(),threadId:work.threadId,expectedControlRevision:work.controlRevision,parentId:null,autoReturn:true,text:'先临时回答：主人公叫什么？不要修改作品。',focus:{view:'brief',readOnly:true}});
+      if(name==='change')control=await api.agent.steer(project.id,'修改要求：林夕必须保留密函，绝不能烧掉。后续创作请采用这项新要求。',work.threadId);
+    }
+    await wait(()=>settled);await pending;
+    if(name==='interlude')await wait(async()=>{const ws=await api.runtime.listWorkTasks(project.id);return ws.tasks.every(w=>w.status!=='running');});
+    const after=await api.runtime.getCreativeWorkspace(project.id),works=await api.runtime.listWorkTasks(project.id);
+    return {status:outcome.ok?'needsReview':'failed',outcome,control,before,after,works,eventMethods:[...new Set(events.map(e=>e.method))],tools:events.filter(e=>e.method==='item/completed'&&e.params?.item?.type==='mcpToolCall').map(e=>({tool:e.params.item.tool,status:e.params.item.status,result:e.params.item.result}))};
+  } finally {
+    if(!settled&&requestId){await api.agent.interrupt({projectId:project.id,requestId}).catch(()=>{});await Promise.race([pending,sleep(5000)]);}
+    unsubscribe();
+  }
+}
+await import(pathToFileURL(join(appRoot,'electron/main.mjs')));

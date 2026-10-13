@@ -1,0 +1,6 @@
+{"sample":1,"status":"ready","elapsedMs":2392.767542}
+{"sample":1,"mcpInitializeMs":664.0882079999997,"protocolVersion":"2025-06-18"}
+{"sample":2,"status":"ready","elapsedMs":97.86562499999991}
+{"sample":2,"mcpInitializeMs":1.768583000000035,"protocolVersion":"2025-06-18"}
+{"sample":3,"status":"ready","elapsedMs":97.67849999999999}
+{"sample":3,"mcpInitializeMs":1.6627080000002934,"protocolVersion":"2025-06-18"}

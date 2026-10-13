@@ -1,0 +1,396 @@
+{
+  "evidence": "existingLiveTraceAttribution",
+  "generatedAt": "2026-10-10T06:18:05.907Z",
+  "sources": [
+    {
+      "path": "2026-10-10-task-live221-222-tool-trace.json",
+      "sha256": "a98e4f107fcf7b4c619d3ee34cea5a78ca69e49df5350ae387a6d43fc0984e54"
+    },
+    {
+      "path": "2026-10-10-task-live221-222-ledgers.json",
+      "sha256": "67feffce79b2f647557d3badeb82b3860db040693b4fdf1880d89846c283473a"
+    }
+  ],
+  "scope": {
+    "providerRequests": 66,
+    "traceSessions": 4,
+    "toolCalls": 75,
+    "toolOutputs": 75,
+    "traceCoverage": "selected tool events from four sessions; not a full outbound provider prompt capture"
+  },
+  "providerUsageByOperation": {
+    "advisory": {
+      "requests": 58,
+      "knownTokens": 2280208,
+      "unknownReservedTokens": 85145
+    },
+    "generateChapter": {
+      "requests": 8,
+      "knownTokens": 212053,
+      "unknownReservedTokens": 0
+    }
+  },
+  "deliveryScenario": {
+    "attempts": [
+      {
+        "operation": "advisory",
+        "requests": 7,
+        "knownTokens": 224995,
+        "unknownReservedTokens": 0
+      },
+      {
+        "operation": "advisory",
+        "requests": 5,
+        "knownTokens": 250503,
+        "unknownReservedTokens": 0
+      },
+      {
+        "operation": "generateChapter",
+        "requests": 8,
+        "knownTokens": 212053,
+        "unknownReservedTokens": 0
+      },
+      {
+        "operation": "advisory",
+        "requests": 10,
+        "knownTokens": 369999,
+        "unknownReservedTokens": 0
+      }
+    ],
+    "knownTokens": 1057550,
+    "coordinationKnownTokens": 845497,
+    "coordinationShare": 0.7994865490993334,
+    "status": "95-character candidate saved; required independent assessment not completed"
+  },
+  "localTokenMeasurement": {
+    "encoding": "cl100k_base",
+    "method": "Tool arguments encoded as their recorded JSON strings. Each returned text block, including visible wrapper text, encoded once and summed. No reconstruction of provider history or billing.",
+    "byTool": {
+      "read_context": {
+        "calls": 9,
+        "argumentTokens": 71,
+        "returnedTextTokens": 33860,
+        "returnedCharacters": 132464
+      },
+      "read_source_content": {
+        "calls": 13,
+        "argumentTokens": 674,
+        "returnedTextTokens": 5287,
+        "returnedCharacters": 15031
+      },
+      "read_tool_guide": {
+        "calls": 16,
+        "argumentTokens": 170,
+        "returnedTextTokens": 12411,
+        "returnedCharacters": 61017
+      },
+      "request_candidate_task": {
+        "calls": 5,
+        "argumentTokens": 2498,
+        "returnedTextTokens": 1526,
+        "returnedCharacters": 4252
+      },
+      "read_work_status": {
+        "calls": 8,
+        "argumentTokens": 104,
+        "returnedTextTokens": 5432,
+        "returnedCharacters": 16619
+      },
+      "discover_creative_capabilities": {
+        "calls": 10,
+        "argumentTokens": 86,
+        "returnedTextTokens": 6587,
+        "returnedCharacters": 27349
+      },
+      "complete_task": {
+        "calls": 4,
+        "argumentTokens": 2006,
+        "returnedTextTokens": 3756,
+        "returnedCharacters": 7323
+      },
+      "request_work_action": {
+        "calls": 7,
+        "argumentTokens": 3913,
+        "returnedTextTokens": 4307,
+        "returnedCharacters": 11225
+      },
+      "request_generation_handoff": {
+        "calls": 2,
+        "argumentTokens": 410,
+        "returnedTextTokens": 766,
+        "returnedCharacters": 2160
+      },
+      "save_draft_checkpoint": {
+        "calls": 1,
+        "argumentTokens": 247,
+        "returnedTextTokens": 556,
+        "returnedCharacters": 1816
+      }
+    },
+    "totalReturnedTextTokens": 74488,
+    "interfaceAndContextReturnedTextTokens": 58290,
+    "interfaceAndContextShare": 0.7825421544409837,
+    "contextDetails": [
+      {
+        "session": "rollout-2026-10-10T14-01-18-01a12466-c814-71f3-9170-53098338b99d.jsonl",
+        "contextCharacters": 16752,
+        "contextTokens": 4249,
+        "methodCharacters": 8782,
+        "methodTextTokens": 1591,
+        "serializedMethodTextMarginalTokens": 1625,
+        "methodTextHashes": [
+          "4f8cb16da9ad5bd2a4819949534062f5f86e5fc218f9629039fb461c29eccda3"
+        ]
+      },
+      {
+        "session": "rollout-2026-10-10T14-03-06-01a12468-7011-7530-a585-f8c1041e7b71.jsonl",
+        "contextCharacters": 16812,
+        "contextTokens": 4338,
+        "methodCharacters": 8782,
+        "methodTextTokens": 1591,
+        "serializedMethodTextMarginalTokens": 1625,
+        "methodTextHashes": [
+          "4f8cb16da9ad5bd2a4819949534062f5f86e5fc218f9629039fb461c29eccda3"
+        ]
+      },
+      {
+        "session": "rollout-2026-10-10T14-03-06-01a12468-7011-7530-a585-f8c1041e7b71.jsonl",
+        "contextCharacters": 17031,
+        "contextTokens": 4398,
+        "methodCharacters": 8782,
+        "methodTextTokens": 1591,
+        "serializedMethodTextMarginalTokens": 1625,
+        "methodTextHashes": [
+          "4f8cb16da9ad5bd2a4819949534062f5f86e5fc218f9629039fb461c29eccda3"
+        ]
+      },
+      {
+        "session": "rollout-2026-10-10T14-03-06-01a12468-7011-7530-a585-f8c1041e7b71.jsonl",
+        "contextCharacters": 17064,
+        "contextTokens": 4408,
+        "methodCharacters": 8782,
+        "methodTextTokens": 1591,
+        "serializedMethodTextMarginalTokens": 1625,
+        "methodTextHashes": [
+          "4f8cb16da9ad5bd2a4819949534062f5f86e5fc218f9629039fb461c29eccda3"
+        ]
+      },
+      {
+        "session": "rollout-2026-10-10T13-59-25-01a12465-10d5-7ac0-939c-8561faf0f1e2.jsonl",
+        "contextCharacters": 16741,
+        "contextTokens": 4385,
+        "methodCharacters": 8782,
+        "methodTextTokens": 1591,
+        "serializedMethodTextMarginalTokens": 1625,
+        "methodTextHashes": [
+          "4f8cb16da9ad5bd2a4819949534062f5f86e5fc218f9629039fb461c29eccda3"
+        ]
+      },
+      {
+        "session": "rollout-2026-10-10T13-58-24-01a12464-212e-72a0-958b-ab1d94a26998.jsonl",
+        "contextCharacters": 15090,
+        "contextTokens": 3688,
+        "methodCharacters": 8782,
+        "methodTextTokens": 1591,
+        "serializedMethodTextMarginalTokens": 1625,
+        "methodTextHashes": [
+          "4f8cb16da9ad5bd2a4819949534062f5f86e5fc218f9629039fb461c29eccda3"
+        ]
+      },
+      {
+        "session": "rollout-2026-10-10T13-58-24-01a12464-212e-72a0-958b-ab1d94a26998.jsonl",
+        "contextCharacters": 15377,
+        "contextTokens": 3826,
+        "methodCharacters": 8782,
+        "methodTextTokens": 1591,
+        "serializedMethodTextMarginalTokens": 1625,
+        "methodTextHashes": [
+          "4f8cb16da9ad5bd2a4819949534062f5f86e5fc218f9629039fb461c29eccda3"
+        ]
+      },
+      {
+        "session": "rollout-2026-10-10T13-58-24-01a12464-212e-72a0-958b-ab1d94a26998.jsonl",
+        "contextCharacters": 17130,
+        "contextTokens": 4423,
+        "methodCharacters": 8782,
+        "methodTextTokens": 1591,
+        "serializedMethodTextMarginalTokens": 1625,
+        "methodTextHashes": [
+          "4f8cb16da9ad5bd2a4819949534062f5f86e5fc218f9629039fb461c29eccda3"
+        ]
+      }
+    ],
+    "contextSummary": {
+      "count": 8,
+      "totalTokens": 33715,
+      "methodTextMarginalTokens": 13000,
+      "uniqueMethodTexts": 1
+    },
+    "guidePages": [
+      {
+        "toolName": "request_candidate_task",
+        "range": {
+          "end": 3493,
+          "start": 0,
+          "total": 3493
+        },
+        "guideCharacters": 3493,
+        "guideTokens": 672
+      },
+      {
+        "toolName": "complete_task",
+        "range": {
+          "end": 4000,
+          "start": 0,
+          "total": 5522
+        },
+        "guideCharacters": 4000,
+        "guideTokens": 832
+      },
+      {
+        "toolName": "request_work_action",
+        "range": {
+          "end": 4000,
+          "start": 0,
+          "total": 17822
+        },
+        "guideCharacters": 4000,
+        "guideTokens": 708
+      },
+      {
+        "toolName": "request_work_action",
+        "range": {
+          "end": 4000,
+          "start": 0,
+          "total": 17822
+        },
+        "guideCharacters": 4000,
+        "guideTokens": 708
+      },
+      {
+        "toolName": "request_work_action",
+        "range": {
+          "end": 4000,
+          "start": 0,
+          "total": 17822
+        },
+        "guideCharacters": 4000,
+        "guideTokens": 708
+      },
+      {
+        "toolName": "request_candidate_task",
+        "range": {
+          "end": 3493,
+          "start": 0,
+          "total": 3493
+        },
+        "guideCharacters": 3493,
+        "guideTokens": 672
+      },
+      {
+        "toolName": "complete_task",
+        "range": {
+          "end": 4000,
+          "start": 0,
+          "total": 5522
+        },
+        "guideCharacters": 4000,
+        "guideTokens": 832
+      },
+      {
+        "toolName": "request_generation_handoff",
+        "range": {
+          "end": 2017,
+          "start": 0,
+          "total": 2017
+        },
+        "guideCharacters": 2017,
+        "guideTokens": 403
+      },
+      {
+        "toolName": "request_work_action",
+        "range": {
+          "end": 4000,
+          "start": 0,
+          "total": 17822
+        },
+        "guideCharacters": 4000,
+        "guideTokens": 708
+      },
+      {
+        "toolName": "request_work_action",
+        "range": {
+          "end": 4000,
+          "start": 0,
+          "total": 17822
+        },
+        "guideCharacters": 4000,
+        "guideTokens": 708
+      },
+      {
+        "toolName": "read_work_status",
+        "range": {
+          "end": 1362,
+          "start": 0,
+          "total": 1362
+        },
+        "guideCharacters": 1362,
+        "guideTokens": 250
+      },
+      {
+        "toolName": "request_work_action",
+        "range": {
+          "end": 8000,
+          "start": 4000,
+          "total": 17822
+        },
+        "guideCharacters": 4000,
+        "guideTokens": 913
+      },
+      {
+        "toolName": "request_work_action",
+        "range": {
+          "end": 12000,
+          "start": 8000,
+          "total": 17822
+        },
+        "guideCharacters": 4000,
+        "guideTokens": 867
+      },
+      {
+        "toolName": "request_work_action",
+        "range": {
+          "end": 16000,
+          "start": 12000,
+          "total": 17822
+        },
+        "guideCharacters": 4000,
+        "guideTokens": 864
+      },
+      {
+        "toolName": "complete_task",
+        "range": {
+          "end": 4000,
+          "start": 0,
+          "total": 5522
+        },
+        "guideCharacters": 4000,
+        "guideTokens": 832
+      }
+    ],
+    "submittedProse": [
+      {
+        "characters": 95,
+        "localTokens": 147,
+        "kind": "submitted prose only; not all creative reasoning or output"
+      }
+    ]
+  },
+  "limitations": [
+    "Operation labels are execution phases, not a split of creative thinking versus waste. Writer requests include protocol; advisory requests can include semantic decisions.",
+    "Tool-call counts are not provider-request counts. The trace and all ledger attempts have different coverage.",
+    "Returned tool text includes necessary story sources and current state; it is not all removable overhead.",
+    "Local token counts are not DeepSeek billed tokens and are not divided by provider totals. Repeated replay, provider schema, cache and output/reasoning split are not reconstructable from this artifact.",
+    "Unknown tokens are reservation estimates, not confirmed consumption. No new provider calls were made."
+  ]
+}

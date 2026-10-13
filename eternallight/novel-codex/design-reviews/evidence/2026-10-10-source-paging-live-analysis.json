@@ -1,0 +1,213 @@
+{
+  "scope": "Two current real DeepSeek synthetic long exact-edit cases only; original reports unchanged; no qualification usage or controlled-provider requests included",
+  "cases": [
+    {
+      "report": "2026-10-10-source-paging-long-full-live.json",
+      "reportSha256": "5dd497643f9731271e4f26532e115c7fa230eff31c9a9f9b2375da76990fe817",
+      "mode": "full",
+      "status": "failed",
+      "usage": {
+        "overrun": false,
+        "requests": 4,
+        "tokens": 90645,
+        "unknownTokens": 0
+      },
+      "configuration": {
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "repeats": 1,
+        "limitsPerCase": {
+          "requests": 30,
+          "tokens": 800000,
+          "seconds": 180
+        },
+        "startupTimeoutMs": 600000,
+        "plannedCases": 1,
+        "caseSelection": [
+          {
+            "size": "long",
+            "mode": "full"
+          }
+        ]
+      },
+      "build": {
+        "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+        "qualificationContextDigest": "b69e60c6cae0e86ee5b963457a1b3239fe2a205cbe0fcbe49c7fa056cf82e051",
+        "native": {
+          "runtime": "17b38c8f59e989140cca252efcd4d83d0f39c9132f4151e24f511769eb7a65dd",
+          "mcp": "f24d4b721130af4abd17a7b6a49c6584b2bdb0a4e9b99d4f6eee2de482d825f7"
+        }
+      },
+      "runtimeStartupMs": 231191.619458,
+      "mcpSessionStartupMs": 53176.847624999966,
+      "modelElapsedMs": 48819.95058299997,
+      "executionStatus": "failed",
+      "domainTaskStatus": "unknown",
+      "readback": {
+        "status": "mismatched",
+        "checks": {
+          "body": false,
+          "title": true,
+          "chapterIdentity": true,
+          "groupStructure": true,
+          "protectedGroups": true
+        },
+        "revision": "1c34a83d0fb25b28a41ec8bd5a070d6e6bc74ae3d6c2ed0c2f260f4fca2d85f3",
+        "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "actualBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+        "expectedCharacters": 2406,
+        "actualCharacters": 2406
+      },
+      "responseErrors": [
+        "provider_output_limit"
+      ],
+      "saveModes": [],
+      "pureModeValid": false,
+      "sourceReads": [
+        {
+          "source": "22310a312750cfa9008238d7fff98adfc4fb5707f440e9b173a8c09903652efa",
+          "coverage": {
+            "fromEntry": 0,
+            "toEntry": 7,
+            "totalEntries": 26
+          },
+          "contentHash": "8a89ea1daccec441d64be0185cb659936f56ec373315aa9936ecdfe55f29ae2b"
+        },
+        {
+          "source": "22310a312750cfa9008238d7fff98adfc4fb5707f440e9b173a8c09903652efa",
+          "coverage": {
+            "fromEntry": 7,
+            "toEntry": 26,
+            "totalEntries": 26
+          },
+          "contentHash": "8a89ea1daccec441d64be0185cb659936f56ec373315aa9936ecdfe55f29ae2b"
+        }
+      ]
+    },
+    {
+      "report": "2026-10-10-source-paging-long-patch-live.json",
+      "reportSha256": "73d2be933460f0b1e24b2c7f6b647af5676ed430af12ea719a6661f8d1f5e655",
+      "mode": "patch",
+      "status": "passed",
+      "usage": {
+        "overrun": false,
+        "requests": 8,
+        "tokens": 189113,
+        "unknownTokens": 0
+      },
+      "configuration": {
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "repeats": 1,
+        "limitsPerCase": {
+          "requests": 10,
+          "tokens": 250000,
+          "seconds": 180
+        },
+        "startupTimeoutMs": 600000,
+        "plannedCases": 1,
+        "caseSelection": [
+          {
+            "size": "long",
+            "mode": "patch"
+          }
+        ]
+      },
+      "build": {
+        "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+        "qualificationContextDigest": "b69e60c6cae0e86ee5b963457a1b3239fe2a205cbe0fcbe49c7fa056cf82e051",
+        "native": {
+          "runtime": "17b38c8f59e989140cca252efcd4d83d0f39c9132f4151e24f511769eb7a65dd",
+          "mcp": "f24d4b721130af4abd17a7b6a49c6584b2bdb0a4e9b99d4f6eee2de482d825f7"
+        }
+      },
+      "runtimeStartupMs": 98.53449999999975,
+      "mcpSessionStartupMs": 443.99729100000013,
+      "modelElapsedMs": 18196.186667,
+      "executionStatus": "completed",
+      "domainTaskStatus": "completed",
+      "readback": {
+        "status": "matched",
+        "checks": {
+          "body": true,
+          "title": true,
+          "chapterIdentity": true,
+          "groupStructure": true,
+          "protectedGroups": true
+        },
+        "revision": "2e52ddcbaf08a01c3c68bb16f71d5f66ea33ea0f949820596fdab9b01039b498",
+        "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+        "bodyUnchanged": false,
+        "expectedCharacters": 2406,
+        "actualCharacters": 2406
+      },
+      "responseErrors": [],
+      "saveModes": [
+        "patch"
+      ],
+      "pureModeValid": true,
+      "sourceReads": [
+        {
+          "source": "3b052c22e900640280aa0e55005848c9e68d4ff2aee3beea6c12e315d226ce5b",
+          "coverage": {
+            "fromEntry": 0,
+            "toEntry": 7,
+            "totalEntries": 26
+          },
+          "contentHash": "ceabd7701fb29b488cd7762f6d56571532e7ee7d083efa379ea7696d89464bf1"
+        },
+        {
+          "source": "ca9331b765a9e223f94ecbf7abd19e902a2e4af3a4a0ce7572fa976594e89541",
+          "coverage": {
+            "fromEntry": 0,
+            "toEntry": 3,
+            "totalEntries": 3
+          },
+          "contentHash": "ee1939452fe294bb211981fdbdeba08471d703961f2df509c13333404f1715a9"
+        },
+        {
+          "source": "3b052c22e900640280aa0e55005848c9e68d4ff2aee3beea6c12e315d226ce5b",
+          "coverage": {
+            "fromEntry": 7,
+            "toEntry": 26,
+            "totalEntries": 26
+          },
+          "contentHash": "ceabd7701fb29b488cd7762f6d56571532e7ee7d083efa379ea7696d89464bf1"
+        },
+        {
+          "source": "b95801807dfe263d2906c87aa4a85f14c5e08a5ca79a0772fa99f7699e641740",
+          "coverage": {},
+          "contentHash": null
+        },
+        {
+          "source": "835f5daadffb8b3066101e5cc1b762107e81d29a25527e520f81c53cdad3db66",
+          "coverage": {
+            "fromEntry": 0,
+            "toEntry": 7,
+            "totalEntries": 30
+          },
+          "contentHash": "b18753d0468e6954d40d8c84a04621f3df039bd1d7e0f9333cff210fa61fae75"
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "requests": 12,
+    "tokens": 279758,
+    "unknownTokens": 0
+  },
+  "fullOriginalBodyCheck": {
+    "method": "SHA256 of JSON string of unchanged synthetic fixture body",
+    "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+    "unchanged": true
+  },
+  "limitations": [
+    "Single observations, not frozen-source causal A/B or literary quality assessment.",
+    "Full path failed before any save; low tokens do not measure successful-delivery efficiency.",
+    "Previous patch sample used 181602 tokens in 8 requests; current 189113 in 8 requests does not establish cost improvement.",
+    "Actual outbound output cap and reasoning/output usage split were not captured.",
+    "Startup allowance is diagnostic only; original 30-second failures remain."
+  ]
+}

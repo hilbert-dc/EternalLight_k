@@ -1,0 +1,47 @@
+{
+  "basis": "Engine terminal receipts, excludes qualification; not supplier invoice",
+  "totals": {
+    "requests": 317,
+    "knownTokens": 10966509,
+    "unknownReservedTokens": 117310
+  },
+  "batches": [
+    {
+      "report": "2026-10-10-agent-acceptance-live-tools.json",
+      "requests": 8,
+      "knownTokens": 134296,
+      "unknownReservedTokens": 0
+    },
+    {
+      "report": "2026-10-10-agent-acceptance-live-tools-expanded-2.json",
+      "requests": 31,
+      "knownTokens": 699616,
+      "unknownReservedTokens": 0
+    },
+    {
+      "report": "2026-10-10-agent-acceptance-long-retry.json",
+      "requests": 26,
+      "knownTokens": 876276,
+      "unknownReservedTokens": 0
+    },
+    {
+      "report": "2026-10-10-agent-acceptance-desktop.json",
+      "requests": 93,
+      "knownTokens": 3377582,
+      "unknownReservedTokens": 117310
+    },
+    {
+      "report": "2026-10-10-agent-acceptance-quality.json",
+      "requests": 129,
+      "knownTokens": 4671064,
+      "unknownReservedTokens": 0
+    },
+    {
+      "report": "2026-10-10-agent-acceptance-quality-long-retry.json",
+      "requests": 30,
+      "knownTokens": 1207675,
+      "unknownReservedTokens": 0
+    }
+  ],
+  "actualMonetaryCost": null
+}

@@ -1,0 +1,142 @@
+{
+  "date": "2026-10-10",
+  "timezone": "Asia/Shanghai",
+  "scope": "198 local acceptance blockers repaired; shared dirty workspace, not a release certification",
+  "head": "307c541801fe9cfaad9ad80dfb1c7d8d9bf016a8",
+  "results": {
+    "taskControls": {
+      "log": "/tmp/task-controls213.log",
+      "sha256": "50ae0a2a4d1c1e205b0ee3af59cf0523b1d1f01623d8a711647f5cd125f63740",
+      "counts": {
+        "tests": 123,
+        "pass": 123,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "rustSummary": []
+    },
+    "creativeJourney": {
+      "log": "/tmp/task-creative214.log",
+      "sha256": "af2be25d6318e147ca3d69cd75df00a34af8d2c414b5616198ae268fa6e465df",
+      "counts": {
+        "tests": 93,
+        "pass": 93,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "rustSummary": []
+    },
+    "permissions": {
+      "log": "/tmp/task-permission206.log",
+      "sha256": "c10152aa3aa71418552650cc71f507833a61c6f54934b30a56af6f3461f42d39",
+      "counts": {
+        "tests": 53,
+        "pass": 53,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "rustSummary": []
+    },
+    "productionDesktop": {
+      "log": "/tmp/task-desktop210.log",
+      "sha256": "eb1461c0f2195c6ae9099267d39fcf3bea31c1e7c29d2aa9fc5317d300edaa45",
+      "counts": {
+        "tests": 5,
+        "pass": 5,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "rustSummary": []
+    },
+    "startup": {
+      "log": "/tmp/task-startup211.log",
+      "sha256": "f2d1ef555e44e7961263bf0cf5f2dc2746d3af5468b1e8aa4748d46b65b99bd1",
+      "counts": {
+        "tests": 13,
+        "pass": 13,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "rustSummary": []
+    },
+    "chapterHistory": {
+      "log": "/tmp/task-history212.log",
+      "sha256": "680c6febaba938fda6877dffb05854f8cf2a182aa19d1eb10d3c7008a5b62ee3",
+      "counts": {
+        "tests": 1,
+        "pass": 1,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "rustSummary": []
+    },
+    "editorAndCapacity": {
+      "log": "/tmp/task-ui204.log",
+      "sha256": "98a1d6bd5db72a6a8f96bf99bccf67d66d6c57a354990760184fbd3d16c313c2",
+      "counts": {
+        "tests": 8,
+        "pass": 8,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "rustSummary": []
+    },
+    "coreBridge": {
+      "log": "/tmp/task-fork-api205.log",
+      "sha256": "fcdf444364d1ae16fe2c3305cc327ed286756a9331cee68f5c4aa767806fa4a9",
+      "counts": {},
+      "rustSummary": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 190 filtered out; finished in 0.00s"
+      ]
+    },
+    "coreTools": {
+      "log": "/tmp/task-fork-tools206.log",
+      "sha256": "29739d9d4fe631892e179fef748056704c5823e03ca8c0ac7bb7f53c509741fd",
+      "counts": {},
+      "rustSummary": [
+        "test result: ok. 110 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+      ]
+    },
+    "repository": {
+      "log": "/tmp/task-repo214.log",
+      "sha256": "6c1b53df338fee54ad306d3410c345ef006454442017125dae26bf94a77265af",
+      "counts": {},
+      "rustSummary": []
+    },
+    "build": {
+      "log": "/tmp/task-build209.log",
+      "sha256": "f8add34b9311ecf4c1452099d0ea19ad7dfca539030db0a40c095fc28f5224ec",
+      "counts": {},
+      "rustSummary": []
+    }
+  },
+  "sourceSha256": {
+    "electron/main.mjs": "61552bf91aadf83cca5d4131267419f1de59a3c3c23b8ef4e8e0e71ae073bb0b",
+    "electron/codex-adapter.mjs": "7831ae91427e32068f05b3136d955a04ebad761784f7bfabf216146c6e87eaa0",
+    "src/App.tsx": "2fa6dfe7450c1adc054bbe57264539757e8bc60e7bbabfccf81b9222852052e3",
+    "codex-runtime/upstream-patches.json": "ec2517956b3525561a9e83c1cc05c6e4124e71825b5e918768726dc23235c373",
+    "electron/tests/engine-startup.test.mjs": "d75c37415983287e379e01eb23f7b980e58d54831088a7486f7797cb290dcff5",
+    "electron/tests/fixture-delayed-engine.mjs": "2545a6da1ff24cda82d706edb9105f2d7dbb5e324e9b69e7c71f5f8a8cb6b86c",
+    "electron/tests/work-task-resumption.test.mjs": "346a347fe7b40df050379c1b2106520d59bbe4666c3000b6725e46f33a827f5e",
+    "electron/tests/turn-lifecycle.test.mjs": "17d188842715f047b9ca0b00663c61528c93e900f1668e9f89b7bba5ac649fcb",
+    "electron/tests/planning-review-budget.test.mjs": "6cf94af02b5156360678eaa16402ceda7842e7638fe81724bc3c5aa0a9b6468e",
+    "electron/tests/knowledge-resumption.test.mjs": "f83bc3e30004e8a61d5b52521391ea446c282dea0dfe45e12207f750ec872384",
+    "electron/tests/work-decision-runtime.test.mjs": "7f4db0cc449008ec90e977177580becab6aa7695c1a7bb2c11b0a8b2f047f0e0",
+    "electron/tests/task-output-capacity.test.mjs": "bdbb6837f574e720d81a93988b3b1b357e0d60b61dd690e32b1494246c223bbd",
+    "electron/tests/fixtures/runtime-connection-ui.tsx": "4dbb0b7c14af17ff1e4a84aa0d4523814606c578d0a7eb5315b110e28b87bb74",
+    "electron/tests/fixtures/production-desktop-main.mjs": "b3770a0767b7423bd9254a2b60b816db01ec6758341aac5105c494a5369efc6f",
+    "electron/tests/helpers/production-desktop.mjs": "78cbc0d5da23e9be3d37eb9edf3e091948de3987a62d6d558a869491f95a77b9",
+    "electron/tests/production-desktop-integration.test.mjs": "02fd4b261b3b548bf791abb134b7b79ee8c8bae14b9c968c6bb191cc37434128",
+    "electron/tests/chapter-draft-native.integration.mjs": "8627798d88b84861970c9e096b3c49bdc946e5f3e51cd5e87ae6d0d48fa7335a"
+  },
+  "paidModelCallsThisRepair": 0,
+  "committed": false,
+  "pushed": false
+}

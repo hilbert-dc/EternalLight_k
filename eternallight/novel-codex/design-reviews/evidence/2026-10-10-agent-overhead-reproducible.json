@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "evidence": "existingTraceAttribution",
+  "providerByOperation": {
+    "advisory": {
+      "requests": 58,
+      "knownTokens": 2280208,
+      "unknownReservedTokens": 85145,
+      "attempts": 7
+    },
+    "generateChapter": {
+      "requests": 8,
+      "knownTokens": 212053,
+      "unknownReservedTokens": 0,
+      "attempts": 1
+    }
+  },
+  "providerByWork": {
+    "work-task-883532f7d1395e77a412c087d0d393fa": {
+      "requests": 7,
+      "knownTokens": 224995,
+      "unknownReservedTokens": 0,
+      "attempts": 1
+    },
+    "work-generation-a7457ea31be445d18810e7f4a66b1392": {
+      "requests": 23,
+      "knownTokens": 832555,
+      "unknownReservedTokens": 0,
+      "attempts": 3
+    },
+    "work-task-c6cc0aaf6534aa2a29a679effd24257d": {
+      "requests": 11,
+      "knownTokens": 393780,
+      "unknownReservedTokens": 0,
+      "attempts": 2
+    },
+    "work-task-6346453110d255dbb232b63eac6a3505": {
+      "requests": 25,
+      "knownTokens": 1040931,
+      "unknownReservedTokens": 85145,
+      "attempts": 2
+    }
+  },
+  "toolTotals": {
+    "read_context": {
+      "calls": 9,
+      "outputs": 9,
+      "inputLocalTokens": 71,
+      "outputLocalTokens": 33764,
+      "repeatedArguments": 3,
+      "identicalRepeatOutputTokens": 0
+    },
+    "read_source_content": {
+      "calls": 13,
+      "outputs": 13,
+      "inputLocalTokens": 674,
+      "outputLocalTokens": 5143,
+      "repeatedArguments": 2,
+      "identicalRepeatOutputTokens": 930
+    },
+    "read_tool_guide": {
+      "calls": 16,
+      "outputs": 16,
+      "inputLocalTokens": 170,
+      "outputLocalTokens": 12231,
+      "repeatedArguments": 3,
+      "identicalRepeatOutputTokens": 2492
+    },
+    "request_candidate_task": {
+      "calls": 5,
+      "outputs": 5,
+      "inputLocalTokens": 2498,
+      "outputLocalTokens": 1526,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    },
+    "read_work_status": {
+      "calls": 8,
+      "outputs": 8,
+      "inputLocalTokens": 104,
+      "outputLocalTokens": 5336,
+      "repeatedArguments": 2,
+      "identicalRepeatOutputTokens": 1692
+    },
+    "discover_creative_capabilities": {
+      "calls": 10,
+      "outputs": 10,
+      "inputLocalTokens": 86,
+      "outputLocalTokens": 6467,
+      "repeatedArguments": 1,
+      "identicalRepeatOutputTokens": 738
+    },
+    "complete_task": {
+      "calls": 4,
+      "outputs": 4,
+      "inputLocalTokens": 2006,
+      "outputLocalTokens": 3756,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    },
+    "request_work_action": {
+      "calls": 7,
+      "outputs": 7,
+      "inputLocalTokens": 3913,
+      "outputLocalTokens": 4307,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    },
+    "request_generation_handoff": {
+      "calls": 2,
+      "outputs": 2,
+      "inputLocalTokens": 410,
+      "outputLocalTokens": 766,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    },
+    "save_draft_checkpoint": {
+      "calls": 1,
+      "outputs": 1,
+      "inputLocalTokens": 247,
+      "outputLocalTokens": 556,
+      "repeatedArguments": 0,
+      "identicalRepeatOutputTokens": 0
+    }
+  },
+  "coverage": {
+    "sessions": 4,
+    "calls": 75,
+    "outputs": 75,
+    "duplicateEvents": 0,
+    "missingOutputs": 0,
+    "orphanOutputs": 0
+  },
+  "limitations": [
+    "Selected trace coverage is not a complete provider prompt capture.",
+    "Local tool tokens exclude schemas, history replay, reasoning and cache effects; never add them to Engine usage.",
+    "Operation is not cognitive activity: advisory includes useful creative work and verification.",
+    "Repeated arguments or identical outputs do not prove waste; versions, intervening writes and recovery matter.",
+    "Unknown reservations are not actual billed tokens. Unmapped usage remains in the report."
+  ],
+  "localEncoding": "cl100k_base",
+  "sources": [
+    {
+      "path": "2026-10-10-task-live221-222-tool-trace.json",
+      "sha256": "a98e4f107fcf7b4c619d3ee34cea5a78ca69e49df5350ae387a6d43fc0984e54"
+    },
+    {
+      "path": "2026-10-10-task-live221-222-ledgers.json",
+      "sha256": "67feffce79b2f647557d3badeb82b3860db040693b4fdf1880d89846c283473a"
+    }
+  ]
+}

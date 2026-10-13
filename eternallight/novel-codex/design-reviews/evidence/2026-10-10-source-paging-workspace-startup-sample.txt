@@ -1,0 +1,32 @@
+Analysis of sampling workspace_revision_reports_http_tests-985442ca220019b2 (pid 1839) every 1 millisecond
+Process:         workspace_revision_reports_http_tests-985442ca220019b2 [1839]
+Path:            /Users/USER/*/workspace_revision_reports_http_tests-985442ca220019b2
+Load Address:    0x100624000
+Identifier:      workspace_revision_reports_http_tests-985442ca220019b2
+Version:         ???
+Code Type:       ARM64
+Parent Process:  codex [81857]
+Target Type:     live task
+
+Date/Time:       2026-10-10 18:18:08.311 +0800
+Launch Time:     2026-10-10 18:12:14.491 +0800
+OS Version:      macOS 26.5.1 (25F80)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         112K
+Physical footprint (peak):  112K
+Idle exit:                  untracked
+----
+
+Call graph:
+    879 Thread_5161481: Main Thread   DispatchQueue_<multiple>
+      879 _dyld_start  (in dyld) + 0  [0x1071849c0]
+
+Total number in stack (recursive counted multiple, when >=5):
+
+Sort by top of stack, same collapsed (when >= 5):
+        _dyld_start  (in dyld)        879
+
+Binary images description not available
+

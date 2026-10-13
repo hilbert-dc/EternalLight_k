@@ -1,0 +1,171 @@
+{
+  "plan": {
+    "version": 1,
+    "suiteDigest": "e5e99d0840e9ae0f0d0ee56cce56633586afcc5431d07d60888079bcc7546000",
+    "arms": {
+      "solo": "单 Agent 完成原任务，不调用子 Agent；保留正常完成检查。",
+      "self_review": "单 Agent 完成后对一个明确创作疑难进行定向自检，比较修订代价；不调用子 Agent。",
+      "specialist": "主 Agent 将同一疑难交给隔离专家调查，核对证据后自行决定是否采用；记录实际材料暴露范围。"
+    },
+    "runs": [
+      {
+        "caseId": "short-suspense",
+        "arm": "solo",
+        "sourceDigest": "ab07822c388ca3a4c9039a23f234577abe2b17834efa448d152a410d14714781",
+        "status": "not_started"
+      },
+      {
+        "caseId": "short-suspense",
+        "arm": "self_review",
+        "sourceDigest": "ab07822c388ca3a4c9039a23f234577abe2b17834efa448d152a410d14714781",
+        "status": "not_started"
+      },
+      {
+        "caseId": "short-suspense",
+        "arm": "specialist",
+        "sourceDigest": "ab07822c388ca3a4c9039a23f234577abe2b17834efa448d152a410d14714781",
+        "status": "not_started"
+      },
+      {
+        "caseId": "long-local-voice",
+        "arm": "solo",
+        "sourceDigest": "c9be4b642f7399c68109f7c6bd30d3fd85f8e81b2be466e8c1f2cee09db6e9ba",
+        "status": "not_started"
+      },
+      {
+        "caseId": "long-local-voice",
+        "arm": "self_review",
+        "sourceDigest": "c9be4b642f7399c68109f7c6bd30d3fd85f8e81b2be466e8c1f2cee09db6e9ba",
+        "status": "not_started"
+      },
+      {
+        "caseId": "long-local-voice",
+        "arm": "specialist",
+        "sourceDigest": "c9be4b642f7399c68109f7c6bd30d3fd85f8e81b2be466e8c1f2cee09db6e9ba",
+        "status": "not_started"
+      },
+      {
+        "caseId": "duplicate-quote",
+        "arm": "solo",
+        "sourceDigest": "65a089200641c88b00784261a0cf51ce4e570b078951d54e4addb6eb94554537",
+        "status": "not_started"
+      },
+      {
+        "caseId": "duplicate-quote",
+        "arm": "self_review",
+        "sourceDigest": "65a089200641c88b00784261a0cf51ce4e570b078951d54e4addb6eb94554537",
+        "status": "not_started"
+      },
+      {
+        "caseId": "duplicate-quote",
+        "arm": "specialist",
+        "sourceDigest": "65a089200641c88b00784261a0cf51ce4e570b078951d54e4addb6eb94554537",
+        "status": "not_started"
+      },
+      {
+        "caseId": "unicode-lock",
+        "arm": "solo",
+        "sourceDigest": "23654877c7da05102e90654c3d5e514d853079f489da9b8eae3863a98c1fdab9",
+        "status": "not_started"
+      },
+      {
+        "caseId": "unicode-lock",
+        "arm": "self_review",
+        "sourceDigest": "23654877c7da05102e90654c3d5e514d853079f489da9b8eae3863a98c1fdab9",
+        "status": "not_started"
+      },
+      {
+        "caseId": "unicode-lock",
+        "arm": "specialist",
+        "sourceDigest": "23654877c7da05102e90654c3d5e514d853079f489da9b8eae3863a98c1fdab9",
+        "status": "not_started"
+      },
+      {
+        "caseId": "chapter-continuation",
+        "arm": "solo",
+        "sourceDigest": "6fc00e41718fcd8c7626f239814b99e7294a39c05aed5a7bd4210ba05cd3f10e",
+        "status": "not_started"
+      },
+      {
+        "caseId": "chapter-continuation",
+        "arm": "self_review",
+        "sourceDigest": "6fc00e41718fcd8c7626f239814b99e7294a39c05aed5a7bd4210ba05cd3f10e",
+        "status": "not_started"
+      },
+      {
+        "caseId": "chapter-continuation",
+        "arm": "specialist",
+        "sourceDigest": "6fc00e41718fcd8c7626f239814b99e7294a39c05aed5a7bd4210ba05cd3f10e",
+        "status": "not_started"
+      },
+      {
+        "caseId": "cross-chapter",
+        "arm": "solo",
+        "sourceDigest": "78efeece3662104df65319f2141269c15026ef4ae483ffdf486bacc5e7200ba3",
+        "status": "not_started"
+      },
+      {
+        "caseId": "cross-chapter",
+        "arm": "self_review",
+        "sourceDigest": "78efeece3662104df65319f2141269c15026ef4ae483ffdf486bacc5e7200ba3",
+        "status": "not_started"
+      },
+      {
+        "caseId": "cross-chapter",
+        "arm": "specialist",
+        "sourceDigest": "78efeece3662104df65319f2141269c15026ef4ae483ffdf486bacc5e7200ba3",
+        "status": "not_started"
+      },
+      {
+        "caseId": "inconsistent-clues",
+        "arm": "solo",
+        "sourceDigest": "a879162560f0420923c4be0260eef6f81570e1f5126fa3836c47b1ee02e3791b",
+        "status": "not_started"
+      },
+      {
+        "caseId": "inconsistent-clues",
+        "arm": "self_review",
+        "sourceDigest": "a879162560f0420923c4be0260eef6f81570e1f5126fa3836c47b1ee02e3791b",
+        "status": "not_started"
+      },
+      {
+        "caseId": "inconsistent-clues",
+        "arm": "specialist",
+        "sourceDigest": "a879162560f0420923c4be0260eef6f81570e1f5126fa3836c47b1ee02e3791b",
+        "status": "not_started"
+      },
+      {
+        "caseId": "insufficient-evidence",
+        "arm": "solo",
+        "sourceDigest": "a35cd537be9eee542db61ead3cad2dcec265998c51e252c93ddcec2538ae3d0d",
+        "status": "not_started"
+      },
+      {
+        "caseId": "insufficient-evidence",
+        "arm": "self_review",
+        "sourceDigest": "a35cd537be9eee542db61ead3cad2dcec265998c51e252c93ddcec2538ae3d0d",
+        "status": "not_started"
+      },
+      {
+        "caseId": "insufficient-evidence",
+        "arm": "specialist",
+        "sourceDigest": "a35cd537be9eee542db61ead3cad2dcec265998c51e252c93ddcec2538ae3d0d",
+        "status": "not_started"
+      }
+    ],
+    "conditions": [
+      "每个样本三组使用相同材料、作者目标、模型配置、来源读取义务和完整 Work 额度；额度包含子任务与综合。",
+      "同一比较批次冻结代码与方法资源；运行顺序轮换。每个条件单独新任务，保留首次运行、失败和未知用量。",
+      "conditionEvidence 引用真实执行记录：rootThreadId、children 的 threadId/parentThreadId、同一预先登记的 question、定向自检 selfReviewRef、专家 reportRef/exposure。不以角色提示词作为执行证据。",
+      "只向评审提供 packet.json；key.json、条件名称、用量与模型信息单独保存。真人未评分则保持 pending。"
+    ],
+    "qualityGain": "unvalidated"
+  },
+  "expectedRuns": 24,
+  "suppliedRuns": 0,
+  "limitations": [
+    "三个比较重复使用同一组产物，不是三组独立实验；不得重复计算请求或费用。",
+    "本程序校验记录一致性，不能认证手填证据的真实性；执行日志和真人身份需另核。",
+    "模型评分不能代替真人读者；缺失、失败、条件不符与未知成本不构成质量收益证据。"
+  ]
+}

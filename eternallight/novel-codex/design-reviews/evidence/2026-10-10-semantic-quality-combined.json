@@ -1,0 +1,21 @@
+{
+  "scope": "Eight fixed cases with separate retries; structural/domain evidence only, not same-batch success or human quality approval",
+  "initialReport": "2026-10-10-semantic-quality-report.json",
+  "retryReport": "2026-10-10-bookkeeping-report.json",
+  "initialPassed": 7,
+  "initialFailed": 1,
+  "retry": {
+    "case": "quality:unicode-lock",
+    "checks": {
+      "titleUnchanged": true,
+      "groupMetadataUnchanged": true,
+      "protectedTextUnchanged": true,
+      "expectedSourceEffect": true,
+      "domainCompleted": true,
+      "noAdoption": true
+    },
+    "passed": true
+  },
+  "casesWithPassingEvidence": 8,
+  "humanRatings": "deferred_by_author"
+}

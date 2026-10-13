@@ -1,0 +1,17 @@
+{
+  "reviewer": "Codex evidence and prose review",
+  "rawReport": "2026-10-10-task-live236-raw.json",
+  "change": {
+    "verdict": "passed",
+    "requests": 21,
+    "knownTokens": 743325,
+    "unknownTokenReservation": 36551,
+    "body": "港城的夜裹着咸腥的雾气。抄写员林夕立在钟楼下，怀里的密函还留着体温。有人递来火折子，催她当场烧了它；她攥紧信角，终究没有点。灯影明灭，她把密函按回衣袋，转身走进巷子深处。远处汽笛一声长鸣。",
+    "reason": "Latest keep-letter intent delivered; candidate preserves letter despite suggestion to burn; real new draft, direct evidence report, Native fulfilled/ready_for_review, no pending usage, no adoption/publication, no manual retries or edits. Unknown interrupted-provider usage remains recorded.",
+    "expectedRace": "One stale background event claim was rejected (409); foreground continued and completed."
+  },
+  "delivery": {
+    "verdict": "failed",
+    "reason": "Full draft reading and verification succeeded. Final fulfilled report incorrectly listed future optional adoption/editing as blocking author decisions; rejected, then request limit reached."
+  }
+}

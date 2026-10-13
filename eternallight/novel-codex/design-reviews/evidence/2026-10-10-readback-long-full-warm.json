@@ -1,0 +1,972 @@
+{
+  "version": 2,
+  "evidence": "liveModelToolComparison",
+  "status": "failed",
+  "cases": [
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "full",
+      "responses": [
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "failed",
+          "errorCode": "task_token_budget_exhausted"
+        }
+      ],
+      "turns": [
+        {
+          "status": "failed",
+          "errorKind": "other",
+          "httpStatus": null,
+          "failure": {
+            "phase": "coreTurn",
+            "code": "execution_failed",
+            "reportedHint": "task token budget exhausted"
+          }
+        }
+      ],
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "f783d2ae745519707efb095f226409e35b3ab3489658b55112979765b78b2876",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "f783d2ae745519707efb095f226409e35b3ab3489658b55112979765b78b2876",
+            "contentHash": "3fcf5e4f7412211f53bd549fd9cd4ac07c33431549e8a3dee447ef628339f7f7",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 6,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": "50bd021d0a1e31a5e7fe85b39f90c6b75e81d441d6ea891cbb16f6eb21127223",
+            "entries": [
+              {
+                "path": "4d01a2fffad9442b4f5ec6e535edcb79d1960e6e22cd1cd9825a2e8f6276cd78",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "87ae6ab6cb06d8bcf0fe2157c1d29559b0f72202af148ad9ca7cff5c55d0f1ce",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "41cce05da967ed948e50a450b5030b6423625d668c643957095c334c1df55a15",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "9f9ca834c9ce76164c5237e210efadee3264adb89683dfd53baf155c69043cf2",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "576e9570f0a9be1c9ee7eee178c28514200b8c2866b7c6731ce4b237fe1e878d",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2406
+                },
+                "revision": "a6aa3a00ca13f3d279097ee8d9cdf5ee32dffceda66319a19f5000dd5bcc3ebb"
+              }
+            ],
+            "resultDigest": "3214737db6599d075625616bc3e0d9fdd3ff03ca999074cf0538b84b6b11bea6"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "f783d2ae745519707efb095f226409e35b3ab3489658b55112979765b78b2876",
+            "cursor": "50bd021d0a1e31a5e7fe85b39f90c6b75e81d441d6ea891cbb16f6eb21127223",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "f783d2ae745519707efb095f226409e35b3ab3489658b55112979765b78b2876",
+            "contentHash": "3fcf5e4f7412211f53bd549fd9cd4ac07c33431549e8a3dee447ef628339f7f7",
+            "coverage": {
+              "fromEntry": 6,
+              "toEntry": 7,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": "dbad53c26c84a6147e28a78ff901d98264fe99e94b3cdde79b2fe2e592799657",
+            "entries": [
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 600,
+                  "end": 1200,
+                  "total": 2406
+                },
+                "revision": "a6aa3a00ca13f3d279097ee8d9cdf5ee32dffceda66319a19f5000dd5bcc3ebb"
+              }
+            ],
+            "resultDigest": "53c50688dcc81fa5f7b8c34832c189917adbd2b6084b8fc8dec297c5fc39b7f8"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "f783d2ae745519707efb095f226409e35b3ab3489658b55112979765b78b2876",
+            "cursor": "dbad53c26c84a6147e28a78ff901d98264fe99e94b3cdde79b2fe2e592799657",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "f783d2ae745519707efb095f226409e35b3ab3489658b55112979765b78b2876",
+            "contentHash": "3fcf5e4f7412211f53bd549fd9cd4ac07c33431549e8a3dee447ef628339f7f7",
+            "coverage": {
+              "fromEntry": 7,
+              "toEntry": 8,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": "fc3ad950c50081eb5f2eaa640595435ea74ce7f654825d821b1827c6d80b1cfe",
+            "entries": [
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 1200,
+                  "end": 1800,
+                  "total": 2406
+                },
+                "revision": "a6aa3a00ca13f3d279097ee8d9cdf5ee32dffceda66319a19f5000dd5bcc3ebb"
+              }
+            ],
+            "resultDigest": "d56e1557425a5ff9d78d317c7a847bd7d8c48a398c9cb3e417eb3f3ffd393dfa"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "f783d2ae745519707efb095f226409e35b3ab3489658b55112979765b78b2876",
+            "cursor": "fc3ad950c50081eb5f2eaa640595435ea74ce7f654825d821b1827c6d80b1cfe",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "f783d2ae745519707efb095f226409e35b3ab3489658b55112979765b78b2876",
+            "contentHash": "3fcf5e4f7412211f53bd549fd9cd4ac07c33431549e8a3dee447ef628339f7f7",
+            "coverage": {
+              "fromEntry": 8,
+              "toEntry": 20,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": "373bf61da8ab930f1189291b2df2171d09ea005894248ba425ec2999858d188f",
+            "entries": [
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 1800,
+                  "end": 2400,
+                  "total": 2406
+                },
+                "revision": "a6aa3a00ca13f3d279097ee8d9cdf5ee32dffceda66319a19f5000dd5bcc3ebb"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 2400,
+                  "end": 2406,
+                  "total": 2406
+                },
+                "revision": "a6aa3a00ca13f3d279097ee8d9cdf5ee32dffceda66319a19f5000dd5bcc3ebb"
+              },
+              {
+                "path": "df7e2bc60373a43519c7c0815fa1c1f05f43a391c45d850a1c522bf3feb318c1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "e24eeb7f8dfd1ca0d2ed88ac5841f516a66105fc8e8ffccf37b725c8e14dd7c0",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "318d59eff5b09da3908f275ff99e901bc21bb7352c55fd8c28786d9bf2fcaea6",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "9a5c4ae0e35b4e3a215f97c3b98a93d33d506ad11623747b10414a839b07ceb7",
+                "range": {
+                  "start": 0,
+                  "end": 5,
+                  "total": 5
+                },
+                "revision": "a6aa3a00ca13f3d279097ee8d9cdf5ee32dffceda66319a19f5000dd5bcc3ebb"
+              },
+              {
+                "path": "e4aad6b8e566d4976b31e8d79b1e141ba7be08377b49544717fc3819e1861f5b",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "236be81dc7662101564caecf825c054a21650076a9a21786fa07bf9d527905fb",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "38863ba849d1fbbcbc7142a1f2d9c623d976bbc9739afcea69a462f638ae5cd1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fc6c851920a7b3ee2f86e04fcce031cb6a7d5423616afa61614ec549d8f9fd5f",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "eea5dfcec15684e2aa627a43e0717bfc6d255ffcdb71f0d50a229bcd75671aec",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "37e6e85295fc4202c3521c3347dc6070b8824e51e9af2a40e94c0d5474f25502",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "b9f7367debadb942e016104a168e3c43ba998ba150044b869f95ee005b0e2d14"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "f783d2ae745519707efb095f226409e35b3ab3489658b55112979765b78b2876",
+            "cursor": "373bf61da8ab930f1189291b2df2171d09ea005894248ba425ec2999858d188f",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "f783d2ae745519707efb095f226409e35b3ab3489658b55112979765b78b2876",
+            "contentHash": "3fcf5e4f7412211f53bd549fd9cd4ac07c33431549e8a3dee447ef628339f7f7",
+            "coverage": {
+              "fromEntry": 20,
+              "toEntry": 26,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [
+              {
+                "path": "2cbd2a8b00a9a3cfe1fbd220c273133896adb03e3bfc15e33f18467ba3641abe",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fde3ad758d945d909c62e5f60fca53adc5091896a03db57b6f93716c1e1c09a6",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "481a5418520714120d2e3900811900b21fea3b01ee7ea4f8cff410dfb8ab8278",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "8285b066cb28f289e60240f5bb8c4f1515e6b568afb7b11c90a7eb0f3a727483",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "881b2531067fda3bf22301a7d317878a17749916f85da8fbd270d1b4319651b7",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "7cc7070de6f1a451f4a88f6924cf0e5428711f20641a04fa1e307f5812e4b431",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "9c7a2c2b0b3cc3f8df9d74ead65ab33cc8e267946920eda17afad8aa82bff4db"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "save_draft_checkpoint",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "save": {
+            "submittedContentDigest": "8c699bd4e80ff7aa5abcfc1f19918417ae74a25aec6d9acd38dce7512d1d71a5",
+            "expectedCandidate": "a6aa3a00ca13f3d279097ee8d9cdf5ee32dffceda66319a19f5000dd5bcc3ebb",
+            "patchSource": null,
+            "saved": true,
+            "revision": "5c92530169eb8b2e95fde834d88ae2d44be66902eb5ed6aa6135aa5df3d631f6",
+            "checkpoint": "5afa2ac9f320eaebbcd71401d0d0cb53ad61493ad2a10febc7138c6c07bde095",
+            "version": 2
+          },
+          "requestedMode": "full"
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "23931999afe8ea9b94ea7b6f0075d0d7c9f98686a473034f718f8e42044d93da",
+            "cursor": null,
+            "view": "workspace",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "23931999afe8ea9b94ea7b6f0075d0d7c9f98686a473034f718f8e42044d93da",
+            "contentHash": null,
+            "coverage": {},
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [],
+            "resultDigest": "7f7034922bb8ec19247e473c412c8ec4472a8ba580a2e18ba4bd1bd7fa76da60"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "e38bdec74ca2067a207af674c6cb08f93eec5cb4760389193367a5b8f44e9329",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "e38bdec74ca2067a207af674c6cb08f93eec5cb4760389193367a5b8f44e9329",
+            "contentHash": "e74bd63af9dd2cbedba3c483f5c85c960e5e0c8123a2cf45e546df29e6c1b256",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 3,
+              "totalEntries": 32
+            },
+            "byteRange": null,
+            "nextCursor": "a5521122c2fdec566197ed1c0bbe64afa21fd08b5314775ad5758d242d17fc78",
+            "entries": [
+              {
+                "path": "820facaf6f51ecc891fce19acdab901a15a8f063b1b6130da123beb3c8206c39",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "045fa915d619cf91677fabe0b022110cbdbda9db4bf36df60692e35b8a0d1666",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "43edc4b94fd916b9d77200f009021813573ada64cad12963c0ee7d8377f276cb",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2378
+                },
+                "revision": null
+              }
+            ],
+            "resultDigest": "28869bd6feb07a98e186d97bf881929d0e0a66361199a903b34d32f1374ebc22"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "e38bdec74ca2067a207af674c6cb08f93eec5cb4760389193367a5b8f44e9329",
+            "cursor": "a5521122c2fdec566197ed1c0bbe64afa21fd08b5314775ad5758d242d17fc78",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "e38bdec74ca2067a207af674c6cb08f93eec5cb4760389193367a5b8f44e9329",
+            "contentHash": "e74bd63af9dd2cbedba3c483f5c85c960e5e0c8123a2cf45e546df29e6c1b256",
+            "coverage": {
+              "fromEntry": 3,
+              "toEntry": 4,
+              "totalEntries": 32
+            },
+            "byteRange": null,
+            "nextCursor": "c2a5be15ba682738e21062070d31572aadbbd4a6e48de7d56c9766b0323e3101",
+            "entries": [
+              {
+                "path": "43edc4b94fd916b9d77200f009021813573ada64cad12963c0ee7d8377f276cb",
+                "range": {
+                  "start": 600,
+                  "end": 1200,
+                  "total": 2378
+                },
+                "revision": null
+              }
+            ],
+            "resultDigest": "bd8ba8deccac7efeb9e3738b3735ea364746f0fdc1a63c597517294de1db95ca"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "e38bdec74ca2067a207af674c6cb08f93eec5cb4760389193367a5b8f44e9329",
+            "cursor": "c2a5be15ba682738e21062070d31572aadbbd4a6e48de7d56c9766b0323e3101",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "e38bdec74ca2067a207af674c6cb08f93eec5cb4760389193367a5b8f44e9329",
+            "contentHash": "e74bd63af9dd2cbedba3c483f5c85c960e5e0c8123a2cf45e546df29e6c1b256",
+            "coverage": {
+              "fromEntry": 4,
+              "toEntry": 5,
+              "totalEntries": 32
+            },
+            "byteRange": null,
+            "nextCursor": "480fe3b5c14cad09c9fbe9ee10c55b583163ed6b872f66bea155e5b06a550c34",
+            "entries": [
+              {
+                "path": "43edc4b94fd916b9d77200f009021813573ada64cad12963c0ee7d8377f276cb",
+                "range": {
+                  "start": 1200,
+                  "end": 1800,
+                  "total": 2378
+                },
+                "revision": null
+              }
+            ],
+            "resultDigest": "e37a93d436776eab9f8034b827b19af1be78256e62c11a323ba016111cad6c2b"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "e38bdec74ca2067a207af674c6cb08f93eec5cb4760389193367a5b8f44e9329",
+            "cursor": "480fe3b5c14cad09c9fbe9ee10c55b583163ed6b872f66bea155e5b06a550c34",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "e38bdec74ca2067a207af674c6cb08f93eec5cb4760389193367a5b8f44e9329",
+            "contentHash": "e74bd63af9dd2cbedba3c483f5c85c960e5e0c8123a2cf45e546df29e6c1b256",
+            "coverage": {
+              "fromEntry": 5,
+              "toEntry": 9,
+              "totalEntries": 32
+            },
+            "byteRange": null,
+            "nextCursor": "49a4fa740ca5b1ed1a46b23438811c29863df23fb94e20b978fe165a72c437a6",
+            "entries": [
+              {
+                "path": "43edc4b94fd916b9d77200f009021813573ada64cad12963c0ee7d8377f276cb",
+                "range": {
+                  "start": 1800,
+                  "end": 2378,
+                  "total": 2378
+                },
+                "revision": null
+              },
+              {
+                "path": "b00d882ad099b8ee94d453f845d3b869eb27f3b2242de0f2ec608973d3dace83",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "4d71fd933ef1954917f1652eda46363afb031376e8667f5a7fa80c62ebaceec8",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "d6015af43f4935fc8d416fe950761a13ff06f823a6c72ebc04051c3e447072df",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "fbf954252aa2ba7170789a898f1e8886719b3ce353abb57d2e80552f3363d2f9"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "e38bdec74ca2067a207af674c6cb08f93eec5cb4760389193367a5b8f44e9329",
+            "cursor": "49a4fa740ca5b1ed1a46b23438811c29863df23fb94e20b978fe165a72c437a6",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "e38bdec74ca2067a207af674c6cb08f93eec5cb4760389193367a5b8f44e9329",
+            "contentHash": "e74bd63af9dd2cbedba3c483f5c85c960e5e0c8123a2cf45e546df29e6c1b256",
+            "coverage": {
+              "fromEntry": 9,
+              "toEntry": 10,
+              "totalEntries": 32
+            },
+            "byteRange": null,
+            "nextCursor": "b2e95099d82d6005568ec3034ac95b51d9274608b104816459f1715cf5b9238f",
+            "entries": [
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2366
+                },
+                "revision": "5c92530169eb8b2e95fde834d88ae2d44be66902eb5ed6aa6135aa5df3d631f6"
+              }
+            ],
+            "resultDigest": "c7018923bedd426b1c90eb4a3c8eb26250ef6fab5f47b11212c12504bac32ed0"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "save_draft_checkpoint",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "save": {
+            "submittedContentDigest": "799a345538f0f500cdf2f2c765a16fd6aee807ff2f42dc4a2a26aba9a0ca18ad",
+            "expectedCandidate": "5c92530169eb8b2e95fde834d88ae2d44be66902eb5ed6aa6135aa5df3d631f6",
+            "patchSource": "5c92530169eb8b2e95fde834d88ae2d44be66902eb5ed6aa6135aa5df3d631f6",
+            "saved": true,
+            "revision": "3e248dbb1bad737221eb2b04f3b9ec117c906f895d09bc06c81726107393ac73",
+            "checkpoint": "508b06c4ea39932dc97234f8c3da822fb7f18e87e872dabe5462c7647205c9f0",
+            "version": 3
+          },
+          "requestedMode": "patch"
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "23931999afe8ea9b94ea7b6f0075d0d7c9f98686a473034f718f8e42044d93da",
+            "cursor": null,
+            "view": "workspace",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "23931999afe8ea9b94ea7b6f0075d0d7c9f98686a473034f718f8e42044d93da",
+            "contentHash": null,
+            "coverage": {},
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [],
+            "resultDigest": "676ac18c1569c3ca0e5cd9171e902db6906b4d496cf13e4f8a7d33ba0dff2d08"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "d38131e1e9e4f97a7b160f45bb23b1d4bd92d7f5abf24ef2dc5c45bcbee5a48b",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "d38131e1e9e4f97a7b160f45bb23b1d4bd92d7f5abf24ef2dc5c45bcbee5a48b",
+            "contentHash": "b698d6c8d45e729bbc65d26671e28b4e0d0cb444c0126ca60b2a5c73b4cdb4d8",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 3,
+              "totalEntries": 34
+            },
+            "byteRange": null,
+            "nextCursor": "cd708ad0db3ef3204742e5117171af432ec14ed9e3fb280a1a0ce8cbeea51d17",
+            "entries": [
+              {
+                "path": "820facaf6f51ecc891fce19acdab901a15a8f063b1b6130da123beb3c8206c39",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "045fa915d619cf91677fabe0b022110cbdbda9db4bf36df60692e35b8a0d1666",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "43edc4b94fd916b9d77200f009021813573ada64cad12963c0ee7d8377f276cb",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2418
+                },
+                "revision": null
+              }
+            ],
+            "resultDigest": "cc40233445b72baddc937d6f23cbe961a48cc21e534ef04a8b1243e65a83d3c8"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "d38131e1e9e4f97a7b160f45bb23b1d4bd92d7f5abf24ef2dc5c45bcbee5a48b",
+            "cursor": "cd708ad0db3ef3204742e5117171af432ec14ed9e3fb280a1a0ce8cbeea51d17",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "d38131e1e9e4f97a7b160f45bb23b1d4bd92d7f5abf24ef2dc5c45bcbee5a48b",
+            "contentHash": "b698d6c8d45e729bbc65d26671e28b4e0d0cb444c0126ca60b2a5c73b4cdb4d8",
+            "coverage": {
+              "fromEntry": 3,
+              "toEntry": 4,
+              "totalEntries": 34
+            },
+            "byteRange": null,
+            "nextCursor": "fb8ccad3b4d2b7cd7ab946725b8d48308dc9ac807a3308db94a7f7ceea09217d",
+            "entries": [
+              {
+                "path": "43edc4b94fd916b9d77200f009021813573ada64cad12963c0ee7d8377f276cb",
+                "range": {
+                  "start": 600,
+                  "end": 1200,
+                  "total": 2418
+                },
+                "revision": null
+              }
+            ],
+            "resultDigest": "004b7622f81c05c829c7c826ce3aaea3e03b6e32f12c9005c9100e3a215fb7a6"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "d38131e1e9e4f97a7b160f45bb23b1d4bd92d7f5abf24ef2dc5c45bcbee5a48b",
+            "cursor": "fb8ccad3b4d2b7cd7ab946725b8d48308dc9ac807a3308db94a7f7ceea09217d",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "d38131e1e9e4f97a7b160f45bb23b1d4bd92d7f5abf24ef2dc5c45bcbee5a48b",
+            "contentHash": "b698d6c8d45e729bbc65d26671e28b4e0d0cb444c0126ca60b2a5c73b4cdb4d8",
+            "coverage": {
+              "fromEntry": 4,
+              "toEntry": 5,
+              "totalEntries": 34
+            },
+            "byteRange": null,
+            "nextCursor": "cc445be280b838561d77147f5dbc242c0460e4be30514e7b051411fad4cf534e",
+            "entries": [
+              {
+                "path": "43edc4b94fd916b9d77200f009021813573ada64cad12963c0ee7d8377f276cb",
+                "range": {
+                  "start": 1200,
+                  "end": 1800,
+                  "total": 2418
+                },
+                "revision": null
+              }
+            ],
+            "resultDigest": "cbbde8c3dfcee7d281cd5426cb7ae96e1f47d3bb6be44e4b46297bfee4370ef2"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "d38131e1e9e4f97a7b160f45bb23b1d4bd92d7f5abf24ef2dc5c45bcbee5a48b",
+            "cursor": "cc445be280b838561d77147f5dbc242c0460e4be30514e7b051411fad4cf534e",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "d38131e1e9e4f97a7b160f45bb23b1d4bd92d7f5abf24ef2dc5c45bcbee5a48b",
+            "contentHash": "b698d6c8d45e729bbc65d26671e28b4e0d0cb444c0126ca60b2a5c73b4cdb4d8",
+            "coverage": {
+              "fromEntry": 5,
+              "toEntry": 10,
+              "totalEntries": 34
+            },
+            "byteRange": null,
+            "nextCursor": "3055855a48f2bc5550951293532a531af9c5ed1c885f0f0b9c5a41a2854929d7",
+            "entries": [
+              {
+                "path": "43edc4b94fd916b9d77200f009021813573ada64cad12963c0ee7d8377f276cb",
+                "range": {
+                  "start": 1800,
+                  "end": 2400,
+                  "total": 2418
+                },
+                "revision": null
+              },
+              {
+                "path": "43edc4b94fd916b9d77200f009021813573ada64cad12963c0ee7d8377f276cb",
+                "range": {
+                  "start": 2400,
+                  "end": 2418,
+                  "total": 2418
+                },
+                "revision": null
+              },
+              {
+                "path": "b00d882ad099b8ee94d453f845d3b869eb27f3b2242de0f2ec608973d3dace83",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "4d71fd933ef1954917f1652eda46363afb031376e8667f5a7fa80c62ebaceec8",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "d6015af43f4935fc8d416fe950761a13ff06f823a6c72ebc04051c3e447072df",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "34a366de43c3a0c3c6a0d553173daf38a7c5e264ed37bae4e167450f1f89a123"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "d38131e1e9e4f97a7b160f45bb23b1d4bd92d7f5abf24ef2dc5c45bcbee5a48b",
+            "cursor": "3055855a48f2bc5550951293532a531af9c5ed1c885f0f0b9c5a41a2854929d7",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "d38131e1e9e4f97a7b160f45bb23b1d4bd92d7f5abf24ef2dc5c45bcbee5a48b",
+            "contentHash": "b698d6c8d45e729bbc65d26671e28b4e0d0cb444c0126ca60b2a5c73b4cdb4d8",
+            "coverage": {
+              "fromEntry": 10,
+              "toEntry": 11,
+              "totalEntries": 34
+            },
+            "byteRange": null,
+            "nextCursor": "0ff498bb955b1673c0029ecf4e377c328691703fc5feab0afe5d0a9c264c60a9",
+            "entries": [
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2406
+                },
+                "revision": "3e248dbb1bad737221eb2b04f3b9ec117c906f895d09bc06c81726107393ac73"
+              }
+            ],
+            "resultDigest": "d8f892541f8ee942acdea9339cd067513ccd3633596e435edf074af3716c1f81"
+          },
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 20,
+        "tokens": 728552,
+        "unknownTokens": 0
+      },
+      "contentPreserved": true,
+      "firstAttemptSucceeded": true,
+      "corrections": 0,
+      "mcpSessionStartupMs": 481.105333,
+      "modelElapsedMs": 96214.587875,
+      "executionStatus": "failed",
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed",
+        "reportedHint": "task token budget exhausted"
+      },
+      "toolErrorCount": 0,
+      "readSummary": {
+        "successfulReads": 17,
+        "repeatedExactResults": 0,
+        "interpretation": "Identical request and result observations; repetition alone does not establish waste."
+      },
+      "quiescent": true,
+      "readback": {
+        "status": "matched",
+        "checks": {
+          "body": true,
+          "title": true,
+          "chapterIdentity": true,
+          "groupStructure": true,
+          "protectedGroups": true
+        },
+        "revision": "3e248dbb1bad737221eb2b04f3b9ec117c906f895d09bc06c81726107393ac73",
+        "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "expectedCharacters": 2406,
+        "actualCharacters": 2406
+      },
+      "domainTaskStatus": "running",
+      "elapsedMs": 96877.063167
+    }
+  ],
+  "providerUsage": null,
+  "limitations": [
+    "Exact-edit synthetic cases measure tool use and content preservation, not literary quality.",
+    "Provider usage comes from Engine receipts; unknown usage stays unknown. No qualification is fabricated."
+  ],
+  "configuration": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "repeats": 1,
+    "limitsPerCase": {
+      "requests": 30,
+      "tokens": 800000,
+      "seconds": 180
+    },
+    "plannedCases": 1,
+    "caseSelection": [
+      {
+        "size": "long",
+        "mode": "full"
+      }
+    ]
+  },
+  "build": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "qualificationContextDigest": "b69e60c6cae0e86ee5b963457a1b3239fe2a205cbe0fcbe49c7fa056cf82e051",
+    "native": {
+      "runtime": "c9e782d399243d9dae5049dd0e0a1f816d2d407d4bcbf5480ab73d54795e69b2",
+      "mcp": "44c6a52b415bbd1ef32c3f8bcdc520911387f9f561587e83d285b82e20b8db1a"
+    }
+  },
+  "runtimeStartupMs": 156.34554200000002,
+  "summaries": [
+    {
+      "mode": "full",
+      "cases": 1,
+      "passed": 0,
+      "firstAttemptSuccessRate": 1,
+      "contentCheckedCases": 1,
+      "contentUnknownCases": 0,
+      "contentPreservationRate": 1,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 20,
+        "tokens": 728552
+      }
+    },
+    {
+      "mode": "patch",
+      "cases": 0,
+      "passed": 0,
+      "firstAttemptSuccessRate": null,
+      "contentCheckedCases": 0,
+      "contentUnknownCases": 0,
+      "contentPreservationRate": null,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 0,
+        "tokens": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "reviewer": "Codex manual evidence and prose review",
+  "rawReport": "2026-10-10-task-live238-raw.json",
+  "delivery": {
+    "verdict": "failed",
+    "requests": 8,
+    "reason": "Registered a new-scope proposal but subsequent provider output failed local argument validation. No generation/adoption/publishing occurred; preserve failure and charges."
+  },
+  "interlude": {
+    "verdict": "passed",
+    "requests": 21,
+    "knownTokens": 808074,
+    "unknownTokenReservation": 0,
+    "body": "港城的雨下了一整夜，敲在瓦檐上，像有人在门后数着步子。抄写员林夕把密函紧紧揣进怀里，湿透的衣袋里，纸边硌着肋骨。远处的钟楼忽然响了一声，又一声，隔着雨传来，到底是谁在等她？她攥紧了那封信，不敢回头。",
+    "reason": "Real new candidate matches current author requirements. Native completed/ready_for_review/fulfilled; no pending attempts or schedules, no manual retry/edit/additional approval, no adoption/publication. Interlude auto-return or delivered steer is recorded by the raw control receipt.",
+    "characterCount": 99,
+    "answerVerified": "实际最终回复明确回答主人公为林夕（抄写员），并报告自动返回原任务后已保存的雨夜钟声候选。"
+  },
+  "change": {
+    "verdict": "passed",
+    "requests": 28,
+    "knownTokens": 937015,
+    "unknownTokenReservation": 36289,
+    "body": "夜幕落在港城，钟楼的影子漫过屋脊。抄写员林夕没有点灯，只把密函贴身收好，指尖压住那道封口，像压住自己的心跳。信里写着什么，他还没敢细看；他只知道，这封信不能烧，不能丢，更不能落到旁人手里。从今夜起，他要替它守住这个秘密。",
+    "reason": "Real new candidate matches current author requirements. Native completed/ready_for_review/fulfilled; no pending attempts or schedules, no manual retry/edit/additional approval, no adoption/publication. Interlude auto-return or delivered steer is recorded by the raw control receipt."
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "rawReport": "2026-10-10-task-live246-raw.json",
+  "delivery": {
+    "verdict": "failed",
+    "requests": 30,
+    "knownTokens": 1059153,
+    "unknownTokenReservation": 0,
+    "reason": "Same-task compaction followed by redundant full source reads exhausted 30 requests after verifyChapter and finishChapter. Final delivery review did not commit. No parameter rejection observed.",
+    "savedCandidateCharacters": 102
+  }
+}

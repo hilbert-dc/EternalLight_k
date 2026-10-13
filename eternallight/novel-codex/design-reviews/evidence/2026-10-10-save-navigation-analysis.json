@@ -1,0 +1,81 @@
+{
+  "report": "2026-10-10-save-navigation-long-patch-live.json",
+  "sha256": "3dea4d24223da00417c15045c60bf3d2edac10d1b9838b18e4f7e0d14080f069",
+  "build": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+    "engineContractHash": "a584044a337961c2a14fa467e1ec3add05b69ed277147a37e2186f32136d1e85",
+    "qualificationContextDigest": "2a1e084ac1ba0a54a4f7ae791620d4d817dd16a28c2ff2b3057ab2f92f6b3a05",
+    "native": {
+      "runtime": "4eb9a43e837018d68edd63f7390b72e3e56b24b215f280489d7990b15b386c24",
+      "mcp": "486ecf08fcb64da912693b3c93974189b5944b6473d96c44e77674be39f11b92"
+    }
+  },
+  "configuration": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "repeats": 1,
+    "limitsPerCase": {
+      "requests": 10,
+      "tokens": 250000,
+      "seconds": 180
+    },
+    "startupTimeoutMs": 600000,
+    "plannedCases": 1,
+    "caseSelection": [
+      {
+        "size": "long",
+        "mode": "patch"
+      }
+    ]
+  },
+  "status": "passed",
+  "executionStatus": "completed",
+  "domainTaskStatus": "completed",
+  "contentPreserved": true,
+  "comparisonModeHonored": true,
+  "usage": {
+    "overrun": false,
+    "requests": 7,
+    "tokens": 157420,
+    "unknownTokens": 0
+  },
+  "workspaceDirectoryCalls": 0,
+  "readsWithSavedRevision": 1,
+  "readback": {
+    "status": "matched",
+    "checks": {
+      "body": true,
+      "title": true,
+      "chapterIdentity": true,
+      "groupStructure": true,
+      "protectedGroups": true
+    },
+    "revision": "1a26f7f5448e202810961d626cb752848a3742922f97becbce45048629075cfe",
+    "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+    "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+    "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+    "bodyUnchanged": false,
+    "expectedCharacters": 2406,
+    "actualCharacters": 2406
+  },
+  "runtimeStartupMs": 157395.052708,
+  "mcpStartupMs": 1148.085000000021,
+  "modelElapsedMs": 14119.631208999985,
+  "previousObservedSample": {
+    "report": "2026-10-10-source-paging-long-patch-live.json",
+    "usage": {
+      "overrun": false,
+      "requests": 8,
+      "tokens": 189113,
+      "unknownTokens": 0
+    },
+    "tokenReductionFraction": 0.16758763279097677
+  },
+  "limits": [
+    "One stochastic sample per build; not a frozen-source causal A/B or success-rate estimate.",
+    "Previous run also read a separate requirements source; not all changes in total requests/tokens can be assigned to navigation.",
+    "No literary quality certification; exact edit and protected-content checks only.",
+    "Runtime startup still took over 157 seconds; diagnostic timeout does not fix production startup."
+  ]
+}

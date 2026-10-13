@@ -1,0 +1,32 @@
+Analysis of sampling direct_verification_http_tests-e6a909d0d73f76ea (pid 15824) every 1 millisecond
+Process:         direct_verification_http_tests-e6a909d0d73f76ea [15824]
+Path:            /Users/USER/*/direct_verification_http_tests-e6a909d0d73f76ea
+Load Address:    0x102a10000
+Identifier:      direct_verification_http_tests-e6a909d0d73f76ea
+Version:         ???
+Code Type:       ARM64
+Parent Process:  cargo [14939]
+Target Type:     live task
+
+Date/Time:       2026-10-10 15:49:39.395 +0800
+Launch Time:     2026-10-10 15:47:53.132 +0800
+OS Version:      macOS 26.5.1 (25F80)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         112K
+Physical footprint (peak):  112K
+Idle exit:                  untracked
+----
+
+Call graph:
+    889 Thread_4546854: Main Thread   DispatchQueue_<multiple>
+      889 _dyld_start  (in dyld) + 0  [0x1093909c0]
+
+Total number in stack (recursive counted multiple, when >=5):
+
+Sort by top of stack, same collapsed (when >= 5):
+        _dyld_start  (in dyld)        889
+
+Binary images description not available
+

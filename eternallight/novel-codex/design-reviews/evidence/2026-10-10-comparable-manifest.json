@@ -1,0 +1,78 @@
+{
+  "scope": "Comparable evaluation and accounting; Engine budget contract tests; Core complete-envelope byte paging and precise budget rejection; Host rejection wording; current-contract Native fixtures. Shared dirty workspace: hashes identify inputs, not authorship of all changes.",
+  "sources": {
+    "scripts/evaluate-live-novel-tools.mjs": "63e2d672ed06b7f8ec895cf7205a351f215d0df9ff936c2b7e97b61eab168671",
+    "scripts/tool-evaluation-comparison.mjs": "80a3790f467646930c75d8132354d39073994eb0bc25677952f4d752867d0ad5",
+    "scripts/tool-evaluation-observations.mjs": "d64afe672323a50fa4d560ff5696418d64a47939eb2ea8034ad28ca0bfa1c92b",
+    "scripts/tool-evaluation-report.mjs": "af94118b0ab87bea4f98826fc6f91be0e524faac9b8fa7dc2ff232c3762c2eee",
+    "scripts/tests/tool-evaluation-comparison.test.mjs": "ed3d9088cb9cd454a7bfe61938364eb7f315d6bc54e2c640c727da240b307c20",
+    "scripts/tests/tool-evaluation-core.integration.test.mjs": "895968073f5284e53abff51a42f3708966b7d7e438b25cfd793c1df9f5cf85fe",
+    "scripts/tool-evaluation-live.example.json": "daf7fe463267c136dd85fe8ebd62d8970f6cebb9ffbc3d360ba244ae5eede73b",
+    "package.json": "244115cd1cc977b21681eb74d96252b407a129cb02bc0369a0ad80f426624760",
+    "../agent-engine/native/engine-core/src/budget.rs": "4c2728ee8aea6da89714e3f6917951ebf76d399d8dd369c5f58b1e725c195577",
+    "native/story-core/src/lib.rs": "718172ed86d463b9c9a02d041b0c449084d7d9846f3a839e2bd7447e2293aea0",
+    "native/story-core/src/work_decision_page.rs": "1ce4889077da32bdf25f584294c2aee03d4d222253b558fc5d28c74981448a55",
+    "native/story-core/src/work_decision_status.rs": "524e1dcf4ba1e3748dd0c970538cbc2dd4ef4b85e77bc4890c527bc94dbf19ad",
+    "native/story-core/src/work_decision.rs": "00aa32f65e6e0219bd09ab4111210a00ecc3f680b84ffd0a1f3cf03e168cd28b",
+    "native/story-core/src/work_tasks.rs": "597b50e49cd874b64796b4172b96d4d7a7b80fec0e9df1cdc6ea68ac195c2edc",
+    "native/story-core/src/work_control_commands.rs": "ba336fe32672c24b6da5ffa71969f96cf294f1e98a5a04a19f7d858bdf2cb2b4",
+    "electron/work-control-commands.mjs": "c2cf65f0f27ebe876ddb2f1f0f730d9a44d3802e9b284c85e4baedae08b0fc94",
+    "electron/tests/work-control-commands.test.mjs": "efb453fe8be806a8be0a7748255921bf31ed467f3890c4ac7817fe85bae29334"
+  },
+  "checks": {
+    "engineRust": "44/44",
+    "engineBudgetJs": "8/8",
+    "toolEvaluation": "17/17",
+    "architecture": "365 files, 7 crates, no diagnostics",
+    "macosFullNative": "build completed; enumeration stopped after >11 minutes loader wait, not passed",
+    "nativeDoctests": "exit 0; 3 targets, all 0 tests",
+    "toolEvaluationLog": "2026-10-10-comparable-evaluation-final-receipt.log",
+    "architectureLog": "2026-10-10-comparable-architecture-verified.log",
+    "hostControlCommands": "7/7",
+    "hostControlCommandsLog": "2026-10-10-comparable-control-command-final.log",
+    "linuxNative": "1019/1019; 106/106 executables; 0 failed, ignored or filtered; no retries",
+    "linuxDoctests": "exit 0; 3 targets, all 0 tests; final source",
+    "linuxDoctestsLog": "2026-10-10-comparable-linux-verified-doctests.log",
+    "linuxNativeReport": "2026-10-10-comparable-linux-verified.json",
+    "nativeSourceStable": {
+      "files": 698,
+      "changed": 0
+    }
+  },
+  "paidReports": [
+    "2026-10-10-comparable-live.json",
+    "2026-10-10-comparable-catalog-live.json",
+    "2026-10-10-comparable-short-live.json"
+  ],
+  "paidTotal": {
+    "requests": 58,
+    "knownTokens": 1340346,
+    "unknownTokens": 0
+  },
+  "limitations": [
+    "Real reports preserve their run-time build/script identities. Later first-attempt and total-usage reporting refinements are verified by controlled tests, not another paid rerun.",
+    "Human literary evaluation, 50k target and pure long full mode remain open.",
+    "Real model cost reports precede subsequent Native regression repairs; no claim of paid acceptance of the final Native build.",
+    "macOS loader/startup remains unresolved; Linux checks do not validate the current macOS application deployment.",
+    "Dynamic byte paging bounds the wire response, not server-side receipt projection cost for very long Works."
+  ],
+  "nativeSourceManifest": "2026-10-10-comparable-native-final-source.json",
+  "linuxExecution": {
+    "buildLog": "2026-10-10-comparable-linux-final-build.log",
+    "environment": "2026-10-10-comparable-linux-environment.json",
+    "runner": "2026-10-10-comparable-linux-runner.py.txt",
+    "profile": "opt-level 0, debug symbols 0, debug assertions and overflow checks enabled",
+    "parallelism": "4 executables; 4 harness threads each",
+    "perExecutableTimeoutSeconds": 300,
+    "network": "none"
+  },
+  "evidenceSha256": {
+    "2026-10-10-comparable-linux-verified.json": "bbc2b4d4aad9457a176d5104eb05db636fcb5dfbdff5b3bc1f535f267456f30b",
+    "2026-10-10-comparable-native-final-source.json": "523616e84ea421d69f1c3ec8ebec7ca57578b534d23f7f6e8a35e44c2cfff593",
+    "2026-10-10-comparable-linux-final-build.log": "b82fd35ab82c7ee057651368ed4fbac236716d80b74bbe1c4efa702e75118dad",
+    "2026-10-10-comparable-linux-runner.py.txt": "4a7ce1350d4edafd2db8aeafd9828e253560b7dbc4d30de1a155f8811213786b",
+    "2026-10-10-comparable-linux-verified-doctests.log": "fbba525e09006da7a20440bf41b5f8f75b6d0e78bb9ab66987f355950235dac7",
+    "2026-10-10-comparable-architecture-verified.log": "6fce2a17e6a7433e2117a80b8549c98608e3f4bce3af70562cbcd2501f45a5fa"
+  },
+  "temporaryContainer": "novel-native-comparable-final-20261010 removed after verification; Docker daemon and build cache retained"
+}

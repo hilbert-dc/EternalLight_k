@@ -1,0 +1,20 @@
+{
+  "identityId": "21885e816cb433230540d1c78c17cc27cbb151631e1f55dc508a04ade49cd1f8",
+  "version": 1,
+  "product": "codex-cli",
+  "sourceTreeDigest": "954c241a73f49f4ee643025facf2260a296acf7895ff8eb25d9cedda24d9b06c",
+  "cargoLockSha256": "c7ef2f3a06fe5e0061f7640a7955becb405d2d29d9b94e23492f62c4b26260e6",
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: aarch64-apple-darwin\nrelease: 1.95.0\nLLVM version: 22.1.2",
+  "buildCommand": "cargo build --locked --message-format=json-render-diagnostics -p codex-cli --bin codex",
+  "artifactPath": "codex-rs/target/debug/codex",
+  "target": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "rustcHost": "aarch64-apple-darwin"
+  },
+  "binary": {
+    "path": "codex-rs/target/debug/codex",
+    "sha256": "2e8d50d385fd1b5cb98ea1e400b63b18159d1a93b54f5fa74e0a55b7dbe9ccf5",
+    "version": "codex-cli 0.0.0"
+  }
+}

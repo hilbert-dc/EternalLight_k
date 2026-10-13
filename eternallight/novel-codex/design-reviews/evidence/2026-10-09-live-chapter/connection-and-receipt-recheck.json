@@ -1,0 +1,26 @@
+{
+  "connectionVerification": {
+    "entry": "Actual application Composer model picker: selected current deepseek-flash, triggering verifyAndApply",
+    "observedResult": "模型连接已就绪",
+    "credentialChanged": false
+  },
+  "originalTask": "task-c5c6dde4819f4bd4ab893165d1f773e9",
+  "receiptAudit": {
+    "source": "Read-only Engine ledger and original Codex rollout",
+    "knownRequestTokens": [
+      17534,
+      22716,
+      25256
+    ],
+    "knownTotalTokens": 65506,
+    "unknownReservationTokens": 35931,
+    "fourthRequestUsageFound": false,
+    "budgetChanged": false,
+    "resumed": false
+  },
+  "providerDocumentation": [
+    "https://api-docs.deepseek.com/api/create-response/",
+    "https://api-docs.deepseek.com/guides/responses_api/"
+  ],
+  "providerContract": "Responses API is stateless; responses are not stored, store is always false. This does not establish whether supplier support can provide billing records."
+}

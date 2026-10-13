@@ -1,0 +1,18 @@
+{
+  "scope": "Only optional query guidance; shared dirty workspace, hashes identify whole files and are not attribution of all changes",
+  "sourceSha256": {
+    "native/story-mcp/src/tool_guidance.rs": "24de59ffa503c404a2c83aadf715533fa343b5ef7cb764cc0dc9adb404657cef",
+    "native/story-mcp/src/tool_contract_review_tests.rs": "f8bf3c89b8c3e34414b0c6d8765bc37c5524e4c565739917253a5e4c5abf13b1"
+  },
+  "liveBuild": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+    "engineContractHash": "a584044a337961c2a14fa467e1ec3add05b69ed277147a37e2186f32136d1e85",
+    "qualificationContextDigest": "2a1e084ac1ba0a54a4f7ae791620d4d817dd16a28c2ff2b3057ab2f92f6b3a05",
+    "native": {
+      "runtime": "4eb9a43e837018d68edd63f7390b72e3e56b24b215f280489d7990b15b386c24",
+      "mcp": "2b4a8ffc76ce0666d9516c0d5eb6dd200568d9d04c4dec3547ae415ef630d68d"
+    }
+  },
+  "formattingAfterValidation": "rustfmt whitespace only; validation and model run precede final formatting"
+}

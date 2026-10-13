@@ -1,0 +1,32 @@
+Analysis of sampling novel_codex_story_authoring-5f08e500584ad484 (pid 65299) every 1 millisecond
+Process:         novel_codex_story_authoring-5f08e500584ad484 [65299]
+Path:            /Users/USER/*/novel_codex_story_authoring-5f08e500584ad484
+Load Address:    0x104218000
+Identifier:      novel_codex_story_authoring-5f08e500584ad484
+Version:         ???
+Code Type:       ARM64
+Parent Process:  cargo [59160]
+Target Type:     live task
+
+Date/Time:       2026-10-10 17:17:42.697 +0800
+Launch Time:     2026-10-10 17:16:37.002 +0800
+OS Version:      macOS 26.5.1 (25F80)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         96K
+Physical footprint (peak):  96K
+Idle exit:                  untracked
+----
+
+Call graph:
+    879 Thread_4932466: Main Thread   DispatchQueue_<multiple>
+      879 _dyld_start  (in dyld) + 0  [0x1044f89c0]
+
+Total number in stack (recursive counted multiple, when >=5):
+
+Sort by top of stack, same collapsed (when >= 5):
+        _dyld_start  (in dyld)        879
+
+Binary images description not available
+

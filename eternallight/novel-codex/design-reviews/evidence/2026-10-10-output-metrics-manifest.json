@@ -1,0 +1,17 @@
+{
+  "recordedAt": "2026-10-10T12:17:03.685530+00:00",
+  "scope": "Selected files only, concurrent changes present; no exclusive authorship or causal A/B claim",
+  "files": {
+    "../agent-engine/native/engine-core/src/bridge_observation.rs": "786f04507f44aaf934dfb1c0770ecf5f523f1b47ac71261febc8b800ab01d07b",
+    "../agent-engine/native/engine-core/src/bridge_observation_tests.rs": "943e091791d5320a0b0a524b84a4f9d7726d25284bfb619bab38eab6148e32d9",
+    "../agent-engine/native/engine-core/src/bridge_exchange.rs": "0d8885f7d869d9121e096d909d329bcd1f9ec321195293488f2cccaf659e2f3a",
+    "../agent-engine/tests/bridge.test.mjs": "e9a8db02a583dbced52d7d7018e8c3ccf8618ee063dec663ca89f739250a07e8",
+    "../agent-engine/tests/bridge-stream-terminal.test.mjs": "5fd351e747af3c3e5af35ebc4f23bc23a7283839f066280f84fcab7b7cfccde1",
+    "scripts/evaluate-live-novel-tools.mjs": "87b449002378562de6fa9967ee7432eef2bb0d7abf65795e766b3bfb9014426a",
+    "scripts/tests/tool-evaluation.test.mjs": "0b6bfd23f67d53ce47c8bad2b6dc1dd61482b43165d512372b8fc9ba149eb532",
+    "ARCHITECTURE.md": "378f16bb3e80b4379de3c9e5f58981e2fcb6cf276918ad6dc9c635b708c8673a",
+    "AGENT_CAPABILITY_OPTIMIZATION_PLAN.md": "e8007b390c33806d242457efc63dd6876bed27cb151bb08c7a6284a7882bc163",
+    "design-reviews/2026-10-10-agent-full-acceptance.md": "6665f38b99282622641beefe7dc05a2bd6abec78e9fbd1a4c54ea3bae2fae52a",
+    "design-reviews/2026-10-10-agent-optimization-implementation.md": "cca636dedb687d8634cff9ab92ec6c2d2c082f84cc8fef941f7cc88e69874b83"
+  }
+}

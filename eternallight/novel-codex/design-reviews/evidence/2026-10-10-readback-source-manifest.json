@@ -1,0 +1,9 @@
+{
+  "scope": "evaluation observation changes only; production binaries recorded separately in each run",
+  "files": {
+    "scripts/evaluate-live-novel-tools.mjs": "608b580b53276155858d59a9c41f569d644515f0f438da1f5d01e2540cbc5cc8",
+    "scripts/tool-evaluation-observations.mjs": "b5f1e9654b3d7bd2dc648727b0e2e5fb7174389baf216e2acf7e62b8922af8cb",
+    "scripts/tests/tool-evaluation.test.mjs": "a8f9b50e68e0eaaaf341e66b3b6b6a7132a6a2808a1eefc5b152e2965231923e",
+    "scripts/tests/tool-evaluation-core.integration.test.mjs": "36ddeb6598ea18950bb59e7fb6f5cf20f272e0fd4389ff5dba1b21bdb15656ce"
+  }
+}

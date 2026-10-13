@@ -1,0 +1,11 @@
+{
+  "../agent-engine/native/engine-core/src/budget.rs": "3dc7bcca6bf522dbd0aba47c7ecf0b005862896d321a5d11089aadab5e65ac68",
+  "../agent-engine/native/bin/darwin-arm64/engine.node": "86d38e2fa2123aff32b8f3e9b7212bda48519269bba1115a67ea9dfe635b34e6",
+  "../agent-engine/tests/budget-continuation.test.mjs": "074d9bd76c4c22659702d2d4baf5bede68d9bfcd62ab779ade11eb67749c0329",
+  "native/story-core/src/task_sources.rs": "c567ab2796668285896763063f1b4394ee46b079b8ff29b358dfe669c1228549",
+  "native/story-core/src/direct_verification.rs": "68fdb3679fccdc12966e47c840192ccd075e3a8ba0a1ebbc628fe18c49639fa6",
+  "native/story-core/src/task_sources_author_requirements_tests.rs": "4948f85432c24775c2f721cbe1d806a90ef59100c7bbadfb0dd307503410d3c0",
+  "native/story-runtime/tests/direct_verification_http_tests.rs": "58a73cab426e72093fd9b9dde1d45f71786b7c4b9cb2bb471908e91882fb99cd",
+  "native/story-mcp/src/tool_guidance.rs": "da82aa578029ec7b2a837fb15dec7b90c09685afefa6d52d0899bcb67cf42d6f",
+  "native/story-mcp/src/task_source_tools.rs": "4c0e479e22a727f709c572511eabd13832d2b10a717e0f8ecdd1793b920da43f"
+}

@@ -1,0 +1,86 @@
+{
+  "scope": "Problem-driven optional creative collaboration; trusted execution role binds isolated candidate writes; quality comparison preparation, not literary gain certification. Shared dirty checkout: hashes identify tested inputs, not authorship of all changes.",
+  "sources": {
+    "native/story-core/src/delegated_candidates.rs": "75abf500eea49fb41f26103bc9bfa63ef1e6c72f4df219fccc1f0e1740ca06e9",
+    "native/story-core/src/recovery_operations.rs": "c9f56f7e9555d8c6b1eca5756e86b89cacf39075d5d81564f506b79ab21f0716",
+    "native/story-runtime/src/delegated_draft_api.rs": "5e5fbd6d31b4fb7bca86b9d62b0e320b19b03d486e6007cf82fa92dda0d09a1a",
+    "native/story-runtime/src/server.rs": "b9a3d00bf5a3bc076a621708cbb19414064d1098f68adb78c61af29a8c484c18",
+    "native/story-mcp/src/main.rs": "f5d8241542f07f638ef7ca92a45d5916544c28cf02e5837fbf96985e6baaf122",
+    "native/story-mcp/src/main_tests.rs": "2774b8f9b7aec267b5dbd8d9b7dbcce43e007be134b9dad9a311c42457de4374",
+    "native/story-mcp/src/delegated_draft_tools.rs": "54b7e1ed5c0ba9cfebe8ebe83259c75b4cdf80dff7acbaf8668eb052d147698d",
+    "native/story-mcp/src/tool_guidance.rs": "fd6b09023efab5a46b5f05d4704dc641f307f5dcd4b349cca326408e708d3cf4",
+    "native/story-mcp/src/creative_strategy.rs": "a11e1e51e83fc5685ffb34fb6b93c87af1d27a4793eebad886442d22b2153de9",
+    "electron/codex-runtime.mjs": "ac4ada8570adcc0af23558352a37c08f1daa5f6eb7e001b5857d6d2f141d1029",
+    "electron/novel-agent-roles.mjs": "76d574f76e74dd6262fd350d7a5a06ccd681b1bbfd792132c87571b4af0e201a",
+    "electron/novel-collaboration.mjs": "b966775f1edcc193c737c152f2fd9ac50f74c5e0a3896f3bd433405aebf3bf15",
+    "electron/executor-validated-tools.json": "e0391feeaab2b94c4b20f38101aa3c395e3e9271c82b8550f0e0b7aed8923af8",
+    "electron/tests/delegated-candidate-native.integration.mjs": "1f8dfecb194b00486bdf006350cef5e5553f0746262a035fd6770ce27d66508e",
+    "electron/tests/managed-collaboration.integration.mjs": "021da426cdc97ca41f42153167916dc4b8f83ffcd8a34eb37b54c9e16965f2fc",
+    "electron/tests/managed-agent-role-artifacts.test.mjs": "f5de891d6352dcfa33f63c7f935c52bd21433b7fc728957665db2002ef2bbbf1",
+    "electron/tests/codex-runtime.test.mjs": "59761227ef04e470cc12b82db0940adc312475ecce51f73fa5d486552edf9f20",
+    "electron/tests/novel-recovery-contract.test.mjs": "01a147890941c24b5eeb4b8be2d71208fcfbddfdcb5ebf8ff02ca6edc442b211",
+    "electron/tests/conversation-value.test.mjs": "32cebd0cedc13b773543fea9b2a64314a9821093a3b7536b22593bf72fc8b843",
+    "shared/creative-strategies.json": "88d72edcec99cf58357982c50cf439c9d0a93f797641a1c902763a148dd980cd",
+    "shared/novel-agent-roles.json": "5e71868772bb6f98e6299dc6a3e1d0bce28ab354502addf50daf7a590ef7750d",
+    "codex-runtime/skills/novel-workflow/SKILL.md": "c7b443266456977a3f9f6c2d76430d4d51a6576be99b81926088a07c804611e3",
+    "scripts/collaboration-quality-evaluation.mjs": "cb18c3d166d1fe6d8fad587ee88b7803084925601645e33f2fbb3ed81cf6e217",
+    "scripts/tests/collaboration-quality-evaluation.test.mjs": "0621b2b350246b54347fbeb50fb539ce2757ed533c840eb82868eee47e4fce5b",
+    "package.json": "7423e0e0af5e1e28c53154e0441f4d95dfc8c90f131386d0bd95dcbe696974df",
+    "codex-runtime/agents/candidate_writer.toml": "d9698e21c8ae5f881b877bdc0967dffecc07a04d23ae2991be8c49628f588b28",
+    "codex-runtime/agents/character_analyst.toml": "b6ccf6a18f97e1ea86e0255aed16d2c975ae3c513abed9e9ae0b373f74ce914f",
+    "codex-runtime/agents/continuity_critic.toml": "9d7e7267afcad7b3a266f631376ffecd1282e46a5abc3046825865a5475a123d",
+    "codex-runtime/agents/default.toml": "92d91c73d7aaf73cd34d58a17f7dad797a439d27c4684f1a6a1eef670bec9bb0",
+    "codex-runtime/agents/explorer.toml": "f01b35de3e2bdce6d25fff4515f19d2041f1e88b1a2a95600d8b24c9f28f1eb5",
+    "codex-runtime/agents/reader_experience.toml": "2abf953223bdb24489a4c83d7386abe2ea1578c4a34ab0065a8da45ec24cfa98",
+    "codex-runtime/agents/story_architect.toml": "9e3337db9b6405eff7ad22e5fe59834517d44815a4ccbba2bd5597240d734a2e",
+    "codex-runtime/agents/style_reviewer.toml": "07b2e26ebdb9235e346fe1d777bffbef40705c1de1c0a8e71cb516e215ae7596",
+    "codex-runtime/agents/worker.toml": "333638da863f23d2b99ad214a6b6fd70592edd1f259bbe7cdfde6d4904e42f23"
+  },
+  "checks": {
+    "core": "7/7 delegated candidate tests on macOS",
+    "integration": "38/38 Host + actual Core controlled-provider + production MCP/Runtime tests on macOS",
+    "mcp": "119/119 full MCP tests on Linux, zero ignored/filtered",
+    "roles": "3/3 final role/method generation contract tests",
+    "quality": "10/10 evaluation and context tests",
+    "architecture": "365 files / 7 crates, no diagnostics",
+    "hostTypes": "exit 0",
+    "finalMacosNative": "1/1 production MCP→HTTP→Native on final rebuilt MCP, including actual expert_investigation response and 3 examples"
+  },
+  "evidenceLayers": {
+    "realCore": "Real Core and Engine with local scripted provider/MCP: actual candidate_writer metadata, no UUID handshake, immutable reference integration",
+    "realNative": "Real MCP/HTTP/Native, synthetic storage and trusted metadata fixture: role/lineage checks, protected scope, CAS, replay, root integration",
+    "liveModel": "not run in this batch",
+    "humanQuality": "not rated"
+  },
+  "failuresRetained": [
+    "Initial sandbox localhost EPERM",
+    "Two obsolete expectations: strategy count 7 instead of 8; removed grant variable in integration assertion. Updated current-contract tests, original failures retained.",
+    "Two macOS MCP test compilations made no sustained progress and were stopped; no claim that the macOS compiler/startup problem is resolved. No stack diagnosis was obtained.",
+    "New method-tool assertion initially failed because the integration helper added expectedRevision to every tool; helper now respects each real tool schema. No production validation relaxed."
+  ],
+  "linux": {
+    "image": "rust:1.98.1-bookworm",
+    "network": "none",
+    "sourceMounts": "read-only project and sibling Engine",
+    "registry": "read-only",
+    "credentialsMounted": false,
+    "profile": "test debug=0, opt-level=0, debug assertions and overflow checks enabled",
+    "parallelism": 4
+  },
+  "qualityExperiment": {
+    "expectedRuns": 24,
+    "suppliedRuns": 0,
+    "status": "not_started",
+    "qualityGain": "unvalidated",
+    "manifest": "../2026-10-10-collaboration-quality/manifest.json"
+  },
+  "limitations": [
+    "No paid model calls, no human scores, no claim of token reduction or literary improvement.",
+    "Linux full MCP tests do not prove macOS full test compilation or app deployment.",
+    "The two production boundary integrations are complementary layers, not one unscripted end-to-end model creativity test."
+  ],
+  "binaries": {
+    "native/target/debug/novel-workspace-mcp": "88f4793667cb2bde3c922093d461a4de1af60eccb2703762672f690c4b4d4231",
+    "native/target/debug/novel-codex-story-runtime": "f1c570e908a382c315ac10b8531149ada4ef85e44120ecbb00df549306b86778"
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "startedAt": "2026-10-10T08:34:17.948Z",
+  "model": "deepseek-flash",
+  "limits": {
+    "maxRequestsPerScenario": 60,
+    "maxTokens": null
+  },
+  "scope": "production Electron preload/main, real Core/MCP/Native/provider; automated API driving, not visual/manual UX",
+  "budgetInjection": "tighten initial Native budget only; reject extra root budgets and topups",
+  "qualification": {
+    "status": "returned",
+    "result": {
+      "reusedCurrentQualifiedConnection": true
+    }
+  },
+  "scenarios": [
+    {
+      "name": "delivery",
+      "status": "running",
+      "tasks": [
+        {
+          "id": "task-4799e0785e938e57df651a4301fd6e0b",
+          "operation": "advisory",
+          "threadId": "01a124f3-c1c5-7541-9642-cebfc1c6e46e"
+        },
+        {
+          "id": "task-1b4315113d30479db027f58ef208ac45",
+          "operation": "advisory",
+          "threadId": "01a124f3-c1c5-7541-9642-cebfc1c6e46e"
+        },
+        {
+          "id": "task-980a41ac386a4cd1809eadcec9544054",
+          "operation": "generateChapter",
+          "threadId": "01a124f4-a959-7081-81c4-0b7ce3e1d8fe"
+        },
+        {
+          "id": "task-e4e2bb7f0bd8431b92d7b16cea22c4ea",
+          "operation": "advisory",
+          "threadId": "01a124f3-c1c5-7541-9642-cebfc1c6e46e"
+        }
+      ],
+      "nativeFailures": [],
+      "rootBudgetGranted": true,
+      "projectId": "project-1d11ef3506444ee1a25cae7c89fb547e",
+      "generationGranted": true,
+      "handoffAccounting": {
+        "receipts": [
+          {
+            "budgetId": "budget-task-4799e0785e938e57df651a4301fd6e0b",
+            "failureObservations": [],
+            "limits": {
+              "maxDurationMs": null,
+              "maxRequests": 60,
+              "maxTokens": null
+            },
+            "runId": "task-4799e0785e938e57df651a4301fd6e0b",
+            "startedAt": 1791621317794,
+            "status": "completed",
+            "usage": {
+              "overrun": false,
+              "requests": 8,
+              "tokens": 296363,
+              "unknownTokens": 0
+            },
+            "usageReconciliations": []
+          }
+        ],
+        "remaining": 52
+      }
+    }
+  ],
+  "configured": {
+    "configured": true,
+    "state": "idle",
+    "mode": "novel-agent-engine",
+    "error": null,
+    "provider": "DeepSeek",
+    "model": "deepseek-flash",
+    "commandSource": "workspace-build",
+    "cliPath": null,
+    "isolatedHome": "/var/folders/dz/j3hn9zvs2q7gnh6w4m48cktr0000gn/T/novel-live-task-experience-gcF1Gt/user-data/codex-home",
+    "reasoningEffort": "low"
+  }
+}

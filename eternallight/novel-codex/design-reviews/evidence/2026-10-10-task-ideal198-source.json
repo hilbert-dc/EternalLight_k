@@ -1,0 +1,12 @@
+{
+  "scope": "Local task-experience acceptance; shared dirty workspace, not an immutable release build",
+  "head": "862c93692be2f3fdef527d44ea17d486d65aa232",
+  "files": {
+    "electron/main.mjs": "9165cbc6dbe9e59407a3b09328500d7e891a8a20f5c47c10af6c7e769ab2fdd5",
+    "electron/codex-adapter.mjs": "63d551b3b3f4bb3279ae3fc20fbcc35e56852d88fd9dd6c6246dcfc265f4a9f5",
+    "src/App.tsx": "96034e7bd2812b6ae7c451658706123dc43c8004bb5624c28346ccd17769764f",
+    "package.json": "3f915b33b34565b724589a91c7009f86ebe3520a1a3dfe777a0eafeb809097b8",
+    "native/story-runtime/src/server.rs": "19372de2a74a3ba1ab3ba9aadbaaaf5394820a7c8a443e2cc360ddbd1d6bad61",
+    "native/story-mcp/src/main.rs": "88e4c747cf4137810db0228a37e90391f3beafad6085791882cfcb61f78a5291"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "work": "潮汐邮局",
+  "input": "续写第2章，约800字",
+  "sentVia": "application UI after explicit user authorization",
+  "scopeApproved": true,
+  "taskId": "task-c5c6dde4819f4bd4ab893165d1f773e9",
+  "taskStatus": "failed",
+  "deliveryStatus": "pending",
+  "outputs": [],
+  "budget": {
+    "status": "failed",
+    "requests": 4,
+    "tokens": 65506.0,
+    "unknownTokens": 35931.0,
+    "reservedTokens": 0.0
+  },
+  "firstFailure": {
+    "request": 20,
+    "code": "bridge_error",
+    "message": "tool is not authorized for this request: n20__mcp__novel_workspace__read_creative_strategy"
+  },
+  "secondaryFailure": {
+    "request": 21,
+    "code": "task_provider_usage_unknown"
+  },
+  "fix": "local unauthorized tool output is terminal validation failure; drain only bounded authoritative usage; never authorize or execute rejected call",
+  "regression": {
+    "passed": 32,
+    "log": "unauthorized-tool-tests.log"
+  },
+  "realRetest": "Not completed; original unknown usage preserved, no receipt to settle it. No new task created to bypass budget.",
+  "budgetLimits": {
+    "maxRequests": null,
+    "maxTokens": null,
+    "maxDurationMs": null
+  },
+  "discoveryFinding": {
+    "domainAllowed": true,
+    "initiallyVisible": false,
+    "observedDiscoveryCalls": 0,
+    "fix": "Append actual discovery entry instructions during schema filtering; preserve caller instructions and all admission checks.",
+    "testsPassed": 38,
+    "liveRetest": false
+  }
+}

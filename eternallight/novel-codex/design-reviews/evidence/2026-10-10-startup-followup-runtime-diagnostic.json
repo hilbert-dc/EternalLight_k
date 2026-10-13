@@ -1,0 +1,15 @@
+{
+  "binarySha256": "0890cd771b9d1612f64807609f6afd91e77c36e768f588f2c2e542cafd07acf6",
+  "diagnosticDeadlineSeconds": 180,
+  "productionDeadlineChanged": false,
+  "stages": [
+    {
+      "name": "listening",
+      "elapsedMs": 91.4853340073023
+    }
+  ],
+  "pid": 92914,
+  "healthStatus": 200,
+  "status": "ready",
+  "elapsedMs": 132.0747090067016
+}

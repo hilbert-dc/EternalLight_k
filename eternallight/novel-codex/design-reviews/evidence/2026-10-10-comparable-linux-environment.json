@@ -1,0 +1,34 @@
+{
+  "Id": "sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e",
+  "RepoDigests": [
+    "rust@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e"
+  ],
+  "Architecture": "arm64",
+  "Os": "linux",
+  "Created": "2026-09-19T03:43:19.755652153Z",
+  "network": "none",
+  "sourceMounts": "two sibling repositories read-only",
+  "registryMount": "local registry only, read-only",
+  "output": "/private/tmp/novel-native-linux-20261010-comparable",
+  "cpuLimit": 4,
+  "memoryGiB": 6,
+  "cargoBuildJobs": 4,
+  "testThreads": 4,
+  "profileOverride": {
+    "test.debug": 0
+  },
+  "cargoArguments": [
+    "test",
+    "--manifest-path",
+    "/workspace/novel-codex/native/Cargo.toml",
+    "--workspace",
+    "--locked",
+    "--offline",
+    "--no-fail-fast",
+    "--message-format=json",
+    "--",
+    "--test-threads=4"
+  ],
+  "credentialStoresMounted": false,
+  "apiCredentialEnvironmentPassed": false
+}

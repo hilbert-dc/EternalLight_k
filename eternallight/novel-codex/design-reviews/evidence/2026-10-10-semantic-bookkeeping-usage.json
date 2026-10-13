@@ -1,0 +1,340 @@
+{
+  "scope": "This follow-up only, excludes earlier acceptance batches and model qualification; includes failures and retries. Provider money not measured; unknownTokens are reservations, not known billed tokens.",
+  "batches": [
+    {
+      "report": "2026-10-10-semantic-delivery-report.json",
+      "scenario": "delivery",
+      "status": "needsReview",
+      "usage": {
+        "requests": 34,
+        "tokens": 1215168,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-delivery-report.json",
+      "scenario": "multiChapter",
+      "status": "needsReview",
+      "usage": {
+        "requests": 60,
+        "tokens": 2278076,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-controls-report.json",
+      "scenario": "stop",
+      "status": "passed",
+      "usage": {
+        "requests": 2,
+        "tokens": 24025,
+        "unknownTokens": 34789
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-controls-report.json",
+      "scenario": "interlude",
+      "status": "needsReview",
+      "usage": {
+        "requests": 22,
+        "tokens": 896854,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-controls-report.json",
+      "scenario": "change",
+      "status": "needsReview",
+      "usage": {
+        "requests": 19,
+        "tokens": 648201,
+        "unknownTokens": 35178
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-controls-report.json",
+      "scenario": "concurrentRecovery",
+      "status": "blocked",
+      "usage": {
+        "requests": 2,
+        "tokens": 23914,
+        "unknownTokens": 34647
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-quality-report.json",
+      "scenario": "quality:short-suspense",
+      "status": "needsReview",
+      "usage": {
+        "requests": 19,
+        "tokens": 700875,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-quality-report.json",
+      "scenario": "quality:long-local-voice",
+      "status": "needsReview",
+      "usage": {
+        "requests": 51,
+        "tokens": 1966296,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-quality-report.json",
+      "scenario": "quality:duplicate-quote",
+      "status": "needsReview",
+      "usage": {
+        "requests": 19,
+        "tokens": 672528,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-quality-report.json",
+      "scenario": "quality:unicode-lock",
+      "status": "failed",
+      "usage": {
+        "requests": 0,
+        "tokens": 0,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-quality-report.json",
+      "scenario": "quality:chapter-continuation",
+      "status": "needsReview",
+      "usage": {
+        "requests": 24,
+        "tokens": 919139,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-quality-report.json",
+      "scenario": "quality:cross-chapter",
+      "status": "needsReview",
+      "usage": {
+        "requests": 22,
+        "tokens": 873756,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-quality-report.json",
+      "scenario": "quality:inconsistent-clues",
+      "status": "needsReview",
+      "usage": {
+        "requests": 5,
+        "tokens": 143179,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-semantic-quality-report.json",
+      "scenario": "quality:insufficient-evidence",
+      "status": "needsReview",
+      "usage": {
+        "requests": 5,
+        "tokens": 140373,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-report.json",
+      "scenario": "multiChapter",
+      "status": "needsReview",
+      "usage": {
+        "requests": 60,
+        "tokens": 2351336,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-report.json",
+      "scenario": "quality:unicode-lock",
+      "status": "needsReview",
+      "usage": {
+        "requests": 22,
+        "tokens": 817005,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-resume-report.json",
+      "scenario": "resume",
+      "status": "needsReview",
+      "usage": {
+        "requests": 9,
+        "tokens": 309209,
+        "unknownTokens": 34809
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-resume-seeded-report.json",
+      "scenario": "resume",
+      "status": "needsReview",
+      "usage": {
+        "requests": 34,
+        "tokens": 1248564,
+        "unknownTokens": 35654
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-exact-edit.json",
+      "scenario": "short:full",
+      "status": "failed",
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 35374,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-exact-edit.json",
+      "scenario": "short:patch",
+      "status": "failed",
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 35500,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-exact-edit.json",
+      "scenario": "long:full",
+      "status": "failed",
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 35906,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-exact-edit.json",
+      "scenario": "long:patch",
+      "status": "failed",
+      "usage": {
+        "overrun": false,
+        "requests": 2,
+        "tokens": 35338,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-exact-edit-250k.json",
+      "scenario": "short:full",
+      "status": "passed",
+      "usage": {
+        "overrun": false,
+        "requests": 6,
+        "tokens": 126548,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-exact-edit-250k.json",
+      "scenario": "short:patch",
+      "status": "passed",
+      "usage": {
+        "overrun": false,
+        "requests": 5,
+        "tokens": 101371,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-exact-edit-250k.json",
+      "scenario": "long:full",
+      "status": "failed",
+      "usage": {
+        "overrun": false,
+        "requests": 9,
+        "tokens": 223530,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-exact-edit-250k.json",
+      "scenario": "long:patch",
+      "status": "passed",
+      "usage": {
+        "overrun": false,
+        "requests": 8,
+        "tokens": 181602,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-long-full.json",
+      "scenario": "long:full",
+      "status": "failed",
+      "usage": {
+        "overrun": false,
+        "requests": 1,
+        "tokens": 15999,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-bookkeeping-long-full-diagnostic.json",
+      "scenario": "long:full",
+      "status": "failed",
+      "usage": {
+        "overrun": false,
+        "requests": 21,
+        "tokens": 773005,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    },
+    {
+      "report": "2026-10-10-evidence-scope-multi-report.json",
+      "scenario": "multiChapter",
+      "status": "needsReview",
+      "domainStatus": "completed",
+      "usage": {
+        "requests": 52,
+        "tokens": 1963332,
+        "unknownTokens": 0
+      },
+      "missingReceipts": 0
+    }
+  ],
+  "total": {
+    "requests": 519,
+    "tokens": 18756003,
+    "unknownTokens": 175077
+  }
+}

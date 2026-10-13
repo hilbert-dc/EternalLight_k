@@ -1,0 +1,25 @@
+{
+  "reviewer": "Codex raw tool receipts and Native delivery review",
+  "rawReport": "2026-10-10-task-live244-raw.json",
+  "delivery": {
+    "verdict": "failed",
+    "requests": 30,
+    "knownTokens": 1039718,
+    "unknownTokenReservation": 0,
+    "savedCandidateCharacters": 109,
+    "reason": "Draft and direct assessment persisted, finishChapter registered, but final deliveryReview never committed before request exhaustion. Saving and chapter finish alone do not establish Work delivery.",
+    "parameterRejections": [
+      {
+        "tool": "request_work_action",
+        "instancePath": "/chapterReview/outcomes/3/evidence",
+        "reason": "minItems=1; candidate-only lifecycle criterion had no prose evidence"
+      },
+      {
+        "tool": "complete_task",
+        "instancePath": "/deliveryReview",
+        "missingField": "expectedWorkVersion",
+        "reason": "Model placed version/digest at root instead of inside deliveryReview; evidence omission is valid and was not the rejection."
+      }
+    ]
+  }
+}

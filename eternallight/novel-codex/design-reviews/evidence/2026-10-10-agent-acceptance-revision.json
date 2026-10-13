@@ -1,0 +1,53 @@
+{
+  "version": 2,
+  "status": "failed",
+  "plan": {
+    "scope": "single-sample-revision-model-feedback",
+    "samples": 1,
+    "stages": [
+      "revision",
+      "modeling",
+      "feedback"
+    ],
+    "limitsPerStage": {
+      "requests": 10,
+      "tokens": 260000,
+      "seconds": 180
+    },
+    "maximumTotal": {
+      "requests": 30,
+      "tokens": 780000
+    },
+    "costConfirmation": "3x10-260000-180:actual-cost-unknown",
+    "actualCost": {
+      "status": "unavailable",
+      "amount": null,
+      "currency": null
+    },
+    "pending": [
+      "revisionRepairDecisionWorkflow",
+      "authorAcceptance",
+      "continuation",
+      "supplierInvoice"
+    ],
+    "qualification": "reuse-existing-trusted-evidence-no-publication"
+  },
+  "stages": [],
+  "observations": [],
+  "observationsTruncated": false,
+  "certificationPublished": false,
+  "authorAccepted": false,
+  "continued": false,
+  "cleanup": "completed",
+  "usageBasis": "engine-terminal-receipts-not-supplier-invoice",
+  "model": {
+    "connection": "deepseek-flash",
+    "protocol": "responses",
+    "qualificationContextDigest": "cf78bc2336408018283a460115c5a93e6dab493aa6ad0de14d7fca7fa86a964b",
+    "codexDigest": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4"
+  },
+  "failure": {
+    "stage": "preflight",
+    "code": "RUNTIME_REQUEST_FAILED"
+  }
+}

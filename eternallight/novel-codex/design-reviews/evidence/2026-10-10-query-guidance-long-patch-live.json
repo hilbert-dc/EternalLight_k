@@ -1,0 +1,401 @@
+{
+  "version": 2,
+  "evidence": "liveModelToolComparison",
+  "status": "completed",
+  "cases": [
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "patch",
+      "requests": [
+        {
+          "request": "d9b525f36463232f202199219abbc2dd31c27f232090520a31e1d9d319ed5a68",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 72918,
+          "toolsBytes": 15740,
+          "inputBytes": 24405,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "4193c615027e2f00cd07c22f71cd8c10c5f0a94f8986c2462905fcfe01af057e",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 83878,
+          "toolsBytes": 15740,
+          "inputBytes": 35365,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "af86f5cfe3c7b6998c8852266d10186fb6e845f4b11e4a56948bf0b70ad840c7",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 90138,
+          "toolsBytes": 15740,
+          "inputBytes": 41625,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "5a4b741e44510ee04b27c8ac30a3e3bd45832851c1b3ff2f1f9f9ebf942cfb7c",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 92584,
+          "toolsBytes": 15740,
+          "inputBytes": 44071,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "9d55062907b739595b2e47d9a0ed23bfafaa9357bf684174ba921b46a43bfe91",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 96661,
+          "toolsBytes": 15740,
+          "inputBytes": 48148,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        },
+        {
+          "request": "c8acf3ddd7798dd2fd95ac1c2b138f268e15640e45f0ccfc5aa2f5cfebe9145a",
+          "maxOutputTokens": 8192,
+          "maxTokens": null,
+          "maxCompletionTokens": null,
+          "generationMaxOutputTokens": null,
+          "bodyBytes": 99800,
+          "toolsBytes": 15740,
+          "inputBytes": 51287,
+          "messagesBytes": 0,
+          "instructionsBytes": 31341
+        }
+      ],
+      "responses": [
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "d9b525f36463232f202199219abbc2dd31c27f232090520a31e1d9d319ed5a68",
+          "normalizedUsage": {
+            "inputTokens": 15506,
+            "outputTokens": 103,
+            "totalTokens": 15609,
+            "cachedTokens": 5376,
+            "reasoningTokens": 52
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "4193c615027e2f00cd07c22f71cd8c10c5f0a94f8986c2462905fcfe01af057e",
+          "normalizedUsage": {
+            "inputTokens": 18901,
+            "outputTokens": 174,
+            "totalTokens": 19075,
+            "cachedTokens": 15488,
+            "reasoningTokens": 64
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "af86f5cfe3c7b6998c8852266d10186fb6e845f4b11e4a56948bf0b70ad840c7",
+          "normalizedUsage": {
+            "inputTokens": 20438,
+            "outputTokens": 391,
+            "totalTokens": 20829,
+            "cachedTokens": 19072,
+            "reasoningTokens": 248
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "5a4b741e44510ee04b27c8ac30a3e3bd45832851c1b3ff2f1f9f9ebf942cfb7c",
+          "normalizedUsage": {
+            "inputTokens": 21112,
+            "outputTokens": 434,
+            "totalTokens": 21546,
+            "cachedTokens": 20736,
+            "reasoningTokens": 271
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "9d55062907b739595b2e47d9a0ed23bfafaa9357bf684174ba921b46a43bfe91",
+          "normalizedUsage": {
+            "inputTokens": 22279,
+            "outputTokens": 247,
+            "totalTokens": 22526,
+            "cachedTokens": 21504,
+            "reasoningTokens": 7
+          }
+        },
+        {
+          "status": "completed",
+          "errorCode": null,
+          "request": "c8acf3ddd7798dd2fd95ac1c2b138f268e15640e45f0ccfc5aa2f5cfebe9145a",
+          "normalizedUsage": {
+            "inputTokens": 23202,
+            "outputTokens": 150,
+            "totalTokens": 23352,
+            "cachedTokens": 22400,
+            "reasoningTokens": 0
+          }
+        }
+      ],
+      "turns": [
+        {
+          "status": "completed",
+          "errorKind": null,
+          "httpStatus": null
+        }
+      ],
+      "status": "passed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "1a9596b42db7d71308e2fbf2a3a54c1e16f78e7dd9bd8dafa06bdd73023a22d1",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "1a9596b42db7d71308e2fbf2a3a54c1e16f78e7dd9bd8dafa06bdd73023a22d1",
+            "contentHash": "7d634dd6ef9719873475dcd2b0b648d446565915fc6ab075dd5be9c0db9ffe58",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 7,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": "c4d46f1c406c0e2cdc6840335478b117dd2b35372352e40fc531473b1c9419be",
+            "entries": [
+              {
+                "path": "4d01a2fffad9442b4f5ec6e535edcb79d1960e6e22cd1cd9825a2e8f6276cd78",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "87ae6ab6cb06d8bcf0fe2157c1d29559b0f72202af148ad9ca7cff5c55d0f1ce",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "41cce05da967ed948e50a450b5030b6423625d668c643957095c334c1df55a15",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "9f9ca834c9ce76164c5237e210efadee3264adb89683dfd53baf155c69043cf2",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "576e9570f0a9be1c9ee7eee178c28514200b8c2866b7c6731ce4b237fe1e878d",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2406
+                },
+                "revision": "e96cae905aca7e2e6516a34a60f2ec1e8b8daa506dd3f786bc4a1d5f4a455136"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 600,
+                  "end": 1200,
+                  "total": 2406
+                },
+                "revision": "e96cae905aca7e2e6516a34a60f2ec1e8b8daa506dd3f786bc4a1d5f4a455136"
+              }
+            ],
+            "resultDigest": "d711710c222f9ee14e7d0c3c19e6960d0f6efb95662ceef00ff8370fe845b3b3"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "1a9596b42db7d71308e2fbf2a3a54c1e16f78e7dd9bd8dafa06bdd73023a22d1",
+            "cursor": null,
+            "view": "locate",
+            "query": "616cbe6487546642e17657c18a6a7e57b7509cf35ecba11159e8adef061c739a",
+            "returnedSource": "1a9596b42db7d71308e2fbf2a3a54c1e16f78e7dd9bd8dafa06bdd73023a22d1",
+            "contentHash": "7d634dd6ef9719873475dcd2b0b648d446565915fc6ab075dd5be9c0db9ffe58",
+            "coverage": {},
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 0,
+                  "end": 1,
+                  "total": 2406
+                },
+                "revision": "e96cae905aca7e2e6516a34a60f2ec1e8b8daa506dd3f786bc4a1d5f4a455136"
+              }
+            ],
+            "resultDigest": "f0fc31120f812702e1cb8ab0866a28c6e94c916b94b7f5cc9741e22860b15ca2"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "save_draft_checkpoint",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "save": {
+            "submittedContentDigest": "ff9b57148ce51bec9af22cef40f538c9be7c55da78f48c737cdfa41d20d2d895",
+            "expectedCandidate": null,
+            "patchSource": "e96cae905aca7e2e6516a34a60f2ec1e8b8daa506dd3f786bc4a1d5f4a455136",
+            "saved": true,
+            "revision": "ee87ed047da9e88e6f005349e3e27232bb0224ff6c36d0e7b494e59030a2b919",
+            "checkpoint": "c5f77f0db7dddcfe0082ca395926421914358a41770f472594c7e485ba653730",
+            "version": 2
+          },
+          "requestedMode": "patch"
+        },
+        {
+          "name": "complete_task",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 6,
+        "tokens": 122937,
+        "unknownTokens": 0
+      },
+      "contentPreserved": true,
+      "firstAttemptSucceeded": true,
+      "corrections": 0,
+      "mcpSessionStartupMs": 485.7874590000001,
+      "modelElapsedMs": 11995.469583,
+      "executionStatus": "completed",
+      "comparisonModeHonored": true,
+      "toolErrorCount": 0,
+      "readSummary": {
+        "successfulReads": 2,
+        "repeatedExactResults": 0,
+        "interpretation": "Identical request and result observations; repetition alone does not establish waste."
+      },
+      "quiescent": true,
+      "readback": {
+        "status": "matched",
+        "checks": {
+          "body": true,
+          "title": true,
+          "chapterIdentity": true,
+          "groupStructure": true,
+          "protectedGroups": true
+        },
+        "revision": "ee87ed047da9e88e6f005349e3e27232bb0224ff6c36d0e7b494e59030a2b919",
+        "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+        "bodyUnchanged": false,
+        "expectedCharacters": 2406,
+        "actualCharacters": 2406
+      },
+      "domainTaskStatus": "completed",
+      "elapsedMs": 12646.826208999999
+    }
+  ],
+  "providerUsage": null,
+  "limitations": [
+    "Exact-edit synthetic cases measure tool use and content preservation, not literary quality.",
+    "Provider usage comes from Engine receipts; unknown usage stays unknown. No qualification is fabricated."
+  ],
+  "configuration": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "repeats": 1,
+    "limitsPerCase": {
+      "requests": 10,
+      "tokens": 250000,
+      "seconds": 180
+    },
+    "startupTimeoutMs": 600000,
+    "plannedCases": 1,
+    "caseSelection": [
+      {
+        "size": "long",
+        "mode": "patch"
+      }
+    ]
+  },
+  "build": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "engine": "f12fe0b061061967fe134df201cc7be63a8b4346407656d433a7ee6c6fdde240",
+    "engineContractHash": "a584044a337961c2a14fa467e1ec3add05b69ed277147a37e2186f32136d1e85",
+    "qualificationContextDigest": "2a1e084ac1ba0a54a4f7ae791620d4d817dd16a28c2ff2b3057ab2f92f6b3a05",
+    "native": {
+      "runtime": "4eb9a43e837018d68edd63f7390b72e3e56b24b215f280489d7990b15b386c24",
+      "mcp": "2b4a8ffc76ce0666d9516c0d5eb6dd200568d9d04c4dec3547ae415ef630d68d"
+    }
+  },
+  "runtimeStartupMs": 147.22908400000006,
+  "summaries": [
+    {
+      "mode": "full",
+      "cases": 0,
+      "passed": 0,
+      "firstAttemptSuccessRate": null,
+      "contentCheckedCases": 0,
+      "contentUnknownCases": 0,
+      "contentPreservationRate": null,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "mode": "patch",
+      "cases": 1,
+      "passed": 1,
+      "firstAttemptSuccessRate": 1,
+      "contentCheckedCases": 1,
+      "contentUnknownCases": 0,
+      "contentPreservationRate": 1,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 6,
+        "tokens": 122937
+      }
+    }
+  ]
+}

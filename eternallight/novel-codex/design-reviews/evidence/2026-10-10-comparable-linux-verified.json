@@ -1,0 +1,2657 @@
+{
+  "execution": "four independent test binaries, four harness threads each; no retries; original Cargo manifest cwd",
+  "expectedExecutables": 106,
+  "executables": [
+    {
+      "target": "novel-workspace-mcp",
+      "manifest": "/workspace/novel-codex/native/story-mcp/Cargo.toml",
+      "executable": "/build/target/debug/deps/novel_workspace_mcp-844bff60aadd3d12",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.322,
+      "log": "2026-10-10-comparable-linux-verified/novel_workspace_mcp-844bff60aadd3d12.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 119,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "multimedia_context_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/multimedia_context_tests-d2eb08a0f9b4b17d",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 2.131,
+      "log": "2026-10-10-comparable-linux-verified/multimedia_context_tests-d2eb08a0f9b4b17d.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "work_pause_control_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/work_pause_control_tests-f8f6b1b38486db44",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 2.681,
+      "log": "2026-10-10-comparable-linux-verified/work_pause_control_tests-f8f6b1b38486db44.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "thread_author_messages_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/thread_author_messages_tests-f5046733b3d79ddd",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 2.228,
+      "log": "2026-10-10-comparable-linux-verified/thread_author_messages_tests-f5046733b3d79ddd.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "novel_codex_story_core",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/novel_codex_story_core-8bfab88bfb1844e2",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 50.889,
+      "log": "2026-10-10-comparable-linux-verified/novel_codex_story_core-8bfab88bfb1844e2.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 296,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "commitment_revision_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/commitment_revision_tests-c372cfe02df8f253",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.436,
+      "log": "2026-10-10-comparable-linux-verified/commitment_revision_tests-c372cfe02df8f253.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "novel-codex-story-runtime",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/novel_codex_story_runtime-9e500683d34b80e8",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.077,
+      "log": "2026-10-10-comparable-linux-verified/novel_codex_story_runtime-9e500683d34b80e8.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "quality_notebook_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/quality_notebook_http_tests-7a680dc01f117016",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.641,
+      "log": "2026-10-10-comparable-linux-verified/quality_notebook_http_tests-7a680dc01f117016.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "generation_handoff_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/generation_handoff_tests-1690d9e604f38e4e",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 14.989,
+      "log": "2026-10-10-comparable-linux-verified/generation_handoff_tests-1690d9e604f38e4e.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "verification_lifecycle_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/verification_lifecycle_http_tests-93bd64e88108124d",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.625,
+      "log": "2026-10-10-comparable-linux-verified/verification_lifecycle_http_tests-93bd64e88108124d.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "draft_title_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/draft_title_http_tests-217c2556a6d85e93",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 9.041,
+      "log": "2026-10-10-comparable-linux-verified/draft_title_http_tests-217c2556a6d85e93.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "modeling_outbox_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/modeling_outbox_tests-4e820eb210183770",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.345,
+      "log": "2026-10-10-comparable-linux-verified/modeling_outbox_tests-4e820eb210183770.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "writer_baseline_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/writer_baseline_http_tests-4c74b80bf5923b37",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.519,
+      "log": "2026-10-10-comparable-linux-verified/writer_baseline_http_tests-4c74b80bf5923b37.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "generation_provider_budget_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/generation_provider_budget_tests-c958f3de1900defd",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.198,
+      "log": "2026-10-10-comparable-linux-verified/generation_provider_budget_tests-c958f3de1900defd.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "work_issue_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/work_issue_http_tests-84d95e19cde00307",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 27.411,
+      "log": "2026-10-10-comparable-linux-verified/work_issue_http_tests-84d95e19cde00307.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "generation_replan_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/generation_replan_tests-84708cde33a84e45",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.049,
+      "log": "2026-10-10-comparable-linux-verified/generation_replan_tests-84708cde33a84e45.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "proposal_selection_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/proposal_selection_tests-49f894f50300fb1f",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.998,
+      "log": "2026-10-10-comparable-linux-verified/proposal_selection_tests-49f894f50300fb1f.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "runtime_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/runtime_http_tests-28a4489356d3f31c",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 22.832,
+      "log": "2026-10-10-comparable-linux-verified/runtime_http_tests-28a4489356d3f31c.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 20,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "work_budget_authorization_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/work_budget_authorization_tests-9dde680feb5bbc84",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 61.251,
+      "log": "2026-10-10-comparable-linux-verified/work_budget_authorization_tests-9dde680feb5bbc84.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 25,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "delegation_targets_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/delegation_targets_http_tests-12bdc783747ccf93",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 6.715,
+      "log": "2026-10-10-comparable-linux-verified/delegation_targets_http_tests-12bdc783747ccf93.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "continuous_recovery_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/continuous_recovery_tests-e7ef3ca1cedc110d",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 22.927,
+      "log": "2026-10-10-comparable-linux-verified/continuous_recovery_tests-e7ef3ca1cedc110d.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 14,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "recovery_ledger_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/recovery_ledger_http_tests-1573adfce9eefa7d",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 23.432,
+      "log": "2026-10-10-comparable-linux-verified/recovery_ledger_http_tests-1573adfce9eefa7d.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "scoped_revision_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/scoped_revision_tests-09426602b208b06a",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 43.487,
+      "log": "2026-10-10-comparable-linux-verified/scoped_revision_tests-09426602b208b06a.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 14,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "passage_query_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/passage_query_tests-661ab9db7844a5bd",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.766,
+      "log": "2026-10-10-comparable-linux-verified/passage_query_tests-661ab9db7844a5bd.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "manuscript_catalog_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/manuscript_catalog_http_tests-eb609d15c2c3ce60",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.114,
+      "log": "2026-10-10-comparable-linux-verified/manuscript_catalog_http_tests-eb609d15c2c3ce60.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "task_planning_review_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/task_planning_review_http_tests-0a1d8c63a9c21850",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 7.692,
+      "log": "2026-10-10-comparable-linux-verified/task_planning_review_http_tests-0a1d8c63a9c21850.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "conversation_registry_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/conversation_registry_http_tests-0b67497ded68f99b",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 2.899,
+      "log": "2026-10-10-comparable-linux-verified/conversation_registry_http_tests-0b67497ded68f99b.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "execution_scope_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/execution_scope_http_tests-ccc38aa1289750ad",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 6.006,
+      "log": "2026-10-10-comparable-linux-verified/execution_scope_http_tests-ccc38aa1289750ad.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "workspace_saved_output_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/workspace_saved_output_http_tests-3828fa6dc3ee7ba8",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 9.193,
+      "log": "2026-10-10-comparable-linux-verified/workspace_saved_output_http_tests-3828fa6dc3ee7ba8.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "workspace_revision_reports_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/workspace_revision_reports_http_tests-1e779c10017297a7",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 6.704,
+      "log": "2026-10-10-comparable-linux-verified/workspace_revision_reports_http_tests-1e779c10017297a7.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "conversation_analysis_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/conversation_analysis_http_tests-d622e1dafa9e1f3f",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.268,
+      "log": "2026-10-10-comparable-linux-verified/conversation_analysis_http_tests-d622e1dafa9e1f3f.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "plan_first_save_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/plan_first_save_http_tests-73f4437e18dd1fe8",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 1.782,
+      "log": "2026-10-10-comparable-linux-verified/plan_first_save_http_tests-73f4437e18dd1fe8.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "commitment_revision_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/commitment_revision_http_tests-934e39b21d8e7545",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 2.064,
+      "log": "2026-10-10-comparable-linux-verified/commitment_revision_http_tests-934e39b21d8e7545.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "task_sources_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/task_sources_http_tests-fa1da7ae98f21125",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 12.317,
+      "log": "2026-10-10-comparable-linux-verified/task_sources_http_tests-fa1da7ae98f21125.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "query_plan_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/query_plan_tests-24dc841c0cec3176",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 7.072,
+      "log": "2026-10-10-comparable-linux-verified/query_plan_tests-24dc841c0cec3176.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "query_writer_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/query_writer_tests-2d7c793164577fad",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.966,
+      "log": "2026-10-10-comparable-linux-verified/query_writer_tests-2d7c793164577fad.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "commitment_proposal_budget_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/commitment_proposal_budget_tests-631e36b357cdbcbe",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.723,
+      "log": "2026-10-10-comparable-linux-verified/commitment_proposal_budget_tests-631e36b357cdbcbe.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "authoring_run_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/authoring_run_tests-c5c016079b7d0461",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 44.14,
+      "log": "2026-10-10-comparable-linux-verified/authoring_run_tests-c5c016079b7d0461.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 14,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "story_event_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/story_event_http_tests-dfbacbdcc94bd94c",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 36.496,
+      "log": "2026-10-10-comparable-linux-verified/story_event_http_tests-dfbacbdcc94bd94c.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "conversation_message_api_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/conversation_message_api_tests-580f65b5dd16cc1e",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.131,
+      "log": "2026-10-10-comparable-linux-verified/conversation_message_api_tests-580f65b5dd16cc1e.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "knowledge_conflicts_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/knowledge_conflicts_tests-afc48c6f730b8a9b",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 6.917,
+      "log": "2026-10-10-comparable-linux-verified/knowledge_conflicts_tests-afc48c6f730b8a9b.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "modeling_evidence_path_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/modeling_evidence_path_tests-330bbbf479fa72e1",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.041,
+      "log": "2026-10-10-comparable-linux-verified/modeling_evidence_path_tests-330bbbf479fa72e1.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "report_prewrite_recovery_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/report_prewrite_recovery_http_tests-658a3c9b92e720d8",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 12.833,
+      "log": "2026-10-10-comparable-linux-verified/report_prewrite_recovery_http_tests-658a3c9b92e720d8.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "semantic_query_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/semantic_query_tests-2fa005a7ddc00ca0",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.449,
+      "log": "2026-10-10-comparable-linux-verified/semantic_query_tests-2fa005a7ddc00ca0.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "task_hypothesis_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/task_hypothesis_http_tests-6efe817ca4e9a375",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 5.384,
+      "log": "2026-10-10-comparable-linux-verified/task_hypothesis_http_tests-6efe817ca4e9a375.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "direct_verification_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/direct_verification_http_tests-fa44002eb2d463da",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 10.224,
+      "log": "2026-10-10-comparable-linux-verified/direct_verification_http_tests-fa44002eb2d463da.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "state_property_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/state_property_tests-c9f82ac9c907ebe4",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 9.11,
+      "log": "2026-10-10-comparable-linux-verified/state_property_tests-c9f82ac9c907ebe4.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "state_selector_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/state_selector_http_tests-e9a03c045dab2d33",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 1.541,
+      "log": "2026-10-10-comparable-linux-verified/state_selector_http_tests-e9a03c045dab2d33.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "property_rule_proposal_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/property_rule_proposal_http_tests-33ab415f5964c5b5",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.13,
+      "log": "2026-10-10-comparable-linux-verified/property_rule_proposal_http_tests-33ab415f5964c5b5.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "revision_outcome_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/revision_outcome_tests-27fe4f9a19457743",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 186.848,
+      "log": "2026-10-10-comparable-linux-verified/revision_outcome_tests-27fe4f9a19457743.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 44,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "multimedia_context_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/multimedia_context_http_tests-fbfcd984fcb9555e",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 2.054,
+      "log": "2026-10-10-comparable-linux-verified/multimedia_context_http_tests-fbfcd984fcb9555e.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "task_evidence_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/task_evidence_http_tests-5b6e894215d6da31",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.591,
+      "log": "2026-10-10-comparable-linux-verified/task_evidence_http_tests-5b6e894215d6da31.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "action_permission_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/action_permission_http_tests-0603442a405e87bf",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.128,
+      "log": "2026-10-10-comparable-linux-verified/action_permission_http_tests-0603442a405e87bf.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "commitment_extraction_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/commitment_extraction_http_tests-5fac32931da7955f",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 5.613,
+      "log": "2026-10-10-comparable-linux-verified/commitment_extraction_http_tests-5fac32931da7955f.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "chapter_deletion_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/chapter_deletion_http_tests-b239d988f667e193",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.953,
+      "log": "2026-10-10-comparable-linux-verified/chapter_deletion_http_tests-b239d988f667e193.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "query_scope_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/query_scope_tests-2038c09652995773",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 8.356,
+      "log": "2026-10-10-comparable-linux-verified/query_scope_tests-2038c09652995773.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "author_intent_source_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/author_intent_source_tests-933ea9cca9f8c2f7",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 18.676,
+      "log": "2026-10-10-comparable-linux-verified/author_intent_source_tests-933ea9cca9f8c2f7.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "chapter_structure_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/chapter_structure_http_tests-405800df680b7ec8",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 5.525,
+      "log": "2026-10-10-comparable-linux-verified/chapter_structure_http_tests-405800df680b7ec8.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "planned_scene_mapping_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/planned_scene_mapping_http_tests-21dea7b8ed3df83a",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 5.279,
+      "log": "2026-10-10-comparable-linux-verified/planned_scene_mapping_http_tests-21dea7b8ed3df83a.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "work_execution_events_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/work_execution_events_http_tests-5bcbf150a7b59069",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 13.9,
+      "log": "2026-10-10-comparable-linux-verified/work_execution_events_http_tests-5bcbf150a7b59069.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "impact_dependency_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/impact_dependency_tests-97f9db9f1f15d33e",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.364,
+      "log": "2026-10-10-comparable-linux-verified/impact_dependency_tests-97f9db9f1f15d33e.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "commitment_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/commitment_http_tests-5365c0994ae8645b",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.219,
+      "log": "2026-10-10-comparable-linux-verified/commitment_http_tests-5365c0994ae8645b.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "context_scope_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/context_scope_tests-b47c77f90d02e362",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 28.633,
+      "log": "2026-10-10-comparable-linux-verified/context_scope_tests-b47c77f90d02e362.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "checkpoint_retry_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/checkpoint_retry_tests-c80a3578470fd9de",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 20.012,
+      "log": "2026-10-10-comparable-linux-verified/checkpoint_retry_tests-c80a3578470fd9de.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "generation_author_source_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/generation_author_source_tests-7d3fce2ac2950b9c",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 20.944,
+      "log": "2026-10-10-comparable-linux-verified/generation_author_source_tests-7d3fce2ac2950b9c.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 13,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "brief_payload_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/brief_payload_http_tests-9af914a8face6296",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.257,
+      "log": "2026-10-10-comparable-linux-verified/brief_payload_http_tests-9af914a8face6296.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "context_budget_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/context_budget_tests-192b36367b050bef",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 13.823,
+      "log": "2026-10-10-comparable-linux-verified/context_budget_tests-192b36367b050bef.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "chapter_acceptance_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/chapter_acceptance_http_tests-551be4915fb1daea",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 23.833,
+      "log": "2026-10-10-comparable-linux-verified/chapter_acceptance_http_tests-551be4915fb1daea.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "multimedia_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/multimedia_http_tests-8d90220f4088345e",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 7.953,
+      "log": "2026-10-10-comparable-linux-verified/multimedia_http_tests-8d90220f4088345e.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "chapter_acceptance_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/chapter_acceptance_tests-72de2f25c70f16d4",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.875,
+      "log": "2026-10-10-comparable-linux-verified/chapter_acceptance_tests-72de2f25c70f16d4.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "conversations_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/conversations_tests-68f6c3566cf3bf2d",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.16,
+      "log": "2026-10-10-comparable-linux-verified/conversations_tests-68f6c3566cf3bf2d.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "provider_budget_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/provider_budget_tests-b914280b01088363",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.137,
+      "log": "2026-10-10-comparable-linux-verified/provider_budget_tests-b914280b01088363.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "current_schema_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/current_schema_tests-912f28591208c9ed",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.912,
+      "log": "2026-10-10-comparable-linux-verified/current_schema_tests-912f28591208c9ed.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "project_creation_concurrency_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/project_creation_concurrency_tests-f98d1018af02e5ac",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 2.952,
+      "log": "2026-10-10-comparable-linux-verified/project_creation_concurrency_tests-f98d1018af02e5ac.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "task_capability_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/task_capability_http_tests-782809db846e4844",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.334,
+      "log": "2026-10-10-comparable-linux-verified/task_capability_http_tests-782809db846e4844.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "working_source_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/working_source_tests-a6fa627197b4c311",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 15.539,
+      "log": "2026-10-10-comparable-linux-verified/working_source_tests-a6fa627197b4c311.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "event_review_integrity_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/event_review_integrity_tests-11aff4e92eaf36ef",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.033,
+      "log": "2026-10-10-comparable-linux-verified/event_review_integrity_tests-11aff4e92eaf36ef.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "narrative_commitment_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/narrative_commitment_tests-b7a51616d2442d1b",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.417,
+      "log": "2026-10-10-comparable-linux-verified/narrative_commitment_tests-b7a51616d2442d1b.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "work_decision_http_tests",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/work_decision_http_tests-b06a629d350465df",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 69.744,
+      "log": "2026-10-10-comparable-linux-verified/work_decision_http_tests-b06a629d350465df.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "work_interlude_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/work_interlude_tests-9c9ac3adac743bbf",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.23,
+      "log": "2026-10-10-comparable-linux-verified/work_interlude_tests-9c9ac3adac743bbf.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "commitment_extraction_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/commitment_extraction_tests-c26aaeb9758d751b",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.777,
+      "log": "2026-10-10-comparable-linux-verified/commitment_extraction_tests-c26aaeb9758d751b.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "repository_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/repository_tests-7e0d9c9e07b7a855",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.132,
+      "log": "2026-10-10-comparable-linux-verified/repository_tests-7e0d9c9e07b7a855.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "novel_codex_story_authoring",
+      "manifest": "/workspace/novel-codex/native/story-authoring/Cargo.toml",
+      "executable": "/build/target/debug/deps/novel_codex_story_authoring-6f27abb6762f9ff0",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.126,
+      "log": "2026-10-10-comparable-linux-verified/novel_codex_story_authoring-6f27abb6762f9ff0.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "branch_author_history_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/branch_author_history_tests-81e0bd5f86663a78",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.362,
+      "log": "2026-10-10-comparable-linux-verified/branch_author_history_tests-81e0bd5f86663a78.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "context_sources_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/context_sources_tests-41dbb4cc015eac67",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.52,
+      "log": "2026-10-10-comparable-linux-verified/context_sources_tests-41dbb4cc015eac67.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "novel_codex_story_runtime",
+      "manifest": "/workspace/novel-codex/native/story-runtime/Cargo.toml",
+      "executable": "/build/target/debug/deps/novel_codex_story_runtime-5dc1faf9c8146478",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 20.356,
+      "log": "2026-10-10-comparable-linux-verified/novel_codex_story_runtime-5dc1faf9c8146478.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "model_work_plan_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/model_work_plan_tests-db344e6e7253593e",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 4.709,
+      "log": "2026-10-10-comparable-linux-verified/model_work_plan_tests-db344e6e7253593e.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "task_capability_renewal_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/task_capability_renewal_tests-c1d28b96dff1cd34",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.581,
+      "log": "2026-10-10-comparable-linux-verified/task_capability_renewal_tests-c1d28b96dff1cd34.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "reading_checkpoint_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/reading_checkpoint_tests-61bc662867602dc3",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 9.86,
+      "log": "2026-10-10-comparable-linux-verified/reading_checkpoint_tests-61bc662867602dc3.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "story_retrieval_evaluation",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/examples/story_retrieval_evaluation-8f52d5b30510d9d3",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 9.476,
+      "log": "2026-10-10-comparable-linux-verified/story_retrieval_evaluation-8f52d5b30510d9d3.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "sqlite_concurrency_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/sqlite_concurrency_tests-1f284db9545a8017",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 5.087,
+      "log": "2026-10-10-comparable-linux-verified/sqlite_concurrency_tests-1f284db9545a8017.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "task_action_binding_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/task_action_binding_tests-9c80ff4b7d1247fa",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 9.811,
+      "log": "2026-10-10-comparable-linux-verified/task_action_binding_tests-9c80ff4b7d1247fa.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 14,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "multimedia_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/multimedia_tests-0e375d9f7fa738b2",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 2.989,
+      "log": "2026-10-10-comparable-linux-verified/multimedia_tests-0e375d9f7fa738b2.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "work_delivery_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/work_delivery_tests-fe2bc4367c03a686",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 6.502,
+      "log": "2026-10-10-comparable-linux-verified/work_delivery_tests-fe2bc4367c03a686.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "commitment_proposal_context_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/commitment_proposal_context_tests-2d92a46c532efd2c",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.989,
+      "log": "2026-10-10-comparable-linux-verified/commitment_proposal_context_tests-2d92a46c532efd2c.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "task_scope_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/task_scope_tests-c71bc7e98a6aba7b",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.136,
+      "log": "2026-10-10-comparable-linux-verified/task_scope_tests-c71bc7e98a6aba7b.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "conversation_message_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/conversation_message_tests-e27cbf97fdc95a2b",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 2.933,
+      "log": "2026-10-10-comparable-linux-verified/conversation_message_tests-e27cbf97fdc95a2b.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "workflow_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/workflow_tests-5b6c217c066be0e9",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.242,
+      "log": "2026-10-10-comparable-linux-verified/workflow_tests-5b6c217c066be0e9.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "task_author_intent_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/task_author_intent_tests-22fc32b424b4e816",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.19,
+      "log": "2026-10-10-comparable-linux-verified/task_author_intent_tests-22fc32b424b4e816.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "tasks_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/tasks_tests-ecb9227a88e99281",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.292,
+      "log": "2026-10-10-comparable-linux-verified/tasks_tests-ecb9227a88e99281.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "recovery_ledger_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/recovery_ledger_tests-d0976b6c45d8eaa6",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 6.081,
+      "log": "2026-10-10-comparable-linux-verified/recovery_ledger_tests-d0976b6c45d8eaa6.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "commitment_context_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/commitment_context_tests-5137182c23a627b6",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 0.973,
+      "log": "2026-10-10-comparable-linux-verified/commitment_context_tests-5137182c23a627b6.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "multimedia_patch_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/multimedia_patch_tests-b1a3b5e59e931b8c",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 3.699,
+      "log": "2026-10-10-comparable-linux-verified/multimedia_patch_tests-b1a3b5e59e931b8c.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "sqlite_repository_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/sqlite_repository_tests-e021cd17f352cbf8",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 2.333,
+      "log": "2026-10-10-comparable-linux-verified/sqlite_repository_tests-e021cd17f352cbf8.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "multimedia_text_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/multimedia_text_tests-7abca77670fcd0cd",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 2.635,
+      "log": "2026-10-10-comparable-linux-verified/multimedia_text_tests-7abca77670fcd0cd.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    },
+    {
+      "target": "state_selector_tests",
+      "manifest": "/workspace/novel-codex/native/story-core/Cargo.toml",
+      "executable": "/build/target/debug/deps/state_selector_tests-7ed383839d025c8f",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": 0,
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "exitCode": 0,
+      "elapsedSeconds": 80.755,
+      "log": "2026-10-10-comparable-linux-verified/state_selector_tests-7ed383839d025c8f.log",
+      "summaries": [
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ]
+    }
+  ],
+  "passed": true
+}

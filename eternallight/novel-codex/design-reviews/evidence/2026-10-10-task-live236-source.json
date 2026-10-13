@@ -1,0 +1,19 @@
+{
+  "electron/main.mjs": "9fb3b68708753f060d69e08716b52b5ababe387e95379aaafe8eeb876db5110d",
+  "electron/conversation-analysis.mjs": "993fc60b4aab9c4c27487450049bd13f82903593f4bfe564e3a931fb30e0c90e",
+  "electron/advisory-prompt.mjs": "407dd90a90b67441a46d0e3f286d7fd21f75eb348e23ade1ff3a06817419e5df",
+  "electron/creative-mission.mjs": "abbcb34925768d6b75f4c46fc336bb8d0763435bf3e9f090d49bfcbf1aa770b0",
+  "native/story-core/src/work_decision_recovery.rs": "fbb4d5fe8831da69a18b476863bc70c8017c42adb0d07764c60acb84ab07be79",
+  "native/story-core/src/work_execution_events.rs": "68bae05b3d09ac90a1096c686766460585e8409e27ad32b1ea9a0b11cc3695ba",
+  "native/story-mcp/src/tool_guidance.rs": "da82aa578029ec7b2a837fb15dec7b90c09685afefa6d52d0899bcb67cf42d6f",
+  "scripts/fixtures/task-live-desktop.mjs": "1347f169612d9129e50fcdea1703e7b6e5d4fee7cb7f34327f5acdf4837906c6",
+  "scripts/task-live-lifecycle.mjs": "5dc5895bf814ede6e47911e10209eefbc9e512d94d883f81fe0d36044c344c3c",
+  "scripts/probe-live-task-experience.mjs": "1d24d07177f8d9bda53ae124d51e34600b3afe8c653ffd95f2498e7e0fc77170",
+  "native/target/debug/novel-codex-story-runtime": "c78d7276dc082b25cb24e9e4f60fe6e7aef7e37971cb8bfea88eb5169133d211",
+  "native/target/debug/novel-workspace-mcp": "b785c4bbb04e23e8975453dda858ecaf2502ed4419e818b74af621fde83d7e25",
+  "../agent-engine/native/engine-core/src/budget.rs": "3dc7bcca6bf522dbd0aba47c7ecf0b005862896d321a5d11089aadab5e65ac68",
+  "../agent-engine/native/bin/darwin-arm64/engine.node": "86d38e2fa2123aff32b8f3e9b7212bda48519269bba1115a67ea9dfe635b34e6",
+  "native/story-core/src/task_sources.rs": "c567ab2796668285896763063f1b4394ee46b079b8ff29b358dfe669c1228549",
+  "native/story-core/src/direct_verification.rs": "68fdb3679fccdc12966e47c840192ccd075e3a8ba0a1ebbc628fe18c49639fa6",
+  "native/story-mcp/src/task_source_tools.rs": "4c0e479e22a727f709c572511eabd13832d2b10a717e0f8ecdd1793b920da43f"
+}

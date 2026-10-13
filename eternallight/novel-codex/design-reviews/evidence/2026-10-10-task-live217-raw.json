@@ -1,0 +1,71 @@
+{
+  "startedAt": "2026-10-10T04:49:17.092Z",
+  "model": "deepseek-flash",
+  "limits": {
+    "maxRequestsPerScenario": 4,
+    "maxTokens": null
+  },
+  "scope": "production Electron preload/main, real Core/MCP/Native/provider; automated API driving, not visual/manual UX",
+  "budgetInjection": "tighten initial Native budget only; reject extra root budgets and topups",
+  "qualification": {
+    "status": "returned",
+    "result": {
+      "reusedCurrentQualifiedConnection": true
+    }
+  },
+  "scenarios": [
+    {
+      "name": "interlude",
+      "status": "failed",
+      "tasks": [
+        {
+          "id": "task-ee06acb3c549ca1a2bf1456f629f0b90",
+          "operation": "advisory",
+          "threadId": "01a12424-e43d-74d0-af7f-8579dbc42f33"
+        },
+        {
+          "id": "task-c942557c877540d5b9d09f1b445c2bd7",
+          "operation": "advisory",
+          "threadId": "01a12424-e43d-74d0-af7f-8579dbc42f33"
+        }
+      ],
+      "nativeFailures": [
+        {
+          "path": "/api/projects/project-fba9c21f4a894fff8a722d8c71b3774f/work-execution-events/work-event-735d48f17ed54c819e091892f7a6b340/claim",
+          "status": 409,
+          "error": {
+            "code": "conflict",
+            "details": {},
+            "message": "WorkTaskStale",
+            "recovery": null
+          }
+        },
+        {
+          "path": "/api/projects/project-fba9c21f4a894fff8a722d8c71b3774f/work-tasks/work-task-ee06acb3c549ca1a2bf1456f629f0b90/interludes/return",
+          "status": 409,
+          "error": {
+            "code": "work_usage_unsettled",
+            "details": {},
+            "message": "原请求的费用登记尚未结束，正在等待核对。",
+            "recovery": null
+          }
+        }
+      ],
+      "rootBudgetGranted": true,
+      "error": "Error: scenario wait timeout"
+    }
+  ],
+  "configured": {
+    "configured": true,
+    "state": "idle",
+    "mode": "novel-agent-engine",
+    "error": null,
+    "provider": "DeepSeek",
+    "model": "deepseek-flash",
+    "commandSource": "workspace-build",
+    "cliPath": null,
+    "isolatedHome": "/var/folders/dz/j3hn9zvs2q7gnh6w4m48cktr0000gn/T/novel-live-task-experience-Z2p3nt/user-data/codex-home",
+    "reasoningEffort": "low"
+  },
+  "finishedAt": "2026-10-10T04:51:58.008Z"
+}

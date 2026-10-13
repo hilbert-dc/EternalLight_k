@@ -1,0 +1,49 @@
+{
+  "scope": "Selected files at end of slice, includes concurrent edits; not an exclusive authorship or frozen-source causal claim. Run-time executable identities are immutable in each original report.",
+  "recordedAt": "2026-10-10T10:37:10.238763+00:00",
+  "files": {
+    "native/story-core/src/draft_source_projection.rs": "f86c116ae316cd433446169519e5904cc59b6d675e8e43ce6c8ed4ea10605214",
+    "native/story-core/src/task_sources.rs": "2360c4e12ef1ac4634485f9c826b98d07adf020ae6ab088e40976910a6e4a859",
+    "native/story-core/src/source_check_evidence.rs": "29e092e0c3000d36d219480521d490af1f987100bf3d0d00f95ea7c1ff9a77ca",
+    "native/story-core/src/task_workspace.rs": "a295003a8dcdf508d936f5371d98599d38f32dec7133934db078457dc89a1f9d",
+    "native/story-core/src/work_decision.rs": "1a840f6e33d70f012f4c6c39687a360b795f406539b2cac3abfcbb85706d0c23",
+    "native/story-core/src/lib.rs": "f69ac9c3e4ddb959573bdd77aab7fa6781f4d9832c8c4ac46943c86addc45b43",
+    "native/story-core/src/task_workspace_output_tests.rs": "fdb1a979642a23345ca56c121c439275813c0eef0b81fa660e03c3734241ef00",
+    "native/story-runtime/src/context_model_item_budget.rs": "f002533e983e2d1e602b2a8223115c5cbfb5f9aba406e449689b3eed38d27d68",
+    "native/story-runtime/tests/workspace_revision_reports_http_tests.rs": "58a50d93e29f82903cea460a03be371d0694e9e70f306125ccc4cae14ea66cb2",
+    "native/story-mcp/src/task_source_tools.rs": "b600a4fae2076118dce1a44fcb9d3566aa264390c40f74a34297002d9630ba35",
+    "scripts/evaluate-live-novel-tools.mjs": "b570d3bd1c7adc1644fb2b738119ca06607a60ebc9a18469005380c3eb865595",
+    "scripts/tool-evaluation-observations.mjs": "43da86ae3b5f0c3470a1b005bc4d53525815979793757a646d07ab2fcae73999",
+    "scripts/tool-evaluation-runtime.mjs": "e02490eccd099f27e6bafea376bf9e9ae43eadc0eae4ffd7ff9137f1396b244b",
+    "scripts/tool-evaluation-report.mjs": "2a0287b44bbb9079c1694c4a653b5ed82aabd471490757fe8137dc5a6c90c9d5",
+    "scripts/tool-evaluation-live.example.json": "70403fa6783dc56c41a068573391cfea8d8535d9205cbf1e15a3cc46606453b8",
+    "scripts/tests/tool-evaluation.test.mjs": "ab6b95da7eb0b0c42c9a07b2574abcf6876b4953bd606dd1fa2d7e2701ccf6ec",
+    "scripts/tests/tool-evaluation-core.integration.test.mjs": "0d6ad434100800c83374373f401260c268bcc85d4d7cb1fb92e174ae788edd8e",
+    "ARCHITECTURE.md": "958e03e28d50f87762cec04caf60e189cc7c60a220054dbe4eecbaeec4cd39c8",
+    "AGENT_CAPABILITY_OPTIMIZATION_PLAN.md": "74a326ff31feaa087d2af7f4747c2d95e31d44c10d8f3b599be4da04ce006a28",
+    "design-reviews/2026-10-10-agent-full-acceptance.md": "c8c4073b051c4366485b4e8da5f7bdf3be2e33660cfd669a65ea0daec3d8447c",
+    "design-reviews/2026-10-10-agent-optimization-implementation.md": "f86c264e957f1557c7900eb8f0c68e1ce45eb54c0a4cd552d95290a7f3ab5c6d"
+  },
+  "currentBinaries": {
+    "native/target/debug/novel-codex-story-runtime": "17b38c8f59e989140cca252efcd4d83d0f39c9132f4151e24f511769eb7a65dd",
+    "native/target/debug/novel-workspace-mcp": "f24d4b721130af4abd17a7b6a49c6584b2bdb0a4e9b99d4f6eee2de482d825f7"
+  },
+  "liveReportBuilds": {
+    "full": {
+      "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+      "qualificationContextDigest": "b69e60c6cae0e86ee5b963457a1b3239fe2a205cbe0fcbe49c7fa056cf82e051",
+      "native": {
+        "runtime": "17b38c8f59e989140cca252efcd4d83d0f39c9132f4151e24f511769eb7a65dd",
+        "mcp": "f24d4b721130af4abd17a7b6a49c6584b2bdb0a4e9b99d4f6eee2de482d825f7"
+      }
+    },
+    "patch": {
+      "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+      "qualificationContextDigest": "b69e60c6cae0e86ee5b963457a1b3239fe2a205cbe0fcbe49c7fa056cf82e051",
+      "native": {
+        "runtime": "17b38c8f59e989140cca252efcd4d83d0f39c9132f4151e24f511769eb7a65dd",
+        "mcp": "f24d4b721130af4abd17a7b6a49c6584b2bdb0a4e9b99d4f6eee2de482d825f7"
+      }
+    }
+  }
+}

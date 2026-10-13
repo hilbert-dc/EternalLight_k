@@ -1,0 +1,32 @@
+Analysis of sampling verification_lifecycle_http_tests-5e82d3d83a196e9d (pid 36989) every 1 millisecond
+Process:         verification_lifecycle_http_tests-5e82d3d83a196e9d [36989]
+Path:            /Users/USER/*/verification_lifecycle_http_tests-5e82d3d83a196e9d
+Load Address:    0x102d54000
+Identifier:      verification_lifecycle_http_tests-5e82d3d83a196e9d
+Version:         ???
+Code Type:       ARM64
+Parent Process:  cargo [30463]
+Target Type:     live task
+
+Date/Time:       2026-10-10 16:31:34.528 +0800
+Launch Time:     2026-10-10 16:27:56.045 +0800
+OS Version:      macOS 26.5.1 (25F80)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         112K
+Physical footprint (peak):  112K
+Idle exit:                  untracked
+----
+
+Call graph:
+    888 Thread_4719838: Main Thread   DispatchQueue_<multiple>
+      888 _dyld_start  (in dyld) + 0  [0x1096f49c0]
+
+Total number in stack (recursive counted multiple, when >=5):
+
+Sort by top of stack, same collapsed (when >= 5):
+        _dyld_start  (in dyld)        888
+
+Binary images description not available
+

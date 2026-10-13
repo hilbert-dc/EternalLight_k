@@ -1,0 +1,33 @@
+{
+  "rawReport": "2026-10-10-task-live250-raw.json",
+  "scope": "Real provider through production API; no visual UX or cross-platform certification",
+  "scenarios": {
+    "delivery": {
+      "verdict": "failed",
+      "requests": 30,
+      "knownTokens": 1099926,
+      "unknownTokenReservation": 0,
+      "savedBody": "港城的雨下了整夜，咸腥的风从码头灌进巷子。林夕摸黑蹲到废弃的栈桥下，把油布包着的密函塞进旧船舷的裂缝，又抹上一层湿泥。潮声盖过心跳，林夕退到尽头，回头看了一眼——那封密函安静地躺在木缝深处，像一枚不肯出声的钉子。",
+      "characterCount": 106,
+      "reason": "Trusted candidate CAS omitted and saved on first try. Partial checkpoint receipt wrongly directed completion; corrections consumed remaining budget before final verification."
+    },
+    "interlude": {
+      "verdict": "passed",
+      "requests": 20,
+      "knownTokens": 749445,
+      "unknownTokenReservation": 0,
+      "savedBody": "港城的雨落了整夜，钟楼敲过十二响，钟声在水汽里滚得发闷。抄写员林夕把密函按在胸口，指节泛白——方才递信的人没留姓名，也没回头。街角有人停住脚步，雨声忽然静了一瞬；林夕没有回头，只是把信按得更紧。",
+      "characterCount": 97,
+      "reason": "Temporary question answered Lin Xi; auto returned, saved suspense rain/bells/letter prose, Native fulfilled and final Engine reply completed. No pending actions/usage, adoption or publication."
+    },
+    "change": {
+      "verdict": "failed",
+      "requests": 7,
+      "knownTokens": 205029,
+      "unknownTokenReservation": 38457,
+      "savedBody": "夜幕落在港城。抄写员林夕把密函藏进衣袋，走向钟楼。",
+      "characterCount": 25,
+      "reason": "Steer delivered with unknown usage retained, but model treated explicit replacement as unresolved conflict, requested redundant author decision and ended discussion with no rewritten draft."
+    }
+  }
+}

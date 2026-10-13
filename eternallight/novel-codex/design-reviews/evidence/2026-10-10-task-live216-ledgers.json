@@ -1,0 +1,245 @@
+{
+  "source": "read-only isolated Native/Engine SQLite diagnostic snapshot; no writes",
+  "budgets": [
+    {
+      "runId": "task-c0b6fc61eb43418e0d304c326e5983e6",
+      "status": "failed",
+      "requests": 6,
+      "tokens": 185253.0,
+      "unknownTokens": 0.0,
+      "reservedTokens": 0.0,
+      "maxRequests": 6.0,
+      "maxTokens": null,
+      "maxDurationMs": null
+    },
+    {
+      "runId": "task-5c9084fe5c85dbf19c390f1aa52c58d5",
+      "status": "cancelled",
+      "requests": 1,
+      "tokens": 23930.0,
+      "unknownTokens": 0.0,
+      "reservedTokens": 0.0,
+      "maxRequests": 6.0,
+      "maxTokens": null,
+      "maxDurationMs": null
+    },
+    {
+      "runId": "task-668908032d36b8e6f8319f70db2b0479",
+      "status": "cancelled",
+      "requests": 2,
+      "tokens": 23853.0,
+      "unknownTokens": 34911.0,
+      "reservedTokens": 0.0,
+      "maxRequests": 6.0,
+      "maxTokens": null,
+      "maxDurationMs": null
+    },
+    {
+      "runId": "task-e097d736dd563ba92fa9cff72e1b5e97",
+      "status": "failed",
+      "requests": 2,
+      "tokens": 23817.0,
+      "unknownTokens": 34845.0,
+      "reservedTokens": 0.0,
+      "maxRequests": 6.0,
+      "maxTokens": null,
+      "maxDurationMs": null
+    },
+    {
+      "runId": "task-19b8ead7741140c2aa4e36759e79642f",
+      "status": "recovered_unknown",
+      "requests": 2,
+      "tokens": 33160.0,
+      "unknownTokens": 42226.0,
+      "reservedTokens": 0.0,
+      "maxRequests": 4.0,
+      "maxTokens": null,
+      "maxDurationMs": null
+    },
+    {
+      "runId": "task-bc78db68b482b08539bed08482bf3324",
+      "status": "cancelled",
+      "requests": 2,
+      "tokens": 23950.0,
+      "unknownTokens": 34942.0,
+      "reservedTokens": 0.0,
+      "maxRequests": 6.0,
+      "maxTokens": null,
+      "maxDurationMs": null
+    },
+    {
+      "runId": "task-ee06acb3c549ca1a2bf1456f629f0b90",
+      "status": "completed",
+      "requests": 3,
+      "tokens": 80583.0,
+      "unknownTokens": 0.0,
+      "reservedTokens": 0.0,
+      "maxRequests": 4.0,
+      "maxTokens": null,
+      "maxDurationMs": null
+    },
+    {
+      "runId": "task-c942557c877540d5b9d09f1b445c2bd7",
+      "status": "completed",
+      "requests": 1,
+      "tokens": 33132.0,
+      "unknownTokens": 0.0,
+      "reservedTokens": 0.0,
+      "maxRequests": 1.0,
+      "maxTokens": null,
+      "maxDurationMs": null
+    }
+  ],
+  "totals": {
+    "requests": 19,
+    "tokens": 427678.0,
+    "unknownTokens": 146924.0,
+    "reservedTokens": 0
+  },
+  "qualificationExcludedFromTotals": true,
+  "unknownTokensMeaning": "unsettled reservation estimates, not confirmed supplier billed tokens",
+  "native": {
+    "works": [
+      {
+        "id": "work-task-c0b6fc61eb43418e0d304c326e5983e6",
+        "project_id": "project-7e2ebc5da37344e480883bea6e3f0037",
+        "thread_id": "01a12423-5c95-7972-9b03-5717f5439384",
+        "status": "blocked",
+        "control_revision": 0
+      },
+      {
+        "id": "work-task-5c9084fe5c85dbf19c390f1aa52c58d5",
+        "project_id": "project-e8a20464346b4dd79ba733ff0bc67c2b",
+        "thread_id": "01a12423-afe4-7ac3-a938-9f20a8af4435",
+        "status": "paused",
+        "control_revision": 1
+      },
+      {
+        "id": "work-task-668908032d36b8e6f8319f70db2b0479",
+        "project_id": "project-276de9bdd1834a0a9cb4f84dff0242e9",
+        "thread_id": "01a12423-c28e-7272-8cac-40a1cdd85e39",
+        "status": "paused",
+        "control_revision": 1
+      },
+      {
+        "id": "work-task-e097d736dd563ba92fa9cff72e1b5e97",
+        "project_id": "project-b75c7d1442eb44128f1106048d20109f",
+        "thread_id": "01a12423-cf09-7f12-8b6e-3ac7bf5bf3a2",
+        "status": "blocked",
+        "control_revision": 0
+      },
+      {
+        "id": "work-task-bc78db68b482b08539bed08482bf3324",
+        "project_id": "project-bd8e04b26bcf49feaa8e6056c68ed4aa",
+        "thread_id": "01a12423-de43-77b0-a2e2-e31c630c7d6f",
+        "status": "paused",
+        "control_revision": 1
+      },
+      {
+        "id": "work-task-ee06acb3c549ca1a2bf1456f629f0b90",
+        "project_id": "project-fba9c21f4a894fff8a722d8c71b3774f",
+        "thread_id": "01a12424-e43d-74d0-af7f-8579dbc42f33",
+        "status": "running",
+        "control_revision": 0
+      }
+    ],
+    "interludes": [
+      {
+        "id": "3fd32f08-8cfa-4efa-8741-22e19517015f",
+        "work_id": "work-task-ee06acb3c549ca1a2bf1456f629f0b90",
+        "message_id": "3fd32f08-8cfa-4efa-8741-22e19517015f",
+        "auto_return": 1,
+        "state": "open",
+        "revision": 0
+      }
+    ],
+    "messages": [
+      {
+        "message_id": "fdef4e42-07c1-4c4e-9840-24b85d07adf1",
+        "project_id": "project-7e2ebc5da37344e480883bea6e3f0037",
+        "status": "sending",
+        "task_id": "task-c0b6fc61eb43418e0d304c326e5983e6",
+        "error": null
+      },
+      {
+        "message_id": "e32992d4-c6f9-4aa4-be00-e78ded1242b6",
+        "project_id": "project-e8a20464346b4dd79ba733ff0bc67c2b",
+        "status": "sending",
+        "task_id": "task-5c9084fe5c85dbf19c390f1aa52c58d5",
+        "error": null
+      },
+      {
+        "message_id": "6c38c8c6-21ab-42df-a065-a5af7bae412e",
+        "project_id": "project-276de9bdd1834a0a9cb4f84dff0242e9",
+        "status": "sending",
+        "task_id": "task-668908032d36b8e6f8319f70db2b0479",
+        "error": null
+      },
+      {
+        "message_id": "2f47fe5e-fbf0-4264-b742-b54aecbfdbbb",
+        "project_id": "project-b75c7d1442eb44128f1106048d20109f",
+        "status": "sending",
+        "task_id": "task-e097d736dd563ba92fa9cff72e1b5e97",
+        "error": null
+      },
+      {
+        "message_id": "98349060-d4a7-4ff0-872d-b186338fbcb7",
+        "project_id": "project-bd8e04b26bcf49feaa8e6056c68ed4aa",
+        "status": "sending",
+        "task_id": "task-bc78db68b482b08539bed08482bf3324",
+        "error": null
+      },
+      {
+        "message_id": "17226f71-ad55-4e7c-982e-ae89238c83b6",
+        "project_id": "project-fba9c21f4a894fff8a722d8c71b3774f",
+        "status": "delivered",
+        "task_id": "task-ee06acb3c549ca1a2bf1456f629f0b90",
+        "error": null
+      },
+      {
+        "message_id": "3fd32f08-8cfa-4efa-8741-22e19517015f",
+        "project_id": "project-fba9c21f4a894fff8a722d8c71b3774f",
+        "status": "delivered",
+        "task_id": "task-c942557c877540d5b9d09f1b445c2bd7",
+        "error": null
+      }
+    ],
+    "intents": [
+      {
+        "task_id": "task-e097d736dd563ba92fa9cff72e1b5e97",
+        "author_text": "修改要求：林夕必须保留密函，绝不能烧掉。后续创作请采用这项新要求。",
+        "status": "delivered"
+      }
+    ],
+    "workBudgets": [
+      {
+        "work_task_id": "work-task-c0b6fc61eb43418e0d304c326e5983e6",
+        "ledger_json": "{\"maxRequests\":6,\"maxTokens\":null,\"usedRequests\":6,\"usedTokens\":185253,\"unknownTokens\":0,\"overrun\":false,\"charges\":[{\"failureObservations\":[{\"connectionId\":\"deepseek-flash\",\"errorCategory\":\"budget\",\"errorCode\":\"task_request_budget_exhausted\",\"errorStatusCode\":400,\"issuer\":\"engine\",\"logicalModel\":\"deepseek-flash\",\"phase\":\"modelRequest\",\"requestId\":\"task-c0b6fc61eb43418e0d304c326e5983e6:7\",\"retryable\":false,\"runId\":\"task-c0b6fc61eb43418e0d304c326e5983e6\"}],\"taskId\":\"task-c0b6fc61eb43418e0d304c326e5983e6\",\"budgetId\":\"budget-task-c0b6fc61eb43418e0d304c326e5983e6\",\"status\":\"failed\",\"requests\":6,\"tokens\":185253,\"unknownTokens\":0,\"overrun\":false}]}"
+      },
+      {
+        "work_task_id": "work-task-5c9084fe5c85dbf19c390f1aa52c58d5",
+        "ledger_json": "{\"maxRequests\":6,\"maxTokens\":null,\"usedRequests\":1,\"usedTokens\":23930,\"unknownTokens\":0,\"overrun\":false,\"charges\":[{\"failureObservations\":[{\"connectionId\":\"deepseek-flash\",\"errorCategory\":\"cancelled\",\"errorCode\":\"bridge_error\",\"errorStatusCode\":502,\"issuer\":\"engine\",\"logicalModel\":\"deepseek-flash\",\"phase\":\"modelRequest\",\"requestId\":\"task-5c9084fe5c85dbf19c390f1aa52c58d5:2\",\"retryable\":true,\"runId\":\"task-5c9084fe5c85dbf19c390f1aa52c58d5\"}],\"taskId\":\"task-5c9084fe5c85dbf19c390f1aa52c58d5\",\"budgetId\":\"budget-task-5c9084fe5c85dbf19c390f1aa52c58d5\",\"status\":\"cancelled\",\"requests\":1,\"tokens\":23930,\"unknownTokens\":0,\"overrun\":false}]}"
+      },
+      {
+        "work_task_id": "work-task-668908032d36b8e6f8319f70db2b0479",
+        "ledger_json": "{\"maxRequests\":6,\"maxTokens\":null,\"usedRequests\":2,\"usedTokens\":23853,\"unknownTokens\":34911,\"overrun\":false,\"charges\":[{\"failureObservations\":[{\"connectionId\":\"deepseek-flash\",\"errorCategory\":\"cancelled\",\"errorCode\":\"bridge_error\",\"errorStatusCode\":502,\"issuer\":\"engine\",\"logicalModel\":\"deepseek-flash\",\"phase\":\"modelRequest\",\"requestId\":\"task-668908032d36b8e6f8319f70db2b0479:2\",\"retryable\":true,\"runId\":\"task-668908032d36b8e6f8319f70db2b0479\"}],\"taskId\":\"task-668908032d36b8e6f8319f70db2b0479\",\"budgetId\":\"budget-task-668908032d36b8e6f8319f70db2b0479\",\"status\":\"cancelled\",\"requests\":2,\"tokens\":23853,\"unknownTokens\":34911,\"overrun\":false}]}"
+      },
+      {
+        "work_task_id": "work-task-e097d736dd563ba92fa9cff72e1b5e97",
+        "ledger_json": "{\"maxRequests\":6,\"maxTokens\":null,\"usedRequests\":2,\"usedTokens\":23817,\"unknownTokens\":34845,\"overrun\":false,\"charges\":[{\"failureObservations\":[{\"connectionId\":\"deepseek-flash\",\"errorCategory\":\"bridge\",\"errorCode\":\"bridge_error\",\"errorStatusCode\":502,\"issuer\":\"engine\",\"logicalModel\":\"deepseek-flash\",\"phase\":\"modelRequest\",\"requestId\":\"task-e097d736dd563ba92fa9cff72e1b5e97:2\",\"retryable\":true,\"runId\":\"task-e097d736dd563ba92fa9cff72e1b5e97\"},{\"connectionId\":\"deepseek-flash\",\"errorCategory\":\"budget\",\"errorCode\":\"task_provider_usage_unknown\",\"errorStatusCode\":400,\"issuer\":\"engine\",\"logicalModel\":\"deepseek-flash\",\"phase\":\"modelRequest\",\"requestId\":\"task-e097d736dd563ba92fa9cff72e1b5e97:3\",\"retryable\":false,\"runId\":\"task-e097d736dd563ba92fa9cff72e1b5e97\"}],\"taskId\":\"task-e097d736dd563ba92fa9cff72e1b5e97\",\"budgetId\":\"budget-task-e097d736dd563ba92fa9cff72e1b5e97\",\"status\":\"failed\",\"requests\":2,\"tokens\":23817,\"unknownTokens\":34845,\"overrun\":false}]}"
+      },
+      {
+        "work_task_id": "work-task-bc78db68b482b08539bed08482bf3324",
+        "ledger_json": "{\"maxRequests\":6,\"maxTokens\":null,\"usedRequests\":2,\"usedTokens\":23950,\"unknownTokens\":34942,\"overrun\":false,\"charges\":[{\"failureObservations\":[{\"connectionId\":\"deepseek-flash\",\"errorCategory\":\"cancelled\",\"errorCode\":\"bridge_error\",\"errorStatusCode\":502,\"issuer\":\"engine\",\"logicalModel\":\"deepseek-flash\",\"phase\":\"modelRequest\",\"requestId\":\"task-bc78db68b482b08539bed08482bf3324:2\",\"retryable\":true,\"runId\":\"task-bc78db68b482b08539bed08482bf3324\"}],\"taskId\":\"task-bc78db68b482b08539bed08482bf3324\",\"budgetId\":\"budget-task-bc78db68b482b08539bed08482bf3324\",\"status\":\"cancelled\",\"requests\":2,\"tokens\":23950,\"unknownTokens\":34942,\"overrun\":false}]}"
+      },
+      {
+        "work_task_id": "work-task-ee06acb3c549ca1a2bf1456f629f0b90",
+        "ledger_json": "{\"maxRequests\":4,\"maxTokens\":null,\"usedRequests\":4,\"usedTokens\":113715,\"unknownTokens\":0,\"overrun\":false,\"charges\":[{\"taskId\":\"task-ee06acb3c549ca1a2bf1456f629f0b90\",\"budgetId\":\"budget-task-ee06acb3c549ca1a2bf1456f629f0b90\",\"status\":\"completed\",\"requests\":3,\"tokens\":80583,\"unknownTokens\":0,\"overrun\":false},{\"taskId\":\"task-c942557c877540d5b9d09f1b445c2bd7\",\"budgetId\":\"budget-task-c942557c877540d5b9d09f1b445c2bd7\",\"status\":\"completed\",\"requests\":1,\"tokens\":33132,\"unknownTokens\":0,\"overrun\":false}]}"
+      }
+    ]
+  },
+  "scriptSha256": {
+    "scripts/probe-live-task-experience.mjs": "0ed5f4e2de394523bcf150416f12c4818bf54d1f69da659e22e9101304852937",
+    "scripts/fixtures/task-live-desktop.mjs": "22d1e19273a8a0fa02c3e7e72bbe89eac9bd1911d2dbeda81cbac156a9c3d09b"
+  }
+}

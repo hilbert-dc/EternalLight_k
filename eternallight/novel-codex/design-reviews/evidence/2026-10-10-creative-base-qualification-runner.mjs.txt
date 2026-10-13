@@ -1,0 +1,32 @@
+import {readFile,mkdir,writeFile} from 'node:fs/promises';
+import {CapabilityVerifier} from 'file:///Users/hilbert/private/codex/eternallight/agent-engine/src/index.mjs';
+import * as api from 'file:///Users/hilbert/private/codex/eternallight/novel-codex/electron/codex-runtime.mjs';
+import {CodexCoreIntegrationRunner} from 'file:///Users/hilbert/private/codex/eternallight/novel-codex/electron/codex-core-integration-runner.mjs';
+import {NOVEL_ROOT_DEVELOPER_INSTRUCTIONS} from 'file:///Users/hilbert/private/codex/eternallight/novel-codex/electron/creative-mission.mjs';
+import {loadProjectDevelopmentEnvironment,resolveDevelopmentEnvironment} from 'file:///Users/hilbert/private/codex/eternallight/novel-codex/electron/development-credentials.mjs';
+const root=process.cwd(), config=JSON.parse(await readFile('/private/tmp/novel-creative-base-before.json','utf8'));
+const env=resolveDevelopmentEnvironment(loadProjectDevelopmentEnvironment(root,process.env));
+const cli=api.resolveCodexCli({explicitPath:env.NOVEL_CODEX_CLI,isPackaged:false,projectRoot:root,resourcesPath:root});
+const baseInstructions=(await readFile('codex-runtime/engine-prompt.md','utf8')).trim();
+const cwd=root+'/.evaluation-reports/creative-base-qualification'; await mkdir(cwd,{recursive:true});
+const coreRunner=new CodexCoreIntegrationRunner({baseEnvironment:env,baseInstructions,developerInstructions:NOVEL_ROOT_DEVELOPER_INSTRUCTIONS,subagentDeveloperInstructions:api.NOVEL_SUBAGENT_DEVELOPER_INSTRUCTIONS,command:[cli.path,'app-server'],cwd,timeoutMs:60000});
+const observations={protocolRequests:[],coreMetrics:null};
+const verifier=new CapabilityVerifier({timeoutMs:20000,fetchImpl:async(url,options)=>{
+ if(observations.protocolRequests.length>=4)throw Error('Approved protocol request cap reached');
+ const request=JSON.parse(options.body);
+ const outputLimit=request.max_tokens??request.max_completion_tokens??request.max_output_tokens;
+ if(!Number.isSafeInteger(outputLimit)||outputLimit>512)throw Error('Protocol output limit exceeds approval');
+ const observation={outputLimit,status:null,usage:null};observations.protocolRequests.push(observation);
+ const response=await fetch(url,options);observation.status=response.status;
+ const text=await response.clone().text();
+ for(const line of text.split('\n')){try{const value=JSON.parse(line.startsWith('data: ')?line.slice(6):line);if(value.usage)observation.usage=Object.fromEntries(Object.entries(value.usage).filter(([,v])=>typeof v==='number'));}catch{}}
+ return response;
+}});
+const originalVerify=coreRunner.verify.bind(coreRunner);
+coreRunner.verify=async(...args)=>{const result=await originalVerify(...args);observations.coreMetrics=result.metrics??null;return result;};
+try {
+const result=await api.verifyCodexConnection({baseEnvironment:env,coreRunner,verifier,credentialScopes:api.credentialScopesFromEnvironment(env,config.credentialSaltPath),evidencePath:cwd+'/capability-evidence.json',provider:'deepseek',model:'deepseek-flash',qualificationContextDigest:api.createQualificationContextDigest({baseInstructions,cliPath:cli.path})});
+console.log(JSON.stringify({reportId:result.reportId,attempts:result.attempts,records:result.records?.map(r=>({capability:r.capability,status:r.status}))}));
+} catch(e) {console.log(JSON.stringify({failed:true,code:e.code??null}));process.exitCode=1;}
+
+await writeFile(root+'/design-reviews/evidence/2026-10-10-creative-base-qualification-usage.json',JSON.stringify(observations,null,2)+'\n');

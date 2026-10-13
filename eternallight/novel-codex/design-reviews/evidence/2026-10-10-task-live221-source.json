@@ -1,0 +1,7 @@
+{
+  "scripts/fixtures/task-live-desktop.mjs": "4bb7ff973550ebd3a66b9f9e4201d9126d159cc3b2204b924f15b40257c1d600",
+  "scripts/probe-live-task-experience.mjs": "1d24d07177f8d9bda53ae124d51e34600b3afe8c653ffd95f2498e7e0fc77170",
+  "scripts/task-live-lifecycle.mjs": "e8514e56e2769c87d360204f5b61e321581706d63a0c0e425dc242ceb9cddcb6",
+  "native/target/debug/novel-codex-story-runtime": "19e7c0f342552209e472080c1bab17af2668d72f861d318f33d150dbd2e143a7",
+  "native/target/debug/novel-workspace-mcp": "a9630fa21b2aa32999f9631c2018d3af7dfbc4ee04beea001e7201037df5ddad"
+}

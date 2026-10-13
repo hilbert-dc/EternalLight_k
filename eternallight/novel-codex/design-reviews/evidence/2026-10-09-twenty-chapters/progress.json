@@ -1,0 +1,131 @@
+{
+  "authorInput": "继续创作《潮汐邮局》第3—22章，共20章，每章约3000字。",
+  "submission": "actual application original conversation; scope approved through UI",
+  "run": {
+    "acceptedFeedbackRevisionId": null,
+    "activeTaskId": "task-7681b3b0e9ce4fe8b9b2d7f41f6b79ae",
+    "authorMessageId": "author-message-d631d1ad98b64187b862fb4f3d0d3c3f",
+    "baseSnapshotId": "snapshot-5873b06686cf4375b5b36a1077383471",
+    "blockedReason": null,
+    "chapterDeliveries": [
+      {
+        "assessmentRevisionId": null,
+        "assessmentTaskId": null,
+        "chapterId": "chapter-3725c2a9-f7f0-4423-86c7-707ac0ebd7d4",
+        "chapterNumber": 3,
+        "checkedRunVersion": 27,
+        "checkedSnapshotId": "snapshot-a9c403c94d494c8ab490d9adf032900b",
+        "commitmentExtractionRevisionId": null,
+        "draftRevisionId": "draft-d6f8fb83b9ec4ebf91e4be295d629d0a",
+        "feedbackDecisionId": null,
+        "knowledgeBatchId": null,
+        "planRevisionId": null,
+        "sourceDigest": "e4145fe4b79fbcdc0af5425e39908a4e9bc4217c0fbb3a67e300d8cb15e5ec8b"
+      }
+    ],
+    "completedChapters": 3,
+    "currentChapterId": null,
+    "currentChapterNumber": null,
+    "deadlineAt": null,
+    "feedbackDecisions": [],
+    "feedbackRepairCount": 0,
+    "feedbackRepairPrompt": null,
+    "generationProposalId": "generation-proposal-3d585c82e5734941b4a8ece0b177aa47",
+    "id": "generation-a8989f03de5c44e3806f8b22011c93d6",
+    "intentGeneration": 0,
+    "intentRevisions": [
+      {
+        "effectiveFromChapter": 3,
+        "generation": 0,
+        "id": "intent-b7f1402e2bca4bdcbebb5eb30560409d",
+        "instruction": "继续创作《潮汐邮局》第3—22章，共20章，每章约3000字。",
+        "source": {
+          "authorMessageId": "author-message-d631d1ad98b64187b862fb4f3d0d3c3f",
+          "createdAt": 1791524665,
+          "type": "authorMessage"
+        }
+      }
+    ],
+    "lastTaskId": "task-b9c2304028c049df8a4187c9852c12b7",
+    "maxRetryAttempts": 2,
+    "maxTaskAttempts": null,
+    "originTaskId": "task-d250f36b01b1859b88477de816467e63",
+    "pendingCurrentIntentGeneration": null,
+    "projectId": "project-25fdb53acefe43e799eb65bf241dce87",
+    "replans": [],
+    "retryAttempts": 0,
+    "revisionPredecessor": null,
+    "rootThreadId": "01a11eeb-e988-7132-9f4e-859a0519e76b",
+    "sourceDigest": "e4145fe4b79fbcdc0af5425e39908a4e9bc4217c0fbb3a67e300d8cb15e5ec8b",
+    "stage": "coordinate",
+    "startChapterNumber": 3,
+    "status": "running",
+    "stepToken": "9e53759360ea4626b419f0657a3d9868",
+    "targetChapters": 22,
+    "usedTaskAttempts": 10,
+    "version": 29
+  },
+  "recentTasks": [
+    {
+      "task_id": "task-7681b3b0e9ce4fe8b9b2d7f41f6b79ae",
+      "operation": "advisory",
+      "status": "queued",
+      "error": null
+    },
+    {
+      "task_id": "task-b9c2304028c049df8a4187c9852c12b7",
+      "operation": "advisory",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "task_id": "task-88365e01fc224010832a338a21754972",
+      "operation": "assessRevisionOutcome",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "task_id": "task-6d8a1523cb384699b406a3f91d2386c6",
+      "operation": "advisory",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "task_id": "task-7eb89805731f45ebbffbca70fcff438f",
+      "operation": "generateChapter",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "task_id": "task-4ff4535398114631bea53da00518f08b",
+      "operation": "advisory",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "task_id": "task-910ee875614649d4b52d432f117c7dc2",
+      "operation": "generateChapter",
+      "status": "failed",
+      "error": "TaskOutputMissing"
+    },
+    {
+      "task_id": "task-30aff25287f54fb3ae90fe90d270689b",
+      "operation": "advisory",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "task_id": "task-3bf522bb215941d9b45bb69abb9171a9",
+      "operation": "generateChapter",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "task_id": "task-11d77a9fdf06494b851a98e757a67e26",
+      "operation": "advisory",
+      "status": "completed",
+      "error": null
+    }
+  ],
+  "completionClaim": false
+}

@@ -1,0 +1,21 @@
+{
+  "electron/main.mjs": "9fb3b68708753f060d69e08716b52b5ababe387e95379aaafe8eeb876db5110d",
+  "electron/conversation-analysis.mjs": "993fc60b4aab9c4c27487450049bd13f82903593f4bfe564e3a931fb30e0c90e",
+  "electron/advisory-prompt.mjs": "c6997e8f422b43838905cc90cea937f5ac909a7d5c57dd6d75e148c14bb4daa0",
+  "electron/creative-mission.mjs": "abbcb34925768d6b75f4c46fc336bb8d0763435bf3e9f090d49bfcbf1aa770b0",
+  "native/story-core/src/work_decision_recovery.rs": "fbb4d5fe8831da69a18b476863bc70c8017c42adb0d07764c60acb84ab07be79",
+  "native/story-core/src/work_execution_events.rs": "68bae05b3d09ac90a1096c686766460585e8409e27ad32b1ea9a0b11cc3695ba",
+  "native/story-mcp/src/tool_guidance.rs": "1fcdeab18c1bbd234d6660ed88e502cf225e21a83cbb241e9c9ad11e6bc7b50f",
+  "scripts/fixtures/task-live-desktop.mjs": "7dda33c44617ecc49bbdabaadf670eb1e3172835d25e4f4e1b3b37e14c8596db",
+  "scripts/task-live-lifecycle.mjs": "5dc5895bf814ede6e47911e10209eefbc9e512d94d883f81fe0d36044c344c3c",
+  "scripts/probe-live-task-experience.mjs": "1d24d07177f8d9bda53ae124d51e34600b3afe8c653ffd95f2498e7e0fc77170",
+  "native/target/debug/novel-codex-story-runtime": "cc309416c758b75484c4c398b53c2ac3195d76e71e265a3a439f8fee14d3fcd3",
+  "native/target/debug/novel-workspace-mcp": "9dbbe372e0969ae7e7ecc25815e593e89a93cd8fcb76adb3f6d886765e71b654",
+  "../agent-engine/native/engine-core/src/budget.rs": "3dc7bcca6bf522dbd0aba47c7ecf0b005862896d321a5d11089aadab5e65ac68",
+  "../agent-engine/native/bin/darwin-arm64/engine.node": "86d38e2fa2123aff32b8f3e9b7212bda48519269bba1115a67ea9dfe635b34e6",
+  "native/story-core/src/task_sources.rs": "c323a86019722665921f4e77fab82bd566fbec4cc8e49129547d48cd35915386",
+  "native/story-core/src/direct_verification.rs": "e2386515d8b8fb87b90c0f4ae03a73a56d0d28d2c0b72ecc32a71bf41ac932bc",
+  "native/story-mcp/src/task_source_tools.rs": "9b511da592720eb5e0c61a330df6593414b99d650b26a5d3b3ee49454ab66c22",
+  "native/story-mcp/src/delivery_review_schema.rs": "2286fbdfa1549fb1c2930da9f1484f752077ef896c840540b170a007f2487219",
+  "native/story-mcp/src/main.rs": "b346fd0b020d0b61760ff47dedd89caf7d67f4f15a778bda5e992c60782d40c6"
+}

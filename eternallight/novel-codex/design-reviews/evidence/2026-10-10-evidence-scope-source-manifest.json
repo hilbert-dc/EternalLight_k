@@ -1,0 +1,14 @@
+{
+  "scope": "Latest evidence-scope build/contract files; tests and live runs use current shared workspace, which also has concurrent edits",
+  "files": {
+    "native/story-core/src/direct_verification.rs": "907e70adc87b6a100a6a701bb6159739f48a328ff6c6e8a85c8245e1c5c30936",
+    "native/story-core/src/revision_outcome_validation.rs": "565d7b1ba9d0f61f273a29071c6af1bc72cdc7dcd7cce491c34ae357581f2eb0",
+    "native/story-mcp/src/revision_outcome_schema.rs": "23b525d965b25fd1c8e6d123a354e6e93ddb6f17d9f6c48b1c801897b70fd1ad",
+    "native/story-mcp/src/tool_guidance.rs": "59bd85a8f35261fc6a3211dd87f9325961d2152d08fb595eb9c9f9a5b53b2c4d",
+    "native/story-mcp/src/delivery_review_schema.rs": "708360891913206aa688d6e51759633b37a35e5f00c53795ac3c072d1117a7b7",
+    "scripts/fixtures/task-live-desktop.mjs": "d96d631b084f767adcc9f5cf3ff1d6ced1939871982b9f36b610af736a17690d",
+    "native/target/debug/novel-codex-story-runtime": "89a95b935a71b8620bcf599047af434e5816fbd5d6a64fde41c317baea496e3e",
+    "native/target/debug/novel-workspace-mcp": "a57ed154c1e6643fd1d607579dfa61ec2f775c4d21148261b9afe101b326d129"
+  },
+  "head": "307c541801fe9cfaad9ad80dfb1c7d8d9bf016a8"
+}

@@ -1,0 +1,139 @@
+{
+  "controls": {
+    "log": "/tmp/task-ideal198-controls.log",
+    "sha256": "958cad7d2c0c1495ebda3beeff5f3d0346299fe8adbb288a6e852a55b5388e3f",
+    "counts": {
+      "tests": 123,
+      "pass": 123,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "failedTests": []
+  },
+  "controls-ui": {
+    "log": "/tmp/task-ideal198-controls-ui.log",
+    "sha256": "c1935c6052c82a3f16556b09e64529ad6f47e2013602af55a9eada63cd975910",
+    "counts": {
+      "tests": 99,
+      "pass": 99,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "failedTests": []
+  },
+  "creative": {
+    "log": "/tmp/task-ideal198-creative.log",
+    "sha256": "645c5ee94d7e2480d30caa9b6b00e01da7a5bc7b8918374f989e93e6019fd1a3",
+    "counts": {
+      "tests": 91,
+      "pass": 73,
+      "fail": 18,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "failedTests": [
+      "session startup waits for required tools beyond the ordinary RPC deadline",
+      "concurrent restore and session callers share readiness and cannot switch its target",
+      "a stale creation response cannot publish into or clear a new session",
+      "a stale restore response cannot publish into or clear a new session",
+      "failed session creation retires its child and can be retried",
+      "stopping during session readiness does not poison an immediate restart",
+      "chapter analysis keeps its existing work and authorization: paused/null",
+      "chapter analysis keeps its existing work and authorization: blocked/null",
+      "chapter analysis keeps its existing work and authorization: paused/attemptBudget",
+      "actual App reconnects only its service, blocks offline creation and preserves unsaved chapter text and selection",
+      "the added capacity hint participates in the complete byte and token admission checks",
+      "a long active turn stays owned until the author interrupts it",
+      "production candidate chain freezes new inputs and repairs missing delivery review in the same lease",
+      "offline saved-result recovery never starts model work (finished)",
+      "offline saved-result recovery never starts model work (follow-up paused)",
+      "offline execution fails before changing task state or requesting new funds",
+      "stale local recovery fails closed without falling through to model retry",
+      "usage reconciliation cannot change local recovery into model continuation"
+    ]
+  },
+  "permission": {
+    "log": "/tmp/task-ideal198-permission.log",
+    "sha256": "ed3adb856937d51ffad164d9d83791ddeeeaf1f0db178b3ef5df9263d9a0951d",
+    "counts": {
+      "tests": 53,
+      "pass": 47,
+      "fail": 6,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "failedTests": [
+      "production planning review shares author allowance: success",
+      "production planning review shares author allowance: successSingle",
+      "production planning review shares author allowance: modelFailure",
+      "production planning review shares author allowance: settlementFailure",
+      "production planning review shares author allowance: missingGrant",
+      "explicit saved-result recovery cannot substitute another Native mode or blocked reason"
+    ]
+  },
+  "desktop": {
+    "log": "/tmp/task-ideal198-desktop.log",
+    "sha256": "04deb67cbaf2c88fe4a8825a6bfc082c8001f55989bfba30a13c60595b74df63",
+    "counts": {
+      "tests": 5,
+      "pass": 0,
+      "fail": 5,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "failedTests": [
+      "production Electron preload/main runs a read-only Codex/MCP task with real persistent budget",
+      "production Electron preload/main runs a read-only Codex/MCP task with real persistent budget (delayed MCP)",
+      "production Electron preload/main runs a read-only Codex/MCP task with real persistent budget (failed MCP)",
+      "production Electron preload/main runs a read-only Codex/MCP task with real persistent budget (failed MCP then retry)",
+      "production Electron preload/main runs a read-only Codex/MCP task with real persistent budget (invalid evidence cache)"
+    ]
+  },
+  "startup": {
+    "log": "/tmp/task-ideal198-startup.log",
+    "sha256": "d89af3fb3c721f7786f2434d6d116d6ef593b4ebc7d0fcdf96ae6070a3a02693",
+    "counts": {
+      "tests": 11,
+      "pass": 5,
+      "fail": 6,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "failedTests": [
+      "session startup waits for required tools beyond the ordinary RPC deadline",
+      "concurrent restore and session callers share readiness and cannot switch its target",
+      "a stale creation response cannot publish into or clear a new session",
+      "a stale restore response cannot publish into or clear a new session",
+      "failed session creation retires its child and can be retried",
+      "stopping during session readiness does not poison an immediate restart"
+    ]
+  },
+  "fresh-native": {
+    "log": "/tmp/task-ideal198-fresh-native.log",
+    "sha256": "d4fc2ebb263c9eee64b37d2f53874fc5641ed891c966c89dca4e544d67d706cb",
+    "counts": {
+      "tests": 2,
+      "pass": 1,
+      "fail": 1,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "failedTests": [
+      "production candidate chain freezes new inputs and repairs missing delivery review in the same lease"
+    ]
+  },
+  "build": {
+    "log": "/tmp/task-ideal198-build.log",
+    "sha256": "97a7e45d32262ec7ef3b0622ad342c2f05a7cd5a90888ad9d5b6bf4e4e0d0a61",
+    "counts": {},
+    "failedTests": []
+  },
+  "repo": {
+    "log": "/tmp/task-ideal198-repo.log",
+    "sha256": "75cf5a220b17e4251bdeede10343b35a5a6c6b53afd430db823ca0cfa16b99be",
+    "counts": {},
+    "failedTests": []
+  }
+}

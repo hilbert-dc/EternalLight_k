@@ -1,0 +1,60 @@
+{
+  "evidence": "Optional query guidance presentation only; synthetic exact edit, not literary evaluation",
+  "schemaBytes": {
+    "before": 13613,
+    "after": 12200,
+    "saved": 1413,
+    "unit": "compact MCP selected-tools JSON array bytes"
+  },
+  "live": {
+    "status": "passed",
+    "usage": {
+      "overrun": false,
+      "requests": 6,
+      "tokens": 122937,
+      "unknownTokens": 0
+    },
+    "executionStatus": "completed",
+    "domainTaskStatus": "completed",
+    "comparisonModeHonored": true,
+    "toolErrorCount": 0,
+    "corrections": 0,
+    "contentPreserved": true,
+    "readback": {
+      "status": "matched",
+      "checks": {
+        "body": true,
+        "title": true,
+        "chapterIdentity": true,
+        "groupStructure": true,
+        "protectedGroups": true
+      },
+      "revision": "ee87ed047da9e88e6f005349e3e27232bb0224ff6c36d0e7b494e59030a2b919",
+      "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+      "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+      "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+      "bodyUnchanged": false,
+      "expectedCharacters": 2406,
+      "actualCharacters": 2406
+    },
+    "modelElapsedMs": 11995.469583,
+    "mcpSessionStartupMs": 485.7874590000001
+  },
+  "runtimeStartupMs": 147.22908400000006,
+  "wireToolBytes": [
+    15740
+  ],
+  "toolSequence": [
+    "read_context",
+    "read_source_content:content",
+    "read_source_content:locate",
+    "save_draft_checkpoint",
+    "complete_task"
+  ],
+  "limitations": [
+    "Model used first parsed page then locate, without fully paging original or rereading saved candidate. This exact-edit fixture does not establish full-reading or literary quality.",
+    "Prior run used a different reading path; token differences are not a controlled causal estimate.",
+    "Advanced query guide fidelity is covered by tests; no live advanced-query case was run.",
+    "Cold startup root cause and overall acceptance remain open."
+  ]
+}

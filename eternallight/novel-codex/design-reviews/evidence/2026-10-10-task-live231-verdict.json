@@ -1,0 +1,17 @@
+{
+  "scenario": "interlude",
+  "status": "passed",
+  "evidence": "2026-10-10-task-live231-raw.json",
+  "projectId": "project-daea7f6ca1a24d12bae7e286d293571f",
+  "workTaskId": "work-task-458dcf33a538eaebe4cd7f07046acd60",
+  "authorInterludeReturned": true,
+  "delivery": "ready_for_review",
+  "goal": "fulfilled",
+  "settled": true,
+  "usage": {
+    "requests": 27,
+    "tokens": 1042364,
+    "unknownTokens": 0
+  },
+  "note": "人工核对96字符候选正文含港城雨夜、钟声、林夕保留密函；accepted=null；无需额外批准或手动重试，原任务自动接续。"
+}

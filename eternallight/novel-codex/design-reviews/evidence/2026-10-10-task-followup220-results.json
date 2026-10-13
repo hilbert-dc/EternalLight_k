@@ -1,0 +1,65 @@
+{
+  "status": "local-repair-verified",
+  "paidModelCalls": 0,
+  "committed": false,
+  "pushed": false,
+  "scope": "shared dirty workspace; targeted local regression, not full real-model release acceptance",
+  "tests": {
+    "native-interlude": {
+      "status": "passed",
+      "testCount": 6,
+      "log": "task-followup220-native-interlude.log",
+      "sha256": "7f2d85a303324e5739b2463b23bdf2c10f68a0709e73f64e688569f0619062e0"
+    },
+    "javascript": {
+      "status": "passed",
+      "testCount": 42,
+      "log": "task-followup220-javascript.log",
+      "sha256": "3604d843482af5bc95b64883c320e49b29dedee852def484e5e806bb483f8ff7"
+    },
+    "host-native": {
+      "status": "passed",
+      "testCount": 2,
+      "log": "task-followup220-host-native.log",
+      "sha256": "815a3bba733d84a358c08cfd2655412a65535c0ea9b1599a04c026207d7afdb6"
+    },
+    "unknown-usage": {
+      "status": "passed",
+      "testCount": 1,
+      "log": "task-followup220-unknown-usage.log",
+      "sha256": "5f971182c71d7279bb6e82306d442bd68b5deb740277228a4c0fb6e6b4e35103"
+    },
+    "runtime-build": {
+      "status": "passed",
+      "testCount": null,
+      "log": "task-followup220-runtime-build.log",
+      "sha256": "ef38695dbafd29f1b083b31a7d6e037437db0444c9bfb5cdb06676e4d168e2fd"
+    },
+    "architecture": {
+      "status": "passed",
+      "testCount": null,
+      "log": "task-followup220-architecture.log",
+      "sha256": "6f4c600ad4f1caf5f78212b80b9968f7147bf657d6208d728e440c53ceb95e81"
+    }
+  },
+  "sourceSha256": {
+    "native/story-core/src/work_interludes.rs": "038a7700089f15a8172601a03c0f9c7247babd6c1f6ceef5c645a9d771196c9e",
+    "native/story-core/tests/work_interlude_tests.rs": "4f2c9c4e731e177ddaea1338da6571145f67bfffd6bef13bfb4b96b140fe9b9a",
+    "native/story-runtime/src/context_read_api.rs": "a0c3c181717275048d52f28ff4b29c553f63a08998ea96a5bf0dbb34cbe3cd40",
+    "native/story-runtime/tests/work_budget/unknown_usage_admission_tests.rs": "ee0851e1f015177044d663888250df0e454ff3582e237682d72d537942352c6e",
+    "scripts/task-live-lifecycle.mjs": "e8514e56e2769c87d360204f5b61e321581706d63a0c0e425dc242ceb9cddcb6",
+    "scripts/tests/task-live-lifecycle.test.mjs": "2643e4421a3ec5c20bf3da92f6a9582955e178bb57929e91c67873f690fcd191",
+    "scripts/fixtures/task-live-desktop.mjs": "23580fd77caf03ef12a019c6428acbc63b4e92d7054b6aa7f6c6e276a4dad3f3",
+    "scripts/probe-live-task-experience.mjs": "1d24d07177f8d9bda53ae124d51e34600b3afe8c653ffd95f2498e7e0fc77170",
+    "package.json": "ba540f238955b4d654680358b8494f8a5fab15bdbd3324a1a1b1e8d6de89436e"
+  },
+  "unknownUsageCases": [
+    "unlimitedRequests/nullTokens",
+    "6Requests/nullTokens"
+  ],
+  "remaining": [
+    "real supplier full generation/return/recovery validation",
+    "literary fulfillment review",
+    "Windows and real disconnect/concurrent-write scenarios"
+  ]
+}

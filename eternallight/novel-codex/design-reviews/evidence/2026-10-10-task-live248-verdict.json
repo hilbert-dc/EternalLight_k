@@ -1,0 +1,10 @@
+{
+  "rawReport": "2026-10-10-task-live248-raw.json",
+  "delivery": {
+    "verdict": "failed",
+    "requests": 30,
+    "knownTokens": 1143000,
+    "unknownTokenReservation": 0,
+    "reason": "Writer repeatedly supplied string null instead of JSON null for candidate CAS; Native refused. No successful draft save."
+  }
+}

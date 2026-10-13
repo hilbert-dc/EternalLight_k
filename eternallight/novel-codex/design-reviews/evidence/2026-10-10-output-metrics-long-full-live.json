@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "evidence": "liveModelToolComparison",
+  "status": "blocked",
+  "cases": [],
+  "providerUsage": null,
+  "limitations": [
+    "Exact-edit synthetic cases measure tool use and content preservation, not literary quality.",
+    "Provider usage comes from Engine receipts; unknown usage stays unknown. No qualification is fabricated."
+  ],
+  "configuration": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "repeats": 1,
+    "limitsPerCase": {
+      "requests": 30,
+      "tokens": 800000,
+      "seconds": 180
+    },
+    "startupTimeoutMs": 600000,
+    "plannedCases": 1,
+    "caseSelection": [
+      {
+        "size": "long",
+        "mode": "full"
+      }
+    ]
+  },
+  "error": {
+    "phase": "qualification",
+    "code": "execution_failed",
+    "causeCode": "task_qualification_unavailable"
+  }
+}

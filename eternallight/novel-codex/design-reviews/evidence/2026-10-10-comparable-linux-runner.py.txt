@@ -1,0 +1,33 @@
+import concurrent.futures, json, pathlib, re, subprocess, sys, time
+root = pathlib.Path('/Users/hilbert/private/codex/eternallight/novel-codex')
+evidence = root / 'design-reviews/evidence'
+label = sys.argv[1]
+records = []
+for line in (evidence / '2026-10-10-comparable-linux-final-build.log').read_text().splitlines():
+    try: item = json.loads(line)
+    except ValueError: continue
+    if item.get('reason') == 'compiler-artifact' and item.get('executable') and item['profile']['test']:
+        records.append(item)
+artifacts = list({r['executable']:r for r in records}.values())
+if len(artifacts) != 106: raise RuntimeError(f'Expected baseline 106 executables, found {len(artifacts)}')
+logs = evidence / f'2026-10-10-comparable-linux-{label}'
+logs.mkdir(exist_ok=True)
+def run(item):
+    name = pathlib.PurePosixPath(item['executable']).name
+    log = logs / (name + '.log')
+    command = ['/usr/local/bin/docker','exec','--workdir',str(pathlib.PurePosixPath(item['manifest_path']).parent),'novel-native-comparable-final-20261010','timeout','--signal=TERM','--kill-after=5s','300',item['executable'],'--test-threads=4']
+    start = time.monotonic()
+    with log.open('w') as output:
+        try: code = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT, timeout=320).returncode
+        except subprocess.TimeoutExpired: code = 'timeout'
+    text = log.read_text()
+    results = re.findall(r'test result: (\w+)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out',text)
+    result = {'target':item['target']['name'],'manifest':item['manifest_path'],'executable':item['executable'],'profile':item['profile'],'exitCode':code,'elapsedSeconds':round(time.monotonic()-start,3),'log':str(log.relative_to(evidence)), 'summaries':[dict(zip(['status','passed','failed','ignored','measured','filtered'], [r[0]]+list(map(int,r[1:])))) for r in results]}
+    print(json.dumps({'target':result['target'],'exitCode':code,'summaries':result['summaries']}), flush=True)
+    return result
+results=[]
+with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+    for result in pool.map(run,artifacts): results.append(result)
+report={'execution':'four independent test binaries, four harness threads each; no retries; original Cargo manifest cwd','expectedExecutables':106,'executables':results,'passed':all(r['exitCode']==0 and r['summaries'] and all(s['failed']==0 and s['ignored']==0 and s['filtered']==0 for s in r['summaries']) for r in results)}
+(evidence/f'2026-10-10-comparable-linux-{label}.json').write_text(json.dumps(report,indent=2)+'\n')
+sys.exit(0 if report['passed'] else 1)

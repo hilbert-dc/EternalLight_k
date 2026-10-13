@@ -1,0 +1,68 @@
+{
+  "scope": "macOS startup follow-up and one-read-per-projection receipt ledger optimization; shared workspace hashes are identity not attribution",
+  "sources": {
+    "native/story-core/src/work_decision_status.rs": "73c10945e843183a637fa57a005ee42af886fcaf7e0f519d0b101aea38795f45",
+    "native/story-runtime/src/main.rs": "ec8fee131c16d29d0d5765eaf698a05a975fc73ea23557ee638d7f130308e4ca",
+    "electron/runtime-readiness.mjs": "dbb345cd97e085d6c7cd654825a84f8c3b79180210f8bcac45e9888c4b6d6ac0",
+    "electron/startup-coordinator.mjs": "74af1534578470fafe7ccf1812b7cd49e3d63a247d1a2ff33c4805ed0d47851b"
+  },
+  "startupBaselineMs": [
+    150.95775,
+    79.584292,
+    78.524291
+  ],
+  "freshBuildStartupMs": [
+    2392.767542,
+    97.865625,
+    97.6785
+  ],
+  "freshMcpInitializeMs": [
+    664.088208,
+    1.768583,
+    1.662708
+  ],
+  "hostStartupTests": "26/26",
+  "loaderRecurrence": "new Core test binary stalled before test harness; sample shows _dyld_start at 112K physical footprint; resumed without intervention",
+  "productionChanges": [
+    "native/story-core/src/work_decision_status.rs"
+  ],
+  "providerRequests": 0,
+  "limitations": [
+    "Intermittent macOS loader waiting remains unresolved; exact security component/configuration cause not established",
+    "No model-token or literary-quality gain claimed",
+    "No full 1019-test rerun for this one-file change; previous full Linux result belongs to its frozen source identity",
+    "Still constructs full receipt projection and validates each task; not a constant-time status endpoint",
+    "Fresh post-change Host timeout preserved separately from warm success"
+  ],
+  "checks": {
+    "coreMacos": "296/296",
+    "decisionHttpMacos": "12/12",
+    "architecture": "365 files, 7 crates, no diagnostics",
+    "hostStartupBeforeReceiptChange": "26/26",
+    "freshNativeHostAfterReceiptChange": "failed: 20s without startup output",
+    "sameBinaryDiagnostic": "listening 91.485ms; health 200",
+    "sameBinaryWarmHost": "1/1"
+  },
+  "receiptProjectionMeasurement": {
+    "tasks": 27,
+    "charges": 27,
+    "reads": 20,
+    "beforeMs": 573.197,
+    "afterMs": 491.488,
+    "afterToBefore": 0.8574504053580183,
+    "interpretation": "one local synthetic pair; not a stable throughput guarantee or model-token reduction; full-suite concurrent timing also retained"
+  },
+  "runtimeBinarySha256": "0890cd771b9d1612f64807609f6afd91e77c36e768f588f2c2e542cafd07acf6",
+  "coreTestBinarySha256": "98cf0c3b32a53b43a92cdb739a52d2498fa24266898b61bf04fe2e10b04c2834",
+  "evidenceSha256": {
+    "2026-10-10-receipt-ledger-after.log": "ee633689c886636715eb5d6d338de2a4d9048ae2196ae6b22312c63e0357a08b",
+    "2026-10-10-receipt-ledger-http.log": "b972d838ba7c8499bfa8860d09f3036e88516a95792bb9dc4608fbda96f716d2",
+    "2026-10-10-receipt-ledger-before.log": "3ff36beaa028f4f01439af6662c28e664726171c071fbde80ecaaa5733bbb6e0",
+    "2026-10-10-receipt-ledger-native-startup.log": "5a686fd979e6deceb17d4bd7a4b5f0727e86c30a5d949adb7184fc36320428b6",
+    "2026-10-10-startup-followup-probe.py.txt": "df1408f7b914f5c95b62cbcd32868792d9949318b913a0610a69e8287051b0ef",
+    "2026-10-10-receipt-ledger-core-after.log": "4a1f61d763dcb51eae13d7b4a0e66393b5d217b5d648f0688f37d227634b4d0b",
+    "2026-10-10-receipt-ledger-native-startup-warm.log": "32ec343ed6182c95aa3da9e87429f7de66568e439e4e38bfa1ec167d574a5dbf",
+    "2026-10-10-startup-followup-core-loader.txt": "fcdb6f3849e30454442bc3738a57cb9747ffc08d59526a70ba9085866f1ba52a",
+    "2026-10-10-startup-followup-runtime-diagnostic.json": "34754e8f20851a849d5c59848fc2c6621baee245506476426aad21ed5a43caaf"
+  }
+}

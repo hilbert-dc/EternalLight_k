@@ -1,0 +1,15 @@
+{
+  "purpose": "current file identity after acceptance follow-up; not a frozen runnable baseline and not proof of ownership of all file changes",
+  "files": {
+    "AGENT_CAPABILITY_OPTIMIZATION_PLAN.md": "33cbfaa5243fdf3f1266141a7df5cbee0d99de0a098ec4282063b72a9d3b7b30",
+    "ARCHITECTURE.md": "9e5429d33cea21a39c9b5b50dc042619b6fbf6b61a1e9de7af7f21facf6b1b13",
+    "native/story-core/src/direct_verification.rs": "e2386515d8b8fb87b90c0f4ae03a73a56d0d28d2c0b72ecc32a71bf41ac932bc",
+    "native/story-runtime/tests/verification_lifecycle_http_tests.rs": "3623de64ddaa42349e08a11fdc1f5e216b9e64250cbfde4e2cc1b6b8361cd153",
+    "scripts/evaluate-live-novel-tools.mjs": "077981ad04f2ea6524350543f456f84fd60a0b60d882720a58d4167ebcd0f7d7",
+    "scripts/tool-evaluation-report.mjs": "af1dec4aa76df5fb8b9dcb45a55b358b6e6bae18e0bb2811a822142fee2a9a36",
+    "scripts/task-live-lifecycle.mjs": "5dc5895bf814ede6e47911e10209eefbc9e512d94d883f81fe0d36044c344c3c",
+    "scripts/fixtures/task-live-desktop.mjs": "1347f169612d9129e50fcdea1703e7b6e5d4fee7cb7f34327f5acdf4837906c6",
+    "scripts/tests/tool-evaluation.test.mjs": "0d21f46780992316730ed5daf8e277e31bd02036217a1c69b8267dd8ad4a5351",
+    "scripts/tests/task-live-lifecycle.test.mjs": "868358c9c07d05c07e7b2f60943d668ca280c66bc02dfe220b9f5ce3ece3010e"
+  }
+}

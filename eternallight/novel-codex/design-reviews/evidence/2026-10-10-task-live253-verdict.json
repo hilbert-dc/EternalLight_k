@@ -1,0 +1,66 @@
+{
+  "rawReport": "2026-10-10-task-live253-raw.json",
+  "scope": "Synthetic short-form production Electron API/Engine/MCP/Native/DeepSeek acceptance, not visual UX or cross-platform endurance certification",
+  "rawNeedsReviewPreserved": true,
+  "scenarios": {
+    "delivery": {
+      "verdict": "passed",
+      "requests": 30,
+      "knownTokens": 1091770,
+      "unknownTokenReservation": 0,
+      "workId": "work-generation-e13ebbe7817145e1a7de814e700883da",
+      "status": "completed",
+      "deliveryStatus": "ready_for_review",
+      "goalStatus": "fulfilled",
+      "savedBody": "雾还没散，港城的码头先醒了。林夕把密函折成拇指宽的一条，塞进天后庙墙缝里那块松动的青砖后面。她指尖按了按，确认砖身不再晃动，又抹去砖口的水渍，才退回上香的人群里。汽笛在身后拉长，掌心还留着信纸的棱。",
+      "characterCount": 99,
+      "finalReply": "候选正文已实际保存并按冻结标准完成核验。\n\n**保存事实**\n- 第 1 章《密函》候选开场，单一场景，正文 99 字（据保存回执：不含空白、含标点的正文字符数），完整性为 chapterComplete。\n- 状态为候选：未采用、未发布。\n\n**正文（已保存）**\n> 雾还没散，港城的码头先醒了。林夕把密函折成拇指宽的一条，塞进天后庙墙缝里那块松动的青砖后面。她指尖按了按，确认砖身不再晃动，又抹去砖口的水渍，才退回上香的人群里。汽笛在身后拉长，掌心还留着信纸的棱。\n\n**核验结果（direct，逐字比对草稿正文）**\n- 藏信动作：通过——\"林夕把密函折成拇指宽的一条，塞进天后庙墙缝里那块松动的青砖后面。\"\n- 港城场景：通过——开篇点名\"港城的码头先醒了\"，并有天后庙、汽笛等空间物象。\n- 自足开场：通过——由环境起笔到藏信后离场收束，无前文依赖即可读懂。\n- 篇幅：99 字，落在 80–140 区间内（要求\"约 100 字\"），达标。\n- 综合判定 passed（3/3 supported），章节收尾已登记，任务完成。\n\n采用的最终决定权在作者；如需扩写、改稿或定稿发布，再告知即可。",
+      "finalTurnId": "01a1255c-671a-7d50-8160-91edf9099b0e",
+      "control": null,
+      "nativeFailuresPreserved": [
+        {
+          "path": "/api/projects/project-7391ac64139341cdb4c0ca521c1859e0/work-execution-events/work-event-e662cb8174c94ad59cd19275ac45aaf3/claim",
+          "status": 409,
+          "error": {
+            "code": "conflict",
+            "details": {},
+            "message": "WorkTaskStale",
+            "recovery": null
+          }
+        }
+      ],
+      "adopted": false,
+      "published": false,
+      "pendingActions": [],
+      "unsettledAttempts": []
+    },
+    "change": {
+      "verdict": "passed",
+      "requests": 24,
+      "knownTokens": 918988,
+      "unknownTokenReservation": 38432,
+      "workId": "work-task-fdb561780b21947087f98b8fddf543da",
+      "status": "completed",
+      "deliveryStatus": "ready_for_review",
+      "goalStatus": "fulfilled",
+      "savedBody": "夜幕落在港城，钟声顺着一层层海风压下来。抄写员林夕把密函折好，塞进贴身衣袋，又按了按，确认它还在。巡夜人的灯笼扫过巷口，他低头数着石缝，等光走远了才继续前行。这封信太重，他一个字都舍不得交出去，只打算带回钟楼，妥帖收好。",
+      "characterCount": 110,
+      "finalReply": "第1章开场改写已完成并核验通过。\n\n**保存结果**\n- 当前保存稿：第1章《港城密函》，版本2，正文110字（不含空白、含标点），符合约100字的预期篇幅。\n- 正文：夜幕落在港城，钟声顺着一层层海风压下来。抄写员林夕把密函折好，塞进贴身衣袋，又按了按，确认它还在。巡夜人的灯笼扫过巷口，他低头数着石缝，等光走远了才继续前行。这封信太重，他一个字都舍不得交出去，只打算带回钟楼，妥帖收好。\n\n**核验**\n- 按冻结的直接方式逐项核对，结果通过、对应当前稿：密函被折好贴身收好、未烧毁或销毁；开场仍在港城、林夕保持抄写员身份；已由原来25字的单句扩写为约100字的完整开场。\n- 本 Work 无遗留问题，未完成项为0。\n\n这是候选稿，未采用、未发布，采用与否由你决定。后续创作我会沿用“林夕保留密函、绝不烧掉”这项新要求。",
+      "finalTurnId": "01a1255d-d3ef-72d1-81cf-06ccd8457a02",
+      "control": {
+        "steered": true,
+        "messageId": "author-message-19b00a396df04f7a8e7a912100d660f3"
+      },
+      "nativeFailuresPreserved": [],
+      "adopted": false,
+      "published": false,
+      "pendingActions": [],
+      "unsettledAttempts": []
+    }
+  },
+  "notes": [
+    "Delivery retained one expected stale background claim rejection (409 WorkTaskStale); the winning foreground flow and all charged attempts completed.",
+    "Change retains 38432 unknown token reservation after steering; not silently zeroed or treated as precise actual cost.",
+    "Interlude latest passed evidence is task-live250-verdict, 20 requests; the later steer clarification was exercised by change, not by a second interlude run."
+  ]
+}

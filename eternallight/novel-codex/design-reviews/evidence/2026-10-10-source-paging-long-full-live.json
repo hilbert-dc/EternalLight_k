@@ -1,0 +1,357 @@
+{
+  "version": 2,
+  "evidence": "liveModelToolComparison",
+  "status": "failed",
+  "cases": [
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "full",
+      "responses": [
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "failed",
+          "errorCode": "provider_output_limit"
+        }
+      ],
+      "turns": [
+        {
+          "status": "failed",
+          "errorKind": "other",
+          "httpStatus": null,
+          "failure": {
+            "phase": "coreTurn",
+            "code": "execution_failed"
+          }
+        }
+      ],
+      "status": "failed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "22310a312750cfa9008238d7fff98adfc4fb5707f440e9b173a8c09903652efa",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "22310a312750cfa9008238d7fff98adfc4fb5707f440e9b173a8c09903652efa",
+            "contentHash": "8a89ea1daccec441d64be0185cb659936f56ec373315aa9936ecdfe55f29ae2b",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 7,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": "318ef901d7e577c38e0e2c2944e3887bb4e42ecb8b165a0eb77eb20e6baddab3",
+            "entries": [
+              {
+                "path": "4d01a2fffad9442b4f5ec6e535edcb79d1960e6e22cd1cd9825a2e8f6276cd78",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "87ae6ab6cb06d8bcf0fe2157c1d29559b0f72202af148ad9ca7cff5c55d0f1ce",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "41cce05da967ed948e50a450b5030b6423625d668c643957095c334c1df55a15",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "9f9ca834c9ce76164c5237e210efadee3264adb89683dfd53baf155c69043cf2",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "576e9570f0a9be1c9ee7eee178c28514200b8c2866b7c6731ce4b237fe1e878d",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2406
+                },
+                "revision": "1c34a83d0fb25b28a41ec8bd5a070d6e6bc74ae3d6c2ed0c2f260f4fca2d85f3"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 600,
+                  "end": 1200,
+                  "total": 2406
+                },
+                "revision": "1c34a83d0fb25b28a41ec8bd5a070d6e6bc74ae3d6c2ed0c2f260f4fca2d85f3"
+              }
+            ],
+            "resultDigest": "25089a19b4051a5bb9c7662efee9cf2e90f0158c5ae0fe3641303ff23741688e"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "22310a312750cfa9008238d7fff98adfc4fb5707f440e9b173a8c09903652efa",
+            "cursor": "318ef901d7e577c38e0e2c2944e3887bb4e42ecb8b165a0eb77eb20e6baddab3",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "22310a312750cfa9008238d7fff98adfc4fb5707f440e9b173a8c09903652efa",
+            "contentHash": "8a89ea1daccec441d64be0185cb659936f56ec373315aa9936ecdfe55f29ae2b",
+            "coverage": {
+              "fromEntry": 7,
+              "toEntry": 26,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 1200,
+                  "end": 1800,
+                  "total": 2406
+                },
+                "revision": "1c34a83d0fb25b28a41ec8bd5a070d6e6bc74ae3d6c2ed0c2f260f4fca2d85f3"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 1800,
+                  "end": 2400,
+                  "total": 2406
+                },
+                "revision": "1c34a83d0fb25b28a41ec8bd5a070d6e6bc74ae3d6c2ed0c2f260f4fca2d85f3"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 2400,
+                  "end": 2406,
+                  "total": 2406
+                },
+                "revision": "1c34a83d0fb25b28a41ec8bd5a070d6e6bc74ae3d6c2ed0c2f260f4fca2d85f3"
+              },
+              {
+                "path": "df7e2bc60373a43519c7c0815fa1c1f05f43a391c45d850a1c522bf3feb318c1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "e24eeb7f8dfd1ca0d2ed88ac5841f516a66105fc8e8ffccf37b725c8e14dd7c0",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "318d59eff5b09da3908f275ff99e901bc21bb7352c55fd8c28786d9bf2fcaea6",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "9a5c4ae0e35b4e3a215f97c3b98a93d33d506ad11623747b10414a839b07ceb7",
+                "range": {
+                  "start": 0,
+                  "end": 5,
+                  "total": 5
+                },
+                "revision": "1c34a83d0fb25b28a41ec8bd5a070d6e6bc74ae3d6c2ed0c2f260f4fca2d85f3"
+              },
+              {
+                "path": "e4aad6b8e566d4976b31e8d79b1e141ba7be08377b49544717fc3819e1861f5b",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "236be81dc7662101564caecf825c054a21650076a9a21786fa07bf9d527905fb",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "38863ba849d1fbbcbc7142a1f2d9c623d976bbc9739afcea69a462f638ae5cd1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fc6c851920a7b3ee2f86e04fcce031cb6a7d5423616afa61614ec549d8f9fd5f",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "eea5dfcec15684e2aa627a43e0717bfc6d255ffcdb71f0d50a229bcd75671aec",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "37e6e85295fc4202c3521c3347dc6070b8824e51e9af2a40e94c0d5474f25502",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2cbd2a8b00a9a3cfe1fbd220c273133896adb03e3bfc15e33f18467ba3641abe",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fde3ad758d945d909c62e5f60fca53adc5091896a03db57b6f93716c1e1c09a6",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "481a5418520714120d2e3900811900b21fea3b01ee7ea4f8cff410dfb8ab8278",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "8285b066cb28f289e60240f5bb8c4f1515e6b568afb7b11c90a7eb0f3a727483",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "881b2531067fda3bf22301a7d317878a17749916f85da8fbd270d1b4319651b7",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "7cc7070de6f1a451f4a88f6924cf0e5428711f20641a04fa1e307f5812e4b431",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "5028cb503cd48e42885cbcb8a089bb7a8a9d75712f36c86b9e98df4b3ef79773"
+          },
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 4,
+        "tokens": 90645,
+        "unknownTokens": 0
+      },
+      "contentPreserved": false,
+      "firstAttemptSucceeded": false,
+      "corrections": 0,
+      "mcpSessionStartupMs": 53176.847624999966,
+      "modelElapsedMs": 48819.95058299997,
+      "executionStatus": "failed",
+      "error": {
+        "phase": "modelTurn",
+        "code": "execution_failed"
+      },
+      "toolErrorCount": 0,
+      "readSummary": {
+        "successfulReads": 2,
+        "repeatedExactResults": 0,
+        "interpretation": "Identical request and result observations; repetition alone does not establish waste."
+      },
+      "quiescent": true,
+      "readback": {
+        "status": "mismatched",
+        "checks": {
+          "body": false,
+          "title": true,
+          "chapterIdentity": true,
+          "groupStructure": true,
+          "protectedGroups": true
+        },
+        "revision": "1c34a83d0fb25b28a41ec8bd5a070d6e6bc74ae3d6c2ed0c2f260f4fca2d85f3",
+        "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "actualBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+        "expectedCharacters": 2406,
+        "actualCharacters": 2406
+      },
+      "domainTaskStatus": "unknown",
+      "elapsedMs": 102267.54849999998
+    }
+  ],
+  "providerUsage": null,
+  "limitations": [
+    "Exact-edit synthetic cases measure tool use and content preservation, not literary quality.",
+    "Provider usage comes from Engine receipts; unknown usage stays unknown. No qualification is fabricated."
+  ],
+  "configuration": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "repeats": 1,
+    "limitsPerCase": {
+      "requests": 30,
+      "tokens": 800000,
+      "seconds": 180
+    },
+    "startupTimeoutMs": 600000,
+    "plannedCases": 1,
+    "caseSelection": [
+      {
+        "size": "long",
+        "mode": "full"
+      }
+    ]
+  },
+  "build": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "qualificationContextDigest": "b69e60c6cae0e86ee5b963457a1b3239fe2a205cbe0fcbe49c7fa056cf82e051",
+    "native": {
+      "runtime": "17b38c8f59e989140cca252efcd4d83d0f39c9132f4151e24f511769eb7a65dd",
+      "mcp": "f24d4b721130af4abd17a7b6a49c6584b2bdb0a4e9b99d4f6eee2de482d825f7"
+    }
+  },
+  "runtimeStartupMs": 231191.619458,
+  "summaries": [
+    {
+      "mode": "full",
+      "cases": 1,
+      "passed": 0,
+      "firstAttemptSuccessRate": 0,
+      "contentCheckedCases": 1,
+      "contentUnknownCases": 0,
+      "contentPreservationRate": 0,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 4,
+        "tokens": 90645
+      }
+    },
+    {
+      "mode": "patch",
+      "cases": 0,
+      "passed": 0,
+      "firstAttemptSuccessRate": null,
+      "contentCheckedCases": 0,
+      "contentUnknownCases": 0,
+      "contentPreservationRate": null,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 0,
+        "tokens": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,518 @@
+{
+  "version": 2,
+  "evidence": "liveModelToolComparison",
+  "status": "completed",
+  "cases": [
+    {
+      "repeat": 0,
+      "size": "long",
+      "mode": "patch",
+      "responses": [
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        },
+        {
+          "status": "completed",
+          "errorCode": null
+        }
+      ],
+      "turns": [
+        {
+          "status": "completed",
+          "errorKind": null,
+          "httpStatus": null
+        }
+      ],
+      "status": "passed",
+      "tools": [
+        {
+          "name": "read_context",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "3b052c22e900640280aa0e55005848c9e68d4ff2aee3beea6c12e315d226ce5b",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "3b052c22e900640280aa0e55005848c9e68d4ff2aee3beea6c12e315d226ce5b",
+            "contentHash": "ceabd7701fb29b488cd7762f6d56571532e7ee7d083efa379ea7696d89464bf1",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 7,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": "cc9b6d31cbf646309fd93edd932a3b1650dfa6e9033e03adf2e9b3d786ae7119",
+            "entries": [
+              {
+                "path": "4d01a2fffad9442b4f5ec6e535edcb79d1960e6e22cd1cd9825a2e8f6276cd78",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "87ae6ab6cb06d8bcf0fe2157c1d29559b0f72202af148ad9ca7cff5c55d0f1ce",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "41cce05da967ed948e50a450b5030b6423625d668c643957095c334c1df55a15",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "9f9ca834c9ce76164c5237e210efadee3264adb89683dfd53baf155c69043cf2",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "576e9570f0a9be1c9ee7eee178c28514200b8c2866b7c6731ce4b237fe1e878d",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2406
+                },
+                "revision": "76d0f71b2f2042f75c78b640846a2d1bca68a76e143bea5e208d65105d780058"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 600,
+                  "end": 1200,
+                  "total": 2406
+                },
+                "revision": "76d0f71b2f2042f75c78b640846a2d1bca68a76e143bea5e208d65105d780058"
+              }
+            ],
+            "resultDigest": "aba98fc13e6beaf107c3925af9e9b448028cab7dc8b301736669ce121c14e1fb"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "ca9331b765a9e223f94ecbf7abd19e902a2e4af3a4a0ce7572fa976594e89541",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "ca9331b765a9e223f94ecbf7abd19e902a2e4af3a4a0ce7572fa976594e89541",
+            "contentHash": "ee1939452fe294bb211981fdbdeba08471d703961f2df509c13333404f1715a9",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 3,
+              "totalEntries": 3
+            },
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [
+              {
+                "path": "99f8e3bb59acd6f5cc5b8d16aa3a88ed53bc500d323e310d4c03123f1590281f",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "820facaf6f51ecc891fce19acdab901a15a8f063b1b6130da123beb3c8206c39",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "7ef0ea29d9ca75fb206ea5da2df613ce073f5275d7be7608b10279b928920470",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "3398d232467134f33f3d9bfb81e0b7d6b969d95162d9d38ae9401c7125342428"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "3b052c22e900640280aa0e55005848c9e68d4ff2aee3beea6c12e315d226ce5b",
+            "cursor": "cc9b6d31cbf646309fd93edd932a3b1650dfa6e9033e03adf2e9b3d786ae7119",
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "3b052c22e900640280aa0e55005848c9e68d4ff2aee3beea6c12e315d226ce5b",
+            "contentHash": "ceabd7701fb29b488cd7762f6d56571532e7ee7d083efa379ea7696d89464bf1",
+            "coverage": {
+              "fromEntry": 7,
+              "toEntry": 26,
+              "totalEntries": 26
+            },
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 1200,
+                  "end": 1800,
+                  "total": 2406
+                },
+                "revision": "76d0f71b2f2042f75c78b640846a2d1bca68a76e143bea5e208d65105d780058"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 1800,
+                  "end": 2400,
+                  "total": 2406
+                },
+                "revision": "76d0f71b2f2042f75c78b640846a2d1bca68a76e143bea5e208d65105d780058"
+              },
+              {
+                "path": "2fa58fddb548405091fee66e1955b13dc56bc0f636eb9058387189e7f258e958",
+                "range": {
+                  "start": 2400,
+                  "end": 2406,
+                  "total": 2406
+                },
+                "revision": "76d0f71b2f2042f75c78b640846a2d1bca68a76e143bea5e208d65105d780058"
+              },
+              {
+                "path": "df7e2bc60373a43519c7c0815fa1c1f05f43a391c45d850a1c522bf3feb318c1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "e24eeb7f8dfd1ca0d2ed88ac5841f516a66105fc8e8ffccf37b725c8e14dd7c0",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "318d59eff5b09da3908f275ff99e901bc21bb7352c55fd8c28786d9bf2fcaea6",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "9a5c4ae0e35b4e3a215f97c3b98a93d33d506ad11623747b10414a839b07ceb7",
+                "range": {
+                  "start": 0,
+                  "end": 5,
+                  "total": 5
+                },
+                "revision": "76d0f71b2f2042f75c78b640846a2d1bca68a76e143bea5e208d65105d780058"
+              },
+              {
+                "path": "e4aad6b8e566d4976b31e8d79b1e141ba7be08377b49544717fc3819e1861f5b",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "236be81dc7662101564caecf825c054a21650076a9a21786fa07bf9d527905fb",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "38863ba849d1fbbcbc7142a1f2d9c623d976bbc9739afcea69a462f638ae5cd1",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fc6c851920a7b3ee2f86e04fcce031cb6a7d5423616afa61614ec549d8f9fd5f",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "eea5dfcec15684e2aa627a43e0717bfc6d255ffcdb71f0d50a229bcd75671aec",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "37e6e85295fc4202c3521c3347dc6070b8824e51e9af2a40e94c0d5474f25502",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "2cbd2a8b00a9a3cfe1fbd220c273133896adb03e3bfc15e33f18467ba3641abe",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "fde3ad758d945d909c62e5f60fca53adc5091896a03db57b6f93716c1e1c09a6",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "481a5418520714120d2e3900811900b21fea3b01ee7ea4f8cff410dfb8ab8278",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "8285b066cb28f289e60240f5bb8c4f1515e6b568afb7b11c90a7eb0f3a727483",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "881b2531067fda3bf22301a7d317878a17749916f85da8fbd270d1b4319651b7",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "7cc7070de6f1a451f4a88f6924cf0e5428711f20641a04fa1e307f5812e4b431",
+                "range": null,
+                "revision": null
+              }
+            ],
+            "resultDigest": "fa96d23a13014febee7a6993207044113a9784d944a709c9576c5045165e2703"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "save_draft_checkpoint",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "save": {
+            "submittedContentDigest": "e127aa31c45eb1c40c87e8d86209fa430531c7bc179167b9fbf280f7dcd19239",
+            "expectedCandidate": null,
+            "patchSource": "76d0f71b2f2042f75c78b640846a2d1bca68a76e143bea5e208d65105d780058",
+            "saved": true,
+            "revision": "2e52ddcbaf08a01c3c68bb16f71d5f66ea33ea0f949820596fdab9b01039b498",
+            "checkpoint": "ba4d3821d9fb566707ada51ce0ee44cd74a3f77a892e04a97054334a73a7f310",
+            "version": 2
+          },
+          "requestedMode": "patch"
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "b95801807dfe263d2906c87aa4a85f14c5e08a5ca79a0772fa99f7699e641740",
+            "cursor": null,
+            "view": "workspace",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "b95801807dfe263d2906c87aa4a85f14c5e08a5ca79a0772fa99f7699e641740",
+            "contentHash": null,
+            "coverage": {},
+            "byteRange": null,
+            "nextCursor": null,
+            "entries": [],
+            "resultDigest": "1dd1411541e1089fc55ad109b99727d3a314dbeb333ae88664bd2f36a93953fb"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "read_source_content",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "read": {
+            "source": "835f5daadffb8b3066101e5cc1b762107e81d29a25527e520f81c53cdad3db66",
+            "cursor": null,
+            "view": "content",
+            "query": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "returnedSource": "835f5daadffb8b3066101e5cc1b762107e81d29a25527e520f81c53cdad3db66",
+            "contentHash": "b18753d0468e6954d40d8c84a04621f3df039bd1d7e0f9333cff210fa61fae75",
+            "coverage": {
+              "fromEntry": 0,
+              "toEntry": 7,
+              "totalEntries": 30
+            },
+            "byteRange": null,
+            "nextCursor": "c4d5cedbde3695ad4f7623212efcbf343f4d844f0d8837b2d1995b23679bd135",
+            "entries": [
+              {
+                "path": "820facaf6f51ecc891fce19acdab901a15a8f063b1b6130da123beb3c8206c39",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "045fa915d619cf91677fabe0b022110cbdbda9db4bf36df60692e35b8a0d1666",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "b00d882ad099b8ee94d453f845d3b869eb27f3b2242de0f2ec608973d3dace83",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "4d71fd933ef1954917f1652eda46363afb031376e8667f5a7fa80c62ebaceec8",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "d6015af43f4935fc8d416fe950761a13ff06f823a6c72ebc04051c3e447072df",
+                "range": null,
+                "revision": null
+              },
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 0,
+                  "end": 600,
+                  "total": 2406
+                },
+                "revision": "2e52ddcbaf08a01c3c68bb16f71d5f66ea33ea0f949820596fdab9b01039b498"
+              },
+              {
+                "path": "6565c87e274a8ef09c9c2fab5ab4f498382d6e25f68717d9b262d03d980032e8",
+                "range": {
+                  "start": 600,
+                  "end": 1200,
+                  "total": 2406
+                },
+                "revision": "2e52ddcbaf08a01c3c68bb16f71d5f66ea33ea0f949820596fdab9b01039b498"
+              }
+            ],
+            "resultDigest": "b7630d74a31cd74ec9d50854e535ecdd3e58c03be83f64143c2c262e7b0a924f"
+          },
+          "requestedMode": null
+        },
+        {
+          "name": "complete_task",
+          "status": "completed",
+          "error": false,
+          "reason": null,
+          "requestedMode": null
+        }
+      ],
+      "usage": {
+        "overrun": false,
+        "requests": 8,
+        "tokens": 189113,
+        "unknownTokens": 0
+      },
+      "contentPreserved": true,
+      "firstAttemptSucceeded": true,
+      "corrections": 0,
+      "mcpSessionStartupMs": 443.99729100000013,
+      "modelElapsedMs": 18196.186667,
+      "executionStatus": "completed",
+      "toolErrorCount": 0,
+      "readSummary": {
+        "successfulReads": 5,
+        "repeatedExactResults": 0,
+        "interpretation": "Identical request and result observations; repetition alone does not establish waste."
+      },
+      "quiescent": true,
+      "readback": {
+        "status": "matched",
+        "checks": {
+          "body": true,
+          "title": true,
+          "chapterIdentity": true,
+          "groupStructure": true,
+          "protectedGroups": true
+        },
+        "revision": "2e52ddcbaf08a01c3c68bb16f71d5f66ea33ea0f949820596fdab9b01039b498",
+        "expectedBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "actualBodyHash": "a74a77dad7540c74bd9fb67f979172ce95dc9f1c2a4daf05af9ae79d444afa1c",
+        "originalBodyHash": "e87b0e4c71a392de21eb040687e41ccea68e4f9d0a2b6703d5783e18cda5ad65",
+        "bodyUnchanged": false,
+        "expectedCharacters": 2406,
+        "actualCharacters": 2406
+      },
+      "domainTaskStatus": "completed",
+      "elapsedMs": 18811.993000000002
+    }
+  ],
+  "providerUsage": null,
+  "limitations": [
+    "Exact-edit synthetic cases measure tool use and content preservation, not literary quality.",
+    "Provider usage comes from Engine receipts; unknown usage stays unknown. No qualification is fabricated."
+  ],
+  "configuration": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "repeats": 1,
+    "limitsPerCase": {
+      "requests": 10,
+      "tokens": 250000,
+      "seconds": 180
+    },
+    "startupTimeoutMs": 600000,
+    "plannedCases": 1,
+    "caseSelection": [
+      {
+        "size": "long",
+        "mode": "patch"
+      }
+    ]
+  },
+  "build": {
+    "codex": "894c544e75fa2859da09da9f86c4cab79ea87a40690183205b1bddacfd26cfb4",
+    "qualificationContextDigest": "b69e60c6cae0e86ee5b963457a1b3239fe2a205cbe0fcbe49c7fa056cf82e051",
+    "native": {
+      "runtime": "17b38c8f59e989140cca252efcd4d83d0f39c9132f4151e24f511769eb7a65dd",
+      "mcp": "f24d4b721130af4abd17a7b6a49c6584b2bdb0a4e9b99d4f6eee2de482d825f7"
+    }
+  },
+  "runtimeStartupMs": 98.53449999999975,
+  "summaries": [
+    {
+      "mode": "full",
+      "cases": 0,
+      "passed": 0,
+      "firstAttemptSuccessRate": null,
+      "contentCheckedCases": 0,
+      "contentUnknownCases": 0,
+      "contentPreservationRate": null,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "mode": "patch",
+      "cases": 1,
+      "passed": 1,
+      "firstAttemptSuccessRate": 1,
+      "contentCheckedCases": 1,
+      "contentUnknownCases": 0,
+      "contentPreservationRate": 1,
+      "correctionCount": 0,
+      "providerUsage": {
+        "requests": 8,
+        "tokens": 189113
+      }
+    }
+  ]
+}
