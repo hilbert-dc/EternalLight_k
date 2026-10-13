@@ -1,0 +1,12 @@
+.chapter-plan-rebind { display: grid; gap: 12px; padding: 18px; margin-top: 12px; background: #fafbfc; border: 1px solid #e3e5e8; border-radius: 12px; color: #30343b; }
+.chapter-plan-rebind p, .chapter-plan-rebind h4 { margin: 0; line-height: 1.6; }
+.chapter-plan-rebind h4 { font-size: 14px; }
+.chapter-plan-rebind label { display: grid; gap: 8px; font-size: 14px; }
+.chapter-plan-rebind select { width: 100%; padding: 8px; background: #fff; border: 1px solid #cdd1d7; border-radius: 8px; font: inherit; color: inherit; }
+.chapter-plan-rebind button { justify-self: start; }
+.chapter-plan-rebind [role="alert"] { color: #a52b29; }
+.chapter-plan-comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 12px; }
+.chapter-plan-comparison > div, .rebind-preserved-prose { display: grid; gap: 8px; padding: 12px; background: #fff; border: 1px solid #e3e5e8; border-radius: 8px; }
+.chapter-plan-rebind details { font-size: 13px; color: #626873; }
+.chapter-plan-rebind dd { margin: 4px 0 12px; overflow-wrap: anywhere; }
+.chapter-plan-rebind .rebind-acknowledgment { grid-template-columns: auto 1fr; align-items: start; line-height: 1.6; }

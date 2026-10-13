@@ -1,0 +1,2 @@
+.planning-review-panel > details[open] { display: grid; gap: 16px; }
+.planning-review-panel > div > p { margin-top: 8px; color: var(--nc-ink-muted); font-size: 13px; }

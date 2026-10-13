@@ -1,0 +1,26 @@
+:root .main-panel .planning-reading { display: grid; gap: 16px; min-width: 0; color: var(--nc-ink); }
+:root .main-panel .planning-reading-status { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; font-size: 13px; }
+:root .main-panel .planning-reading :is(.planning-reading-basis, .planning-reading-hint, .planning-reading-empty) { margin: 0; color: var(--nc-ink-soft); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+:root .main-panel .planning-reading-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+:root .main-panel .planning-reading-actions button { max-width: 100%; min-height: 34px; }
+:root :is(.main-panel, .module-records-popover) .planning-reading-list { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+:root :is(.main-panel, .module-records-popover) .planning-reading-card { display: grid; gap: 12px; min-width: 0; padding-block: 18px; border-bottom: 1px solid var(--nc-border); }
+:root :is(.main-panel, .module-records-popover) .planning-reading-card > header { display: grid; gap: 5px; }
+:root :is(.main-panel, .module-records-popover) .planning-reading-card header > span { color: var(--nc-ink-muted); font-size: 12px; }
+:root :is(.main-panel, .module-records-popover) .planning-reading-card h2 { display: block; margin: 0; color: var(--nc-ink); font-size: 18px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+:root :is(.main-panel, .module-records-popover) .planning-reading-card dl { display: grid; gap: 12px; margin: 0; }
+:root :is(.main-panel, .module-records-popover) .planning-reading-card dt { margin-bottom: 4px; color: var(--nc-ink-muted); font-size: 12px; }
+:root :is(.main-panel, .module-records-popover) .planning-reading-card :is(dd, p) { margin: 0; color: var(--nc-ink); font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+:root :is(.main-panel, .module-records-popover) .planning-reading-card details > summary { width: fit-content; max-width: 100%; cursor: pointer; color: var(--nc-ink-soft); font-size: 13px; }
+:root :is(.main-panel, .module-records-popover) .planning-reading-card details[open] > summary { margin-bottom: 12px; }
+:root :is(.main-panel, .module-records-popover) .planning-reading-card details :is(ul, ol) { display: grid; gap: 10px; padding-left: 20px; margin-block: 8px; font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
+:root .main-panel .planning-reading button:focus-visible, :root .main-panel .planning-reading summary:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 3px; }
+:root .main-panel .planning-manual-editor { min-width: 0; margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--nc-border); }
+:root .main-panel .planning-manual-editor > summary { width: fit-content; max-width: 100%; padding-block: 8px; cursor: pointer; color: var(--nc-ink-soft); font-size: 14px; }
+:root .main-panel .planning-manual-editor[open] > summary { margin-bottom: 16px; }
+:root .main-panel .planning-manual-editor[open] > .planning-workspace-header { margin-bottom: 20px; }
+:root .main-panel .planning-manual-editor > summary:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 3px; }
+
+:root .main-panel .planning-writing-note { border-left: 2px solid var(--nc-border); padding-left: 12px; }
+:root .main-panel .planning-writing-note > span { color: var(--nc-ink-muted); font-size: 12px; }
+:root :is(.main-panel, .module-records-popover) .planning-reading-card .planning-protection-note { color: var(--nc-ink-soft); font-size: 12px; }

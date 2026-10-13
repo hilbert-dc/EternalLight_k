@@ -1,0 +1,13 @@
+.conversation-generation-handoff {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--nc-border);
+  border-radius: 8px;
+  background: var(--nc-surface-subtle);
+  color: var(--nc-ink);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.conversation-generation-handoff > p { margin: 8px 0; color: var(--nc-ink-soft); }
+.conversation-generation-handoff > p[role="alert"] { color: var(--nc-red); }
+.conversation-generation-handoff > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }

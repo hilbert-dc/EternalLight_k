@@ -1,0 +1,19 @@
+node_modules/
+dist/
+out/
+release/
+.release/
+.vite/
+.env.local
+.certification-reports/
+.upstream-sync-reports/
+.codex-upstream-worktrees/
+
+# Local acceptance runtime data
+.experience-100chapters/
+.release-startup-sample.txt
+
+# Disposable evaluation output; durable review evidence belongs in design-reviews/evidence.
+.evaluation-reports/
+# ts-rs unit-test exports; committed public artifacts are checked under shared/generated.
+native/*/bindings/

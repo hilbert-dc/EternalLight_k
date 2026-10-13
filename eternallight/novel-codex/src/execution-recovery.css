@@ -1,0 +1,10 @@
+.execution-recovery-notice {
+  margin: 12px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border, #dcdde1);
+  border-radius: 10px;
+  color: inherit;
+}
+.execution-recovery-notice p { margin: 6px 0; font-size: 13px; line-height: 1.6; }
+.execution-recovery-notice summary { cursor: pointer; font-size: 12px; }
+.execution-recovery-notice details p { white-space: pre-wrap; overflow-wrap: anywhere; }

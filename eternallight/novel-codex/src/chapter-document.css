@@ -1,0 +1,124 @@
+.chapter-document { min-width: 0; color: var(--nc-ink); background: var(--nc-surface); }
+.chapter-versions { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--nc-border); }
+.chapter-versions > summary { color: var(--nc-ink-soft); font-size: 13px; cursor: pointer; }
+.chapter-versions > summary:focus-visible, .chapter-versions-return:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 3px; }
+.chapter-versions-return { background: var(--nc-surface); color: var(--nc-ink); border: 1px solid var(--nc-border); padding: 8px 12px; font: inherit; cursor: pointer; }
+.chapter-publication-status { color: var(--nc-ink-soft); font-size: 12px; }
+.chapter-document-dirty { font-size: 12px; color: var(--nc-amber); }
+.scene-adoption-hint { margin: 4px 0 12px; color: var(--nc-ink-soft); font-size: 12px; line-height: 1.7; }
+.chapter-title { display: grid; gap: 8px; margin-bottom: 20px; }
+.chapter-title > span { font-size: 12px; color: var(--nc-ink-soft); }
+.chapter-title input { padding: 10px 12px; border: 1px solid var(--nc-border); border-radius: 8px; background: var(--nc-surface); color: var(--nc-ink); font: inherit; }
+.chapter-title input:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+.chapter-published-reading h3 { font-family: "Songti SC", "SimSun", Georgia, serif; font-size: 24px; font-weight: 500; margin: 20px 0; }
+.revision-authority-status { display: grid; gap: 4px; color: var(--nc-ink-soft); font-size: 12px; line-height: 1.5; }
+.chapter-published-reading { max-width: 760px; margin: 0 auto; padding: 12px 24px 36px; }
+.chapter-published-reading h4 { font: inherit; font-size: 12px; color: var(--nc-ink-soft); margin: 32px 0 16px; }
+.story-reading-text { font-family: "Songti SC", "Noto Serif CJK SC", "SimSun", Georgia, serif; font-size: 17px; line-height: 1.9; color: var(--nc-ink); overflow-wrap: anywhere; }
+.story-reading-text p { white-space: pre-wrap; margin: 0 0 1em; }
+.chapter-scene-diff > p { color: var(--nc-ink-soft); font-size: 12px; }
+.chapter-scene-diff article { margin: 16px 0; padding: 16px; border: 1px solid var(--nc-border); border-radius: 10px; }
+.chapter-scene-diff h4, .chapter-scene-diff h5 { margin: 0 0 12px; font-weight: 500; }
+.chapter-diff-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.chapter-diff-columns section { min-width: 0; }
+.chapter-diff-columns h5 { color: var(--nc-ink-soft); }
+.chapter-scene-diff [data-change-kind="新增"] { border-left: 3px solid var(--nc-green); }
+.chapter-scene-diff [data-change-kind="删除"] { border-left: 3px solid var(--nc-red); }
+.chapter-scene-diff [data-change-kind="修改"], .chapter-scene-diff [data-change-kind="重排"] { border-left: 3px solid var(--nc-amber); }
+.chapter-document .draft-add-scene { color: var(--nc-blue); }
+@media (max-width: 640px) { .chapter-diff-columns { grid-template-columns: 1fr; } .chapter-published-reading { padding: 12px 8px; } }
+
+/* Chapter layout owns its surface and controls, regardless of global CSS import order. */
+:root .workspace .main-panel.chapter-main-panel {
+  position: relative;
+  min-width: 0;
+  padding: 0 clamp(16px, 2vw, 32px) 20px;
+  background: var(--nc-surface);
+  scroll-padding-block: 64px 96px;
+}
+.creative-workspace-view.chapter-workspace-view { max-width: none; width: 100%; padding: 0 0 32px; gap: 16px; }
+.chapter-workspace-view .draft-workspace { gap: 12px; }
+.chapter-page-toolbar { position: sticky; top: 0; z-index: 4; background: var(--nc-surface); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-height: 54px; padding: 8px 0; border-bottom: 1px solid var(--nc-border); }
+.chapter-page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.chapter-empty-writing { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; color: var(--nc-ink-soft); }
+.chapter-empty-writing .chapter-writing-entry { padding: 6px 0; color: var(--nc-blue); background: transparent; border: 0; box-shadow: none; }
+.chapter-empty-writing .chapter-writing-entry:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 3px; }
+.chapter-page-toolbar .chapter-switcher { gap: 2px; }
+.chapter-page-toolbar .chapter-switcher-step { min-width: 30px; min-height: 32px; padding: 2px 8px; font-size: 22px; }
+.chapter-page-toolbar .chapter-switcher-current { flex: initial; gap: 10px; padding: 7px 9px; font-size: 13px; }
+.chapter-page-toolbar .chapter-switcher-current span { color: var(--nc-ink-soft); }
+.chapter-page-toolbar .chapter-switcher-menu { right: auto; width: min(280px, 70vw); }
+.chapter-workspace-view .chapter-page-toolbar button:not([role="option"]) { box-shadow: none; background: transparent; border-color: transparent; border-radius: 6px; }
+.chapter-page-actions button { min-height: 32px; padding: 6px 9px; font-size: 12px; white-space: nowrap; }
+.chapter-page-toolbar button:not(:disabled):hover { background: var(--nc-canvas); color: var(--nc-blue); }
+.chapter-page-toolbar button:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+.chapter-document { width: 100%; max-width: 760px; margin: 16px auto 0; padding: 16px 20px; border: 0; border-radius: 0; box-shadow: none; }
+.chapter-document .chapter-title { margin: 0 0 24px; }
+.chapter-document .chapter-title input { width: 100%; min-width: 0; border: 0; border-radius: 0; padding: 4px 0; color: var(--nc-ink); font-size: 28px; font-weight: 600; line-height: 1.5; }
+.chapter-document .draft-editor-wrap { gap: 24px; }
+.chapter-document .draft-editor-wrap > section { border-radius: 0; box-shadow: none; background: transparent; overflow: visible; }
+.chapter-document .draft-editor-wrap > section > label { padding: 0; gap: 8px; }
+.chapter-document .draft-editor-wrap > section strong { padding: 0; font-weight: 400; }
+.chapter-document .draft-editor-wrap > section .draft-editor {
+  field-sizing: content;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  min-height: 3lh;
+  max-height: none;
+  padding: 0;
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font: 17px/1.9 "Songti SC", "Noto Serif CJK SC", "SimSun", Georgia, serif;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  scroll-margin-block: 64px 96px;
+}
+.chapter-document .draft-editor-wrap > section:only-of-type .draft-editor { min-height: min(50vh, 440px); }
+.chapter-document .draft-editor-wrap > section .draft-editor:focus-visible { box-shadow: none; outline: none; caret-color: var(--nc-ink); }
+.chapter-scene-heading { display: flex; justify-content: space-between; align-items: center; min-height: 32px; gap: 8px; color: var(--nc-ink-soft); font-size: 12px; }
+.chapter-document .chapter-scene-menu-trigger { margin-left: auto; min-width: 32px; min-height: 32px; border: 0; border-radius: 6px; padding: 2px 8px; background: transparent; box-shadow: none; color: var(--nc-ink-soft); font-size: 22px; line-height: 1; cursor: pointer; }
+.chapter-document .chapter-scene-menu-trigger:hover:not(:disabled), .chapter-document .chapter-scene-menu-trigger[aria-expanded="true"] { background: var(--nc-canvas); color: var(--nc-ink); }
+.chapter-settings { color: var(--nc-ink-soft); font-size: 12px; }
+.chapter-settings > summary { cursor: pointer; min-height: 32px; padding: 6px 9px; border-radius: 6px; }
+.chapter-settings > summary:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+.chapter-settings-content { position: absolute; z-index: 5; right: 0; top: calc(100% + 8px); display: grid; gap: 12px; width: min(440px, calc(100vw - 48px)); max-width: 100%; max-height: min(70dvh, 600px); overflow: auto; padding: 16px; border: 1px solid var(--nc-border); border-radius: 10px; background: var(--nc-surface); box-shadow: 0 8px 28px #0003; }
+.chapter-settings-content > * { min-width: 0; }
+.chapter-settings-content .standalone-planning-card { border: 0; padding: 0; box-shadow: none; }
+.chapter-settings-content .standalone-planning-card small { line-height: 1.7; }
+.chapter-writing-entry { justify-self: start; }
+.chapter-word-count, .chapter-save-state { font-size: 12px; color: var(--nc-ink-soft); }
+.candidate-toolbar.chapter-save-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  position: sticky;
+  bottom: -20px;
+  z-index: 3;
+  min-height: 52px;
+  padding: 10px 0;
+  border: 0;
+  border-top: 1px solid var(--nc-border);
+  border-radius: 0;
+  background: var(--nc-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.candidate-toolbar.chapter-save-toolbar > .chapter-save-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-right: auto; min-width: 0; }
+.chapter-save-toolbar .chapter-save-status > span { color: var(--nc-ink-soft); font-size: 11px; }
+.chapter-save-toolbar button { min-height: 32px; padding: 6px 12px; font-size: 12px; }
+.chapter-save-toolbar button:disabled { opacity: .45; cursor: not-allowed; }
+.chapter-save-toolbar .chapter-save-status > .chapter-review-dirty { color: var(--nc-amber); }
+.chapter-writing-mode { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--nc-blue); padding: 6px 0; }
+.chapter-writing-mode > span { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .chapter-document { padding-inline: 0; }
+  .chapter-document .chapter-title input { font-size: 25px; }
+}
+
+.conversation-chapter-results:not([hidden]) { padding: 12px 0; border-top: 1px solid var(--nc-border); }
+.conversation-chapter-results .commitment-panel { border: 0; border-radius: 0; padding: 0; }

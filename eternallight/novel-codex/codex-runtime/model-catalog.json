@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "defaultConnectionId": "deepseek-flash",
+  "connections": [
+    {
+      "id": "deepseek-flash",
+      "provider": "DeepSeek",
+      "endpoint": "https://api.deepseek.com",
+      "model": "deepseek-flash",
+      "credentialRef": "DEEPSEEK_API_KEY",
+      "protocol": "responses",
+      "protocolOptions": {
+        "toolChoiceMode": "auto-only",
+        "reasoningState": "native",
+        "reasoningEffort": "low",
+        "allowedReasoningEfforts": ["low", "high", "max"],
+        "namespaceToolsMode": "flatten",
+        "agentMessageMode": "message",
+        "developerRoleMode": "instructions"
+      },
+      "capabilitySupport": {
+        "text": "native",
+        "structuredToolCalls": "lossless-adapted",
+        "streaming": "native",
+        "usage": "native"
+      },
+      "declaredLimits": {
+        "contextTokens": 1048576,
+        "outputTokens": 393216
+      },
+      "declaredCapabilities": [
+        "text",
+        "structuredToolCalls",
+        "streaming",
+        "usage"
+      ]
+    }
+  ]
+}

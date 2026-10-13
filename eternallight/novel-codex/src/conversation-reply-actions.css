@@ -1,0 +1,6 @@
+.conversation-reply-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; min-height: 28px; color: var(--nc-ink-muted); font-size: 11px; }
+.conversation-reply-actions > button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 6px; min-height: 28px; border: 0; border-radius: 5px; background: transparent; box-shadow: none; color: var(--nc-ink-soft); font-size: 11px; font-weight: 400; cursor: pointer; }
+.conversation-reply-actions > button:hover { background: var(--nc-surface-subtle); color: var(--nc-ink); }
+.conversation-reply-actions > button:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+.conversation-reply-actions > button[aria-disabled="true"] { opacity: .55; cursor: wait; }
+.conversation-reply-actions > [role="alert"] { color: var(--nc-ink); }

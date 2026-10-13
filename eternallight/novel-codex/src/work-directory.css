@@ -1,0 +1,67 @@
+.work-directory { border-block: 1px solid var(--nc-border); margin-block: 8px; min-width: 0; }
+.work-directory > summary { cursor: pointer; font-weight: 400; }
+.work-directory-content { padding: 2px 0 4px 36px; }
+.work-directory-tree { display: grid; gap: 4px; min-width: 0; }
+.work-directory-volume { min-width: 0; padding-bottom: 4px; }
+.work-directory-volume > summary { padding: 7px 0; cursor: pointer; overflow-wrap: anywhere; font-size: 12px; color: var(--nc-ink-soft); }
+.work-directory-volume > summary strong { display: inline-block; max-width: calc(100% - 60px); vertical-align: top; font-weight: 400; line-height: 1.5; }
+.work-directory-volume > summary strong span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.work-directory-volume > summary > span { margin-left: 8px; color: var(--nc-ink-muted); font-size: 10px; white-space: nowrap; }
+.work-directory ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.work-directory-volume > ol, .work-directory-other > ol { padding-left: 16px; }
+.work-directory li { min-width: 0; }
+.work-directory li button { display: grid; grid-template-columns: var(--directory-number-width) minmax(0, 1fr); align-items: baseline; gap: 8px; width: 100%; text-align: left; }
+.work-directory li button span { color: var(--nc-ink-muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.work-directory li button strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-weight: 400; min-width: 0; line-height: 1.5; }
+.work-directory-empty-volume, .work-directory-organize > p { color: var(--nc-ink-soft); font-size: 13px; }
+.work-directory-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
+.work-directory-create, .work-directory-placement form { display: grid; gap: 12px; max-width: 600px; }
+.work-directory label { display: grid; gap: 6px; min-width: 0; }
+.work-directory input, .work-directory textarea, .work-directory select { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.work-directory textarea { min-height: 100px; }
+.work-directory-organize { margin-top: 16px; border-top: 1px solid var(--nc-border); }
+.work-directory-organize > summary, .work-directory-placement > summary { cursor: pointer; padding-block: 12px; }
+:root .work-directory-shell button { padding: 8px 10px; min-height: 36px; border: 1px solid var(--nc-border); border-radius: 6px; background: var(--nc-surface); color: var(--nc-ink); font: inherit; cursor: pointer; overflow-wrap: anywhere; white-space: normal; }
+:root .work-directory-shell button:disabled { opacity: .5; cursor: default; }
+:root .work-directory-shell li button { border-color: transparent; background: transparent; font-size: 12px; min-height: 32px; padding: 6px 8px; }
+:root .work-directory-shell li button[aria-current="page"] { background: var(--nc-blue-soft); }
+:root .work-directory-shell li button[aria-current="page"] strong { font-weight: 400; color: var(--nc-blue); }
+:root .work-directory-shell input, :root .work-directory-shell textarea, :root .work-directory-shell select { padding: 8px 10px; border: 1px solid var(--nc-border); border-radius: 6px; background: var(--nc-surface); color: var(--nc-ink); font: inherit; }
+:root .work-directory-shell :is(button,input,textarea,select,summary):focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+
+.work-directory-shell { position: relative; min-width: 0; }
+.work-directory-shell .work-directory { border: 0; margin: 0; }
+.work-directory-shell .work-directory > summary { padding: 8px 10px; padding-right: 34px; font-size: 12px; min-height: 34px; justify-content: flex-start; list-style: none; }
+.work-directory > summary::-webkit-details-marker { display: none; }
+:root .work-directory > summary .directory-label { display: block; white-space: nowrap; }
+:root .work-directory > summary .nav-count { display: block; white-space: nowrap; }
+.work-directory > summary .directory-chevron { flex: 0 0 20px; }
+.work-directory[open] > summary .directory-chevron { transform: rotate(90deg); }
+.work-directory-volume-row { position: relative; min-width: 0; }
+.work-directory-volume-row summary { padding-right: 32px; }
+:root .work-directory-shell .work-directory-add { position: absolute; right: 4px; top: 3px; width: 28px; min-height: 28px; padding: 2px; border: 0; background: transparent; color: var(--nc-ink-muted); opacity: 0; }
+:root .work-directory-volume-row:hover > .work-directory-add, :root .work-directory-volume-row:focus-within > .work-directory-add, :root .work-directory-shell:hover > .work-directory-root-add, :root .work-directory-shell:focus-within > .work-directory-root-add { opacity: 1; }
+.directory-menu { position: fixed; z-index: 1000; display: grid; min-width: 180px; max-width: calc(100vw - 16px); padding: 6px; border: 1px solid var(--nc-border); border-radius: 8px; background: var(--nc-surface); box-shadow: 0 8px 28px #0003; }
+:root .directory-menu button { text-align: left; padding: 8px 12px; border: 0; border-radius: 4px; background: transparent; color: var(--nc-ink); font: inherit; }
+.directory-menu button:focus-visible { outline: 2px solid var(--nc-blue); background: var(--nc-blue-soft); }
+.directory-menu button:disabled { opacity: .5; }
+.work-directory-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; box-sizing: border-box; padding: 24px; border: 1px solid var(--nc-border); border-radius: 12px; background: var(--nc-surface); color: var(--nc-ink); }
+.work-directory-dialog::backdrop { background: #0006; }
+.work-directory-dialog header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.work-directory-dialog h2 { margin: 0; font-size: 18px; }
+.work-directory-dialog .work-directory-organize { margin-top: 0; border: 0; }
+.work-directory-dialog :is(input,textarea,select,button) { font: inherit; color: var(--nc-ink); background: var(--nc-surface); border: 1px solid var(--nc-border); border-radius: 6px; padding: 8px; }
+.work-directory-dialog label { display: grid; gap: 6px; min-width: 0; }
+.work-directory-dialog :is(input,textarea,select) { box-sizing: border-box; width: 100%; }
+.work-directory-dialog textarea { min-height: 100px; }
+.work-directory-dialog :is(button,input,textarea,select):focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+.work-directory-dialog button:disabled { opacity: .5; }
+@media (hover: none), (pointer: coarse) { :root .work-directory-shell .work-directory-add { opacity: 1; } }
+
+:root .work-directory-shell .work-directory-root-add.is-empty { opacity: 1; }
+.directory-menu { max-height: calc(100dvh - 16px); overflow: auto; box-sizing: border-box; }
+.work-directory-chapter-row { position: relative; }
+:root .work-directory-shell .work-directory-chapter-row > [data-directory-chapter-id] { padding-right: 30px; }
+:root .work-directory-shell .work-directory-chapter-menu { position: absolute; inset: 0 2px auto auto; display: block; width: 28px; min-height: 30px; padding: 2px; border: 0; background: transparent; color: var(--nc-ink-muted); opacity: 0; }
+.work-directory-chapter-row:hover .work-directory-chapter-menu, .work-directory-chapter-row:focus-within .work-directory-chapter-menu { opacity: 1; }
+@media (hover: none), (pointer: coarse) { :root .work-directory-shell .work-directory-chapter-menu { opacity: 1; } }

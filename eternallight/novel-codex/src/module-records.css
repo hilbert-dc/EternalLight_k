@@ -1,0 +1,24 @@
+.module-records-toolbar-slot { display: flex; align-items: center; min-width: 0; }
+.module-records-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--nc-ink-soft); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.module-records-button:hover, .module-records-button[aria-expanded="true"] { color: var(--nc-ink); background: var(--nc-canvas); }
+.module-records-button:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+.module-records-popover { position: fixed; inset: auto; margin: 0; padding: 0; box-sizing: border-box; visibility: hidden; border: 1px solid var(--nc-border); border-radius: 10px; background: var(--nc-surface); color: var(--nc-ink); box-shadow: 0 12px 40px rgb(0 0 0 / 16%); overflow: hidden; }
+.module-records-popover:popover-open { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.module-records-popover::backdrop { background: transparent; pointer-events: none; }
+.module-records-popover > header { display: flex; justify-content: space-between; align-items: start; gap: 12px; border-bottom: 1px solid var(--nc-border); padding: 16px 18px 12px; }
+.module-records-popover > header h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.module-records-popover > header p { margin: 5px 0 0; color: var(--nc-ink-soft); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.module-records-popover > header button { flex-shrink: 0; border: 0; border-radius: 6px; background: transparent; color: var(--nc-ink-soft); font-size: 20px; min-width: 34px; min-height: 34px; cursor: pointer; }
+.module-records-popover > header button:hover { background: var(--nc-canvas); color: var(--nc-ink); }
+.module-records-popover button:focus-visible, .module-records-popover summary:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+.module-records-body { min-height: 0; padding: 16px 18px; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
+.module-records-popover .module-records-notice { margin: 0 0 12px; padding: 10px; background: var(--nc-canvas); border-radius: 6px; color: var(--nc-ink-soft); line-height: 1.7; }
+.module-records-popover :is(.view-panel, .planning-versions-panel) { padding: 0; min-width: 0; }
+.module-records-popover .view-intro { margin-bottom: 12px; padding: 0; border: 0; box-shadow: none; background: transparent; }
+.module-records-popover .view-intro :is(h2, .view-symbol), .module-records-popover .planning-versions-panel > h2 { display: none; }
+.module-records-popover :is(p, summary, del, ins) { overflow-wrap: anywhere; }
+.module-records-popover .diff-card { border: 0; border-bottom: 1px solid var(--nc-border); border-radius: 0; box-shadow: none; background: transparent; }
+:root .module-records-popover .diff-columns { grid-template-columns: minmax(0, 1fr); }
+.module-records-popover .diff-columns > section { min-width: 0; }
+
+:root .main-panel:has(.module-records-toolbar-slot .module-records-button) > .content-header { position: sticky; top: -20px; z-index: 4; padding-top: 12px; background: var(--nc-surface); }

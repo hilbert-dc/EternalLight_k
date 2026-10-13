@@ -1,0 +1,29 @@
+:root .planning-versions-panel { color: var(--nc-ink); min-width: 0; max-width: 920px; }
+:root .planning-versions-panel h2 { margin: 0 0 8px; font-size: 20px; }
+:root .planning-versions-panel p { line-height: 1.65; overflow-wrap: anywhere; }
+:root .planning-versions-panel > p, :root .planning-versions-panel > details { margin-block: 12px; }
+:root .planning-versions-panel summary { cursor: pointer; color: var(--nc-ink); padding-block: 8px; }
+:root .planning-versions-current { font-weight: 600; }
+:root .planning-writing-settings { border-block: 1px solid var(--nc-border); padding-block: 4px; }
+:root .planning-versions-sources { display: grid; gap: 10px; margin-block: 16px; }
+:root .planning-versions-sources > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; }
+:root .planning-versions-sources dt { color: var(--nc-ink-soft); }
+:root .planning-versions-sources dd { margin: 0; overflow-wrap: anywhere; }
+:root .planning-versions-sources small { display: block; color: var(--nc-ink-soft); margin-block-start: 4px; }
+:root .planning-versions-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 16px; }
+:root .planning-versions-panel button { max-width: 100%; white-space: normal; }
+:root .planning-versions-comparison > section { min-width: 0; border-block-start: 1px solid var(--nc-border); padding-block: 12px; }
+:root .planning-versions-comparison dd, :root .planning-version-content { white-space: pre-line; overflow-wrap: anywhere; }
+:root .planning-version-content { padding-inline-start: 24px; }
+:root dl.planning-version-content { padding: 0; display: grid; gap: 12px; }
+:root .planning-version-content dd { margin: 4px 0 0; }
+@media (max-width: 480px) { :root .planning-versions-sources > div { grid-template-columns: 1fr; gap: 4px; } }
+
+:root .planning-records-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+:root .planning-records-toolbar p { margin: 0; font-size: 12px; }
+:root .planning-records-refresh { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; min-height: 34px; padding: 6px; color: var(--nc-ink-soft); background: transparent; border: 0; border-radius: 6px; }
+:root .planning-records-refresh:hover { color: var(--nc-ink); background: var(--nc-canvas); }
+:root .planning-records-refresh:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 2px; }
+:root .planning-record-content { border-block: 1px solid var(--nc-border); padding-block: 12px; margin-block: 12px; }
+:root .planning-record-content > :first-child { margin-top: 0; }
+:root .planning-record-content > :last-child { margin-bottom: 0; }

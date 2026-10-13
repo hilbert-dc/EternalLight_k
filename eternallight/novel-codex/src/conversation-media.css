@@ -1,0 +1,2 @@
+.conversation-media-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.conversation-media-attachments img { display: block; width: 140px; max-width: 100%; max-height: 180px; object-fit: contain; border: 1px solid var(--nc-border, #d8dee8); border-radius: 8px; }

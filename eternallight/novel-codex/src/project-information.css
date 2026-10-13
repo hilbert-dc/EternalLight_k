@@ -1,0 +1,13 @@
+:root dialog.project-information { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; margin: auto; padding: 24px; border: 1px solid var(--nc-border); border-radius: 12px; color: var(--nc-ink); background: var(--nc-surface); font-size: 14px; }
+:root dialog.project-information::backdrop { background: rgb(0 0 0 / 35%); }
+:root .project-information header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+:root .project-information h2 { margin: 0; color: var(--nc-ink); font-size: 20px; }
+:root .project-information h3 { margin: 0 0 12px; color: var(--nc-ink); font-size: 15px; }
+:root .project-information section { padding-top: 20px; border-top: 1px solid var(--nc-border); }
+:root .project-information dl { display: grid; gap: 14px; margin: 18px 0; }
+:root .project-information dt { margin-bottom: 4px; color: var(--nc-ink-soft); font-size: 12px; }
+:root .project-information dd { margin: 0; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+:root .project-information p { color: var(--nc-ink-soft); line-height: 1.7; overflow-wrap: anywhere; }
+:root .project-information button { min-height: 32px; padding: 5px 10px; border: 1px solid var(--nc-border-strong); border-radius: 5px; color: var(--nc-ink); background: var(--nc-surface); cursor: pointer; font: inherit; }
+:root .project-information button:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 3px; }
+:root .project-information header button { width: 32px; padding: 0; font-size: 20px; }

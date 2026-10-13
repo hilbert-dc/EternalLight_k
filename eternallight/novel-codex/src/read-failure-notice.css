@@ -1,0 +1,6 @@
+.read-failure-notice { min-width: 0; margin: 12px 0; color: var(--nc-ink-muted); font-size: 13px; line-height: 1.6; }
+.read-failure-notice > p { margin: 0 0 4px; }
+.read-failure-notice > button { font: inherit; }
+.read-failure-notice > details { margin-top: 4px; }
+.read-failure-notice summary { cursor: pointer; width: fit-content; }
+.read-failure-notice pre { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; border-radius: 8px; background: var(--nc-surface-subtle); font-size: 12px; }

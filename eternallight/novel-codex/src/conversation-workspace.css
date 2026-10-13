@@ -1,0 +1,11 @@
+.conversation-rail-scroll[hidden] { display: none; }
+.conversation-shell-header > strong { flex: 1; min-width: 0; max-width: calc(100% - 76px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-other-execution { flex: 0 0 auto; padding: 10px 14px; border-bottom: 1px solid var(--nc-border); background: var(--nc-surface-subtle); color: var(--nc-ink-muted); font-size: 12px; line-height: 1.6; }
+.conversation-other-execution button { margin-left: 8px; border: 0; background: transparent; color: var(--nc-blue); cursor: pointer; }
+.conversation-reader { min-width: 0; }
+.conversation-reader-turn { margin-bottom: 20px; }
+.conversation-reader-turn > .text-button { font-size: 11px; padding: 4px 0; }
+.conversation-reader .conversation-message { margin-bottom: 14px; }
+.conversation-empty { padding: 20px 4px; color: var(--nc-ink-muted); font-size: 13px; line-height: 1.7; }
+.conversation-empty strong { color: var(--nc-ink); font-weight: 500; }
+.conversation-empty p { margin-top: 6px; }

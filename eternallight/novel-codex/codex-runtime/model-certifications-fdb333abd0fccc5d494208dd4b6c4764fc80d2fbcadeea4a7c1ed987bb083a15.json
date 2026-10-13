@@ -1,0 +1,744 @@
+{
+  "version": 2,
+  "certifications": [
+    {
+      "certificationId": "251b52e448dd1ff620c2b2f5ee39e2d37ed72d9419ea8fe48a05da81611a99bd",
+      "connectionId": "deepseek-flash",
+      "connectionDigest": "fe9bce11822b1e5df884fff7db64c7811357178bbb33a44effcfd213f322d581",
+      "protocol": "responses",
+      "codecVersion": "2",
+      "engineContractHash": "a584044a337961c2a14fa467e1ec3add05b69ed277147a37e2186f32136d1e85",
+      "qualificationContextDigest": "efd42bada6f09e27836b50df33fe12305693979ce279ae64bf8a896b524bf353",
+      "profileId": "base-tools-v1",
+      "capabilities": [
+        "structuredToolCalls",
+        "text",
+        "toolLoop"
+      ],
+      "routes": [],
+      "checkedAt": "2026-09-20T11:56:20.023Z",
+      "expiresAt": "2026-10-20T11:56:20.023Z",
+      "report": {
+        "suiteId": "codex-engine-model-certification-v1",
+        "suiteVersion": 1,
+        "outcome": "passed",
+        "connectionId": "deepseek-flash",
+        "protocol": "responses",
+        "profileId": "base-tools-v1",
+        "codecVersion": "2",
+        "attempts": [
+          {
+            "protocol": "responses",
+            "status": "verified"
+          }
+        ],
+        "suiteResults": [
+          {
+            "kind": "protocol",
+            "suiteId": "model-protocol-conformance-v1",
+            "suiteVersion": 1,
+            "status": "passed",
+            "sampleCount": 1,
+            "successes": 1,
+            "blockingFailures": [],
+            "metrics": {
+              "capabilities": [
+                "text",
+                "structuredToolCalls"
+              ]
+            }
+          },
+          {
+            "kind": "core-integration",
+            "suiteId": "codex-engine-core-integration-v1",
+            "suiteVersion": 1,
+            "status": "passed",
+            "sampleCount": 1,
+            "successes": 1,
+            "blockingFailures": [],
+            "metrics": {},
+            "record": {
+              "capability": "toolLoop",
+              "status": "verified",
+              "scope": {
+                "protocol": "responses",
+                "suite": "codex-engine-core-integration-v1",
+                "mode": "app-server-mcp",
+                "toolTypes": [
+                  "function"
+                ]
+              },
+              "source": "conformance-suite",
+              "credentialRealm": "aa66013f7dec7d02dd62930b7a4f3e54fa4a0773386ee325bec40d055b1eceec",
+              "environmentDigest": "4cc40862108efeda0ab72df461abe694d61b703337e7b4deb85f2d337ba92cfa",
+              "evidenceRef": "core-conformance:deepseek-flash:responses:2026-09-20T11:56:20.023Z:tool-loop",
+              "checkedAt": "2026-09-20T11:56:20.023Z",
+              "expiresAt": "2026-09-21T11:56:20.023Z",
+              "sample": {
+                "suiteId": "codex-engine-core-integration-v1",
+                "suiteVersion": 1,
+                "outcome": "passed"
+              },
+              "assertions": [
+                {
+                  "id": "root-tool-selected",
+                  "result": "passed",
+                  "expected": true,
+                  "observed": true,
+                  "traceRef": "/var/folders/dz/j3hn9zvs2q7gnh6w4m48cktr0000gn/T/codex-core-conformance-Nc8vcM/proof.json"
+                },
+                {
+                  "id": "root-tool-executed",
+                  "result": "passed",
+                  "expected": true,
+                  "observed": true,
+                  "traceRef": "/var/folders/dz/j3hn9zvs2q7gnh6w4m48cktr0000gn/T/codex-core-conformance-Nc8vcM/proof.json"
+                },
+                {
+                  "id": "tool-result-consumed",
+                  "result": "passed",
+                  "expected": true,
+                  "observed": true,
+                  "traceRef": "/var/folders/dz/j3hn9zvs2q7gnh6w4m48cktr0000gn/T/codex-core-conformance-Nc8vcM/proof.json"
+                },
+                {
+                  "id": "root-turn-completed",
+                  "result": "passed",
+                  "expected": true,
+                  "observed": true,
+                  "traceRef": "/var/folders/dz/j3hn9zvs2q7gnh6w4m48cktr0000gn/T/codex-core-conformance-Nc8vcM/proof.json"
+                }
+              ],
+              "dependencies": {
+                "modelProtocol": {
+                  "digest": "883cfb50afb1dfb9c0d5120ea4b77859b5af9e3cf1d6ccc4e4c0320666afbaaa",
+                  "ref": "deepseek-flash:responses"
+                },
+                "engineBuild": {
+                  "digest": "bf412b2d8ccb8fb8cc0bb628a69e3a18f2785d785dedd13e422e9af803c91694",
+                  "ref": "efd42bada6f09e27836b50df33fe12305693979ce279ae64bf8a896b524bf353"
+                },
+                "access": {
+                  "digest": "aa66013f7dec7d02dd62930b7a4f3e54fa4a0773386ee325bec40d055b1eceec",
+                  "ref": "deepseek-flash:credential-realm"
+                }
+              },
+              "supersedes": []
+            }
+          }
+        ],
+        "capabilities": [
+          "streaming",
+          "structuredToolCalls",
+          "text",
+          "toolLoop",
+          "usage"
+        ],
+        "executionConformance": null,
+        "qualificationContextDigest": "efd42bada6f09e27836b50df33fe12305693979ce279ae64bf8a896b524bf353"
+      },
+      "reportDigest": "425887279d28d062630f25899574b66a3aec241179ba1f6ff82b8d84a9ab61e4",
+      "suiteResults": [
+        {
+          "kind": "protocol",
+          "suiteId": "model-protocol-conformance-v1",
+          "suiteVersion": 1,
+          "status": "passed",
+          "sampleCount": 1,
+          "successes": 1,
+          "blockingFailures": [],
+          "metrics": {
+            "capabilities": [
+              "text",
+              "structuredToolCalls"
+            ]
+          }
+        },
+        {
+          "kind": "core-integration",
+          "suiteId": "codex-engine-core-integration-v1",
+          "suiteVersion": 1,
+          "status": "passed",
+          "sampleCount": 1,
+          "successes": 1,
+          "blockingFailures": [],
+          "metrics": {}
+        }
+      ],
+      "outcome": "passed"
+    },
+    {
+      "certificationId": "087a2cd5cf070014be35b98a43f0ee3482878f5542edbfb5d879638e737e63fb",
+      "connectionId": "deepseek-flash",
+      "connectionDigest": "9531033b94b4e32fd8d0d99352c203dab5fb7af39ebda4d47599d41907b6ec54",
+      "protocol": "responses",
+      "codecVersion": "2",
+      "engineContractHash": "a584044a337961c2a14fa467e1ec3add05b69ed277147a37e2186f32136d1e85",
+      "qualificationContextDigest": "341800a75147a0b7a98fd7ca4269757d10692790d2d21a11317c0986a2db66ee",
+      "profileId": "directed-delegation-v1",
+      "capabilities": [
+        "childDirectedRoute",
+        "childMessageRunning",
+        "childSpawn",
+        "childWait",
+        "streaming",
+        "structuredToolCalls",
+        "text",
+        "toolLoop",
+        "usage"
+      ],
+      "routes": [
+        {
+          "parentConnectionId": "deepseek-flash",
+          "childConnectionId": "deepseek-flash"
+        }
+      ],
+      "checkedAt": "2026-09-20T15:56:35.068Z",
+      "expiresAt": "2026-10-20T15:56:35.068Z",
+      "report": {
+        "suiteId": "codex-engine-model-certification-v1",
+        "suiteVersion": 1,
+        "outcome": "passed",
+        "connectionId": "deepseek-flash",
+        "protocol": "responses",
+        "profileId": "directed-delegation-v1",
+        "codecVersion": "2",
+        "attempts": [
+          {
+            "protocol": "responses",
+            "status": "verified"
+          },
+          {
+            "protocol": "responses",
+            "suite": "codex-engine-delegation-execution-v1",
+            "status": "verified",
+            "diagnostics": {
+              "stages": [
+                {
+                  "stageId": "spawn-route",
+                  "status": "passed",
+                  "eventDigest": "679100c46d471a509f1d8b4d66abb0b8eae3168015b3f351259743285e18f884",
+                  "budget": {
+                    "id": "aae3f05f-d55b-4f21-b68f-d2c725015666",
+                    "requests": 3,
+                    "tokens": 20943,
+                    "unknownTokens": 0,
+                    "reservedTokens": 0,
+                    "maxRequests": 16,
+                    "maxTokens": 200000,
+                    "maxDurationMs": 90000,
+                    "startedAt": 1789919801275,
+                    "overrun": false
+                  }
+                },
+                {
+                  "stageId": "message-running",
+                  "status": "passed",
+                  "eventDigest": "1f64c5d5a60fbbcc8a669bee5fc8883f8529e503f2af95ad30a63ca2942b63f6",
+                  "budget": {
+                    "id": "727d5a62-0b23-44f1-9b1c-4bd8f8c8ba88",
+                    "requests": 7,
+                    "tokens": 53405,
+                    "unknownTokens": 0,
+                    "reservedTokens": 0,
+                    "maxRequests": 16,
+                    "maxTokens": 200000,
+                    "maxDurationMs": 90000,
+                    "startedAt": 1789919803996,
+                    "overrun": false
+                  }
+                },
+                {
+                  "stageId": "wait",
+                  "status": "passed",
+                  "eventDigest": "9acd5a32a257555456d670da1376594a1eb6ed609e16746634fe3fd2f5c45964",
+                  "budget": {
+                    "id": "b2d1ff50-e9db-4ecc-8b48-105fc8899725",
+                    "requests": 4,
+                    "tokens": 29298,
+                    "unknownTokens": 0,
+                    "reservedTokens": 0,
+                    "maxRequests": 16,
+                    "maxTokens": 200000,
+                    "maxDurationMs": 90000,
+                    "startedAt": 1789919811084,
+                    "overrun": false
+                  }
+                }
+              ]
+            },
+            "metrics": {
+              "capabilityResults": [
+                {
+                  "capability": "childSpawn",
+                  "status": "verified",
+                  "assertions": [
+                    {
+                      "id": "childSpawn",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "trusted-child-identity",
+                      "result": "passed"
+                    }
+                  ]
+                },
+                {
+                  "capability": "childMessageRunning",
+                  "status": "verified",
+                  "assertions": [
+                    {
+                      "id": "childMessageRunning",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "child-running-gate-observed",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "parent-followup-token-queued",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "child-followup-visible",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "child-followup-consumed",
+                      "result": "passed"
+                    }
+                  ]
+                },
+                {
+                  "capability": "childWait",
+                  "status": "verified",
+                  "assertions": [
+                    {
+                      "id": "childWait",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "child-terminal-result-observed",
+                      "result": "passed"
+                    }
+                  ]
+                },
+                {
+                  "capability": "childDirectedRoute",
+                  "status": "verified",
+                  "assertions": [
+                    {
+                      "id": "directed-child-model-observed",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "trusted-child-identity",
+                      "result": "passed"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "suiteResults": [
+          {
+            "kind": "protocol",
+            "suiteId": "model-protocol-conformance-v1",
+            "suiteVersion": 1,
+            "status": "passed",
+            "sampleCount": 1,
+            "successes": 1,
+            "blockingFailures": [],
+            "metrics": {
+              "capabilities": [
+                "streaming",
+                "structuredToolCalls",
+                "text",
+                "usage"
+              ]
+            }
+          },
+          {
+            "kind": "core-integration",
+            "suiteId": "codex-engine-core-integration-v1",
+            "suiteVersion": 1,
+            "status": "passed",
+            "sampleCount": 1,
+            "successes": 1,
+            "blockingFailures": [],
+            "metrics": {},
+            "record": {
+              "capability": "toolLoop",
+              "status": "verified",
+              "scope": {
+                "protocol": "responses",
+                "suite": "codex-engine-core-integration-v1",
+                "mode": "app-server-mcp",
+                "toolTypes": [
+                  "function"
+                ]
+              },
+              "source": "conformance-suite",
+              "credentialRealm": "aa66013f7dec7d02dd62930b7a4f3e54fa4a0773386ee325bec40d055b1eceec",
+              "environmentDigest": "2f8387cccfdf0722f204bd2dc0cf6b8c629cc0b1f425363c08364fff886ea0ae",
+              "evidenceRef": "core-conformance:deepseek-flash:responses:2026-09-20T15:56:35.068Z:tool-loop",
+              "checkedAt": "2026-09-20T15:56:35.068Z",
+              "expiresAt": "2026-09-21T15:56:35.068Z",
+              "sample": {
+                "suiteId": "codex-engine-core-integration-v1",
+                "suiteVersion": 1,
+                "outcome": "passed"
+              },
+              "assertions": [
+                {
+                  "id": "tool-loop-completion",
+                  "result": "passed",
+                  "expected": true,
+                  "observed": true,
+                  "traceRef": "/var/folders/dz/j3hn9zvs2q7gnh6w4m48cktr0000gn/T/codex-core-conformance-3I254l/proof.json"
+                },
+                {
+                  "id": "root-tool-selected",
+                  "result": "passed",
+                  "expected": true,
+                  "observed": true,
+                  "traceRef": "/var/folders/dz/j3hn9zvs2q7gnh6w4m48cktr0000gn/T/codex-core-conformance-3I254l/proof.json"
+                },
+                {
+                  "id": "root-tool-executed",
+                  "result": "passed",
+                  "expected": true,
+                  "observed": true,
+                  "traceRef": "/var/folders/dz/j3hn9zvs2q7gnh6w4m48cktr0000gn/T/codex-core-conformance-3I254l/proof.json"
+                },
+                {
+                  "id": "tool-result-consumed",
+                  "result": "passed",
+                  "expected": true,
+                  "observed": true,
+                  "traceRef": "/var/folders/dz/j3hn9zvs2q7gnh6w4m48cktr0000gn/T/codex-core-conformance-3I254l/proof.json"
+                },
+                {
+                  "id": "root-turn-completed",
+                  "result": "passed",
+                  "expected": true,
+                  "observed": true,
+                  "traceRef": "/var/folders/dz/j3hn9zvs2q7gnh6w4m48cktr0000gn/T/codex-core-conformance-3I254l/proof.json"
+                }
+              ],
+              "dependencies": {
+                "modelProtocol": {
+                  "digest": "b6d416302581d3447ec1289c62505ef9cee50c7826ed971fd4268c2f3d719f49",
+                  "ref": "deepseek-flash:responses"
+                },
+                "engineBuild": {
+                  "digest": "a6d953ebb08c84cef5f373312debeaedb958ac6fa92f0143ca3da5023fed72e9",
+                  "ref": "341800a75147a0b7a98fd7ca4269757d10692790d2d21a11317c0986a2db66ee"
+                },
+                "access": {
+                  "digest": "aa66013f7dec7d02dd62930b7a4f3e54fa4a0773386ee325bec40d055b1eceec",
+                  "ref": "deepseek-flash:credential-realm"
+                }
+              },
+              "supersedes": []
+            }
+          },
+          {
+            "kind": "execution-conformance",
+            "suiteId": "codex-engine-delegation-execution-v1",
+            "suiteVersion": 2,
+            "status": "passed",
+            "sampleCount": 1,
+            "successes": 1,
+            "blockingFailures": [],
+            "metrics": {
+              "capabilities": [
+                "childSpawn",
+                "childMessageRunning",
+                "childWait",
+                "childDirectedRoute"
+              ],
+              "capabilityResults": [
+                {
+                  "capability": "childSpawn",
+                  "status": "verified",
+                  "assertions": [
+                    {
+                      "id": "childSpawn",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "trusted-child-identity",
+                      "result": "passed"
+                    }
+                  ]
+                },
+                {
+                  "capability": "childMessageRunning",
+                  "status": "verified",
+                  "assertions": [
+                    {
+                      "id": "childMessageRunning",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "child-running-gate-observed",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "parent-followup-token-queued",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "child-followup-visible",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "child-followup-consumed",
+                      "result": "passed"
+                    }
+                  ]
+                },
+                {
+                  "capability": "childWait",
+                  "status": "verified",
+                  "assertions": [
+                    {
+                      "id": "childWait",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "child-terminal-result-observed",
+                      "result": "passed"
+                    }
+                  ]
+                },
+                {
+                  "capability": "childDirectedRoute",
+                  "status": "verified",
+                  "assertions": [
+                    {
+                      "id": "directed-child-model-observed",
+                      "result": "passed"
+                    },
+                    {
+                      "id": "trusted-child-identity",
+                      "result": "passed"
+                    }
+                  ]
+                }
+              ],
+              "parentSynthesizedReceipt": null,
+              "terminationCategory": null
+            }
+          }
+        ],
+        "capabilities": [
+          "childDirectedRoute",
+          "childMessageRunning",
+          "childSpawn",
+          "childWait",
+          "streaming",
+          "structuredToolCalls",
+          "text",
+          "toolLoop",
+          "usage"
+        ],
+        "executionConformance": {
+          "capabilityResults": [
+            {
+              "capability": "childSpawn",
+              "status": "verified",
+              "assertions": [
+                {
+                  "id": "childSpawn",
+                  "result": "passed"
+                },
+                {
+                  "id": "trusted-child-identity",
+                  "result": "passed"
+                }
+              ]
+            },
+            {
+              "capability": "childMessageRunning",
+              "status": "verified",
+              "assertions": [
+                {
+                  "id": "childMessageRunning",
+                  "result": "passed"
+                },
+                {
+                  "id": "child-running-gate-observed",
+                  "result": "passed"
+                },
+                {
+                  "id": "parent-followup-token-queued",
+                  "result": "passed"
+                },
+                {
+                  "id": "child-followup-visible",
+                  "result": "passed"
+                },
+                {
+                  "id": "child-followup-consumed",
+                  "result": "passed"
+                }
+              ]
+            },
+            {
+              "capability": "childWait",
+              "status": "verified",
+              "assertions": [
+                {
+                  "id": "childWait",
+                  "result": "passed"
+                },
+                {
+                  "id": "child-terminal-result-observed",
+                  "result": "passed"
+                }
+              ]
+            },
+            {
+              "capability": "childDirectedRoute",
+              "status": "verified",
+              "assertions": [
+                {
+                  "id": "directed-child-model-observed",
+                  "result": "passed"
+                },
+                {
+                  "id": "trusted-child-identity",
+                  "result": "passed"
+                }
+              ]
+            }
+          ]
+        },
+        "qualificationContextDigest": "341800a75147a0b7a98fd7ca4269757d10692790d2d21a11317c0986a2db66ee"
+      },
+      "reportDigest": "383afde0790fb03e63f278a1cf3198d5b88de990e748ea865472088d35ce12dc",
+      "suiteResults": [
+        {
+          "kind": "protocol",
+          "suiteId": "model-protocol-conformance-v1",
+          "suiteVersion": 1,
+          "status": "passed",
+          "sampleCount": 1,
+          "successes": 1,
+          "blockingFailures": [],
+          "metrics": {
+            "capabilities": [
+              "streaming",
+              "structuredToolCalls",
+              "text",
+              "usage"
+            ]
+          }
+        },
+        {
+          "kind": "core-integration",
+          "suiteId": "codex-engine-core-integration-v1",
+          "suiteVersion": 1,
+          "status": "passed",
+          "sampleCount": 1,
+          "successes": 1,
+          "blockingFailures": [],
+          "metrics": {}
+        },
+        {
+          "kind": "execution-conformance",
+          "suiteId": "codex-engine-delegation-execution-v1",
+          "suiteVersion": 2,
+          "status": "passed",
+          "sampleCount": 1,
+          "successes": 1,
+          "blockingFailures": [],
+          "metrics": {
+            "capabilities": [
+              "childSpawn",
+              "childMessageRunning",
+              "childWait",
+              "childDirectedRoute"
+            ],
+            "capabilityResults": [
+              {
+                "capability": "childSpawn",
+                "status": "verified",
+                "assertions": [
+                  {
+                    "id": "childSpawn",
+                    "result": "passed"
+                  },
+                  {
+                    "id": "trusted-child-identity",
+                    "result": "passed"
+                  }
+                ]
+              },
+              {
+                "capability": "childMessageRunning",
+                "status": "verified",
+                "assertions": [
+                  {
+                    "id": "childMessageRunning",
+                    "result": "passed"
+                  },
+                  {
+                    "id": "child-running-gate-observed",
+                    "result": "passed"
+                  },
+                  {
+                    "id": "parent-followup-token-queued",
+                    "result": "passed"
+                  },
+                  {
+                    "id": "child-followup-visible",
+                    "result": "passed"
+                  },
+                  {
+                    "id": "child-followup-consumed",
+                    "result": "passed"
+                  }
+                ]
+              },
+              {
+                "capability": "childWait",
+                "status": "verified",
+                "assertions": [
+                  {
+                    "id": "childWait",
+                    "result": "passed"
+                  },
+                  {
+                    "id": "child-terminal-result-observed",
+                    "result": "passed"
+                  }
+                ]
+              },
+              {
+                "capability": "childDirectedRoute",
+                "status": "verified",
+                "assertions": [
+                  {
+                    "id": "directed-child-model-observed",
+                    "result": "passed"
+                  },
+                  {
+                    "id": "trusted-child-identity",
+                    "result": "passed"
+                  }
+                ]
+              }
+            ],
+            "parentSynthesizedReceipt": null,
+            "terminationCategory": null
+          }
+        }
+      ],
+      "outcome": "passed"
+    }
+  ]
+}

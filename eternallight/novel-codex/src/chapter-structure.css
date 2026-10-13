@@ -1,0 +1,5 @@
+.chapter-structure-notice { margin: 12px 20px; padding: 10px 0; color: var(--text-secondary, #677080); font-size: 13px; line-height: 1.65; }
+.chapter-structure-notice small { display: block; }
+.chapter-structure-notice button { margin-left: 8px; border: 0; background: transparent; color: var(--accent, #2463eb); font: inherit; cursor: pointer; }
+.chapter-structure-notice button:disabled { opacity: .5; cursor: default; }
+.conversation-message.system-message { color: var(--text-secondary, #677080); background: transparent; }

@@ -1,0 +1,54 @@
+import { spawn } from 'node:child_process';
+import { mkdtemp, mkdir, realpath, readFile, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import electron from 'electron';
+import { saveReport } from './tool-evaluation-report.mjs';
+import { loadProjectDevelopmentEnvironment, resolveDevelopmentEnvironment } from '../electron/development-credentials.mjs';
+const args = process.argv.slice(2);
+if (!args.includes('--confirm-cost') || args.filter(a => a === '--confirm-cost').length !== 1
+    || args.length !== 2 || !(args.includes('--no-token-limit') || args.some(a => /^--max-tokens=[1-9][0-9]*$/.test(a)))) throw Error('Requires --confirm-cost and exactly one of --max-tokens=N or --no-token-limit');
+const tokenArg = args.find(a => a.startsWith('--max-tokens='));
+const maxTokens = tokenArg ? Number(tokenArg.slice('--max-tokens='.length)) : null;
+if (maxTokens !== null && (!Number.isSafeInteger(maxTokens) || maxTokens > 1000000)) throw Error('Invalid finite token cap');
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..'),dist=join(root,'dist');
+const directory=await mkdtemp(join(tmpdir(),'novel-live-task-experience-'));
+const reportPath=join(directory,'report.json');
+const userData=process.env.NOVEL_TASK_LIVE_REUSE_USER_DATA || join(directory,'user-data');
+const marker=join(userData,'live-task-acceptance.json');
+if(process.env.NOVEL_TASK_LIVE_REUSE_USER_DATA) {
+  const actual=await realpath(userData), temp=await realpath(tmpdir());
+  const metadata=JSON.parse(await readFile(marker,'utf8'));
+  const local=relative(temp,actual);
+  if(isAbsolute(local) || local.startsWith('..') || !local.split(/[\\/]/)[0].startsWith('novel-live-task-experience-') || basename(actual)!=='user-data' || metadata.version!==1 || metadata.purpose!=='synthetic-task-acceptance') throw Error('Refusing non-probe userData');
+} else {
+  await mkdir(userData,{recursive:true,mode:0o700});
+  await writeFile(marker,JSON.stringify({version:1,purpose:'synthetic-task-acceptance'}),{mode:0o600});
+}
+
+const environment=resolveDevelopmentEnvironment(loadProjectDevelopmentEnvironment(root,process.env));
+if(!environment.DEEPSEEK_API_KEY)throw Error('DeepSeek credential unavailable');
+const server=createServer(async(req,res)=>{try{const path=resolve(dist,'.'+new URL(req.url,'http://localhost').pathname);if(!path.startsWith(dist+'/')&&path!==dist)throw Error('path');const file=path===dist?join(dist,'index.html'):path;res.setHeader('content-type',{'.html':'text/html','.js':'text/javascript','.css':'text/css'}[extname(file)]??'application/octet-stream');res.end(await readFile(file));}catch{res.writeHead(404);res.end();}});
+await new Promise((r,j)=>{server.once('error',j);server.listen(0,'127.0.0.1',r);});
+await saveReport(reportPath,{startedAt:new Date().toISOString(),status:'startingApplication',qualification:{status:'notRun'},scenarios:[],scope:'synthetic desktop acceptance; child application has not reported readiness'});
+console.log('LIVE_DIRECTORY:'+directory);
+const child=spawn(electron,[join(root,'scripts/fixtures/task-live-desktop.mjs'),root,reportPath],{env:{...environment,ELECTRON_RUN_AS_NODE:'',NOVEL_TASK_LIVE_AUTHORIZED:'yes',NOVEL_TASK_LIVE_TOKENS:maxTokens===null?'':String(maxTokens),NOVEL_CODEX_USER_DATA_DIR:userData,NOVEL_CODEX_RENDERER_URL:`http://127.0.0.1:${server.address().port}`,NOVEL_CODEX_PROVIDER:'deepseek',NOVEL_CODEX_MODEL:'deepseek-flash'},stdio:['ignore','pipe','pipe']});
+let diagnostic='';
+for(const stream of [child.stdout,child.stderr])stream.on('data',data=>{const text=data.toString().replaceAll(environment.DEEPSEEK_API_KEY,'[REDACTED]');diagnostic=(diagnostic+text).slice(-18000);for(const line of text.split('\n'))if(line.startsWith('LIVE_'))console.log(line);});
+let code;
+try { code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve);}); }
+catch(error){diagnostic+='\n'+String(error?.message??error);code=1;}
+finally {
+  server.closeAllConnections();await new Promise(resolve=>server.close(resolve));
+  await writeFile(join(directory,'diagnostic.log'),diagnostic,{mode:0o600});
+}
+let result;
+try { result=JSON.parse(await readFile(reportPath,'utf8')); }
+catch { result={fatal:'Child did not persist a complete report',scenarios:[]}; }
+const failed=result.fatal || result.blocked || result.cleanupFailure
+  || result.finalCleanup?.some(item=>!item.settled || item.errors.length)
+  || !result.scenarios.length || result.scenarios.some(item=>item.status!=='passed');
+process.exitCode=code===0 ? (failed ? 1 : 0) : (code??1);
+console.log(JSON.stringify({exitCode:process.exitCode,childExitCode:code,reportPath,diagnosticPath:join(directory,'diagnostic.log')}));

@@ -1,0 +1,12 @@
+{
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "evidencePath": "/path/to/app-data/agent-engine/capability-evidence.json",
+  "credentialSaltPath": "/path/to/app-data/agent-engine/credential-scope.key",
+  "maxRequests": 10,
+  "maxTokens": 50000,
+  "timeoutSeconds": 90,
+  "repeats": 1,
+  "readingPolicy": "completeOriginalAndFinal",
+  "startupTimeoutMs": 30000
+}

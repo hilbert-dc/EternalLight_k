@@ -1,0 +1,146 @@
+name: novel-codex-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "23 18 * * *" # 02:23 Asia/Shanghai; complete product regression
+
+permissions:
+  contents: read
+
+jobs:
+  native-engine:
+    name: Independent Rust engine (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: eternallight/agent-engine
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582
+      - run: cargo install just --locked
+      - run: just test
+      - run: npm run build:native
+      - run: node --test tests/native-stream-guard.test.mjs tests/codecs.test.mjs tests/remediation-boundaries.test.mjs tests/authority-state.test.mjs
+
+  quality:
+    name: Product boundary and tests
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: eternallight/novel-codex
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: eternallight/novel-codex/package-lock.json
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+      - name: Configure read-only Codex upstream
+        working-directory: .
+        run: |
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/openai/codex.git
+          git fetch upstream main
+      - run: npm ci
+      - name: Verify product and engine architecture boundaries
+        run: npm run architecture:check
+      - name: Verify boundary checker rejects cross-layer dependencies
+        run: npm run test:architecture
+      - name: Build and attest App Server used by integration tests
+        run: npm run build:codex-runtime
+      - name: Bind the local CLI policy to this runner's build
+        run: npm run refresh:model-policy
+      - run: npm run repo:check:strict
+      - name: Validate affected-path selection
+        run: npm run test:verification
+      - name: Verify PR affected boundaries
+        if: github.event_name == 'pull_request'
+        env:
+          VERIFY_BASE: ${{ github.event.pull_request.base.sha }}
+        run: xvfb-run -a npm run verify:affected -- --base "$VERIFY_BASE"
+      - name: Complete product regression (nightly, main and manual)
+        if: github.event_name != 'pull_request'
+        run: xvfb-run -a npm run verify:nightly
+      - name: Build current tools and test evaluation failure reporting
+        run: npm run build:story-runtime && npm run test:tool-evaluation
+      - name: Verify quality-first evaluation and attribution
+        run: npm run test:quality-evaluation
+      - name: Gate exact-edit correctness and token efficiency
+        run: npm run evaluate:tools -- .evaluation-reports/tools.json 3 --check
+      - name: Preserve tool evaluation evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: novel-tool-evaluation
+          path: eternallight/novel-codex/.evaluation-reports/
+          if-no-files-found: warn
+      - run: npm run test:release-gate
+      - name: Test native and portable Responses delegation through Codex
+        run: npm --prefix ../agent-engine run test:delegation-integration
+
+  package:
+    name: Independent package (${{ matrix.os }})
+    needs: [quality, native-engine]
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: eternallight/novel-codex/package-lock.json
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+      - name: Install Novel Codex dependencies
+        working-directory: eternallight/novel-codex
+        run: npm ci
+      - name: Build and attest pinned Agent Engine from this commit
+        working-directory: eternallight/novel-codex
+        env:
+          NOVEL_CODEX_CARGO_PROFILE: release
+        run: npm run build:codex-runtime
+      - name: Build self-contained Rust Story Runtime executables
+        working-directory: eternallight/novel-codex
+        run: cargo build --manifest-path native/Cargo.toml --release --bins
+      - name: Package Novel Codex
+        working-directory: eternallight/novel-codex
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          NOVEL_CODEX_RELEASE_RUNTIME_SERVER: ${{ github.workspace }}/eternallight/novel-codex/native/target/release/novel-codex-story-runtime${{ runner.os == 'Windows' && '.exe' || '' }}
+          NOVEL_CODEX_RELEASE_MCP_SERVER: ${{ github.workspace }}/eternallight/novel-codex/native/target/release/novel-workspace-mcp${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            npm run package:win
+          else
+            npm run package:mac
+          fi
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: novel-codex-${{ runner.os }}-${{ runner.arch }}
+          path: eternallight/novel-codex/release/*
+          if-no-files-found: error

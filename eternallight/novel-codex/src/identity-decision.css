@@ -1,0 +1,18 @@
+:root .identity-decision-panel .identity-person { min-width: 0; display: grid; gap: 5px; align-content: start; font-size: 13px; }
+:root .identity-decision-panel .identity-person strong, :root .identity-decision-panel .identity-person small, :root .identity-decision-panel .identity-person p, :root .identity-decision-panel .identity-person dd { overflow-wrap: anywhere; white-space: pre-wrap; overflow: visible; text-overflow: clip; }
+:root .identity-decision-panel .identity-person > small { color: var(--nc-ink-soft); }
+:root .identity-decision-panel .identity-person blockquote { margin: 3px 0; padding: 6px 10px; border-left: 2px solid var(--nc-border-strong); color: var(--nc-ink-soft); background: var(--nc-surface-subtle); white-space: pre-wrap; overflow-wrap: anywhere; }
+:root .identity-decision-panel .identity-person summary { cursor: pointer; color: var(--nc-ink-soft); overflow-wrap: anywhere; }
+:root .identity-decision-panel .identity-person summary:focus-visible { outline: 2px solid var(--nc-blue); outline-offset: 3px; }
+:root .identity-decision-panel .identity-person dl { display: grid; gap: 6px; margin: 8px 0; }
+:root .identity-decision-panel .identity-person dt { color: var(--nc-ink-soft); font-size: 12px; }
+:root .identity-decision-panel .identity-person dd { margin: 0; }
+:root .identity-decision-panel .identity-source-record { margin-top: 10px; }
+:root .identity-decision-panel .identity-accepted-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+:root .identity-decision-panel .identity-accepted-people { min-width: 0; }
+:root .identity-decision-panel .identity-relation { margin: 10px 0; color: var(--nc-ink-soft); }
+:root .identity-decision-panel .identity-source-missing { margin: 0; color: var(--nc-amber); }
+@media (max-width: 760px) { :root .identity-decision-panel .identity-accepted-row { grid-template-columns: minmax(0, 1fr); } }
+@container identity-decisions (max-width: 540px) { :root .identity-decision-panel .identity-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } :root .identity-decision-panel .identity-actions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; } :root .identity-decision-panel .identity-accepted-row { grid-template-columns: minmax(0, 1fr); } }
+:root .identity-decision-panel { container: identity-decisions / inline-size; }
+:root .identity-decision-panel header > div { min-width: 0; }

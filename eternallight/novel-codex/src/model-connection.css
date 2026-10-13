@@ -1,0 +1,2 @@
+.model-connection-notice { flex: 0 0 auto; margin: 8px 18px; padding: 10px 12px; border: 1px solid var(--nc-border); border-radius: 10px; color: var(--nc-ink-soft); background: var(--nc-surface); font-size: 12px; overflow-wrap: anywhere; }
+.model-connection-notice p { margin: 5px 0; }

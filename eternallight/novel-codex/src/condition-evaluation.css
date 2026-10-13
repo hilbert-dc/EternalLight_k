@@ -1,0 +1,10 @@
+.condition-evaluation, .condition-evaluation-body { display: grid; gap: 8px; min-width: 0; }
+.condition-evaluation { margin-top: 10px; padding: 12px; border: 1px solid #dedfe3; border-radius: 12px; background: #fafafa; color: #35383d; }
+.condition-evaluation-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.condition-evaluation button { justify-self: start; padding: 6px 10px; border: 1px solid #d4d6db; border-radius: 8px; background: white; color: inherit; cursor: pointer; font: inherit; font-size: 12px; }
+.condition-evaluation button:disabled { opacity: .55; cursor: default; }
+.condition-evaluation button:focus-visible { outline: 2px solid #376acc; outline-offset: 2px; }
+.condition-evaluation small { display: block; line-height: 1.6; overflow-wrap: anywhere; }
+.condition-evaluation [role=alert] { color: #b3261e; }
+.condition-explanation { display: grid; gap: 4px; border-top: 1px solid #e1e3e7; padding-top: 8px; margin-top: 8px; }
+.condition-source-excerpt { border-left: 2px solid #d4d6db; padding-left: 8px; }

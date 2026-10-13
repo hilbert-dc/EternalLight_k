@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "modelCertificationsFile": "model-certifications-66826767b00aa816220cfb353ffd9d9f202407fea10c32fcf91235e0ea9d1906.json",
+  "appServerProtocol": "v2",
+  "mcpProtocol": "2025-06-18",
+  "modelCatalogSha256": "d72f6f1e87c6e0ef7ccda5affd686975635f7fa7a3a972cb42c3898ef187b7ce",
+  "modelCertificationsSha256": "66826767b00aa816220cfb353ffd9d9f202407fea10c32fcf91235e0ea9d1906",
+  "sources": {
+    "bundled": {
+      "packaged": true,
+      "versions": [
+        "codex-cli 0.0.0"
+      ],
+      "digests": {}
+    },
+    "project-runtime": {
+      "packaged": false,
+      "versions": [
+        "codex-cli 0.0.0"
+      ],
+      "digests": {}
+    },
+    "workspace-build": {
+      "packaged": false,
+      "developmentOnly": true,
+      "versions": [
+        "codex-cli 0.0.0"
+      ],
+      "digests": {
+        "darwin-arm64": "bfedfcd94f076afb55f79f69217b74c768957a8faabf0de194bb48ca066bf52e"
+      },
+      "buildIdentities": {
+        "darwin-arm64": {
+          "identityId": "a11c6e73970cc728ea80a59c9edd4969471402ac04b2e6578522dbec6e4abcba",
+          "sha256": "315fa57026eac414be00eaecbb151b471f47e8324ddcab2244e6f81e71c5d5ff"
+        }
+      }
+    },
+    "explicit": {
+      "packaged": false,
+      "developmentOnly": true,
+      "versions": [
+        "codex-cli 0.0.0"
+      ],
+      "digests": {}
+    }
+  }
+}

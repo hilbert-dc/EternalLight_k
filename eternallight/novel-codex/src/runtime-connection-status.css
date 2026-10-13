@@ -1,0 +1,14 @@
+.runtime-connection-status { flex-wrap: wrap; row-gap: 8px; }
+.runtime-connection-status .runtime-connection-label { margin-left: auto; }
+.runtime-connection-status button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--nc-accent, #526cb5);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.runtime-connection-status button:hover { text-decoration: underline; }
+.runtime-connection-status button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.runtime-connection-status button:disabled { opacity: .5; cursor: default; }
