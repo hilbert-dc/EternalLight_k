@@ -1,0 +1,1212 @@
+{
+  "version": 1,
+  "methods": [
+    {
+      "method": "status",
+      "channel": "runtime:status",
+      "owner": "startup-coordinator.mjs",
+      "kind": "host",
+      "response": null,
+      "routes": [],
+      "reason": "Host process lifecycle readiness, not story HTTP data."
+    },
+    {
+      "method": "retryStartup",
+      "channel": "runtime:retry-startup",
+      "owner": "startup-coordinator.mjs",
+      "kind": "host",
+      "response": null,
+      "routes": [],
+      "reason": "Host process lifecycle readiness, not story HTTP data."
+    },
+    {
+      "method": "listProjects",
+      "channel": "runtime:list-projects",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererListProjectsResponse",
+      "routes": [
+        {
+          "path": "/api/projects",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "createProject",
+      "channel": "runtime:create-project",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererCreateProjectResponse",
+      "routes": [
+        {
+          "path": "/api/projects",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "getState",
+      "channel": "runtime:get-state",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetStateResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/state",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "getLocalMetrics",
+      "channel": "runtime:metrics",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetLocalMetricsResponse",
+      "routes": [
+        {
+          "path": "/api/metrics",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "recordStageAbandonment",
+      "channel": "runtime:metrics-abandon",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererRecordStageAbandonmentResponse",
+      "routes": [
+        {
+          "path": "/api/metrics/abandon",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "exportProject",
+      "channel": "runtime:export-project",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererExportProjectResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/export",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "getChapterDraftHistory",
+      "channel": "runtime:get-chapter-draft-history",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetChapterDraftHistoryResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/chapters/{chapterId}/revisions/{revisionId}",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "getCreativeWorkspace",
+      "channel": "runtime:get-creative-workspace",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetCreativeWorkspaceResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/creative-workspace",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "getQualityNotebook",
+      "channel": "runtime:get-quality-notebook",
+      "owner": "quality-notebook.mjs",
+      "kind": "http",
+      "response": "RendererGetQualityNotebookResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/quality-notebook"
+        }
+      ]
+    },
+    {
+      "method": "changeQualityNotebook",
+      "channel": "runtime:change-quality-notebook",
+      "owner": "quality-notebook.mjs",
+      "kind": "http",
+      "response": "RendererChangeQualityNotebookResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/quality-notebook"
+        }
+      ]
+    },
+    {
+      "method": "getQualityPacket",
+      "channel": "runtime:get-quality-packet",
+      "owner": "quality-notebook.mjs",
+      "kind": "http",
+      "response": "RendererGetQualityPacketResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/quality-packets/{packetId}"
+        }
+      ]
+    },
+    {
+      "method": "getQualityReview",
+      "channel": "runtime:get-quality-review",
+      "owner": "quality-notebook.mjs",
+      "kind": "http",
+      "response": "RendererGetQualityReviewResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/quality-packets/{packetId}/review"
+        }
+      ]
+    },
+    {
+      "method": "reviewQualityPacket",
+      "channel": null,
+      "owner": "quality-notebook.mjs",
+      "kind": "host",
+      "response": null,
+      "routes": [],
+      "reason": "Host schedules a model review with task/permission controls; not a direct Runtime HTTP response."
+    },
+    {
+      "method": "listProposalSets",
+      "channel": "runtime:list-proposal-sets",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererListProposalSetsResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/proposal-sets",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "createProposalSet",
+      "channel": "runtime:create-proposal-set",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererCreateProposalSetResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/proposal-sets",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "getProposalSet",
+      "channel": "runtime:get-proposal-set",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetProposalSetResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/proposal-sets/{proposalSetId}",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "previewProposalSet",
+      "channel": "runtime:preview-proposal-set",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererPreviewProposalSetResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/proposal-sets/{proposalSetId}/preview",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "applyProposalSet",
+      "channel": "runtime:apply-proposal-set",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererApplyProposalSetResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/proposal-sets/{proposalSetId}/apply",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "undoProposalSet",
+      "channel": "runtime:undo-proposal-set",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererUndoProposalSetResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/proposal-applications/{applicationId}/undo",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "getImpactAnalysis",
+      "channel": "runtime:get-impact-analysis",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetImpactAnalysisResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/impact-analysis",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "getHistoricalKnowledgeState",
+      "channel": "runtime:get-historical-knowledge-state",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetHistoricalKnowledgeStateResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/knowledge/state",
+          "verb": "GET",
+          "query": {
+            "snapshotId": "present"
+          }
+        }
+      ]
+    },
+    {
+      "method": "createHypothesis",
+      "channel": "runtime:create-hypothesis",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererCreateHypothesisResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/hypotheses",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "getHypothesis",
+      "channel": "runtime:get-hypothesis",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetHypothesisResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/hypotheses/{hypothesisId}",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "getIdentityCatalog",
+      "channel": "runtime:get-identity-catalog",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetIdentityCatalogResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/knowledge/entities",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "getCharacterKnowledge",
+      "channel": "runtime:get-character-knowledge",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetCharacterKnowledgeResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/knowledge/state",
+          "verb": "GET",
+          "query": {
+            "entityId": "present",
+            "snapshotId": "absent"
+          }
+        }
+      ]
+    },
+    {
+      "method": "saveIdentityDecisions",
+      "channel": "runtime:save-identity-decisions",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererSaveIdentityDecisionsResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/artifacts/identity",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "savePropertyRules",
+      "channel": "runtime:save-property-rules",
+      "owner": "knowledge-proposal-handlers.mjs",
+      "kind": "http",
+      "response": "RendererSavePropertyRulesResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/artifacts/propertyRules",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "listGenerationRuns",
+      "channel": "runtime:list-generation-runs",
+      "owner": "workspace-observation-handlers.mjs",
+      "kind": "http",
+      "response": "RendererListGenerationRunsResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/generation-runs"
+        }
+      ]
+    },
+    {
+      "method": "previewGenerationReplan",
+      "channel": "runtime:preview-generation-replan",
+      "owner": "generation-replan-handlers.mjs",
+      "kind": "http",
+      "response": "RendererPreviewGenerationReplanResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/generation-runs/{runId}/replan"
+        }
+      ]
+    },
+    {
+      "method": "replanGeneration",
+      "channel": "runtime:replan-generation",
+      "owner": "generation-replan-handlers.mjs",
+      "kind": "http",
+      "response": "RendererReplanGenerationResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/generation-runs/{runId}/replan"
+        }
+      ]
+    },
+    {
+      "method": "getSceneAssessment",
+      "channel": "runtime:get-scene-assessment",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetSceneAssessmentResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/chapters/{chapterId}/scene-assessments",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "getCommitmentExtraction",
+      "channel": "runtime:get-commitment-extraction",
+      "owner": "commitment-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetCommitmentExtractionResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/chapters/{chapterId}/commitment-extractions"
+        }
+      ]
+    },
+    {
+      "method": "establishCommitment",
+      "channel": "runtime:establish-commitment",
+      "owner": "commitment-handlers.mjs",
+      "kind": "http",
+      "response": "RendererEstablishCommitmentResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/chapters/{chapterId}/commitment-extractions/establish"
+        }
+      ]
+    },
+    {
+      "method": "getCommitment",
+      "channel": "runtime:get-commitment",
+      "owner": "commitment-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetCommitmentResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/commitments/{id}"
+        }
+      ]
+    },
+    {
+      "method": "listCommitments",
+      "channel": "runtime:list-commitments",
+      "owner": "commitment-handlers.mjs",
+      "kind": "http",
+      "response": "RendererListCommitmentsResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/commitments",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "saveCommitment",
+      "channel": "runtime:save-commitment",
+      "owner": "commitment-handlers.mjs",
+      "kind": "http",
+      "response": "RendererSaveCommitmentResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/commitments/{id}"
+        }
+      ]
+    },
+    {
+      "method": "createCommitmentReview",
+      "channel": "runtime:create-commitment-review",
+      "owner": "commitment-handlers.mjs",
+      "kind": "http",
+      "response": "RendererCreateCommitmentReviewResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/commitments/{id}/reviews"
+        }
+      ]
+    },
+    {
+      "method": "listWorkTasks",
+      "channel": "runtime:list-work-tasks",
+      "owner": "workspace-observation-handlers.mjs",
+      "kind": "http",
+      "response": "RendererListWorkTasksResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/work-tasks",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "getSearchAudit",
+      "channel": "runtime:get-search-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetSearchAuditResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/search-audits"
+        }
+      ]
+    },
+    {
+      "method": "startSearchAudit",
+      "channel": "runtime:start-search-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererStartSearchAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/search-audits"
+        }
+      ]
+    },
+    {
+      "method": "controlSearchAudit",
+      "channel": "runtime:control-search-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererControlSearchAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/search-audits/{jobId}/control"
+        }
+      ]
+    },
+    {
+      "method": "getEntityAudit",
+      "channel": "runtime:get-entity-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetEntityAuditResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/entity-audits"
+        }
+      ]
+    },
+    {
+      "method": "startEntityAudit",
+      "channel": "runtime:start-entity-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererStartEntityAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/entity-audits"
+        }
+      ]
+    },
+    {
+      "method": "controlEntityAudit",
+      "channel": "runtime:control-entity-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererControlEntityAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/entity-audits/{jobId}/control"
+        }
+      ]
+    },
+    {
+      "method": "getRelationAudit",
+      "channel": "runtime:get-relation-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetRelationAuditResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/relation-audits"
+        }
+      ]
+    },
+    {
+      "method": "startRelationAudit",
+      "channel": "runtime:start-relation-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererStartRelationAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/relation-audits"
+        }
+      ]
+    },
+    {
+      "method": "controlRelationAudit",
+      "channel": "runtime:control-relation-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererControlRelationAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/relation-audits/{jobId}/control"
+        }
+      ]
+    },
+    {
+      "method": "getKnowledgeAudit",
+      "channel": "runtime:get-knowledge-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetKnowledgeAuditResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/knowledge-audits"
+        }
+      ]
+    },
+    {
+      "method": "startConditionEvaluation",
+      "channel": "runtime:start-condition-evaluation",
+      "owner": "condition-evaluation-handlers.mjs",
+      "kind": "http",
+      "response": "RendererStartConditionEvaluationResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/condition-evaluations"
+        }
+      ]
+    },
+    {
+      "method": "getConditionEvaluation",
+      "channel": "runtime:get-condition-evaluation",
+      "owner": "condition-evaluation-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetConditionEvaluationResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/condition-evaluations/{jobId}"
+        }
+      ]
+    },
+    {
+      "method": "controlConditionEvaluation",
+      "channel": "runtime:control-condition-evaluation",
+      "owner": "condition-evaluation-handlers.mjs",
+      "kind": "http",
+      "response": "RendererControlConditionEvaluationResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/condition-evaluations/{jobId}/control"
+        }
+      ]
+    },
+    {
+      "method": "getConditionExplanations",
+      "channel": "runtime:get-condition-explanations",
+      "owner": "condition-evaluation-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetConditionExplanationsResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/condition-evaluations/{jobId}/explanations"
+        }
+      ]
+    },
+    {
+      "method": "startKnowledgeAudit",
+      "channel": "runtime:start-knowledge-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererStartKnowledgeAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/knowledge-audits"
+        }
+      ]
+    },
+    {
+      "method": "controlKnowledgeAudit",
+      "channel": "runtime:control-knowledge-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererControlKnowledgeAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/knowledge-audits/{jobId}/control"
+        }
+      ]
+    },
+    {
+      "method": "getSnapshotKnowledgeAudit",
+      "channel": "runtime:get-snapshot-knowledge-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetSnapshotKnowledgeAuditResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/snapshot-knowledge-audits"
+        }
+      ]
+    },
+    {
+      "method": "startSnapshotKnowledgeAudit",
+      "channel": "runtime:start-snapshot-knowledge-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererStartSnapshotKnowledgeAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/snapshot-knowledge-audits"
+        }
+      ]
+    },
+    {
+      "method": "controlSnapshotKnowledgeAudit",
+      "channel": "runtime:control-snapshot-knowledge-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererControlSnapshotKnowledgeAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/snapshot-knowledge-audits/{jobId}/control"
+        }
+      ]
+    },
+    {
+      "method": "getFactAudit",
+      "channel": "runtime:get-fact-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetFactAuditResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/fact-audits"
+        }
+      ]
+    },
+    {
+      "method": "startFactAudit",
+      "channel": "runtime:start-fact-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererStartFactAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/fact-audits"
+        }
+      ]
+    },
+    {
+      "method": "controlFactAudit",
+      "channel": "runtime:control-fact-audit",
+      "owner": "index-audit-handlers.mjs",
+      "kind": "http",
+      "response": "RendererControlFactAuditResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/fact-audits/{jobId}/control"
+        }
+      ]
+    },
+    {
+      "method": "getWorkTask",
+      "channel": "runtime:get-work-task",
+      "owner": "workspace-observation-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetWorkTaskResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/work-tasks/{workTaskId}",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "getWorkIssues",
+      "channel": "runtime:get-work-issues",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetWorkIssuesResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/work-tasks/{workTaskId}/issues",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "getTaskFinalReply",
+      "channel": "runtime:get-task-final-reply",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetTaskFinalReplyResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/tasks/{taskId}/final-reply",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "getRevisionOutcome",
+      "channel": "runtime:get-revision-outcome",
+      "owner": "revision-outcome-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetRevisionOutcomeResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/revision-outcomes/{writerTaskId}"
+        }
+      ]
+    },
+    {
+      "method": "decideRevisionOutcome",
+      "channel": "runtime:decide-revision-outcome",
+      "owner": "revision-outcome-handlers.mjs",
+      "kind": "http",
+      "response": "RendererDecideRevisionOutcomeResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/revision-outcomes/{writerTaskId}/decisions"
+        }
+      ]
+    },
+    {
+      "method": "getPlanningReview",
+      "channel": "runtime:get-planning-review",
+      "owner": "conversation-planning-reviews.mjs",
+      "kind": "http",
+      "response": "RendererGetPlanningReviewResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/planning-reviews/{runId}",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "cancelPlanningReview",
+      "channel": "runtime:cancel-planning-review",
+      "owner": "workspace-observation-handlers.mjs",
+      "kind": "http",
+      "response": "RendererCancelPlanningReviewResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/planning-reviews/{runId}/cancel",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "setWorkingBaseline",
+      "channel": "runtime:set-working-baseline",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererSetWorkingBaselineResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/working-baselines/{kind}",
+          "verb": "PUT"
+        }
+      ]
+    },
+    {
+      "method": "clearWorkingBaseline",
+      "channel": "runtime:clear-working-baseline",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererClearWorkingBaselineResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/working-baselines/{kind}",
+          "verb": "DELETE"
+        }
+      ]
+    },
+    {
+      "method": "saveContinuationIntent",
+      "channel": "runtime:save-continuation-intent",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererSaveContinuationIntentResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/continuations/{kind}",
+          "verb": "PUT"
+        }
+      ]
+    },
+    {
+      "method": "getWriterPreview",
+      "channel": "runtime:get-writer-preview",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetWriterPreviewResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/context",
+          "verb": "GET",
+          "query": {
+            "purpose": "writer"
+          }
+        }
+      ]
+    },
+    {
+      "method": "listPlanningImpacts",
+      "channel": "runtime:list-planning-impacts",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererListPlanningImpactsResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/impacts",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "saveArtifact",
+      "channel": "runtime:save-artifact",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererSaveArtifactResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/artifacts/{kind}",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "materializeChapterPlan",
+      "channel": "runtime:materialize-chapter-plan",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererMaterializeChapterPlanResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/chapters/materialize-from-plan",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "getWorkCatalog",
+      "channel": "runtime:get-work-catalog",
+      "owner": "work-catalog.mjs",
+      "kind": "http",
+      "response": "RendererGetWorkCatalogResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/catalog"
+        }
+      ]
+    },
+    {
+      "method": "deleteChapter",
+      "channel": "runtime:delete-chapter",
+      "owner": "chapter-deletion.mjs",
+      "kind": "http",
+      "response": "RendererDeleteChapterResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/chapters/{chapterId}/delete"
+        }
+      ]
+    },
+    {
+      "method": "listChapterStructureChanges",
+      "channel": "runtime:list-chapter-structure-changes",
+      "owner": "chapter-structure-analysis.mjs",
+      "kind": "http",
+      "response": "RendererListChapterStructureChangesResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/chapter-structure-changes"
+        }
+      ]
+    },
+    {
+      "method": "readChapterStructureChange",
+      "channel": "runtime:read-chapter-structure-change",
+      "owner": "chapter-structure-analysis.mjs",
+      "kind": "http",
+      "response": "RendererReadChapterStructureChangeResponse",
+      "routes": [
+        {
+          "verb": "GET",
+          "path": "/api/projects/{projectId}/chapter-structure-changes/{id}"
+        }
+      ]
+    },
+    {
+      "method": "updateWorkCatalog",
+      "channel": "runtime:update-work-catalog",
+      "owner": "work-catalog.mjs",
+      "kind": "http",
+      "response": "RendererUpdateWorkCatalogResponse",
+      "routes": [
+        {
+          "verb": "POST",
+          "path": "/api/projects/{projectId}/catalog"
+        }
+      ]
+    },
+    {
+      "method": "materializeStandaloneChapter",
+      "channel": "runtime:materialize-standalone-chapter",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererMaterializeStandaloneChapterResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/chapters/materialize-standalone",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "associateChapterPlan",
+      "channel": "runtime:associate-chapter-plan",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererAssociateChapterPlanResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/chapters/associate-plan",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "rebindChapterPlan",
+      "channel": "runtime:rebind-chapter-plan",
+      "owner": "chapter-rebind-handlers.mjs",
+      "kind": "http",
+      "response": "RendererRebindChapterPlanResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/chapters/rebind-plan",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "resolvePlanningImpact",
+      "channel": "runtime:resolve-planning-impact",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererResolvePlanningImpactResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/impacts/{impactId}/resolve",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "setArtifactLock",
+      "channel": "runtime:set-artifact-lock",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererSetArtifactLockResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/artifacts/{kind}/lock",
+          "verb": "PATCH"
+        }
+      ]
+    },
+    {
+      "method": "saveDraftCheckpoint",
+      "channel": "runtime:save-draft-checkpoint",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererSaveDraftCheckpointResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/drafts/checkpoints",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "createReview",
+      "channel": "runtime:create-review",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererCreateReviewResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/reviews",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "rejectIdentityReview",
+      "channel": "runtime:reject-identity-review",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererRejectIdentityReviewResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/reviews/{reviewId}/reject-identity",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "acceptReview",
+      "channel": "runtime:accept-review",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererAcceptReviewResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/reviews/{reviewId}/accept",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "undoCommit",
+      "channel": "runtime:undo-commit",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererUndoCommitResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/commits/{commitId}/undo",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "getDiffs",
+      "channel": "runtime:get-diffs",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererGetDiffsResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/chapters/{chapterId}/diffs",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "search",
+      "channel": "runtime:search",
+      "owner": "project-artifact-handlers.mjs",
+      "kind": "http",
+      "response": "RendererSearchResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/search",
+          "verb": "GET"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+[package]
+name = "novel-codex-story-runtime"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "novel-codex-story-runtime"
+path = "src/main.rs"
+
+[dependencies]
+novel-codex-story-core = { path = "../story-core" }
+novel-codex-story-authoring = { path = "../story-authoring" }
+eternallight-engine-core = { path = "../../../agent-engine/native/engine-core" }
+axum = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde.workspace = true
+serde_json.workspace = true
+serde_urlencoded = "0.7"
+serde_path_to_error = "0.1"
+sha2.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+ts-rs = { version = "11.1.0", features = ["serde-json-impl"] }
+
+[dev-dependencies]
+rusqlite.workspace = true
+pretty_assertions = "1"
+http-body-util = "0.1"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

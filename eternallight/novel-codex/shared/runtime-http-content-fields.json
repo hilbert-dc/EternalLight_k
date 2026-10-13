@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "fields": [
+    {
+      "type": "HttpFactProposal",
+      "field": "value",
+      "reason": "Author/model assertion value; entity, source, revision and confirmation metadata are typed on the enclosing record."
+    },
+    {
+      "type": "HttpCreativeReview",
+      "field": "selections",
+      "reason": "Per-operation author selection values; review/operation identity is typed outside this map."
+    },
+    {
+      "type": "HttpHistoricalKnowledgeStateEntriesItemAssertion",
+      "field": "value",
+      "reason": "Author/model assertion value; entity, source, revision and confirmation metadata are typed on the enclosing record."
+    },
+    {
+      "type": "HttpStoryAssertionAssertion",
+      "field": "value",
+      "reason": "Author/model assertion value; entity, source, revision and confirmation metadata are typed on the enclosing record."
+    },
+    {
+      "type": "HttpStoryAssertionRelation",
+      "field": "value",
+      "reason": "Author/model assertion value; entity, source, revision and confirmation metadata are typed on the enclosing record."
+    },
+    {
+      "type": "HttpStoryAssertionEpistemic",
+      "field": "value",
+      "reason": "Author/model assertion value; entity, source, revision and confirmation metadata are typed on the enclosing record."
+    },
+    {
+      "type": "HttpConditionExplanationPageDataItem",
+      "field": "operand",
+      "reason": "Condition operand is arbitrary author-supplied JSON; condition source and evaluation result are typed."
+    },
+    {
+      "type": "HttpCreativeRevision",
+      "field": "payload",
+      "reason": "Author artifact content selected by artifact kind; the revision envelope is typed, absent payload is represented explicitly."
+    },
+    {
+      "type": "HttpCreativeWorkspaceFactProposalsItem",
+      "field": "value",
+      "reason": "Author/model assertion value; entity, source, revision and confirmation metadata are typed on the enclosing record."
+    },
+    {
+      "type": "HttpProposalSetDetailReviewOptionsValue",
+      "field": "selections",
+      "reason": "Per-operation author selection values; review/operation identity is typed outside this map."
+    },
+    {
+      "type": "HttpProposalSetDetailSelection",
+      "field": "selections_by_operation_id",
+      "reason": "Per-operation author selection values keyed by stable operation identifiers."
+    },
+    {
+      "type": "HttpImpactAnalysisResultRevisionDeltaModelCandidateDeltaCandidateChangesItemClaim",
+      "field": "value",
+      "reason": "Author/model assertion value; entity, source, revision and confirmation metadata are typed on the enclosing record."
+    },
+    {
+      "type": "HttpActionTarget",
+      "field": "inputs",
+      "reason": "Operation-specific author task inputs; desired outcomes and chapter acceptance are first-class typed fields."
+    },
+    {
+      "type": "HttpHypothesisResultSimulationEntriesItemAssertion",
+      "field": "value",
+      "reason": "Author/model assertion value; entity, source, revision and confirmation metadata are typed on the enclosing record."
+    }
+  ]
+}

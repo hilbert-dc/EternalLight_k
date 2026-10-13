@@ -1,0 +1,183 @@
+{
+  "version": 1,
+  "methods": [
+    {
+      "method": "sourceCatalog",
+      "channel": "media:source-catalog",
+      "owner": "media-host.mjs",
+      "kind": "http",
+      "response": "RendererMediaSourceCatalogResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/editions/{editionId}/source-catalog",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "listEditions",
+      "channel": "media:list-editions",
+      "owner": "media-host.mjs",
+      "kind": "http",
+      "response": "RendererMediaListEditionsResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/editions",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "createEdition",
+      "channel": "media:create-edition",
+      "owner": "media-host.mjs",
+      "kind": "http",
+      "response": "RendererMediaCreateEditionResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/editions",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "readWorkspace",
+      "channel": "media:read-workspace",
+      "owner": "media-host.mjs",
+      "kind": "http",
+      "response": "RendererMediaReadWorkspaceResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/editions/{editionId}/workspace",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "saveDocument",
+      "channel": "media:save-document",
+      "owner": "media-host.mjs",
+      "kind": "http",
+      "response": "RendererMediaSaveDocumentResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/editions/{editionId}/workspace",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "patchDocument",
+      "channel": "media:patch-document",
+      "owner": "media-host.mjs",
+      "kind": "http",
+      "response": "RendererMediaPatchDocumentResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/editions/{editionId}/patch",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "readTextPage",
+      "channel": "media:read-text-page",
+      "owner": "media-host.mjs",
+      "kind": "http",
+      "response": "RendererMediaReadTextPageResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/editions/{editionId}/text-page",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "readCanon",
+      "channel": "media:read-canon",
+      "owner": "media-host.mjs",
+      "kind": "http",
+      "response": "RendererMediaReadCanonResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/canon",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "saveCanon",
+      "channel": "media:save-canon",
+      "owner": "media-host.mjs",
+      "kind": "http",
+      "response": "RendererMediaSaveCanonResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/canon",
+          "verb": "POST"
+        }
+      ]
+    },
+    {
+      "method": "sourceImpacts",
+      "channel": "media:source-impacts",
+      "owner": "media-host.mjs",
+      "kind": "http",
+      "response": "RendererMediaSourceImpactsResponse",
+      "routes": [
+        {
+          "path": "/api/projects/{projectId}/editions/{editionId}/source-impacts",
+          "verb": "GET"
+        }
+      ]
+    },
+    {
+      "method": "readSubtitleFont",
+      "channel": "media:read-subtitle-font",
+      "owner": "media-host.mjs",
+      "kind": "host",
+      "reason": "Host issues scoped creative-media font preview URLs from local bundled assets.",
+      "routes": []
+    },
+    {
+      "method": "importFiles",
+      "channel": "media:import-files",
+      "owner": "media-host.mjs",
+      "kind": "host",
+      "reason": "Host selects/decodes local bytes and composes multiple Native import/asset receipts with scoped preview URLs.",
+      "routes": []
+    },
+    {
+      "method": "exportEdition",
+      "channel": "media:export-edition",
+      "owner": "media-host.mjs",
+      "kind": "host",
+      "reason": "Host performs local rendering/file export and returns the local export receipt.",
+      "routes": []
+    },
+    {
+      "method": "openExport",
+      "channel": "media:open-export",
+      "owner": "media-host.mjs",
+      "kind": "host",
+      "reason": "Host opens its tracked local export path using the OS shell.",
+      "routes": []
+    },
+    {
+      "method": "listConnections",
+      "channel": "media:list-connections",
+      "owner": "media-host.mjs",
+      "kind": "host",
+      "reason": "Host returns local credential-redacted media service configuration and capabilities.",
+      "routes": []
+    },
+    {
+      "method": "saveConnection",
+      "channel": "media:save-connection",
+      "owner": "media-host.mjs",
+      "kind": "host",
+      "reason": "Host stores credential/configuration locally and returns a credential-redacted record.",
+      "routes": []
+    }
+  ]
+}
