@@ -1,0 +1,627 @@
+[
+  {
+    "original": "MULTI_AGENT_DESIGN.md",
+    "current": "docs/designs/MULTI_AGENT_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "MODEL_AGNOSTIC_CODEX_ENGINE_DESIGN.md",
+    "current": "docs/designs/MODEL_AGNOSTIC_CODEX_ENGINE_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CREATIVE_CAPABILITY_ADOPTION_DESIGN.md",
+    "current": "docs/designs/CREATIVE_CAPABILITY_ADOPTION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "NARRATIVE_COMMITMENT_DESIGN.md",
+    "current": "docs/designs/NARRATIVE_COMMITMENT_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "EVENT_CONDITION_DESIGN.md",
+    "current": "docs/designs/EVENT_CONDITION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CROSS_SOURCE_CONDITION_DESIGN.md",
+    "current": "docs/designs/CROSS_SOURCE_CONDITION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "STATE_BOUNDARY_RELIABILITY_REPAIR_DESIGN.md",
+    "current": "docs/designs/STATE_BOUNDARY_RELIABILITY_REPAIR_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AGENT_GOAL_LOOP_ACCEPTANCE.md",
+    "current": "docs/designs/AGENT_GOAL_LOOP_ACCEPTANCE.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "DIAGNOSTICS_AUTHOR_EXPERIENCE_REVIEW.md",
+    "current": "design-reviews/DIAGNOSTICS_AUTHOR_EXPERIENCE_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "FORK_PRODUCT_BOUNDARY_REVIEW.md",
+    "current": "design-reviews/FORK_PRODUCT_BOUNDARY_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "NATIVE_MULTI_AGENT_PILOT_REVIEW.md",
+    "current": "design-reviews/NATIVE_MULTI_AGENT_PILOT_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CREATIVE_STRATEGY_DESIGN.md",
+    "current": "docs/designs/CREATIVE_STRATEGY_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_V3_PORTABLE_DISCOVERY_REVIEW.md",
+    "current": "design-reviews/AUTONOMOUS_V3_PORTABLE_DISCOVERY_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "READING_PROGRESS_UI_DESIGN.md",
+    "current": "docs/designs/READING_PROGRESS_UI_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "DEPENDENCY_PROPAGATION_DESIGN.md",
+    "current": "docs/designs/DEPENDENCY_PROPAGATION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "STATE_PROPERTY_DESIGN.md",
+    "current": "docs/designs/STATE_PROPERTY_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "LONG_WORK_BENCHMARK.md",
+    "current": "docs/designs/LONG_WORK_BENCHMARK.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "QUERY_PLAN_DESIGN.md",
+    "current": "docs/designs/QUERY_PLAN_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTOGENERATION_AG1_REVIEW.md",
+    "current": "design-reviews/AUTOGENERATION_AG1_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PRODUCT_EXPERIENCE_OPTIMIZATION.md",
+    "current": "docs/designs/PRODUCT_EXPERIENCE_OPTIMIZATION.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_V3_DURABLE_WAKE_REVIEW.md",
+    "current": "design-reviews/AUTONOMOUS_V3_DURABLE_WAKE_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "KNOWLEDGE_REJECTION_RECOVERY_DESIGN.md",
+    "current": "docs/designs/KNOWLEDGE_REJECTION_RECOVERY_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CREATIVE_QUALITY_REFACTOR_REVIEW.md",
+    "current": "design-reviews/CREATIVE_QUALITY_REFACTOR_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CONTEXT_PACK_BUDGET_DESIGN.md",
+    "current": "docs/designs/CONTEXT_PACK_BUDGET_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_V3_HOST_REVIEW.md",
+    "current": "design-reviews/AUTONOMOUS_V3_HOST_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "RECOVERY_LEDGER_DESIGN.md",
+    "current": "docs/designs/RECOVERY_LEDGER_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CONTINUOUS_CREATION_ACCEPTANCE.md",
+    "current": "docs/designs/CONTINUOUS_CREATION_ACCEPTANCE.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "WORK_STATUS_PAGINATION_REVIEW.md",
+    "current": "design-reviews/WORK_STATUS_PAGINATION_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PRODUCT_IMPLEMENTATION_REVIEW.md",
+    "current": "design-reviews/PRODUCT_IMPLEMENTATION_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_V3_TOOL_READ_BUDGET_REVIEW.md",
+    "current": "design-reviews/AUTONOMOUS_V3_TOOL_READ_BUDGET_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CONVERSATION_EXPERIENCE_REVIEW_2026_10_02.md",
+    "current": "design-reviews/CONVERSATION_EXPERIENCE_REVIEW_2026_10_02.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "KNOWLEDGE_OUTPUT_ROOT_CAUSE_2026_10_02.md",
+    "current": "docs/designs/KNOWLEDGE_OUTPUT_ROOT_CAUSE_2026_10_02.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "BOUND_WRITER_CONTEXT_DESIGN.md",
+    "current": "docs/designs/BOUND_WRITER_CONTEXT_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "SEMANTIC_QUERY_RANKING_DESIGN.md",
+    "current": "docs/designs/SEMANTIC_QUERY_RANKING_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PROPERTY_RULES_UI_DESIGN.md",
+    "current": "docs/designs/PROPERTY_RULES_UI_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "COMMITMENT_CATALOG_DESIGN.md",
+    "current": "docs/designs/COMMITMENT_CATALOG_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PRODUCT_AUTHOR_DIRECTED_CREATION.md",
+    "current": "docs/designs/PRODUCT_AUTHOR_DIRECTED_CREATION.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "KNOWLEDGE_TOOL_CONTRACT_DESIGN.md",
+    "current": "docs/designs/KNOWLEDGE_TOOL_CONTRACT_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PRODUCT_AUTHOR_DIRECTED_DISCUSSION.md",
+    "current": "docs/designs/PRODUCT_AUTHOR_DIRECTED_DISCUSSION.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "COMMITMENT_PLANNING_CONTEXT_DESIGN.md",
+    "current": "docs/designs/COMMITMENT_PLANNING_CONTEXT_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CODEX_MODEL_CAPABILITY_PARITY_DESIGN.md",
+    "current": "docs/designs/CODEX_MODEL_CAPABILITY_PARITY_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "REMODELED_QUERY_VALIDATION.md",
+    "current": "docs/designs/REMODELED_QUERY_VALIDATION.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "TASK_MANAGEMENT_OPTIMIZATION.md",
+    "current": "docs/designs/TASK_MANAGEMENT_OPTIMIZATION.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "STORY_RETRIEVAL_EVALUATION_DESIGN.md",
+    "current": "docs/designs/STORY_RETRIEVAL_EVALUATION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "LONG_FORM_CONDITION_EXECUTION_DESIGN.md",
+    "current": "docs/designs/LONG_FORM_CONDITION_EXECUTION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_V3_ISSUE_CONTRACT_REVIEW.md",
+    "current": "design-reviews/AUTONOMOUS_V3_ISSUE_CONTRACT_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_V3_DURABLE_WAKE_HOST_REVIEW.md",
+    "current": "design-reviews/AUTONOMOUS_V3_DURABLE_WAKE_HOST_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "MULTIMODAL_CREATION_ARCHITECTURE.md",
+    "current": "docs/designs/MULTIMODAL_CREATION_ARCHITECTURE.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "ENGINE_REMEDIATION_PLAN.md",
+    "current": "docs/designs/ENGINE_REMEDIATION_PLAN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CONVERSATION_UI_REVIEW.md",
+    "current": "design-reviews/CONVERSATION_UI_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTHOR_DIRECTED_AC01_IMPLEMENTATION_REVIEW.md",
+    "current": "design-reviews/AUTHOR_DIRECTED_AC01_IMPLEMENTATION_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_V3_PLAN_REVIEW.md",
+    "current": "design-reviews/AUTONOMOUS_V3_PLAN_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTOGENERATION_IMPLEMENTATION_REVIEW.md",
+    "current": "design-reviews/AUTOGENERATION_IMPLEMENTATION_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "IDEAL_ARCHITECTURE_BASELINE_2026_10_08.md",
+    "current": "docs/designs/IDEAL_ARCHITECTURE_BASELINE_2026_10_08.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "GENERATION_MODEL_BUDGET_DESIGN.md",
+    "current": "docs/designs/GENERATION_MODEL_BUDGET_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "SELECTION_DISCUSSION_DESIGN.md",
+    "current": "docs/designs/SELECTION_DISCUSSION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PROPERTY_RULE_PROPOSAL_DESIGN.md",
+    "current": "docs/designs/PROPERTY_RULE_PROPOSAL_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "READING_CHECKPOINT_DESIGN.md",
+    "current": "docs/designs/READING_CHECKPOINT_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "LIVE_CREATIVE_VALIDATION_2026_09_28.md",
+    "current": "docs/designs/LIVE_CREATIVE_VALIDATION_2026_09_28.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PASSAGE_RECALL_DESIGN.md",
+    "current": "docs/designs/PASSAGE_RECALL_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTOMATIC_COMMITMENT_EXTRACTION_DESIGN.md",
+    "current": "docs/designs/AUTOMATIC_COMMITMENT_EXTRACTION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AGENT_CAPABILITY_OPTIMIZATION_PLAN.md",
+    "current": "docs/designs/AGENT_CAPABILITY_OPTIMIZATION_PLAN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTHOR_EXPERIENCE_REPAIR_REVIEW.md",
+    "current": "design-reviews/AUTHOR_EXPERIENCE_REPAIR_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "OUTLINE_EDITING_REVIEW.md",
+    "current": "design-reviews/OUTLINE_EDITING_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PRODUCT_AUTOGENERATION.md",
+    "current": "docs/designs/PRODUCT_AUTOGENERATION.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CONVERSATION_TASK_CONTROL_IMPLEMENTATION.md",
+    "current": "docs/designs/CONVERSATION_TASK_CONTROL_IMPLEMENTATION.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AGENT_DELIVERY_REVIEW_DESIGN.md",
+    "current": "docs/designs/AGENT_DELIVERY_REVIEW_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "MULTI_CONVERSATION_DESIGN.md",
+    "current": "docs/designs/MULTI_CONVERSATION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CURRENT_REVISION_CONTRACT_REVIEW.md",
+    "current": "design-reviews/CURRENT_REVISION_CONTRACT_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_V3_IMPLEMENTATION_REVIEW.md",
+    "current": "design-reviews/AUTONOMOUS_V3_IMPLEMENTATION_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "ACTION_REQUEST_REPLAY_DESIGN.md",
+    "current": "docs/designs/ACTION_REQUEST_REPLAY_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "SCOPED_REVISION_DESIGN.md",
+    "current": "docs/designs/SCOPED_REVISION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTHOR_EXECUTION_PERMIT_DESIGN.md",
+    "current": "docs/designs/AUTHOR_EXECUTION_PERMIT_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CONVERSATION_TASK_CONTROL_DESIGN.md",
+    "current": "docs/designs/CONVERSATION_TASK_CONTROL_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "UPSTREAM_CAPABILITIES_ADAPTATION_REVIEW.md",
+    "current": "design-reviews/UPSTREAM_CAPABILITIES_ADAPTATION_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "COMMITMENT_REVISION_DESIGN.md",
+    "current": "docs/designs/COMMITMENT_REVISION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_V3_WORKSPACE_OUTPUT_REVIEW.md",
+    "current": "design-reviews/AUTONOMOUS_V3_WORKSPACE_OUTPUT_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTHOR_HANDOFF_EXPORT_METRICS_REVIEW.md",
+    "current": "design-reviews/AUTHOR_HANDOFF_EXPORT_METRICS_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PROPERTY_RULES_DESIGN.md",
+    "current": "docs/designs/PROPERTY_RULES_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "COMMITMENT_EDITOR_DESIGN.md",
+    "current": "docs/designs/COMMITMENT_EDITOR_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "WORKSPACE_DIAGNOSTICS_DESIGN.md",
+    "current": "docs/designs/WORKSPACE_DIAGNOSTICS_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PRODUCT_CREATIVE_QUALITY_REFACTOR.md",
+    "current": "docs/designs/PRODUCT_CREATIVE_QUALITY_REFACTOR.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PRODUCT_CREATIVE_MECHANISMS.md",
+    "current": "docs/designs/PRODUCT_CREATIVE_MECHANISMS.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_V3_WORKSPACE_REVIEW.md",
+    "current": "design-reviews/AUTONOMOUS_V3_WORKSPACE_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CONVERSATION_CREATION_ARCHITECTURE.md",
+    "current": "docs/designs/CONVERSATION_CREATION_ARCHITECTURE.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PRODUCT_DISCUSSION.md",
+    "current": "docs/designs/PRODUCT_DISCUSSION.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PRODUCT_EXPERIENCE_REVIEW_2026_10_02.md",
+    "current": "design-reviews/PRODUCT_EXPERIENCE_REVIEW_2026_10_02.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_QUALITY_DESIGN.md",
+    "current": "docs/designs/AUTONOMOUS_QUALITY_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "LONG_CREATION_RELIABILITY_DESIGN.md",
+    "current": "docs/designs/LONG_CREATION_RELIABILITY_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "LIVE_MODEL_UX_REVIEW_2026_10_02.md",
+    "current": "design-reviews/LIVE_MODEL_UX_REVIEW_2026_10_02.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "STORY_EVENT_MODEL_DESIGN.md",
+    "current": "docs/designs/STORY_EVENT_MODEL_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "ENGINE_SEPARATION_REVIEW.md",
+    "current": "design-reviews/ENGINE_SEPARATION_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CREATIVE_MISSION_DESIGN.md",
+    "current": "docs/designs/CREATIVE_MISSION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTHOR_EXPORT_REVIEW.md",
+    "current": "design-reviews/AUTHOR_EXPORT_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "ENGINE_REFACTOR_PLAN_V3.md",
+    "current": "docs/designs/ENGINE_REFACTOR_PLAN_V3.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "GENERATION_REPLAN_DESIGN.md",
+    "current": "docs/designs/GENERATION_REPLAN_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "TASK_MANAGEMENT_ARCHITECTURE.md",
+    "current": "docs/designs/TASK_MANAGEMENT_ARCHITECTURE.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AGENT_ROLE_LIBRARY_REVIEW.md",
+    "current": "design-reviews/AGENT_ROLE_LIBRARY_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTONOMOUS_CREATION_IMPLEMENTATION.md",
+    "current": "docs/designs/AUTONOMOUS_CREATION_IMPLEMENTATION.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AGENT_RECOVERY_REVIEW.md",
+    "current": "design-reviews/AGENT_RECOVERY_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PRODUCT_EXPERIENCE_FIVE_ROUNDS_2026_10_02.md",
+    "current": "docs/designs/PRODUCT_EXPERIENCE_FIVE_ROUNDS_2026_10_02.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "SIMPLE_REQUEST_AUTONOMOUS_CREATION_DESIGN.md",
+    "current": "docs/designs/SIMPLE_REQUEST_AUTONOMOUS_CREATION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AUTHOR_INTENT_BINDING_DESIGN.md",
+    "current": "docs/designs/AUTHOR_INTENT_BINDING_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PASSAGE_READ_BENCHMARK.md",
+    "current": "docs/designs/PASSAGE_READ_BENCHMARK.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "MODELING_OUTBOX_DESIGN.md",
+    "current": "docs/designs/MODELING_OUTBOX_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CODEX_CREATIVE_EVOLUTION_ROADMAP.md",
+    "current": "docs/designs/CODEX_CREATIVE_EVOLUTION_ROADMAP.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AGENT_STRATEGY_DESIGN.md",
+    "current": "docs/designs/AGENT_STRATEGY_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CREATIVE_QUALITY_LOOP_DESIGN.md",
+    "current": "docs/designs/CREATIVE_QUALITY_LOOP_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "MULTIMODAL_CREATION_IMPLEMENTATION.md",
+    "current": "docs/designs/MULTIMODAL_CREATION_IMPLEMENTATION.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AGENT_TASK_ORCHESTRATION_DESIGN.md",
+    "current": "docs/designs/AGENT_TASK_ORCHESTRATION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CREATIVE_METHOD_BINDING_DESIGN.md",
+    "current": "docs/designs/CREATIVE_METHOD_BINDING_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "WORKING_SOURCE_CONSISTENCY_DESIGN.md",
+    "current": "docs/designs/WORKING_SOURCE_CONSISTENCY_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "ETERNALLIGHT_MECHANISM_EVIDENCE.md",
+    "current": "docs/designs/ETERNALLIGHT_MECHANISM_EVIDENCE.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PROTECTED_SCENE_WRITE_DESIGN.md",
+    "current": "docs/designs/PROTECTED_SCENE_WRITE_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CONVERSATION_WRITER_BINDING_DESIGN.md",
+    "current": "docs/designs/CONVERSATION_WRITER_BINDING_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PROPOSAL_SELECTION_DESIGN.md",
+    "current": "docs/designs/PROPOSAL_SELECTION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "STATE_PROJECTION_SELECTORS.md",
+    "current": "docs/designs/STATE_PROJECTION_SELECTORS.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "CHAPTER_POLICY_TEST_REVIEW.md",
+    "current": "design-reviews/CHAPTER_POLICY_TEST_REVIEW.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PRODUCT_NEXT.md",
+    "current": "docs/designs/PRODUCT_NEXT.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "COMMITMENT_PROGRESS_FEEDBACK_DESIGN.md",
+    "current": "docs/designs/COMMITMENT_PROGRESS_FEEDBACK_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "STORY_SYSTEM_ARCHITECTURE.md",
+    "current": "docs/designs/STORY_SYSTEM_ARCHITECTURE.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "PROPERTY_RULE_INPUT_PAGING_DESIGN.md",
+    "current": "docs/designs/PROPERTY_RULE_INPUT_PAGING_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "COMMITMENT_EXTRACTION_DESIGN.md",
+    "current": "docs/designs/COMMITMENT_EXTRACTION_DESIGN.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "AC01_IMPLEMENTATION_STATUS.md",
+    "current": "docs/designs/AC01_IMPLEMENTATION_STATUS.md",
+    "status": "organized; original lifecycle status retained"
+  },
+  {
+    "original": "MODEL_ADMISSION_AND_UPSTREAM_REFACTOR_PLAN.md",
+    "current": "docs/designs/MODEL_ADMISSION_AND_UPSTREAM_REFACTOR_PLAN.md",
+    "status": "organized; original lifecycle status retained"
+  }
+]

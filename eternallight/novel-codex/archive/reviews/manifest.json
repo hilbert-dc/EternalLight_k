@@ -1,0 +1,102 @@
+[
+  {
+    "original": "RUST_STORY_CORE_S0_REVIEW.md",
+    "archived": "archive/reviews/RUST_STORY_CORE_S0_REVIEW.md",
+    "reason": "正文声明 S0 历史阶段不再代表当前状态，生产切换已完成。"
+  },
+  {
+    "original": "AUTHOR_DIRECTED_IDEAL_REPAIR_REVIEW.md",
+    "archived": "archive/reviews/AUTHOR_DIRECTED_IDEAL_REPAIR_REVIEW.md",
+    "reason": "正文声明原通过结论已撤回，指向后续作者体验修复。"
+  },
+  {
+    "original": "DESIGN_REVIEW.md",
+    "archived": "archive/reviews/DESIGN_REVIEW.md",
+    "reason": "正文声明按时间追加的历史记录，现行门禁为 DESIGN_REVIEW_TEMPLATE。"
+  },
+  {
+    "original": "TOOL_CORRECTION_EXECUTOR_REVIEW.md",
+    "archived": "archive/reviews/TOOL_CORRECTION_EXECUTOR_REVIEW.md",
+    "reason": "正文声明单工具首阶段已被 CURRENT_REVISION_CONTRACT_REVIEW 覆盖。"
+  },
+  {
+    "original": "AGENT_RESPONSIBILITY_REVIEW.md",
+    "archived": "archive/reviews/AGENT_RESPONSIBILITY_REVIEW.md",
+    "reason": "正文声明最初单工具阶段由当前修订合同清理完整覆盖。"
+  },
+  {
+    "original": "CHAPTER_EXPERIENCE_REVIEW_2026_10_02.md",
+    "archived": "archive/reviews/CHAPTER_EXPERIENCE_REVIEW_2026_10_02.md",
+    "reason": "正文明确当前入口以 2026-10-07 contextual-chapter-editing 评审为准。"
+  },
+  {
+    "original": "WORK_DIRECTORY_READING_ORDER_REVIEW.md",
+    "archived": "archive/reviews/WORK_DIRECTORY_READING_ORDER_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "CHAPTER_ACTIONS_UX_REVIEW.md",
+    "archived": "archive/reviews/CHAPTER_ACTIONS_UX_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "MODULE_MODIFICATION_RECORDS_REVIEW.md",
+    "archived": "archive/reviews/MODULE_MODIFICATION_RECORDS_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "PLANNING_VERSION_UX_REVIEW.md",
+    "archived": "archive/reviews/PLANNING_VERSION_UX_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "CHAPTER_TITLE_SYNC_REVIEW.md",
+    "archived": "archive/reviews/CHAPTER_TITLE_SYNC_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "RECORDS_PLACEMENT_UX_REVIEW.md",
+    "archived": "archive/reviews/RECORDS_PLACEMENT_UX_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "WORK_DIRECTORY_FLAT_ROOT_REVIEW.md",
+    "archived": "archive/reviews/WORK_DIRECTORY_FLAT_ROOT_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "WORK_DIRECTORY_ALIGNMENT_REVIEW.md",
+    "archived": "archive/reviews/WORK_DIRECTORY_ALIGNMENT_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "CHAPTER_DELETE_REVIEW.md",
+    "archived": "archive/reviews/CHAPTER_DELETE_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "CHAPTER_STRUCTURE_IMPACT_REVIEW.md",
+    "archived": "archive/reviews/CHAPTER_STRUCTURE_IMPACT_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "COMPATIBILITY_REMOVAL_REVIEW.md",
+    "archived": "archive/reviews/COMPATIBILITY_REMOVAL_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "DEVELOPMENT_CREDENTIAL_REVIEW.md",
+    "archived": "archive/reviews/DEVELOPMENT_CREDENTIAL_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "MARKDOWN_RENDERING_REVIEW.md",
+    "archived": "archive/reviews/MARKDOWN_RENDERING_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  },
+  {
+    "original": "MODEL_TOOL_PROTOCOL_REVIEW.md",
+    "archived": "archive/reviews/MODEL_TOOL_PROTOCOL_REVIEW.md",
+    "reason": "记录明确实施完成/后审通过；保存为该次实施证据，不作为现行规范入口。"
+  }
+]
